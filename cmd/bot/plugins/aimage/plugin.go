@@ -147,7 +147,7 @@ func (p *Plugin) handleAimage(ctx *eventctx.Context) error {
 			// 支持图文同发的平台：图片 + 提示词 caption 一条消息
 			ctx.Reply(platform.TextMessage(prompt).WithAttachments(att))
 		} else {
-			// QQ 等富媒体会丢弃文本：图片单独发
+			// 不支持图文同发的平台：图片单独发
 			ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{att}})
 		}
 	}

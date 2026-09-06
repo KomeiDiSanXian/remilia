@@ -348,7 +348,7 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 //
 // 发送策略：
 //   - 支持图文同发（CapCaption）的平台：图片附件 + 单条作品信息 caption 一条消息
-//   - 其他平台（QQ 等富媒体会丢弃文本）：图片逐张单独发，作品信息汇总一条
+//   - 其他平台（不支持图文同发）：图片逐张单独发，作品信息汇总一条
 //     （Markdown 优先，纯文本降级）
 //
 // 多张图片时并发下载（受 max_count 钳制，默认 ≤3），完成后按原顺序发送，

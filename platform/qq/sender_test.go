@@ -450,6 +450,106 @@ func TestSendAttachmentChunked_ParseParts(t *testing.T) {
 	assert.Equal(t, "fi_123", fake.chatMsg.Media.FileInfo)
 }
 
+// fakeC2CMediaAPI 记录单聊媒体上传/发送，用于验证 msg_type=7 的正文保留逻辑。
+type fakeC2CMediaAPI struct {
+	openapi.OpenAPI
+	chatMsg *dto.Message
+}
+
+func (f *fakeC2CMediaAPI) SingleRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
+	return gjson.Parse(`{"file_info":"fi_c2c"}`), nil
+}
+
+func (f *fakeC2CMediaAPI) SingleChat(_ context.Context, _ string, msg *dto.Message) (gjson.Result, error) {
+	f.chatMsg = msg
+	return gjson.Parse(`{"id":"msg_c2c"}`), nil
+}
+
+// TestSendTextImage_C2CKeepsContent 回归真机结论（2026-09，C2C）：msg_type=7 可同时
+// 携带 media 与 content 渲染图文同一条消息，单聊发送不再清空 content。
+func TestSendTextImage_C2CKeepsContent(t *testing.T) {
+	fake := &fakeC2CMediaAPI{}
+	s := NewSender(fake)
+
+	_, err := s.Send(context.Background(), platform.SendRequest{
+		Target: platform.ChatInfo{ID: "user_openid_001"},
+		Message: platform.OutboundMessage{Segments: []platform.Segment{
+			{Type: platform.SegmentText, Text: "图文同发正文"},
+			{Type: platform.SegmentImage, Attachment: platform.Attachment{
+				Kind: platform.AttachmentKindImage,
+				URL:  "https://ex.com/a.png",
+			}},
+		}},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, fake.chatMsg, "应走到单聊发消息接口")
+	assert.EqualValues(t, dto.MediaMessage, fake.chatMsg.Type)
+	require.NotNil(t, fake.chatMsg.Media)
+	assert.Equal(t, "fi_c2c", fake.chatMsg.Media.FileInfo)
+	assert.Equal(t, "图文同发正文", fake.chatMsg.Content, "单聊媒体消息必须保留正文（真机验证图文混排）")
+	assert.Nil(t, fake.chatMsg.Markdown, "正文已放入 content，不应残留 markdown 载荷")
+}
+
+// TestSendTextImage_GroupKeepsContent 群聊与单聊共用 sendMediaMessage：msg_type=7
+// 携带 media 与 content 发送，正文同样必须保留（2026-09 C2C 真机验证图文混排，
+// 群聊走同一路径）。
+func TestSendTextImage_GroupKeepsContent(t *testing.T) {
+	fake := &fakeChunkedAPI{}
+	s := NewSender(fake)
+
+	_, err := s.Send(context.Background(), platform.SendRequest{
+		Target: platform.ChatInfo{ID: "group_openid_001", IsGroup: true},
+		Message: platform.OutboundMessage{Segments: []platform.Segment{
+			{Type: platform.SegmentText, Text: "群聊图文同发正文"},
+			{Type: platform.SegmentImage, Attachment: platform.Attachment{
+				Kind: platform.AttachmentKindImage,
+				URL:  "https://ex.com/a.png",
+			}},
+		}},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, fake.chatMsg, "应走到群聊发消息接口")
+	assert.EqualValues(t, dto.MediaMessage, fake.chatMsg.Type)
+	require.NotNil(t, fake.chatMsg.Media)
+	assert.Equal(t, "fi_123", fake.chatMsg.Media.FileInfo)
+	assert.Equal(t, "群聊图文同发正文", fake.chatMsg.Content, "群聊媒体消息必须保留正文（与单聊同一 sendMediaMessage 路径）")
+	assert.Nil(t, fake.chatMsg.Markdown, "正文已放入 content，不应残留 markdown 载荷")
+}
+
+// TestSendImageOnly_MediaMessageContent 覆盖纯图片消息的 content 兜底规则：
+// 单聊省略 content（官方示例形态，纯图可发），群聊补空格（文档标注必填）。
+func TestSendImageOnly_MediaMessageContent(t *testing.T) {
+	t.Run("单聊省略content", func(t *testing.T) {
+		fake := &fakeC2CMediaAPI{}
+		s := NewSender(fake)
+		_, err := s.Send(context.Background(), platform.SendRequest{
+			Target: platform.ChatInfo{ID: "user_openid_001"},
+			Message: platform.OutboundMessage{Attachments: []platform.Attachment{
+				{Kind: platform.AttachmentKindImage, URL: "https://ex.com/a.png"},
+			}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, fake.chatMsg)
+		assert.Empty(t, fake.chatMsg.Content, "单聊纯图片消息不携带 content")
+	})
+
+	t.Run("群聊空格兜底", func(t *testing.T) {
+		fake := &fakeChunkedAPI{}
+		s := NewSender(fake)
+		_, err := s.Send(context.Background(), platform.SendRequest{
+			Target: platform.ChatInfo{ID: "group_openid_001", IsGroup: true},
+			Message: platform.OutboundMessage{Attachments: []platform.Attachment{
+				{Kind: platform.AttachmentKindImage, URL: "https://ex.com/a.png"},
+			}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, fake.chatMsg)
+		assert.Equal(t, " ", fake.chatMsg.Content, "群聊 content 必填，空正文用空格兜底")
+	})
+}
+
 func TestSendTyping_BuildsInputNotify(t *testing.T) {
 	msg := &dto.Message{}
 	msg.Type = dto.InputNotifyMsg

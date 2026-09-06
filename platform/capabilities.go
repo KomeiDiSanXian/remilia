@@ -101,7 +101,7 @@ type Capabilities struct {
 	VoiceChannel bool
 	// Caption 是否支持在同一条消息内同时携带文本与附件（图文同发）。
 	// Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、
-	// Satori（元素列表）支持；QQ 富媒体消息会丢弃文本，不支持。
+	// Satori（元素列表）、QQ（msg_type=7 携带 media+content，单媒体）支持。
 	Caption bool
 	// Forward 是否支持合并转发（发送与接收）。
 	// 例：OneBot/QQ 原生支持；Discord/Telegram 不支持（出站转发时降级）。

@@ -125,7 +125,9 @@ type Capabilities struct {
 
 > **图文同发（CapCaption）**：`Caption` 声明平台支持"文本 + 附件同一条消息"。
 > Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、Satori（元素列表）支持；
-> QQ 富媒体消息会丢弃文本，**不**声明此能力——插件据此选择"图文同发"或"图与文字分条发送"（如 pic/sauce 插件）。
+> QQ（msg_type=7 携带 media+content，2026-09 真机验证）也支持——插件据此选择
+> "图文同发"或"图与文字分条发送"（如 pic/sauce 插件）。注意 QQ 一条消息只有一个
+> media，真正的多图多段混排（同一条消息内穿插多张图）需走 Markdown 公网图片 URL。
 
 ### `platform.Button`
 

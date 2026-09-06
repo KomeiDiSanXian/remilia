@@ -514,7 +514,7 @@ func (p *Plugin) sendSearchResults(ctx *eventctx.Context, allResults []SearchRes
 	if p.sendThumbnails() {
 		// 发送策略：
 		//   - 支持图文同发（CapCaption）的平台：缩略图 + 单条结果信息 caption 一条消息
-		//   - 其他平台（QQ 等富媒体消息会丢弃 Text/Markdown）：图片逐张单独发，
+		//   - 其他平台（不支持图文同发）：图片逐张单独发，
 		//     作品信息汇总为一条（Markdown 优先，纯文本降级）
 		reqCtx, cancel := context.WithTimeout(context.Background(), p.searchTimeout())
 		defer cancel()

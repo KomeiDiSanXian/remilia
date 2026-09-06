@@ -343,11 +343,12 @@ func (s *qqSender) sendMediaMessage(ctx stdctx.Context, chat platform.ChatInfo, 
 	// 富媒体消息不支持按钮，去掉以免服务端拒绝整条消息。
 	dtoMsg.Keyboard = nil
 
-	// 群聊接口 content 字段为必填（API 文档标注"是"），不可清空。
-	// 单聊接口 content 为可选，媒体消息通常不携带文本内容。
-	if !chat.IsGroup {
-		dtoMsg.Content = ""
-	} else if dtoMsg.Content == "" {
+	// 真机验证（2026-09，C2C）：msg_type=7 可同时携带 media 与 content，
+	// QQ 客户端会把图片与正文渲染在同一条消息里。此前单聊一律清空 content，
+	// 导致"图片+文字"场景的文字被吞掉，这里不再清空。
+	// 群聊接口 content 字段被文档标注为必填：纯图片无正文时补空格兜底
+	// （正文为空时省略 content 字段可能被群聊接口拒绝）。
+	if dtoMsg.Content == "" && chat.IsGroup {
 		dtoMsg.Content = " "
 	}
 
@@ -664,10 +665,11 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	return dtoMsg
 }
 
-// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（段路径、混排受限）。
+// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（段路径）。
 //
 // QQ 的文本接口支持内联 AT 标签（<qqbot-at-user id="..."/>），因此文本/at
-// 可以保序交错进 Content；媒体取首个（QQ 单媒体限制，富媒体不可混排文本）；
+// 可以保序交错进 Content；媒体取首个（QQ 单媒体限制）；富媒体消息（msg_type=7）
+// 支持携带 content，文本/at 折叠后可与图片在同一条消息展示（2026-09 真机验证）；
 // reply 段 → ReplyToID（复用既有"引用即被动回复 msg_id / 频道 MessageReference"逻辑）；
 // 按钮不参与段路径（QQ 按钮不可与正文混排，降级处理）。
 func qqSegmentsToFlat(msg platform.OutboundMessage) platform.OutboundMessage {
@@ -826,7 +828,10 @@ func qqCapabilities() platform.Capabilities {
 		TypingIndicator: true,
 		MentionAll:      true,
 		VoiceChannel:    false,
-		Forward:         true, // 合并转发（msg_type=3 富媒体外，msg_elements 引用内可含 forward）
+		// 图文同发：msg_type=7 可同时携带 media 与 content（2026-09 C2C/群聊真机验证）。
+		// 注意 QQ 一条消息只有一个 media，多图仍须逐条发送（MultiAttachment=false）。
+		Caption: true,
+		Forward: true, // 合并转发（msg_type=3 富媒体外，msg_elements 引用内可含 forward）
 		// QQ 按钮布局限制：最多 5 行，每行最多 5 个
 		MaxButtonsPerRow: 5,
 		MaxButtonRows:    5,

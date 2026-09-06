@@ -74,7 +74,7 @@
 | TypingIndicator | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | MentionAll | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | VoiceChannel | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Caption | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Caption | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
 
 > 注：Capabilities 为适配器声明，可能与实际运行环境（如 QQ 官方 bot 的权限）
 > 有出入；`Has()` 检查与 `Get*` 接口检查应结合使用。
