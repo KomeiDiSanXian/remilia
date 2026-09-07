@@ -378,7 +378,7 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 					continue
 				}
 				p.recordTrigger(r.ID, userID)
-				ctx.Reply(platform.TextMessage(r.Response))
+				ctx.Reply(platform.TextMessage(r.Response).WithQuoteTrigger())
 			}
 			return next(ctx)
 		}

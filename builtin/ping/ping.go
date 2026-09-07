@@ -42,6 +42,6 @@ func New() *plugin.Descriptor {
 func handlePing(ctx *eventctx.Context) error {
 	latency := time.Since(ctx.GetPlatformEvent().Timestamp())
 	ctx.Reply(platform.TextMessage(
-		fmt.Sprintf("pong %.3f ms（平台 → bot 端到端延迟）", float64(latency)/float64(time.Millisecond))))
+		fmt.Sprintf("pong %.3f ms（平台 → bot 端到端延迟）", float64(latency)/float64(time.Millisecond))).WithQuoteTrigger())
 	return nil
 }

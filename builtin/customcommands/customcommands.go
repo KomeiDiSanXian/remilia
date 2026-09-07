@@ -152,7 +152,7 @@ func (p *Plugin) registerCatchAll(ctx *plugin.SetupContext) {
 		msg = strings.ReplaceAll(msg, "{group}", ctx.GetPlatformEvent().Chat().Name)
 		msg = strings.ReplaceAll(msg, "{time}", time.Now().Format("15:04"))
 		msg = strings.ReplaceAll(msg, "{date}", time.Now().Format("01-02"))
-		ctx.Reply(platform.TextMessage(msg))
+		ctx.Reply(platform.TextMessage(msg).WithQuoteTrigger())
 		return nil
 	})
 }
