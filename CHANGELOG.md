@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.57.1 (2026-09-07)
+
+### 🖼 QQ 群聊纯图片：去掉历史空格占位（content 省略）
+
+- **根因**：早期官方文档将群聊发消息接口的 `content` 标注为必填，
+  `platform/qq` 的 `sendMediaMessage` 在群聊纯图片（无正文）时补 `content:" "`
+  空格占位；2026-08-11 版文档已将群聊 `content` 标为可选，富媒体官方示例本身
+  不带 `content`
+- **修复**（`platform/qq/sender.go`）：纯图片无正文时直接省略 `content` 字段，
+  不再补空格。真机验证（2026-09，测试群）显示空格占位会让 QQ 端在图片下方
+  渲染出多余空格行；省略后群聊纯图（含带 `message_reference` 的被动回复）
+  发送正常、图片下方干净
+- **回归**：`TestSendImageOnly_MediaMessageContent/群聊省略content` 断言群聊
+  纯图载荷不再包含 `content` 字段；单聊行为不变（本就省略）
+
 ## v1.57.0 (2026-09-07)
 
 ### 💬 QQ 消息引用气泡：按条控制，插件默认启用（message_reference）
