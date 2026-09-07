@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.57.0 (2026-09-07)
+
+### 💬 QQ 消息引用气泡：按条控制，插件默认启用（message_reference）
+
+- **按条引用标记**（`platform`）：`OutboundMessage` 新增 `QuoteTrigger` 字段与
+  `WithQuoteTrigger()` 方法——发送时引用"触发本条会话的那条消息"，由插件在
+  发送时逐条选择、**默认关闭**，无任何全局/启动配置；显式 `ReplyToID`
+  （reply 段/`WithReply`）优先级更高，两者都未提供时不产生引用；事件无可引用
+  消息（主动推送/定时任务等）时标记静默不生效，无需调用方判断平台
+- **QQ C2C/群聊**（`platform/qq`）：事件解析时将 `message_scene.ext` 中的
+  `msg_idx`（REFIDX_…）存入 `ChatInfo.Tokens[qq.TokenQuoteID]`，Sender 据此
+  映射 `message_reference.message_id` 渲染引用气泡；频道消息沿用消息 ID 作为
+  引用目标
+- **引用与被动授权解耦**：`message_reference`（展示气泡）不再兼任被动回复的
+  `msg_id` 来源——被动授权一律取事件 token（`msg_id`/`event_id`），二者可同时
+  携带（真机验证文本/Markdown/纯媒体/图文混排均正常，多段文字不再被吞）
+- **引用机器人自己的消息**：QQ 发送响应 `ext_info.ref_idx` 现存入
+  `SendResult.RefIDX`（REFIDX_…），作为引用机器人已发消息时的
+  `message_reference.message_id` 目标
+- **内置插件默认启用**：`ping`、`autoresponder` 命中回复、`customcommands`
+  命令执行、`ai` 对话最终回复现在带引用气泡；AI 仅最终答复引用，
+  过程性输出（send_tool/计划展示等）不受影响
+
 ## v1.56.0 (2026-09-06)
 
 ### 🚀 QQ 群成员管理接口（2026-09-03 官方新增）
