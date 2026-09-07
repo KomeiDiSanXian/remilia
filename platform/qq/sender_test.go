@@ -123,6 +123,214 @@ func TestBuildDTOMessage_IsWakeup(t *testing.T) {
 	assert.Empty(t, string(dtoMsg.EventID), "EventID should be empty for wakeup")
 }
 
+// TestBuildDTOMessage_PassiveAuthAndQuoteDecoupled 验证被动授权（msg_id）与
+// 引用展示（message_reference）解耦：ReplyToID 只映射引用气泡，msg_id 只取
+// 事件授权 token（TokenMsgID）。真机验证（2026-09）：该组合在单聊/群聊均正常。
+func TestBuildDTOMessage_PassiveAuthAndQuoteDecoupled(t *testing.T) {
+	msg := platform.TextMessage("quote me").WithReply("REFIDX_user_msg")
+	chat := platform.ChatInfo{
+		ID:      "user_001",
+		IsGroup: false,
+		Tokens:  map[string]string{TokenMsgID: "ROBOT1.0_inbound_event_id"},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.Equal(t, dto.EventID("ROBOT1.0_inbound_event_id"), dtoMsg.MessageID,
+		"msg_id 应取事件授权 token，而不是 ReplyToID")
+	require.NotNil(t, dtoMsg.MessageReference, "ReplyToID 非空时应设置 MessageReference")
+	assert.Equal(t, "REFIDX_user_msg", dtoMsg.MessageReference.MessageID)
+	assert.True(t, dtoMsg.MessageReference.IgnoreGetMessageError)
+}
+
+// TestBuildDTOMessage_QuoteWithoutAuthToken 验证无事件授权（主动消息）时
+// ReplyToID 只产生引用气泡，不应被伪造为 msg_id。
+func TestBuildDTOMessage_QuoteWithoutAuthToken(t *testing.T) {
+	msg := platform.TextMessage("proactive quote").WithReply("REFIDX_proactive")
+	chat := platform.ChatInfo{ID: "user_001", IsGroup: false}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.Empty(t, string(dtoMsg.MessageID), "无授权 token 时不应设置 msg_id")
+	require.NotNil(t, dtoMsg.MessageReference)
+	assert.Equal(t, "REFIDX_proactive", dtoMsg.MessageReference.MessageID)
+}
+
+// TestBuildDTOMessage_PassiveAuthWithoutQuote 验证普通被动回复（有事件授权、
+// 无 ReplyToID）不会凭空出现 message_reference。
+func TestBuildDTOMessage_PassiveAuthWithoutQuote(t *testing.T) {
+	msg := platform.TextMessage("plain passive reply")
+	chat := platform.ChatInfo{
+		ID:      "group_001",
+		IsGroup: true,
+		Tokens:  map[string]string{TokenMsgID: "ROBOT1.0_group_event_id"},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.Equal(t, dto.EventID("ROBOT1.0_group_event_id"), dtoMsg.MessageID)
+	assert.Nil(t, dtoMsg.MessageReference, "无 ReplyToID 时不应设置 message_reference")
+}
+
+// TestBuildDTOMessage_QuoteTriggerDefaultOff 验证引用触发消息默认为关闭：
+// 消息未带 QuoteTrigger 时，即使事件携带 TokenQuoteID 也不挂 message_reference
+// （是否需要气泡由插件在发送时按条决定，无全局配置）。
+func TestBuildDTOMessage_QuoteTriggerDefaultOff(t *testing.T) {
+	msg := platform.TextMessage("passive reply")
+	chat := platform.ChatInfo{
+		ID:      "user_001",
+		IsGroup: false,
+		Tokens: map[string]string{
+			TokenMsgID:   "ROBOT1.0_inbound",
+			TokenQuoteID: "REFIDX_trigger_msg",
+		},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.Equal(t, dto.EventID("ROBOT1.0_inbound"), dtoMsg.MessageID)
+	assert.Nil(t, dtoMsg.MessageReference, "未标记 QuoteTrigger 时不应挂引用")
+}
+
+// TestBuildDTOMessage_QuoteTrigger 验证消息带 WithQuoteTrigger 时，被动回复
+// 自动引用触发消息自身（message_reference.message_id = 事件 msg_idx REFIDX）。
+func TestBuildDTOMessage_QuoteTrigger(t *testing.T) {
+	msg := platform.TextMessage("passive reply").WithQuoteTrigger()
+	chat := platform.ChatInfo{
+		ID:      "group_001",
+		IsGroup: true,
+		Tokens: map[string]string{
+			TokenMsgID:   "ROBOT1.0_group_inbound",
+			TokenQuoteID: "REFIDX_trigger_msg",
+		},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	require.NotNil(t, dtoMsg.MessageReference, "QuoteTrigger 且事件带 msg_idx 时应挂引用")
+	assert.Equal(t, "REFIDX_trigger_msg", dtoMsg.MessageReference.MessageID)
+	assert.True(t, dtoMsg.MessageReference.IgnoreGetMessageError)
+	// 引用不占用/影响被动授权 msg_id
+	assert.Equal(t, dto.EventID("ROBOT1.0_group_inbound"), dtoMsg.MessageID)
+}
+
+// TestBuildDTOMessage_QuoteTriggerNoToken 验证 QuoteTrigger 但事件无 msg_idx
+// 时静默不挂引用（如主动消息 / 无 message_scene.ext），消息仍正常发送。
+func TestBuildDTOMessage_QuoteTriggerNoToken(t *testing.T) {
+	msg := platform.TextMessage("reply without quote index").WithQuoteTrigger()
+	chat := platform.ChatInfo{
+		ID:      "user_001",
+		IsGroup: false,
+		Tokens:  map[string]string{TokenMsgID: "ROBOT1.0_inbound"},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.Nil(t, dtoMsg.MessageReference, "无 TokenQuoteID 时 QuoteTrigger 静默不生效")
+	assert.Equal(t, dto.EventID("ROBOT1.0_inbound"), dtoMsg.MessageID)
+}
+
+// TestBuildDTOMessage_ExplicitReplyOverridesQuoteTrigger 验证显式 ReplyToID
+// 优先于 QuoteTrigger：携带 reply 段 / WithReply 的消息引用显式目标。
+func TestBuildDTOMessage_ExplicitReplyOverridesQuoteTrigger(t *testing.T) {
+	msg := platform.TextMessage("explicit quote").
+		WithReply("REFIDX_explicit_target").
+		WithQuoteTrigger()
+	chat := platform.ChatInfo{
+		ID:      "group_001",
+		IsGroup: true,
+		Tokens: map[string]string{
+			TokenMsgID:   "ROBOT1.0_inbound",
+			TokenQuoteID: "REFIDX_trigger_msg",
+		},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	require.NotNil(t, dtoMsg.MessageReference)
+	assert.Equal(t, "REFIDX_explicit_target", dtoMsg.MessageReference.MessageID,
+		"显式 ReplyToID 应优先于 QuoteTrigger")
+}
+
+// TestBuildDTOMessage_QuoteTriggerWakeupSkipped 验证召回消息（IsWakeup）即使
+// 标记 QuoteTrigger 也不引用触发消息：召回与来源消息解耦。
+func TestBuildDTOMessage_QuoteTriggerWakeupSkipped(t *testing.T) {
+	msg := ApplyExtra(platform.TextMessage("wakeup recall").WithQuoteTrigger(),
+		MessageExtra{IsWakeup: true})
+	chat := platform.ChatInfo{
+		ID:      "user_001",
+		IsGroup: false,
+		Tokens: map[string]string{
+			TokenMsgID:   "ROBOT1.0_inbound",
+			TokenQuoteID: "REFIDX_trigger_msg",
+		},
+	}
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, chat)
+
+	assert.True(t, dtoMsg.IsWakeup)
+	assert.Empty(t, string(dtoMsg.MessageID))
+	assert.Nil(t, dtoMsg.MessageReference, "召回消息不应携带触发消息引用")
+}
+
+// TestBuildGuildDTOMessage_QuoteTrigger 验证频道消息带 QuoteTrigger 时引用
+// 事件消息 ID（频道 TokenMsgID = payload.ID 即 message id）。
+func TestBuildGuildDTOMessage_QuoteTrigger(t *testing.T) {
+	msg := platform.TextMessage("channel reply").WithQuoteTrigger()
+	chat := platform.ChatInfo{
+		ID:       "chan_001",
+		ParentID: "guild_001",
+		Tokens:   map[string]string{TokenMsgID: "ROBOT1.0_channel_trigger"},
+	}
+	s := &qqSender{}
+	guildMsg := s.buildGuildDTOMessage(msg, chat)
+
+	require.NotNil(t, guildMsg.MessageReference)
+	assert.Equal(t, "ROBOT1.0_channel_trigger", guildMsg.MessageReference.MessageID)
+}
+
+// TestBuildGuildDTOMessage_QuoteTriggerNoMsgID 验证频道消息 QuoteTrigger 但无
+// 事件授权消息 ID 时静默不挂引用。
+func TestBuildGuildDTOMessage_QuoteTriggerNoMsgID(t *testing.T) {
+	msg := platform.TextMessage("channel proactive").WithQuoteTrigger()
+	chat := platform.ChatInfo{ID: "chan_001", ParentID: "guild_001"}
+	s := &qqSender{}
+	guildMsg := s.buildGuildDTOMessage(msg, chat)
+
+	assert.Nil(t, guildMsg.MessageReference, "无事件消息 ID 时 QuoteTrigger 静默不生效")
+}
+
+// TestBuildSendResult_RefIDX 验证普通发送响应中的 ext_info.ref_idx 被保留到
+// SendResult.RefIDX（供后续引用机器人自己的消息）。
+func TestBuildSendResult_RefIDX(t *testing.T) {
+	raw := gjson.Parse(`{"id":"ROBOT1.0_sent","timestamp":1725000000,"ext_info":{"ref_idx":"REFIDX_own_msg"}}`)
+	result := buildSendResult(raw)
+	qqResult, ok := result.Raw.(*SendResult)
+	require.True(t, ok)
+	assert.Equal(t, "REFIDX_own_msg", qqResult.RefIDX)
+	assert.Equal(t, "ROBOT1.0_sent", qqResult.MessageID)
+}
+
+// TestBuildSendResult_NoRefIDX 验证响应缺失 ref_idx 时 RefIDX 保持为空。
+func TestBuildSendResult_NoRefIDX(t *testing.T) {
+	raw := gjson.Parse(`{"id":"ROBOT1.0_sent"}`)
+	qqResult := buildSendResult(raw).Raw.(*SendResult)
+	assert.Empty(t, qqResult.RefIDX)
+}
+
+// TestBuildSendResultFromUpload_RefIDX 验证富媒体两步发送的发送阶段响应同样
+// 携带 RefIDX，且与上传阶段字段合并。
+func TestBuildSendResultFromUpload_RefIDX(t *testing.T) {
+	upload := gjson.Parse(`{"file_uuid":"uuid_1","file_info":"file_1","ttl":86400}`)
+	send := gjson.Parse(`{"id":"ROBOT1.0_media","timestamp":1725000000,"ext_info":{"ref_idx":"REFIDX_own_media"}}`)
+	result := buildSendResultFromUpload(upload, send)
+	qqResult, ok := result.Raw.(*SendResult)
+	require.True(t, ok)
+	assert.Equal(t, "REFIDX_own_media", qqResult.RefIDX)
+	assert.Equal(t, "ROBOT1.0_media", qqResult.MessageID)
+	assert.Equal(t, "file_1", qqResult.FileInfo)
+}
+
 func TestBuildGuildDTOMessage_MarkdownTemplate(t *testing.T) {
 	msg := platform.MarkdownMessage("# Channel")
 	msg = ApplyExtra(msg, MessageExtra{

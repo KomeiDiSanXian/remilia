@@ -103,6 +103,81 @@ func TestNewEvent_GroupAt(t *testing.T) {
 	}
 }
 
+// TestNewEvent_C2CMsgIdxToken 验证 C2C 消息的 message_scene.ext msg_idx 被写入
+// Tokens[TokenQuoteID]，供被动回复自动引用（message_reference）使用。
+func TestNewEvent_C2CMsgIdxToken(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":        "msg_c2c",
+		"content":   "hello",
+		"timestamp": "2026-09-07T13:00:00+08:00",
+		"author": map[string]any{
+			"user_openid": "openid_alice",
+		},
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"msg_idx=REFIDX_c2c_trigger", "auth_token=xxx"},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	chat := event.Chat()
+	if got := chat.Tokens[qq.TokenMsgID]; got != "msg_c2c" {
+		t.Errorf("Tokens[TokenMsgID]: got %q, want msg_c2c", got)
+	}
+	if got := chat.Tokens[qq.TokenQuoteID]; got != "REFIDX_c2c_trigger" {
+		t.Errorf("Tokens[TokenQuoteID]: got %q, want REFIDX_c2c_trigger", got)
+	}
+}
+
+// TestNewEvent_GroupAtMsgIdxToken 验证群 @ 消息的 msg_idx 写入
+// Tokens[TokenQuoteID]（真实报文：ext 依次为 msg_idx、auth_token）。
+func TestNewEvent_GroupAtMsgIdxToken(t *testing.T) {
+	payload := makePayload(dto.GroupAtMessageCreate, map[string]any{
+		"id":           "msg_grp",
+		"content":      "@me hi",
+		"group_openid": "group_001",
+		"author": map[string]any{
+			"member_openid": "mem001",
+		},
+		"timestamp": "2026-09-07T13:00:00+08:00",
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"msg_idx=REFIDX_grp_trigger", "auth_token=yyy"},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	chat := event.Chat()
+	if got := chat.Tokens[qq.TokenMsgID]; got != "msg_grp" {
+		t.Errorf("Tokens[TokenMsgID]: got %q, want msg_grp", got)
+	}
+	if got := chat.Tokens[qq.TokenQuoteID]; got != "REFIDX_grp_trigger" {
+		t.Errorf("Tokens[TokenQuoteID]: got %q, want REFIDX_grp_trigger", got)
+	}
+}
+
+// TestNewEvent_NoMsgIdxNoQuoteToken 验证事件缺少 message_scene.ext 时
+// Tokens 中不含 TokenQuoteID（保持原 msg_id 授权不受影响）。
+func TestNewEvent_NoMsgIdxNoQuoteToken(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":        "msg_plain",
+		"content":   "no scene ext",
+		"timestamp": "2026-09-07T13:00:00+08:00",
+		"author": map[string]any{
+			"user_openid": "openid_bob",
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	chat := event.Chat()
+	if got := chat.Tokens[qq.TokenMsgID]; got != "msg_plain" {
+		t.Errorf("Tokens[TokenMsgID]: got %q, want msg_plain", got)
+	}
+	if _, ok := chat.Tokens[qq.TokenQuoteID]; ok {
+		t.Error("无 message_scene.ext 时不应写入 TokenQuoteID")
+	}
+}
+
 func TestNewEvent_GuildMessage(t *testing.T) {
 	payload := makePayload(dto.AtMessageCreate, map[string]any{
 		"content":      "hello guild",

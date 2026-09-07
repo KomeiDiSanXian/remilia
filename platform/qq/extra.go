@@ -9,12 +9,13 @@ import (
 // Passive Reply Token Keys
 // ────────────────────────────────────────────────────────────────────────────
 
-// QQ 被动回复授权 token 的键名，存储于 platform.ChatInfo.Tokens。
+// QQ 事件上下文使用的 token / 标识键名，存储于 platform.ChatInfo.Tokens。
 //
 // 示例：
 //
 //	chat.Tokens[qq.TokenMsgID]   // msg_id 被动回复授权（C2C / 群消息）
 //	chat.Tokens[qq.TokenEventID] // event_id 被动回复授权（INTERACTION_CREATE 等）
+//	chat.Tokens[qq.TokenQuoteID] // 本条消息 REFIDX（message_reference 引用气泡）
 const (
 	// TokenMsgID 消息 ID 被动回复 token（QQ v2 API msg_id 字段）。
 	// 来源：C2C_MESSAGE_CREATE、GROUP_AT_MESSAGE_CREATE、频道消息事件的 payload.ID。
@@ -24,6 +25,12 @@ const (
 	// 来源：INTERACTION_CREATE、GROUP_ADD_ROBOT、GROUP_MSG_RECEIVE、
 	//        FRIEND_ADD、C2C_MSG_RECEIVE 等事件的 payload.ID。
 	TokenEventID = "event_id"
+
+	// TokenQuoteID 本条消息的引用标识（message_scene.ext 中 msg_idx=REFIDX_...）。
+	// 用于 message_reference.message_id 引用"触发消息自身"（展示引用气泡），
+	// 不是被动授权 token。由 C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 等
+	// 消息事件解析时写入 ChatInfo.Tokens；事件缺少 message_scene.ext 时为空。
+	TokenQuoteID = "quote_id"
 
 	// TokenJoinRequest 入群申请审批 token（GROUP_JOIN_REQUEST 事件）。
 	//
@@ -125,7 +132,7 @@ type ButtonExtra struct {
 //
 // 示例：
 //
-//	msg := platform.TextMessage("pong").WithReply(event.ID())
+//	msg := platform.TextMessage("pong") // 被动授权由事件 ChatInfo.Tokens 自动携带
 //	msg = qq.ApplyExtra(msg, qq.MessageExtra{MsgSeq: 1, EventID: rawEventID})
 //	ctx.Reply(msg)
 type MessageExtra struct {

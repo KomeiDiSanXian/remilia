@@ -216,10 +216,15 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		ID:          userOpenID,
 		DisplayName: results[3].String(),
 	}
+	tokens := map[string]string{TokenMsgID: results[0].String()} // msg_id 被动回复
+	if qid := extIndexValue(results[8], "msg_idx"); qid != "" {
+		// msg_idx 是本条消息的 REFIDX（引用气泡 message_reference.message_id）
+		tokens[TokenQuoteID] = qid
+	}
 	e.chat = platform.ChatInfo{
 		ID:      userOpenID,
 		IsGroup: false,
-		Tokens:  map[string]string{TokenMsgID: results[0].String()}, // msg_id 被动回复
+		Tokens:  tokens,
 	}
 	if ts := results[4].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -376,10 +381,15 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		GroupRole:   parseQQGroupRole(results[8].String()),
 	}
 
+	tokens := map[string]string{TokenMsgID: results[0].String()} // msg_id 被动回复
+	if qid := extIndexValue(results[13], "msg_idx"); qid != "" {
+		// msg_idx 是本条消息的 REFIDX（引用气泡 message_reference.message_id）
+		tokens[TokenQuoteID] = qid
+	}
 	e.chat = platform.ChatInfo{
 		ID:      results[4].String(),
 		IsGroup: true,
-		Tokens:  map[string]string{TokenMsgID: results[0].String()}, // msg_id 被动回复
+		Tokens:  tokens,
 	}
 	if ts := results[5].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -493,21 +503,27 @@ func quoteAttachmentsFromElements(elements gjson.Result) []platform.Attachment {
 	return parseAttachments(arr[0].Get("attachments"))
 }
 
-// quoteReplyID 从 message_scene.ext 中提取引用目标标识（ref_msg_idx=REFIDX_xxx）。
-//
-// 实测（2026-08 报文核验）：引用消息的引用目标 ID 不在 msg_elements 内，
-// 而在外层 message_scene.ext 数组中，格式为 "ref_msg_idx=REFIDX_..."。
-func quoteReplyID(ext gjson.Result) string {
+// extIndexValue 从 message_scene.ext 数组中提取形如 "key=value" 条目的值。
+// 找不到或格式不符时返回空串。
+func extIndexValue(ext gjson.Result, key string) string {
 	if !ext.IsArray() {
 		return ""
 	}
-	const prefix = "ref_msg_idx="
+	prefix := key + "="
 	for _, e := range ext.Array() {
 		if s := e.String(); strings.HasPrefix(s, prefix) {
 			return strings.TrimPrefix(s, prefix)
 		}
 	}
 	return ""
+}
+
+// quoteReplyID 从 message_scene.ext 中提取引用目标标识（ref_msg_idx=REFIDX_xxx）。
+//
+// 实测（2026-08 报文核验）：引用消息的引用目标 ID 不在 msg_elements 内，
+// 而在外层 message_scene.ext 数组中，格式为 "ref_msg_idx=REFIDX_..."。
+func quoteReplyID(ext gjson.Result) string {
+	return extIndexValue(ext, "ref_msg_idx")
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {

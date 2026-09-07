@@ -39,4 +39,10 @@ type SendResult struct {
 	// TTL FileInfo 的有效期（秒）。0 表示永久有效。
 	// 仅富媒体上传响应有效，普通消息为零值。
 	TTL int
+
+	// RefIDX 本条已发送消息的引用索引（发送响应 ext_info.ref_idx，
+	// 形如 REFIDX_...）。QQ 的 message_reference.message_id 引用"机器人
+	// 自己的消息"时须使用该值；普通消息响应缺失该字段时为空串。
+	// 仅发送成功（含富媒体最终发送）的响应有效，纯上传响应为零值。
+	RefIDX string
 }

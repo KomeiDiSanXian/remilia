@@ -414,6 +414,18 @@ type OutboundMessage struct {
 	// ReplyToID 回复的目标消息 ID（平台原生消息 ID）
 	ReplyToID string
 
+	// QuoteTrigger 引用"触发本条会话的那条消息"（平台渲染引用气泡/回复）。
+	//
+	// 供插件在发送时按条选择：需要引用触发消息时设置，不需要则不设置
+	// （默认关闭，无任何全局/启动配置）。目标 ID 由 Sender 从事件上下文解析，
+	// 调用方无需知道平台原生 ID：
+	//   - QQ C2C/群聊：message_reference.message_id = 事件 msg_idx（REFIDX）
+	//   - QQ 频道：message_reference.message_id = 事件消息 ID
+	//   - 其它平台：暂未实现，标记被安全忽略
+	// 与 ReplyToID 的关系：显式 ReplyToID 优先；两者都未提供时不产生引用。
+	// 事件无可引用消息（如主动 Notify）时该标记静默不生效。
+	QuoteTrigger bool
+
 	// Extra 平台特定扩展字段（key-value 形式）
 	//
 	// 示例（QQ 平台传递 msg_seq）：
@@ -738,6 +750,13 @@ func AttachmentFromData(kind AttachmentKind, data []byte) Attachment {
 // WithReply 设置回复目标消息 ID
 func (m OutboundMessage) WithReply(messageID string) OutboundMessage {
 	m.ReplyToID = messageID
+	return m
+}
+
+// WithQuoteTrigger 标记本条消息引用触发它的那条消息（需要引用气泡时调用）。
+// 见 OutboundMessage.QuoteTrigger 的语义说明；返回新消息，不修改原消息。
+func (m OutboundMessage) WithQuoteTrigger() OutboundMessage {
+	m.QuoteTrigger = true
 	return m
 }
 

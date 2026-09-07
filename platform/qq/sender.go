@@ -442,6 +442,7 @@ func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.Cha
 func buildSendResult(raw gjson.Result) platform.SendResult {
 	qqResult := &SendResult{
 		MessageID: raw.Get("id").String(),
+		RefIDX:    raw.Get("ext_info.ref_idx").String(),
 	}
 	if ts := raw.Get("timestamp").Int(); ts > 0 {
 		qqResult.Timestamp = time.Unix(ts, 0)
@@ -459,6 +460,8 @@ func buildSendResultFromUpload(uploadRaw, sendRaw gjson.Result) platform.SendRes
 	qqResult := &SendResult{
 		// 来自发送响应
 		MessageID: sendRaw.Get("id").String(),
+		// 来自发送响应 ext_info.ref_idx：引用机器人自己的消息时作为 message_reference.message_id
+		RefIDX: sendRaw.Get("ext_info.ref_idx").String(),
 		// 来自上传响应
 		FileUUID: uploadRaw.Get("file_uuid").String(),
 		FileInfo: uploadRaw.Get("file_info").String(),
@@ -530,10 +533,16 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platf
 		guildMsg.MsgID = resolvedMsgID
 	}
 
-	// 引用回复：展示消息气泡引用（不同于被动回复关联）
-	if msg.ReplyToID != "" {
+	// 引用回复：展示消息气泡引用（不同于被动回复关联）。
+	// 显式 ReplyToID 优先；未显式指定但消息带 QuoteTrigger（引用触发消息）时，
+	// 用事件授权的消息 ID（频道 payload.ID 即 message id）作为引用目标。
+	quoteID := msg.ReplyToID
+	if quoteID == "" && msg.QuoteTrigger {
+		quoteID = chat.Tokens[TokenMsgID]
+	}
+	if quoteID != "" {
 		guildMsg.MessageReference = &dto.MessageReference{
-			MessageID:             msg.ReplyToID,
+			MessageID:             quoteID,
 			IgnoreGetMessageError: true,
 		}
 	}
@@ -557,10 +566,14 @@ func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
 
 // buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message（用于 C2C / 群聊）。
 //
-// 被动回复 ID 优先级：
-//   - msg_id：msg.ReplyToID（手动设置）> chat.Tokens[TokenMsgID]（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 自动填充）
-//   - event_id：extra.EventID（手动 ApplyExtra）> chat.Tokens[TokenEventID]（INTERACTION_CREATE / C2C_MSG_RECEIVE 等自动填充）
+// 被动授权：
+//   - msg_id：chat.Tokens[TokenMsgID]（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE
+//     自动填充，即事件 d.id）
+//   - event_id：extra.EventID（手动 ApplyExtra）> chat.Tokens[TokenEventID]
+//     （INTERACTION_CREATE / C2C_MSG_RECEIVE 等自动填充）
 //
+// msg_id/event_id 是"被动回复授权"，与"引用展示"相互独立：ReplyToID 只映射
+// message_reference（引用气泡），不再充当 msg_id 的来源。
 // 主动消息：ChatInfo.Tokens 中无相应 token 时，不设置 msg_id / event_id，即为主动消息。
 func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.Message {
 	dtoMsg := &dto.Message{}
@@ -621,13 +634,11 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		}
 	}
 
-	// 回复消息 ID（msg_id）：被动回复授权 token（message-based）
-	// 优先级：msg.ReplyToID（手动设置）> chat.Tokens[TokenMsgID]（框架从 C2C/Group 消息事件自动填充）
-	resolvedMsgID := msg.ReplyToID
-	if resolvedMsgID == "" {
-		resolvedMsgID = chat.Tokens[TokenMsgID]
-	}
-	if resolvedMsgID != "" {
+	// msg_id：被动回复授权 token（message-based），只取事件自动填充的授权
+	//（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 的 d.id）。
+	// 注意：不再用 msg.ReplyToID 充当 msg_id——ReplyToID 是引用目标
+	//（REFIDX_...，展示气泡），不是本条被动消息的授权；两者已解耦。
+	if resolvedMsgID := chat.Tokens[TokenMsgID]; resolvedMsgID != "" {
 		dtoMsg.MessageID = dto.EventID(resolvedMsgID)
 	}
 
@@ -658,6 +669,28 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		dtoMsg.MessageID = ""
 	}
 
+	// 引用回复：设置 MessageReference（展示被引用消息气泡），与被动授权无关
+	// （对齐频道的 buildGuildDTOMessage）。取值应为 REFIDX_...：引用用户消息时
+	// 来自事件 message_scene.ext 的 msg_idx/ref_msg_idx（入站 reply 段解析值）；
+	// 引用机器人自己的消息时来自发送响应 ext_info.ref_idx（见 SendResult.RefIDX）。
+	// 真机验证（2026-09）：被动回复（msg_id）+ message_reference 可同时携带，
+	// 文本 / Markdown / 媒体 / 图文混排均正常。
+	//
+	// 优先级：显式 ReplyToID（reply 段 / 手动 WithReply）> QuoteTrigger
+	// （引用触发消息自身：解析事件 msg_idx → TokenQuoteID，见 populateC2C /
+	// populateGroupAt）。事件未提供可引用的 msg_idx 时（如主动消息）QuoteTrigger
+	// 静默不生效；召回消息（IsWakeup）不携带来源引用。
+	quoteID := msg.ReplyToID
+	if quoteID == "" && msg.QuoteTrigger && !extra.IsWakeup {
+		quoteID = chat.Tokens[TokenQuoteID]
+	}
+	if quoteID != "" {
+		dtoMsg.MessageReference = &dto.MessageReference{
+			MessageID:             quoteID,
+			IgnoreGetMessageError: true,
+		}
+	}
+
 	// 操作按钮与提示键盘：与 keyboard 字段相互独立，msg_type 保持原样。
 	dtoMsg.ActionButton = extra.ActionButton
 	dtoMsg.PromptKeyboard = extra.PromptKeyboard
@@ -670,7 +703,8 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 // QQ 的文本接口支持内联 AT 标签（<qqbot-at-user id="..."/>），因此文本/at
 // 可以保序交错进 Content；媒体取首个（QQ 单媒体限制）；富媒体消息（msg_type=7）
 // 支持携带 content，文本/at 折叠后可与图片在同一条消息展示（2026-09 真机验证）；
-// reply 段 → ReplyToID（复用既有"引用即被动回复 msg_id / 频道 MessageReference"逻辑）；
+// reply 段 → ReplyToID（Sender 统一映射 message_reference 引用气泡，
+// 见 buildDTOMessage / buildGuildDTOMessage；被动授权仍由事件 Tokens 提供）；
 // 按钮不参与段路径（QQ 按钮不可与正文混排，降级处理）。
 func qqSegmentsToFlat(msg platform.OutboundMessage) platform.OutboundMessage {
 	segs := msg.Segments
