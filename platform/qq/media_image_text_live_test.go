@@ -3,8 +3,9 @@
 // 真机验证：QQ 富媒体消息（msg_type=7）能否与 content 同时携带，实现"图片+文字一条消息"。
 //
 // 背景：
-//   - sender.go 的 qqSegmentsToFlat / sendMediaMessage 长期按"富媒体不可混排文本"处理：
-//     单聊（C2C）直接把 dtoMsg.Content 清空，群聊仅在正文为空时补一个空格占位。
+//   - sender.go 的 qqSegmentsToFlat / sendMediaMessage 曾按"富媒体不可混排文本"处理：
+//     单聊（C2C）直接把 dtoMsg.Content 清空；群聊为满足早期文档标注的 content 必填，
+//     在正文为空时补空格占位（2026-09 已随文档更新去掉，纯图直接省略 content）。
 //   - 真机验证（2026-09，C2C/群聊）结论：msg_type=7 可同时携带 media 与 content，QQ 端
 //     会把图片与正文渲染在同一条消息里。官方文档只给
 //     {"msg_type":7,"media":{"file_info":"..."}} 示例，因此保留三种载荷作为回归对照。

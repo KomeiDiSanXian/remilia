@@ -3,6 +3,7 @@ package qq
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -726,8 +727,9 @@ func TestSendTextImage_GroupKeepsContent(t *testing.T) {
 	assert.Nil(t, fake.chatMsg.Markdown, "正文已放入 content，不应残留 markdown 载荷")
 }
 
-// TestSendImageOnly_MediaMessageContent 覆盖纯图片消息的 content 兜底规则：
-// 单聊省略 content（官方示例形态，纯图可发），群聊补空格（文档标注必填）。
+// TestSendImageOnly_MediaMessageContent 覆盖纯图片消息的 content 规则：
+// 单聊与群聊均省略 content（官方富媒体示例形态）。群聊曾因早期文档标注 content
+// 必填而补空格，2026-09 真机验证省略后发送正常，且不再产生图片下方的多余空格。
 func TestSendImageOnly_MediaMessageContent(t *testing.T) {
 	t.Run("单聊省略content", func(t *testing.T) {
 		fake := &fakeC2CMediaAPI{}
@@ -743,7 +745,7 @@ func TestSendImageOnly_MediaMessageContent(t *testing.T) {
 		assert.Empty(t, fake.chatMsg.Content, "单聊纯图片消息不携带 content")
 	})
 
-	t.Run("群聊空格兜底", func(t *testing.T) {
+	t.Run("群聊省略content", func(t *testing.T) {
 		fake := &fakeChunkedAPI{}
 		s := NewSender(fake)
 		_, err := s.Send(context.Background(), platform.SendRequest{
@@ -754,7 +756,10 @@ func TestSendImageOnly_MediaMessageContent(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, fake.chatMsg)
-		assert.Equal(t, " ", fake.chatMsg.Content, "群聊 content 必填，空正文用空格兜底")
+		assert.Empty(t, fake.chatMsg.Content, "群聊纯图片消息不再补空格占位，直接省略 content")
+		data, err := json.Marshal(fake.chatMsg)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), `"content"`, "序列化后不应出现 content 字段")
 	})
 }
 

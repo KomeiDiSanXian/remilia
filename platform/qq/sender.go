@@ -343,14 +343,13 @@ func (s *qqSender) sendMediaMessage(ctx stdctx.Context, chat platform.ChatInfo, 
 	// 富媒体消息不支持按钮，去掉以免服务端拒绝整条消息。
 	dtoMsg.Keyboard = nil
 
-	// 真机验证（2026-09，C2C）：msg_type=7 可同时携带 media 与 content，
+	// 真机验证（2026-09，C2C/群聊）：msg_type=7 可同时携带 media 与 content，
 	// QQ 客户端会把图片与正文渲染在同一条消息里。此前单聊一律清空 content，
 	// 导致"图片+文字"场景的文字被吞掉，这里不再清空。
-	// 群聊接口 content 字段被文档标注为必填：纯图片无正文时补空格兜底
-	// （正文为空时省略 content 字段可能被群聊接口拒绝）。
-	if dtoMsg.Content == "" && chat.IsGroup {
-		dtoMsg.Content = " "
-	}
+	// 纯图片无正文时直接省略 content（官方富媒体示例即不带 content）。早期文档
+	// 把群聊 content 标注为必填，曾用空格占位兜底，但真机验证（2026-09）显示
+	// content:" " 会让 QQ 端在图片下方渲染出多余空格，且省略 content 后群聊
+	// 纯图（含带 message_reference 的被动回复）均发送正常，故不再补空格。
 
 	var sendResult gjson.Result
 	var err error
