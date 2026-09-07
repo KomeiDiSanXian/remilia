@@ -122,6 +122,9 @@ func TestBot_ClearSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	tb.SendPlatformGroupAt("u1", "g1", "/hi")
+	// Reply 经 Engine 的 OutboundDispatcher 异步发送（独立 worker goroutine），
+	// 必须先等待发送任务执行完再 Clear，否则可能与其竞态（CI 偶发 got 1）。
+	tb.WaitForDispatcher()
 	tb.SenderAPI().Clear()
 	if got := len(tb.SenderAPI().Sent()); got != 0 {
 		t.Errorf("expected 0 sent messages after clear, got %d", got)
