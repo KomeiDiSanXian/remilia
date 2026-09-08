@@ -6,6 +6,52 @@ import (
 	"strings"
 )
 
+// mdLinkHref 生成 Markdown 链接的 href：转义裸括号。
+//
+// booru 图床 URL（如 Konachan 的文件名）可能含 "(" / ")"，在
+// [text](url) 中未转义的 ")" 会提前截断链接目标，剩余部分被当作
+// 正文渲染出来（链接失效 + 刷屏）。括号是 URL 中的合法字符，按
+// RFC 3986 percent-encode 为 %28 / %29 后语义不变，且所有渲染器安全。
+func mdLinkHref(url string) string {
+	r := strings.NewReplacer("(", "%28", ")", "%29")
+	return r.Replace(url)
+}
+
+// formatPostCard 将单个作品格式化为"图片卡片"信息块：
+// 无序号（每条消息只承载一张图，序号无意义）、紧凑分隔，
+// 供 Markdown 图文同条路径使用（图片由平台侧置于消息顶部）。
+func formatPostCard(p picPost) string {
+	var b strings.Builder
+
+	// 标题行：站点 + 评分 + 画师
+	fmt.Fprintf(&b, "**[%s]** 评分 `%d`", p.SiteName, p.Score)
+	if p.Author != "" {
+		fmt.Fprintf(&b, " · 画师 **%s**", p.Author)
+	}
+	b.WriteString("\n")
+
+	// 标签（限长展示）
+	if len(p.Tags) > 0 {
+		tags := p.Tags
+		if len(tags) > 12 {
+			tags = tags[:12]
+		}
+		b.WriteString("`" + strings.Join(tags, "` `") + "`\n")
+	}
+
+	// 来源链接与原图（均为可点击链接，避免裸 URL 刷屏）
+	source := p.Source
+	if source != "" && !strings.HasPrefix(source, "http") {
+		source = "https://" + strings.TrimPrefix(source, "//")
+	}
+	if source != "" {
+		b.WriteString("[来源](" + mdLinkHref(source) + ")  |  ")
+	}
+	b.WriteString("[原图](" + mdLinkHref(p.FileURL) + ")")
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // formatPostMD 将单个作品格式化为 Markdown 信息块。
 func formatPostMD(p picPost, num int) string {
 	var b strings.Builder
@@ -26,14 +72,15 @@ func formatPostMD(p picPost, num int) string {
 		b.WriteString("`" + strings.Join(tags, "` `") + "`\n")
 	}
 
-	// 来源链接
+	// 来源链接与原图（均为可点击链接，避免裸 URL 刷屏）
 	source := p.Source
-	if source == "" {
-		source = "无来源"
-	} else if !strings.HasPrefix(source, "http") {
+	if source != "" && !strings.HasPrefix(source, "http") {
 		source = "https://" + strings.TrimPrefix(source, "//")
 	}
-	fmt.Fprintf(&b, "[来源](%s)  |  原始图: %s\n", source, p.FileURL)
+	if source != "" {
+		b.WriteString("[来源](" + mdLinkHref(source) + ")  |  ")
+	}
+	b.WriteString("[原始图](" + mdLinkHref(p.FileURL) + ")\n")
 
 	return strings.TrimRight(b.String(), "\n")
 }

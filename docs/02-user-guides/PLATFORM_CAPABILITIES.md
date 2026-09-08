@@ -83,3 +83,9 @@
 
 > 注：Capabilities 为适配器声明，可能与实际运行环境（如 QQ 官方 bot 的权限）
 > 有出入；`Has()` 检查与 `Get*` 接口检查应结合使用。
+>
+> Markdown 平台的"Markdown + 附件"同条消息由 sender 层负责落地：
+> Telegram/Discord/终端将 Markdown 文本作为 caption/content 渲染；
+> QQ 官方将图片以原生 markdown 图片语法内嵌（本地图片先经分片上传换取
+> 公网 `raw_url`，markdown 权限缺失时回退 msg_type=7 富媒体图文混排）；
+> Satori 在发送前通过 `upload.create` 上传二进制附件并回填 `<img>` 元素。

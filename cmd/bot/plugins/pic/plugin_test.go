@@ -186,7 +186,10 @@ func TestFormatResults(t *testing.T) {
 	assert.Contains(t, md, "🖼 随机图片 *1* 张（来自 Konachan）")
 	assert.Contains(t, md, "画师: **zun**")
 	assert.Contains(t, md, "[来源](https://twitter.com/zun)")
-	assert.Contains(t, md, "https://konachan.com/image/1.jpg")
+	assert.Contains(t, md, "[原始图](https://konachan.com/image/1.jpg)",
+		"原始图应为可点击链接而非裸 URL")
+	assert.NotContains(t, md, "[原始图](https://konachan.com/image/1.jpg)\n原图",
+		"不应再有裸 URL 行")
 
 	text := formatResultsText("Konachan", posts)
 	assert.Contains(t, text, "随机图片 1 张（来自 Konachan）")
@@ -210,6 +213,34 @@ func TestFormatPostSourceURLNormalization(t *testing.T) {
 	}
 	out := formatPostText(post, 1)
 	assert.Contains(t, out, "https://twitter.com/zun")
+}
+
+func TestFormatPostMDLinks(t *testing.T) {
+	// 常规来源：来源与原始图均为链接
+	post := picPost{Source: "https://twitter.com/zun", FileURL: "https://konachan.net/a.png"}
+	md := formatPostMD(post, 1)
+	assert.Contains(t, md, "[来源](https://twitter.com/zun)  |  [原始图](https://konachan.net/a.png)")
+
+	// 无来源：只渲染原始图链接，不出现空链接
+	post.Source = ""
+	md = formatPostMD(post, 1)
+	assert.NotContains(t, md, "[来源]()")
+	assert.Contains(t, md, "[原始图](https://konachan.net/a.png)")
+
+	// 协议相对来源补全 https
+	post.Source = "//twitter.com/zun"
+	md = formatPostMD(post, 1)
+	assert.Contains(t, md, "[来源](https://twitter.com/zun)")
+}
+
+// TestMdLinkHrefParensEscaped URL 中的裸括号会被 Markdown 链接解析截断，
+// 必须 percent-encode（RFC 3986 合法，语义不变）。
+func TestMdLinkHrefParensEscaped(t *testing.T) {
+	in := "https://konachan.net/image/abc/Foo_(series)%20bar.png"
+	assert.Equal(t,
+		"https://konachan.net/image/abc/Foo_%28series%29%20bar.png",
+		mdLinkHref(in))
+	assert.Equal(t, "https://x/plain.png", mdLinkHref("https://x/plain.png"))
 }
 
 func TestSendPicCompressionConfig(t *testing.T) {

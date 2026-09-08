@@ -377,18 +377,24 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 	return nil
 }
 
-// sendPicResult 并发下载并发送图片结果。
+// sendPicResult 下载并发送图片结果。
 //
-// 发送策略：
-//   - 支持图文同发（CapCaption）的平台：图片附件 + 单条作品信息 caption 一条消息
-//   - 其他平台（不支持图文同发）：图片逐张单独发，作品信息汇总一条
-//     （Markdown 优先，纯文本降级）
+// 发送策略（按平台能力从高到低回退）：
+//  1. CapMarkdown：每张图一条消息 = 图片附件 + Markdown 作品信息
+//     （来源/原图为可点击链接，信息与图同条，不刷屏）。
+//     平台对 Markdown+附件组合的处理：
+//     - Telegram/Discord/终端：文本作为 caption/content 与附件同条渲染
+//     - QQ 官方：图片以原生 markdown 图片语法内嵌（sender 层负责上传换 URL）
+//     - Satori：附件先经 upload.create 上传，文本与 <img> 元素同条
+//  2. CapCaption：每张图一条消息 = 图片 + 纯文本作品信息（图文同发）
+//  3. 都不支持：图片逐张单独发 + 一条纯文本汇总
 //
 // 多张图片时并发处理（受 max_count 钳制，默认 ≤3），完成后按原顺序发送。
 // 单张图的"下载+压缩"受全局信号量限流（见 processPic），压缩在信号量内
 // 完成后只保留最终附件字节，原始下载缓冲随处理结束即被回收。
 func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s site, posts []picPost) {
 	caps := ctx.GetPlatformCapabilities()
+	mdOK := caps.Has(platform.CapMarkdown)
 	captionOK := caps.Has(platform.CapCaption)
 	referer := "https://" + s.Domain + "/"
 
@@ -407,23 +413,37 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 	}
 	wg.Wait()
 
-	for i, res := range results {
-		if res.att == nil {
-			continue
-		}
-		if captionOK {
-			ctx.Reply(platform.TextMessage(formatPostText(res.post, i+1)).WithAttachments(*res.att))
-		} else {
+	// summary 之后的每张图都独立发送（纯文本汇总路径共用）
+	sendImages := func() {
+		for _, res := range results {
+			if res.att == nil {
+				continue
+			}
 			ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{*res.att}})
 		}
 	}
 
-	if !captionOK {
-		if caps.Has(platform.CapMarkdown) {
-			ctx.Reply(platform.MarkdownMessage(formatResultsMD(s.DisplayName, posts)))
-		} else {
-			ctx.Reply(platform.TextMessage(formatResultsText(s.DisplayName, posts)))
+	switch {
+	case mdOK:
+		// 每张图一条：图片 + Markdown 作品信息同条发送（图片置顶，信息在下）
+		for _, res := range results {
+			if res.att == nil {
+				continue
+			}
+			ctx.Reply(platform.OutboundMessage{Markdown: formatPostCard(res.post)}.
+				WithAttachments(*res.att))
 		}
+	case captionOK:
+		// 图文同发：每张图带自己的纯文本作品信息
+		for i, res := range results {
+			if res.att == nil {
+				continue
+			}
+			ctx.Reply(platform.TextMessage(formatPostText(res.post, i+1)).WithAttachments(*res.att))
+		}
+	default:
+		sendImages()
+		ctx.Reply(platform.TextMessage(formatResultsText(s.DisplayName, posts)))
 	}
 }
 
