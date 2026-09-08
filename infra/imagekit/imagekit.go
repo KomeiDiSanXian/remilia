@@ -27,12 +27,25 @@ const DefaultMaxBytes int64 = 5 * 1024 * 1024
 // DefaultMaxDimension 发送前图片最长边上限（像素）。
 const DefaultMaxDimension = 4096
 
+// DefaultMaxDecodeBytes 解码像素缓冲的默认预算（字节）。
+//
+// 图片解码为 RGBA 后约占 width×height×4 字节，一张 8000×8000 的图就是
+// 256MB——这是压缩路径上最大的瞬时内存开销。预估解码体积超过预算的图
+// 跳过重编码（原样返回），把峰值内存约束在可控范围内。
+// 128MB ≈ 5760×5760，已覆盖 MaxDimension=4096 所需的最大工作区。
+const DefaultMaxDecodeBytes int64 = 128 * 1024 * 1024
+
 // Options 控制图片压缩行为。
 type Options struct {
 	// MaxBytes 输出体积上限（字节），<=0 表示不限制体积。
 	MaxBytes int64
 	// MaxDimension 输出最长边上限（像素），<=0 表示不限制边长。
 	MaxDimension int
+	// MaxDecodeBytes 解码像素缓冲预算（字节）：预估解码体积
+	// （width×height×4）超过该值时跳过重编码，原样返回。
+	// 0 = 使用 DefaultMaxDecodeBytes；负值 = 不限制（不推荐，
+	// 超大尺寸图会产生数百 MB 的瞬时内存峰值）。
+	MaxDecodeBytes int64
 }
 
 // Result 压缩结果。
@@ -64,6 +77,9 @@ func Compress(data []byte, mime string, opts Options) Result {
 		return Result{Data: data, Mime: mime}
 	}
 	if isGIF(data, mime) {
+		return Result{Data: data, Mime: mime}
+	}
+	if exceedsDecodeBudget(data, decodeBudget(opts.MaxDecodeBytes)) {
 		return Result{Data: data, Mime: mime}
 	}
 
@@ -108,6 +124,32 @@ func isGIF(data []byte, mime string) bool {
 		return true
 	}
 	return bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
+}
+
+// decodeBudget 解析 Options.MaxDecodeBytes：0 = 默认预算，负值 = 不限制（返回 0）。
+func decodeBudget(v int64) int64 {
+	switch {
+	case v < 0:
+		return 0
+	case v == 0:
+		return DefaultMaxDecodeBytes
+	default:
+		return v
+	}
+}
+
+// exceedsDecodeBudget 报告图片解码后的像素缓冲预估体积（width×height×4）
+// 是否超过预算。仅读取图片头（DecodeConfig），不解码像素，本身开销可忽略。
+// 头部解析失败时视为未超限（交给后续解码失败路径兜底）。
+func exceedsDecodeBudget(data []byte, budget int64) bool {
+	if budget <= 0 {
+		return false
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	return int64(cfg.Width)*int64(cfg.Height)*4 > budget
 }
 
 // scale 将图片缩放为指定尺寸（双线性插值）。

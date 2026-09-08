@@ -121,6 +121,56 @@ func TestCompress_DisabledUnchanged(t *testing.T) {
 	assert.True(t, slicesShareBacking(data, res.Data))
 }
 
+func TestCompress_DecodeBudgetExceededUnchanged(t *testing.T) {
+	// 600×600 解码需 1.4MB，预算 1MB 时应跳过重编码，控制瞬时内存峰值
+	data := makeNoisePNG(t, 600, 600)
+	require.Greater(t, len(data), 512*1024, "前提：噪声 PNG 应超体积阈值")
+
+	res := Compress(data, "image/png", Options{
+		MaxBytes:       512 * 1024,
+		MaxDimension:   256,
+		MaxDecodeBytes: 1024 * 1024,
+	})
+	assert.False(t, res.Reencoded, "超出解码预算应跳过重编码")
+	assert.True(t, slicesShareBacking(data, res.Data))
+	assert.Equal(t, "image/png", res.Mime)
+}
+
+func TestCompress_DecodeBudgetWithinCompressed(t *testing.T) {
+	// 同样的图，预算放宽到 2MB（>1.4MB）时应正常压缩
+	data := makeNoisePNG(t, 600, 600)
+
+	res := Compress(data, "image/png", Options{
+		MaxBytes:       512 * 1024,
+		MaxDimension:   256,
+		MaxDecodeBytes: 2 * 1024 * 1024,
+	})
+	assert.True(t, res.Reencoded)
+	assert.LessOrEqual(t, len(res.Data), 512*1024)
+}
+
+func TestCompress_DecodeBudgetUnlimited(t *testing.T) {
+	// 负值 = 显式关闭预算限制，行为与引入预算前一致
+	data := makeNoisePNG(t, 600, 600)
+
+	res := Compress(data, "image/png", Options{
+		MaxBytes:       512 * 1024,
+		MaxDimension:   256,
+		MaxDecodeBytes: -1,
+	})
+	assert.True(t, res.Reencoded)
+}
+
+func TestCompress_DefaultDecodeBudgetCoversMaxDimension(t *testing.T) {
+	// 默认预算必须覆盖 MaxDimension=4096 所需的最大解码工作区（67MB）
+	data := makeNoisePNG(t, 2048, 2048) // 解码需 16MB < 128MB 默认预算
+	require.Greater(t, len(data), 1024*1024)
+
+	res := Compress(data, "image/png", Options{MaxBytes: 1024 * 1024, MaxDimension: 1024})
+	assert.True(t, res.Reencoded, "默认预算下的常规大图应正常压缩")
+	assert.LessOrEqual(t, len(res.Data), 1024*1024)
+}
+
 func TestDefaults(t *testing.T) {
 	// 生产参数：超过 5MB 才压缩，最长边上限 4096
 	assert.Equal(t, int64(5*1024*1024), DefaultMaxBytes)
