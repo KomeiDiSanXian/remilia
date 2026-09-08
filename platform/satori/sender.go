@@ -1,6 +1,7 @@
 package satori
 
 import (
+	"bytes"
 	stdctx "context"
 	"encoding/json"
 	"fmt"
@@ -53,7 +54,12 @@ func (s *satoriSender) Send(ctx stdctx.Context, req platform.SendRequest) (platf
 		return platform.SendResult{}, err
 	}
 
-	content := EncodeOutboundMessage(req.Message)
+	msg := req.Message
+	if err := s.uploadDataAttachments(ctx, &msg); err != nil {
+		return platform.SendResult{}, err
+	}
+
+	content := EncodeOutboundMessage(msg)
 
 	createReq := MessageCreateRequest{
 		ChannelID: req.Target.ID,
@@ -80,6 +86,58 @@ func (s *satoriSender) Send(ctx stdctx.Context, req platform.SendRequest) (platf
 		}
 	}
 	return result, nil
+}
+
+// uploadDataAttachments 通过 upload.create API 上传仅含二进制数据的附件，
+// 把返回的平台 URL 回填到 Attachment.URL，使附件能被编码为
+// <img>/<audio>/<video>/<file> 元素。
+//
+// 此前 Data-only 附件在 EncodeOutboundMessage 中被静默跳过——消息正常发出
+// 但附件丢失且无任何错误上报，调用方无从察觉。FileUpload 能力声明为 true，
+// 这里补上缺失的上传链路。上传失败时返回错误（不再静默丢图）。
+func (s *satoriSender) uploadDataAttachments(ctx stdctx.Context, msg *platform.OutboundMessage) error {
+	// 先找出需要上传的附件，按 multipart name 顺序命名（返回字典以 name 为键）
+	var pending []int
+	for i, att := range msg.Attachments {
+		if len(att.Data) > 0 && att.URL == "" {
+			pending = append(pending, i)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	files := make([]UploadFile, len(pending))
+	for j, i := range pending {
+		att := msg.Attachments[i]
+		name := att.Name
+		if name == "" {
+			name = fmt.Sprintf("upload_%d", j)
+		}
+		contentType := att.MimeType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		files[j] = UploadFile{
+			Name:        fmt.Sprintf("file_%d", j),
+			Filename:    name,
+			ContentType: contentType,
+			Data:        bytes.NewReader(att.Data),
+		}
+	}
+
+	urls, err := s.client.UploadCreate(ctx, files...)
+	if err != nil {
+		return fmt.Errorf("satori: 附件上传失败: %w", err)
+	}
+
+	for j, i := range pending {
+		key := fmt.Sprintf("file_%d", j)
+		if url, ok := urls[key]; ok && url != "" {
+			msg.Attachments[i].URL = url
+		}
+	}
+	return nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

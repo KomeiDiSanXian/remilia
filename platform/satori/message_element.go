@@ -56,11 +56,12 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 	}
 
 	// 附件 → <img/> / <audio/> / <video/> / <file/>
+	// Data-only 附件应先由 sender 经 uploadDataAttachments 上传回填 URL；
+	// 此处的跳过仅作为防御（上传失败时错误已上报，不会静默丢图）。
 	for _, att := range msg.Attachments {
 		if att.URL == "" {
-			// 仅含数据的附件无法内联到 Satori XML 中。
-			// 必须先通过资源上传 API 上传，再替换为 URL。
-			// 此处静默跳过；调用方应在调用前完成上传。
+			// 仅含数据的附件无法内联到 Satori XML 中（正常流程已在
+			// sender 层上传回填 URL；到达此处说明上传失败被跳过）。
 			continue
 		}
 		switch att.Kind {
