@@ -91,6 +91,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	maxDepth := p.cfg.MaxDepth
 
 	cs := &captureSender{}
+	// 模型直接输出的附件（原生图像输出等多模态响应）跨轮次累积，
+	// 最终与工具捕获的附件合并后随回复发送。
+	provAttachments := make([]platform.Attachment, 0, 4)
 	// 消息发送预算：一次运行内 send_message/send_to 的总发送次数上限，
 	// 跨工具调用共享（含并行路径），超限报错回填给模型。
 	budget := &sendBudget{limit: p.cfg.MaxSendsPerRound}
@@ -135,7 +138,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 
 		// 中断检查点：用户新消息抢占时，未开始的轮次直接收尾。
 		if session.Interrupted() {
-			return &ChatResult{Text: cs.capturedText}, nil
+			return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, nil
 		}
 
 		session.Lock()
@@ -189,9 +192,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			cancel()
 			if session.Interrupted() {
 				// 主动停止：流尚未产生任何内容，按已捕获内容收尾，不报错。
-				return &ChatResult{Text: cs.capturedText, Attachments: cs.capturedAttachments}, nil
+				return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, nil
 			}
-			return &ChatResult{Text: cs.capturedText}, fmt.Errorf("chat stream: %w", err)
+			return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
 		}
 
 		var fullResponse strings.Builder
@@ -206,6 +209,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			case StreamEventToolCall:
 				if event.ToolCall != nil && event.ToolCall.Name != "" {
 					toolCalls = append(toolCalls, *event.ToolCall)
+				}
+			case StreamEventAttachment:
+				if event.Attachment != nil {
+					provAttachments = append(provAttachments, *event.Attachment)
 				}
 			case StreamEventError:
 				// 部分 provider（如 Anthropic）在流被取消时会以错误事件收尾：
@@ -230,7 +237,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			if text == "" {
 				text = cs.capturedText
 			}
-			return &ChatResult{Text: text, Attachments: cs.capturedAttachments}, nil
+			return &ChatResult{Text: text, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)}, nil
 		}
 		if streamErr != nil {
 			return &ChatResult{Text: cs.capturedText}, streamErr
@@ -262,7 +269,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			}
 			return &ChatResult{
 				Text:        responseText,
-				Attachments: cs.capturedAttachments,
+				Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments),
 			}, nil
 		}
 
@@ -314,7 +321,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			if fails > p.effectiveToolRetryLimit() {
 				msg := buildRetryAbortMessage(tc.Name, fails, toolResult)
 				p.sm.AppendMessage(session, Message{Role: RoleUser, Content: msg})
-				return &ChatResult{Text: msg, Attachments: cs.capturedAttachments}, nil
+				return &ChatResult{Text: msg, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)}, nil
 			}
 			if fails >= 2 {
 				p.sm.AppendMessage(session, buildReflectionMessage(tc.Name, fails, toolResult))
@@ -328,7 +335,17 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		}
 	}
 
-	return &ChatResult{Text: cs.capturedText}, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+	return &ChatResult{Text: cs.capturedText, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)},
+		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+}
+
+// mergeChatAttachments 合并工具捕获附件与模型直接输出的附件（保持顺序）。
+func mergeChatAttachments(groups ...[]platform.Attachment) []platform.Attachment {
+	var out []platform.Attachment
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
 }
 
 // recordToolTrace 记录一次工具调用的追踪信息（耗时、参数摘要、失败标记）。
