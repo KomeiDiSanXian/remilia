@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.59.0 (2026-09-08)
+
+### 🖼 AI 插件：模型多模态输出（图片附件）不再静默丢失
+
+- **根因**：`ChatResponse` 只有 `Content string` 字段，模型在响应中直接
+  返回的图片（原生图像输出模型，如"画一个苹果给我看"）被静默丢弃：
+  OpenAI 端 `openaiMessageContent.String()` 只取 content 的 text 字段，
+  Anthropic 端只拼接 `type=text` 的 content block——不报错、不留日志
+- **修复**（provider 层）：
+  - `ChatResponse` 新增 `Attachments []platform.Attachment`，
+    `StreamEvent` 新增 `StreamEventAttachment` 事件类型
+  - OpenAI：非流式/流式均解析 content 数组中的 `image_url` 片段；
+    data URI 解码为二进制直传，http(s) URL 透传给平台；另支持
+    OpenRouter 风格的 `delta.images` 补充通道
+  - Anthropic：非流式解析 `image` content block；流式在
+    `content_block_start`（type=image，一次性携带完整 base64）发出附件
+  - data URI / 远程 URL 解析失败时静默跳过（与入站附件下载同策略）
+- **修复**（编排层）：`processWithTools` 收集附件事件并跨轮次累积，
+  与工具捕获的附件合并进最终 `ChatResult`（含中断/重试中止等全部
+  收尾路径），经 handler 既有的附件发送通道随回复发给用户
+- **附带修复**：`openaiMessageContent.String()` 原先对数组格式 content
+  连文字都返回空串（多模态响应的文字部分同样丢失），现在拼接全部
+  text 片段；`UnmarshalJSON` 容错个别兼容网关以单对象（非数组）返回
+  多模态 content 的情况
+- **回归**：`output_attachment_test.go` 覆盖 data URI/URL 转换、
+  OpenAI/Anthropic 非流式与流式图片输出、编排层附件收集共 7 个用例
+
 ## v1.58.0 (2026-09-08)
 
 ### 🖼 pic 插件：Markdown 图文卡片 + 内存治理
