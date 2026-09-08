@@ -1,5 +1,57 @@
 # Changelog
 
+## v1.58.0 (2026-09-08)
+
+### 🖼 pic 插件：Markdown 图文卡片 + 内存治理
+
+- **Markdown 图文卡片**（`cmd/bot/plugins/pic`）：`/pic` 改为每张图一条
+  消息 = 图片 + Markdown 作品信息（来源/原图为可点击链接，替代裸 URL
+  刷屏）。按平台能力回退：`CapMarkdown` 图文卡片 → `CapCaption` 图文同发
+  （纯文本）→ 纯文本汇总。卡片无序号、图片置顶、紧凑分隔
+- **内存治理**（大量用户并发触发 /pic 时 RSS 从 ~96MB 冲到 4GB+ 的根因）：
+  - `infra/imagekit`：新增解码预算 `Options.MaxDecodeBytes`（默认 128MB），
+    解码前 `DecodeConfig` 只读图片头，预估像素缓冲超预算的图跳过重编码。
+    实测 8000×8000 PNG 单次 Compress 分配从 1375MB（×776）降到 ~0
+  - 下载上限 20MB → 64MB：超大但合法的图（如 konachan 大尺寸 PNG）改为
+    "下载后压缩再发送"；体积判定改为读后判定（读 maxBytes+1 字节），
+    修复 chunked 响应无 Content-Length 时漏判、截断数据当成功返回的隐患
+  - 全局信号量 `download_concurrency`（默认 4，钳制 1..16）约束"下载+压缩"
+    流水线：瞬时峰值 = 并发数 × 单图峰值，不随命令并发数线性增长
+
+### 🖼 QQ 官方：Markdown 图文同条（msg_type=2 内嵌图片）
+
+- **根因**：QQ 官方 API 的 Markdown（msg_type=2）与富媒体（msg_type=7）
+  是互斥的消息类型，`Markdown` 字段 + 图片附件此前走富媒体路径导致
+  Markdown 被丢弃
+- **实现**（`platform/qq/sender.go`）：图片以原生 markdown 图片语法
+  `![image #宽px #高px](公网URL)` 内嵌，正文按 Markdown 渲染：
+  - 本地图片强制走分片上传换取合并响应的 `raw_url`（COS 预签名公网
+    URL，URL 直传接口不返回公网链接）
+  - **对象 Content-Type 修复**：分片 PUT 此前不带 Content-Type，COS 默认
+    存为 application/octet-stream，QQ 转存/渲染失败且静默（破损图片图标，
+    官方 `force_verify_image_resource` 默认关闭）。现按"魔数嗅探 → 附件
+    MIME → 类型兜底"写入真实类型（预签名 URL 仅签 host 头，附加
+    Content-Type 不破坏签名）；真机验证修复前破损、修复后正常
+  - 图片显示尺寸从附件头部解出（DecodeConfig，最长边缩放到 600px）——
+    原生 markdown 图片缺 `#宽px #高px` 尺寸参数时图片不渲染
+  - Markdown 发送失败（如无 markdown 权限 304036）回退 msg_type=7
+    富媒体图文混排，正文降级为可读纯文本（`plainTextFromMarkdown`），
+    图片与信息不丢失
+
+### 🔧 Satori：修复二进制附件静默丢图（存量问题）
+
+- 此前 sender 直接编码发送，Data-only 附件在 `EncodeOutboundMessage` 中
+  被静默跳过（无 URL）：消息正常发出但附件丢失且无任何错误
+- 现在 Send 前经 `upload.create` 上传并回填 `Attachment.URL`，以
+  `<img>` 等元素随消息同条发送；上传失败显式报错；URL 附件不触发上传
+
+### 📚 文档
+
+- `PLATFORM_CAPABILITIES.md`：补充 Markdown 平台"Markdown + 附件"同条
+  消息的各平台落地方式说明
+- `APP_PLUGINS.md`：pic 配置节补充 `download_concurrency`、
+  `send_thumbnail_max_bytes/dimension` 与大图处理说明
+
 ## v1.57.1 (2026-09-07)
 
 ### 🖼 QQ 群聊纯图片：去掉历史空格占位（content 省略）
