@@ -8,12 +8,19 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
@@ -136,7 +143,13 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 
 	// 富媒体优先（QQ 不支持多附件，取第一个）
 	if len(msg.Attachments) > 0 {
-		return s.sendAttachment(ctx, chat, msg, msg.Attachments[0])
+		att := msg.Attachments[0]
+		// Markdown + 图片附件：图片以原生 markdown 图片语法内嵌，
+		// 正文按 Markdown 渲染（图文同条，无需二次上传展示）。
+		if msg.Markdown != "" && att.Kind == platform.AttachmentKindImage {
+			return s.sendMarkdownWithImage(ctx, chat, msg, att)
+		}
+		return s.sendAttachment(ctx, chat, msg, att)
 	}
 
 	dtoMsg := s.buildDTOMessage(msg, chat)
@@ -227,6 +240,17 @@ const chunkedUploadThreshold = 5 * 1024 * 1024 // 5MB
 //
 // 之后复用 sendMediaMessage 发送富媒体消息。
 func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
+	uploadResult, err := s.uploadChunked(ctx, chat, att)
+	if err != nil {
+		return platform.SendResult{}, err
+	}
+	return s.sendMediaMessage(ctx, chat, msg, uploadResult.Get("file_info").String(), uploadResult)
+}
+
+// uploadChunked 执行分片上传的完整四步流程，返回合并（merge）响应——
+// 其中除 file_info 外，图片/视频/语音还携带 raw_url（COS 预签名 GET URL，
+// 公网可访问，有效期与 ttl 一致）。上传完成即返回，不发送消息。
+func (s *qqSender) uploadChunked(ctx stdctx.Context, chat platform.ChatInfo, att platform.Attachment) (gjson.Result, error) {
 	fileType := attachmentKindToFileType(att.Kind)
 	fileMD5 := md5Sum(att.Data)
 	prepareReq := &dto.UploadPrepareRequest{
@@ -248,7 +272,7 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 		prepare, err = s.api.UserUploadPrepare(ctx, chat.ID, prepareReq)
 	}
 	if err != nil {
-		return platform.SendResult{}, platform.NewSendError(
+		return gjson.Result{}, platform.NewSendError(
 			platform.SendErrNetworkError, "qq", chat.ID,
 			fmt.Sprintf("chunked upload prepare failed: %v", err), 0, err,
 		)
@@ -257,11 +281,11 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 	uploadID := prepare.Get("upload_id").String()
 	blockSize := int(prepare.Get("block_size").Int())
 	if blockSize <= 0 {
-		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned invalid block_size (response: %s)", prepare.Raw)
+		return gjson.Result{}, fmt.Errorf("qq sender: chunked upload prepare returned invalid block_size (response: %s)", prepare.Raw)
 	}
 	parts := prepare.Get("parts").Array()
 	if len(parts) == 0 {
-		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned no parts (response: %s)", prepare.Raw)
+		return gjson.Result{}, fmt.Errorf("qq sender: chunked upload prepare returned no parts (response: %s)", prepare.Raw)
 	}
 
 	// 2+3. 分片 PUT + 完成确认
@@ -276,10 +300,10 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 
 		presignedURL := part.Get("presigned_url").String()
 		if presignedURL == "" {
-			return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned part %d without presigned_url (response: %s)", i, prepare.Raw)
+			return gjson.Result{}, fmt.Errorf("qq sender: chunked upload prepare returned part %d without presigned_url (response: %s)", i, prepare.Raw)
 		}
-		if err := putPresignedChunk(ctx, presignedURL, chunk); err != nil {
-			return platform.SendResult{}, platform.NewSendError(
+		if err := putPresignedChunk(ctx, presignedURL, chunkContentType(att), chunk); err != nil {
+			return gjson.Result{}, platform.NewSendError(
 				platform.SendErrNetworkError, "qq", chat.ID,
 				fmt.Sprintf("chunked upload PUT part %d failed: %v", i, err), 0, err,
 			)
@@ -294,7 +318,7 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 			_, err = s.api.UserUploadPartFinish(ctx, chat.ID, finishReq)
 		}
 		if err != nil {
-			return platform.SendResult{}, platform.NewSendError(
+			return gjson.Result{}, platform.NewSendError(
 				platform.SendErrNetworkError, "qq", chat.ID,
 				fmt.Sprintf("chunked upload part_finish %d failed: %v", i, err), 0, err,
 			)
@@ -310,17 +334,189 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 		uploadResult, err = s.api.SingleRichMedia(ctx, chat.ID, merge)
 	}
 	if err != nil {
-		return platform.SendResult{}, platform.NewSendError(
+		return gjson.Result{}, platform.NewSendError(
 			platform.SendErrNetworkError, "qq", chat.ID,
 			fmt.Sprintf("chunked upload merge failed: %v", err), 0, err,
 		)
 	}
 	fileInfo := uploadResult.Get("file_info").String()
 	if fileInfo == "" {
-		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload merge returned empty file_info (response: %s)", uploadResult.Raw)
+		return gjson.Result{}, fmt.Errorf("qq sender: chunked upload merge returned empty file_info (response: %s)", uploadResult.Raw)
 	}
 
-	return s.sendMediaMessage(ctx, chat, msg, fileInfo, uploadResult)
+	return uploadResult, nil
+}
+
+// chunkContentType 返回分片上传对象的 Content-Type。
+// 该类型会存储为 COS 对象元数据，决定 raw_url 下载时的响应 Content-Type
+// （QQ markdown 内嵌图片依赖它被识别为图片）。
+// 判定优先级：二进制魔数嗅探（最可靠，字节就是真相）→ 附件自带 MIME →
+// 按附件类型兜底。
+func chunkContentType(att platform.Attachment) string {
+	if len(att.Data) > 0 {
+		if ct := sniffContentType(att.Data); ct != "" {
+			return ct
+		}
+	}
+	if att.MimeType != "" {
+		return att.MimeType
+	}
+	switch att.Kind {
+	case platform.AttachmentKindImage:
+		return "image/png"
+	case platform.AttachmentKindVideo:
+		return "video/mp4"
+	case platform.AttachmentKindAudio:
+		return "audio/silk"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// sniffContentType 按二进制魔数嗅探常见图片/媒体类型，未知返回空串。
+// 仅凭声明（MIME/扩展名）不可靠——pic 压缩链路就可能把 PNG 转 JPEG。
+func sniffContentType(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G'}):
+		return "image/png"
+	case bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
+		return "image/jpeg"
+	case bytes.HasPrefix(data, []byte("GIF87a")), bytes.HasPrefix(data, []byte("GIF89a")):
+		return "image/gif"
+	case len(data) >= 12 && bytes.Equal(data[0:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")):
+		return "image/webp"
+	case bytes.HasPrefix(data, []byte("BM")):
+		return "image/bmp"
+	case len(data) >= 12 && (bytes.Equal(data[4:8], []byte("ftypavc1")) || bytes.Equal(data[4:8], []byte("ftypisom"))):
+		return "video/mp4"
+	}
+	return ""
+}
+
+// qqMarkdownImageMaxDisplay QQ markdown 内嵌图片的最长显示边（像素）。
+// 原生 markdown 图片语法要求显式尺寸参数（#宽px #高px），按原图比例缩放
+// 到该边长内展示，避免超大图撑爆排版。
+const qqMarkdownImageMaxDisplay = 600
+
+// sendMarkdownWithImage 发送"图片 + Markdown 正文"同条消息（msg_type=2）。
+//
+// QQ 原生 Markdown 支持图片语法 `![text #宽px #高px](公网URL)`，开放平台
+// 会在发送时下载转存该资源。图片链接来源：
+//   - URL 附件：直接嵌入（平台转存）
+//   - Data 附件：URL 直传接口不返回公网链接，强制走分片上传——合并响应
+//     携带 raw_url（COS 预签名 GET URL），可嵌入 markdown
+//
+// Markdown 与富媒体是互斥的 msg_type，file_info 无法直接嵌入 markdown，
+// 因此本地图片必须先上传换取公网 URL。
+// Markdown 发送失败（如未申请 markdown 权限 304036）时回退为
+// msg_type=7 富媒体图文混排，正文降级为纯文本，保证图片与信息不丢失。
+func (s *qqSender) sendMarkdownWithImage(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
+	imgURL := att.URL
+	if imgURL == "" {
+		uploadResult, uerr := s.uploadChunked(ctx, chat, att)
+		if uerr == nil {
+			imgURL = uploadResult.Get("raw_url").String()
+		}
+		if imgURL == "" {
+			// 拿不到公网 URL（上传失败 / 服务端未返回 raw_url）：
+			// 无法内嵌图片，回退富媒体图文路径。
+			return s.sendAttachmentWithPlainText(ctx, chat, msg, att)
+		}
+	}
+
+	// 图片前置、信息在下：与 Telegram/Discord 的 caption 渲染顺序一致
+	md := qqMarkdownImage(att, imgURL) + "\n\n" + msg.Markdown
+	msgMD := msg
+	msgMD.Markdown = md
+	msgMD.Text = ""
+	msgMD.Attachments = nil // 图片已在 markdown 内嵌，避免走富媒体分支
+	dtoMsg := s.buildDTOMessage(msgMD, chat)
+
+	logger.WithFields(logger.Fields{
+		"chat": chat.ID, "group": chat.IsGroup, "image_url": imgURL,
+	}).Debugf("[qq.Sender] sending markdown image message")
+
+	var raw gjson.Result
+	var err error
+	if chat.IsGroup {
+		raw, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
+	} else {
+		raw, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
+	}
+	if err != nil {
+		logger.WithError(err).Warnf(
+			"[qq.Sender] markdown image message failed, falling back to rich media (msg_type=7)")
+		return s.sendAttachmentWithPlainText(ctx, chat, msg, att)
+	}
+	return buildSendResult(raw), nil
+}
+
+// qqMarkdownImage 构造 QQ 原生 markdown 的图片片段。
+//
+// 语法要求显式尺寸参数（社区实测缺 #宽px #高px 时图片不渲染，只有文字/链接），
+// 尺寸按图片真实比例缩放到最长边 qqMarkdownImageMaxDisplay 内。
+// 图片尺寸从附件二进制的头部解出（DecodeConfig 只读文件头，不解码像素）；
+// URL 附件（无本地字节）或无法解析尺寸时退化为无尺寸参数写法。
+func qqMarkdownImage(att platform.Attachment, imgURL string) string {
+	alt := "image"
+	w, h := qqImageDisplaySize(att)
+	if w > 0 && h > 0 {
+		return fmt.Sprintf("![%s #%dpx #%dpx](%s)", alt, w, h, imgURL)
+	}
+	return fmt.Sprintf("![%s](%s)", alt, imgURL)
+}
+
+// qqImageDisplaySize 从附件数据解出图片显示尺寸（最长边缩放到
+// qqMarkdownImageMaxDisplay 内，至少 1px）。无法解析时返回 (0, 0)。
+func qqImageDisplaySize(att platform.Attachment) (w, h int) {
+	if len(att.Data) == 0 {
+		return 0, 0
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(att.Data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0
+	}
+	w, h = cfg.Width, cfg.Height
+	if maxSide := max(w, h); maxSide > qqMarkdownImageMaxDisplay {
+		w = max(1, w*qqMarkdownImageMaxDisplay/maxSide)
+		h = max(1, h*qqMarkdownImageMaxDisplay/maxSide)
+	}
+	return w, h
+}
+
+// sendAttachmentWithPlainText 将 Markdown 正文降级为纯文本后走
+// msg_type=7 富媒体图文混排发送（真机验证 media+content 同条可用）。
+func (s *qqSender) sendAttachmentWithPlainText(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
+	msgFB := msg
+	if msgFB.Text == "" && msgFB.Markdown != "" {
+		msgFB.Text = plainTextFromMarkdown(msgFB.Markdown)
+		msgFB.Markdown = ""
+	}
+	return s.sendAttachment(ctx, chat, msgFB, att)
+}
+
+// markdownLinkRe 匹配 Markdown 链接 [text](url)。
+var markdownLinkRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
+
+// markdownEmphasisRe 匹配行内强调标记（**bold**、*em*、`code`、~~del~~）。
+var markdownEmphasisRe = regexp.MustCompile(`\*\*([^*]+)\*\*|\*([^*]+)\*|` + "`" + `([^` + "`" + `]+)` + "`" + `|~~([^~]+)~~`)
+
+// plainTextFromMarkdown 将 Markdown 正文降级为可读纯文本：
+// 链接转为 "text (url)"，去除强调标记与标题前缀。用于富媒体消息的
+// content（msg_type=7 纯文本，不渲染 Markdown 语法）。
+func plainTextFromMarkdown(md string) string {
+	out := markdownLinkRe.ReplaceAllString(md, "$1 ($2)")
+	out = markdownEmphasisRe.ReplaceAllStringFunc(out, func(m string) string {
+		for _, sub := range markdownEmphasisRe.FindStringSubmatch(m)[1:] {
+			if sub != "" {
+				return sub
+			}
+		}
+		return m
+	})
+	// 标题前缀
+	out = regexp.MustCompile(`(?m)^#{1,6}\s+`).ReplaceAllString(out, "")
+	return strings.TrimSpace(out)
 }
 
 // sendMediaMessage 构建携带 file_info 的 MediaMessage 并发送，返回合并的上传/发送响应。
@@ -367,12 +563,21 @@ func (s *qqSender) sendMediaMessage(ctx stdctx.Context, chat platform.ChatInfo, 
 }
 
 // putPresignedChunk 将单个分片 PUT 到预签名 URL（cos 直传，无需鉴权头）。
-func putPresignedChunk(ctx stdctx.Context, presignedURL string, chunk []byte) error {
-	resp, err := httpclient.Put(presignedURL).
+//
+// contentType 会写入 COS 对象的元数据：预签名 URL 仅签名 host 头
+// （q-header-list=host），附加 Content-Type 不破坏签名。若不设置，
+// COS 默认存为 application/octet-stream——QQ markdown 内嵌图片
+// （sendMarkdownWithImage）依赖合并响应的 raw_url，对象类型不明会导致
+// 转存/渲染失败（客户端显示破损图片），因此必须带上真实类型。
+func putPresignedChunk(ctx stdctx.Context, presignedURL, contentType string, chunk []byte) error {
+	req := httpclient.Put(presignedURL).
 		SetContext(ctx).
 		SetTimeout(chunkPutTimeout).
-		SetBody(bytes.NewReader(chunk)).
-		Do()
+		SetBody(bytes.NewReader(chunk))
+	if contentType != "" {
+		req = req.SetHeader("Content-Type", contentType)
+	}
+	resp, err := req.Do()
 	if err != nil {
 		return err
 	}

@@ -552,7 +552,7 @@ func TestPutPresignedChunk_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := putPresignedChunk(context.Background(), srv.URL, []byte("chunk-data"))
+	err := putPresignedChunk(context.Background(), srv.URL, "application/octet-stream", []byte("chunk-data"))
 	require.NoError(t, err)
 }
 
@@ -562,7 +562,7 @@ func TestPutPresignedChunk_Non2xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := putPresignedChunk(context.Background(), srv.URL, []byte("chunk-data"))
+	err := putPresignedChunk(context.Background(), srv.URL, "application/octet-stream", []byte("chunk-data"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "403")
 }
