@@ -91,12 +91,21 @@ plugins:
     sites: []                         # 站点白名单（空 = 全部可用）
     max_count: 3                      # 默认最大张数
     recent_days: 730                  # 只发近 N 天内上传的图片（0 = 不过滤）
+    download_concurrency: 4           # "下载+压缩"全局并发上限（1..16）
+    send_thumbnail_max_bytes: 5242880      # 发送前压缩到该体积内（字节，0 = 不限）
+    send_thumbnail_max_dimension: 4096     # 发送前最长边上限（像素，0 = 不限）
     gelbooru_user_id: ""              # gelbooru.com 认证（可选）
     gelbooru_api_key: ""
     rule34_user_id: ""                # rule34.xxx 认证（可选）
     rule34_api_key: ""
     proxy: ""                         # 代理
 ```
+
+大图处理：单张图片下载上限为 64MB，超限报"图片过大"；下载成功的大图
+（如 konachan 的大尺寸 PNG）发送前自动压缩到 `send_thumbnail_max_bytes` /
+`send_thumbnail_max_dimension` 内。`download_concurrency` 限制的是内存大户
+（下载缓冲 + 图片解码/编码）的全局并发，大量用户同时触发 `/pic` 时排队等待，
+不放大内存峰值。
 
 凭据安全：传输错误 URL 中的 `api_key`/`user_id` 自动脱敏，不泄露进日志或回复。
 

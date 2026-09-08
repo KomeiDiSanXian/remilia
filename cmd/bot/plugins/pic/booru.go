@@ -28,7 +28,12 @@ import (
 const picUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 // maxPicBytes 单张图片下载体积上限（字节）。
-const maxPicBytes = 20 * 1024 * 1024
+//
+// 这是"下载上限"而非"发送上限"：大图（如 konachan 的大尺寸 PNG）下载后
+// 由 imagekit.Compress 压缩到 send_thumbnail_max_bytes 再发送，因此该值
+// 需明显宽于发送阈值。超过此值的图片拒绝下载——继续下载只会白白消耗
+// 带宽与内存，且压缩后通常仍超出平台可接受范围。
+const maxPicBytes = 64 * 1024 * 1024
 
 // booruCredentials 各站点的 API 认证凭据。
 //
@@ -528,6 +533,11 @@ func (c *booruClient) do(req *http.Request) ([]byte, error) {
 // referer 为图片来源站点主页（如 "https://gelbooru.com/"）。
 // Gelbooru 系 CDN 有热链保护：无 Referer 时重定向到 hotlink.php 返回错误页。
 // 使用客户端自身的 Transport（含代理配置）。
+//
+// 体积控制采用"读后判定"：响应可能不带 Content-Length（chunked 编码），
+// 仅靠 ContentLength 预检会漏判；因此预检只作提前退出优化，实际以
+// 读取 maxBytes+1 字节后的长度为准——多读 1 字节用于区分"恰好 maxBytes"
+// 与"超过 maxBytes"，避免把被 LimitReader 截断的残缺图片当成功返回。
 func (c *booruClient) downloadImage(ctx context.Context, rawURL, referer string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -549,7 +559,18 @@ func (c *booruClient) downloadImage(ctx context.Context, rawURL, referer string,
 	if maxBytes > 0 && resp.ContentLength > maxBytes {
 		return nil, fmt.Errorf("图片过大 (%d bytes)", resp.ContentLength)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if maxBytes <= 0 {
+		// 不限制体积（LimitReader 对 n<=0 会立即返回 EOF，需单独处理）
+		return io.ReadAll(resp.Body)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if maxBytes > 0 && int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("图片过大 (> %d bytes)", maxBytes)
+	}
+	return body, nil
 }
 
 // redactTransportError 抹掉传输错误 URL 中的认证查询参数。

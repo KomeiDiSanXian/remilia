@@ -26,6 +26,11 @@ type Plugin struct {
 	client *booruClient
 	cfg    plugin.ConfigReader
 	log    plugin.Logger
+
+	// dlSem "下载+压缩"全局并发上限（见 downloadConcurrency）。
+	// 懒初始化：命令路径首次使用时按配置创建（测试可直接构造 Plugin）。
+	dlSem     chan struct{}
+	dlSemOnce sync.Once
 }
 
 // New 创建随机图片插件的 Descriptor。
@@ -210,6 +215,34 @@ func (p *Plugin) recentDays() int {
 	return n
 }
 
+// downloadConcurrency 返回"下载+压缩"的全局并发上限（默认 4，钳制 1..16）。
+//
+// 单张图片的处理流水线（最多 64MB 下载缓冲 + 图片解码/编码的工作区，
+// 峰值可达上百 MB）是本插件最大的内存开销。全局信号量把瞬时峰值约束为
+// "并发数 × 单图峰值"，大量用户同时触发 /pic 时排队等待而不是线性放大
+// 内存；与 fetchWithFallback 的多站并发查询（纯 JSON，开销小）无关。
+func (p *Plugin) downloadConcurrency() int {
+	n := 4
+	if p.cfg != nil {
+		n = p.cfg.GetInt("download_concurrency", 4)
+	}
+	if n <= 0 {
+		n = 4
+	}
+	if n > 16 {
+		n = 16
+	}
+	return n
+}
+
+// dlSemFor 返回下载信号量（懒初始化，保证测试直接构造 Plugin 时也可用）。
+func (p *Plugin) dlSemFor() chan struct{} {
+	p.dlSemOnce.Do(func() {
+		p.dlSem = make(chan struct{}, p.downloadConcurrency())
+	})
+	return p.dlSem
+}
+
 // ── 参数解析 ───────────────────────────────────────────────────────────
 
 // picArgs 解析后的 /pic 命令参数。
@@ -351,8 +384,9 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 //   - 其他平台（不支持图文同发）：图片逐张单独发，作品信息汇总一条
 //     （Markdown 优先，纯文本降级）
 //
-// 多张图片时并发下载（受 max_count 钳制，默认 ≤3），完成后按原顺序发送，
-// 避免大图串行下载拖慢整体响应。
+// 多张图片时并发处理（受 max_count 钳制，默认 ≤3），完成后按原顺序发送。
+// 单张图的"下载+压缩"受全局信号量限流（见 processPic），压缩在信号量内
+// 完成后只保留最终附件字节，原始下载缓冲随处理结束即被回收。
 func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s site, posts []picPost) {
 	caps := ctx.GetPlatformCapabilities()
 	captionOK := caps.Has(platform.CapCaption)
@@ -360,8 +394,7 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 
 	type dlResult struct {
 		post picPost
-		data []byte
-		err  error
+		att  *platform.Attachment // nil = 下载/压缩失败，跳过该图
 	}
 	results := make([]dlResult, len(posts))
 	var wg sync.WaitGroup
@@ -369,32 +402,19 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 		wg.Add(1)
 		go func(i int, post picPost) {
 			defer wg.Done()
-			data, err := p.client.downloadImage(reqCtx, post.FileURL, referer, maxPicBytes)
-			results[i] = dlResult{post: post, data: data, err: err}
+			results[i] = dlResult{post: post, att: p.processPic(reqCtx, post, referer)}
 		}(i, post)
 	}
 	wg.Wait()
 
 	for i, res := range results {
-		if res.err != nil {
-			logger.Warnf("[pic] download %s failed: %v", res.post.FileURL, res.err)
+		if res.att == nil {
 			continue
 		}
-		mime := sniffMime(res.data)
-		comp := imagekit.Compress(res.data, mime, imagekit.Options{
-			MaxBytes:     p.sendPicMaxBytes(),
-			MaxDimension: p.sendPicMaxDimension(),
-		})
-		att := platform.Attachment{
-			Kind:     platform.AttachmentKindImage,
-			Data:     comp.Data,
-			Name:     "pic_" + strconv.Itoa(res.post.ID) + extByMime(comp.Mime),
-			MimeType: comp.Mime,
-		}
 		if captionOK {
-			ctx.Reply(platform.TextMessage(formatPostText(res.post, i+1)).WithAttachments(att))
+			ctx.Reply(platform.TextMessage(formatPostText(res.post, i+1)).WithAttachments(*res.att))
 		} else {
-			ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{att}})
+			ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{*res.att}})
 		}
 	}
 
@@ -404,6 +424,38 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 		} else {
 			ctx.Reply(platform.TextMessage(formatResultsText(s.DisplayName, posts)))
 		}
+	}
+}
+
+// processPic 下载并压缩单张图片，返回可直接发送的附件（失败返回 nil）。
+//
+// 整个"下载→压缩"过程持有全局信号量：这两步是内存大户（下载缓冲 +
+// 解码/编码工作区），限流后瞬时峰值 = 并发数 × 单图峰值，不随命令并发
+// 数线性增长。等待信号量受 reqCtx（命令级超时）约束，不会无限排队。
+func (p *Plugin) processPic(ctx context.Context, post picPost, referer string) *platform.Attachment {
+	select {
+	case p.dlSemFor() <- struct{}{}:
+	case <-ctx.Done():
+		logger.Warnf("[pic] download cancelled while waiting for slot: %s", post.FileURL)
+		return nil
+	}
+	defer func() { <-p.dlSemFor() }()
+
+	data, err := p.client.downloadImage(ctx, post.FileURL, referer, maxPicBytes)
+	if err != nil {
+		logger.Warnf("[pic] download %s failed: %v", post.FileURL, err)
+		return nil
+	}
+	mime := sniffMime(data)
+	comp := imagekit.Compress(data, mime, imagekit.Options{
+		MaxBytes:     p.sendPicMaxBytes(),
+		MaxDimension: p.sendPicMaxDimension(),
+	})
+	return &platform.Attachment{
+		Kind:     platform.AttachmentKindImage,
+		Data:     comp.Data,
+		Name:     "pic_" + strconv.Itoa(post.ID) + extByMime(comp.Mime),
+		MimeType: comp.Mime,
 	}
 }
 
