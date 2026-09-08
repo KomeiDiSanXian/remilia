@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // openaiClient 实现 Provider 接口，兼容 OpenAI Chat Completions API。
@@ -126,14 +128,34 @@ func (c *openaiMessageContent) UnmarshalJSON(data []byte) error {
 		c.parts = nil
 		return nil
 	}
+	if err := json.Unmarshal(data, &c.parts); err == nil {
+		return nil
+	}
+	// 容错：部分兼容网关会以单个对象（而非数组）返回多模态 content。
+	var one openaiContentPart
+	if err := json.Unmarshal(data, &one); err == nil {
+		c.parts = []openaiContentPart{one}
+		return nil
+	}
 	return json.Unmarshal(data, &c.parts)
 }
 
+// String 返回纯文本内容：plain string 格式直接返回 text；
+// 多模态数组格式拼接全部 text 片段（兼容图像输出模型的文字+图片混合响应）。
 func (c *openaiMessageContent) String() string {
 	if c == nil {
 		return ""
 	}
-	return c.text
+	if c.text != "" {
+		return c.text
+	}
+	var b strings.Builder
+	for _, p := range c.parts {
+		if p.Type == "text" && p.Text != "" {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 func newOpenAITextContent(text string) *openaiMessageContent {
@@ -279,6 +301,61 @@ func buildOpenAIContentParts(parts []ContentPart) []openaiContentPart {
 	return out
 }
 
+// openaiOutputImageAttachments 提取模型输出内容中的图片片段（原生图像输出）。
+//
+// parts 为 content 数组中的片段（模型可能以多模态格式返回图片）；
+// extraImages 为部分兼容网关（如 OpenRouter）在 delta.images 字段携带的
+// 图片。data URI 解码为二进制直传，远程 URL 原样透传给平台下载。
+func openaiOutputImageAttachments(content *openaiMessageContent, extraImages []openaiContentPart) []platform.Attachment {
+	var parts []openaiContentPart
+	if content != nil {
+		parts = append(parts, content.parts...)
+	}
+	parts = append(parts, extraImages...)
+
+	var out []platform.Attachment
+	for _, part := range parts {
+		if part.Type != "image_url" || part.ImageURL == nil {
+			continue
+		}
+		if att, ok := attachmentFromImageURI(part.ImageURL.URL); ok {
+			out = append(out, att)
+		}
+	}
+	return out
+}
+
+// attachmentFromImageURI 将模型输出的图片 URI（data URI 或远程 URL）转换为附件。
+// 无法解析（非 http(s)/data URI、解码失败）时返回 ok=false，调用方静默跳过。
+func attachmentFromImageURI(uri string) (platform.Attachment, bool) {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return platform.Attachment{}, false
+	}
+
+	const dataPrefix = "data:"
+	const base64Marker = ";base64,"
+	if rest, ok := strings.CutPrefix(uri, dataPrefix); ok {
+		before, after, ok := strings.Cut(rest, base64Marker)
+		if !ok {
+			return platform.Attachment{}, false
+		}
+		mimeType := before
+		data, err := base64.StdEncoding.DecodeString(after)
+		if err != nil || len(data) == 0 {
+			return platform.Attachment{}, false
+		}
+		att := platform.AttachmentFromData(platform.AttachmentKindImage, data)
+		att.MimeType = mimeType
+		return att, true
+	}
+
+	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
+		return platform.Attachment{}, false
+	}
+	return platform.AttachmentFromURL(platform.AttachmentKindImage, uri), true
+}
+
 // --- 非流式调用 ---
 
 func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
@@ -371,7 +448,8 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 
 	choice := openaiResp.Choices[0]
 	result := &ChatResponse{
-		Content: choice.Message.Content.String(),
+		Content:     choice.Message.Content.String(),
+		Attachments: openaiOutputImageAttachments(choice.Message.Content, nil),
 	}
 
 	if openaiResp.Usage != nil {
@@ -480,9 +558,12 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			var streamResp struct {
 				Choices []struct {
 					Delta struct {
-						Role      string           `json:"role"`
-						Content   string           `json:"content"`
-						ToolCalls []openaiToolCall `json:"tool_calls"`
+						Role    string               `json:"role"`
+						Content openaiMessageContent `json:"content"`
+						// Images 部分兼容网关（如 OpenRouter）在 delta.images
+						// 字段携带模型输出的图片（content 数组之外的补充通道）。
+						Images    []openaiContentPart `json:"images"`
+						ToolCalls []openaiToolCall    `json:"tool_calls"`
 					} `json:"delta"`
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
@@ -507,8 +588,16 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 
 			delta := streamResp.Choices[0].Delta
 
-			if delta.Content != "" {
-				if !sendEvent(StreamEvent{Type: StreamEventText, Content: delta.Content}) {
+			if txt := delta.Content.String(); txt != "" {
+				if !sendEvent(StreamEvent{Type: StreamEventText, Content: txt}) {
+					return
+				}
+			}
+
+			// 模型直接输出的图片（原生图像输出/多模态响应）作为附件事件发出，
+			// 由编排层收集后随最终回复发送给用户。
+			for _, att := range openaiOutputImageAttachments(&delta.Content, delta.Images) {
+				if !sendEvent(StreamEvent{Type: StreamEventAttachment, Attachment: &att}) {
 					return
 				}
 			}

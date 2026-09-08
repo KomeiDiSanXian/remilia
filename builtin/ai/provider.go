@@ -12,6 +12,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // Role 消息角色类型。
@@ -118,6 +120,9 @@ type TokenUsage struct {
 type ChatResponse struct {
 	Content   string
 	ToolCalls []ToolCall
+	// Attachments 模型在响应中直接返回的媒体附件（如原生图像输出模型的
+	// base64 图片或图片 URL）。纯文本输出型模型始终为空。
+	Attachments []platform.Attachment
 	// Usage token 用量（提供商返回时填充，可能为 nil）。
 	Usage *TokenUsage
 }
@@ -134,14 +139,17 @@ const (
 	StreamEventDone
 	// StreamEventError 流式处理出错。
 	StreamEventError
+	// StreamEventAttachment 附件片段（模型直接输出的图片等媒体）。
+	StreamEventAttachment
 )
 
 // StreamEvent 流式事件，由 ChatStream 通过 channel 推送。
 type StreamEvent struct {
-	Type     StreamEventType
-	Content  string    // StreamEventText 时有效
-	ToolCall *ToolCall // StreamEventToolCall 时有效
-	Err      error     // StreamEventError 时有效
+	Type       StreamEventType
+	Content    string               // StreamEventText 时有效
+	ToolCall   *ToolCall            // StreamEventToolCall 时有效
+	Attachment *platform.Attachment // StreamEventAttachment 时有效
+	Err        error                // StreamEventError 时有效
 	// Usage token 用量（StreamEventDone 时有效；提供商未返回时为 nil）。
 	Usage *TokenUsage
 }

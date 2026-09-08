@@ -26,6 +26,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // anthropicClient 实现 Provider 接口，兼容 Anthropic Messages API。
@@ -248,6 +250,21 @@ func extractAnthropicSystem(msgs []Message) string {
 	return ""
 }
 
+// attachmentFromAnthropicImage 将 Anthropic 响应中的 image content block
+// 转换为附件。Source 缺失或 base64 解码失败时返回 ok=false，调用方静默跳过。
+func attachmentFromAnthropicImage(src *anthropicImgSrc) (platform.Attachment, bool) {
+	if src == nil || src.Data == "" {
+		return platform.Attachment{}, false
+	}
+	data, err := base64.StdEncoding.DecodeString(src.Data)
+	if err != nil || len(data) == 0 {
+		return platform.Attachment{}, false
+	}
+	att := platform.AttachmentFromData(platform.AttachmentKindImage, data)
+	att.MimeType = src.MediaType
+	return att, true
+}
+
 // --- 非流式调用 ---
 
 func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
@@ -342,8 +359,15 @@ func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatRe
 
 	result := &ChatResponse{}
 	for _, block := range anthropicResp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			result.Content += block.Text
+		case "image":
+			// 原生图像输出（如带图像生成能力的模型）：转为附件随回复发送，
+			// 避免被静默丢弃。
+			if att, ok := attachmentFromAnthropicImage(block.Source); ok {
+				result.Attachments = append(result.Attachments, att)
+			}
 		}
 	}
 
@@ -451,10 +475,11 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
 				Usage        *anthropicUsageBody `json:"usage,omitempty"`
 				ContentBlock *struct {
-					Type  string `json:"type"`
-					ID    string `json:"id"`
-					Name  string `json:"name"`
-					Input any    `json:"input"`
+					Type   string           `json:"type"`
+					ID     string           `json:"id"`
+					Name   string           `json:"name"`
+					Input  any              `json:"input"`
+					Source *anthropicImgSrc `json:"source,omitempty"` // type=image 时的图片数据
 				} `json:"content_block,omitempty"`
 				Message *struct {
 					StopReason string `json:"stop_reason"`
@@ -479,10 +504,22 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				}
 
 			case "content_block_start":
-				if streamEvent.ContentBlock != nil && streamEvent.ContentBlock.Type == "tool_use" {
+				if streamEvent.ContentBlock == nil {
+					continue
+				}
+				switch streamEvent.ContentBlock.Type {
+				case "tool_use":
 					pendingTools[streamEvent.Index] = &anthropicStreamToolUse{
 						id:   streamEvent.ContentBlock.ID,
 						name: streamEvent.ContentBlock.Name,
+					}
+				case "image":
+					// 原生图像输出：image block 在 content_block_start 一次性携带
+					// 完整 base64 数据，转为附件事件交给编排层收集。
+					if att, ok := attachmentFromAnthropicImage(streamEvent.ContentBlock.Source); ok {
+						if !sendEvent(StreamEvent{Type: StreamEventAttachment, Attachment: &att}) {
+							return
+						}
 					}
 				}
 

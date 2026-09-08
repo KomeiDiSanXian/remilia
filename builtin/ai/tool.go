@@ -298,13 +298,14 @@ func parseOpenAIToolCalls(raw []openaiToolCall) ([]ToolCall, error) {
 }
 
 // anthropicContentBlock 表示 Anthropic 响应中的一个 content block。
-// 可以是文本块或工具调用块。
+// 可以是文本块、图片块（原生图像输出）或工具调用块。
 type anthropicContentBlock struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Input any    `json:"input,omitempty"`
+	Type   string           `json:"type"`
+	Text   string           `json:"text,omitempty"`
+	Source *anthropicImgSrc `json:"source,omitempty"` // type=image 时的图片数据
+	ID     string           `json:"id,omitempty"`
+	Name   string           `json:"name,omitempty"`
+	Input  any              `json:"input,omitempty"`
 }
 
 func parseAnthropicToolCalls(blocks []anthropicContentBlock) []ToolCall {
