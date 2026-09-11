@@ -158,9 +158,10 @@ func (p *Parser) Parse(input string) (*Parsed, error) {
 	// Re-tokenize to obtain the raw token stream for hierarchical parsing.
 	// (ParseCommandLine already called tokenize internally, but does not expose
 	// the token slice — this second call is intentional and cheap.)
-	tokens, err := tokenize(input)
-	if err != nil {
-		return nil, err
+	// 与 ParseCommandLine 一样使用容错分词：同一输入不得一处降级、一处报错。
+	tokens := tokenizeLenient(input)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("no tokens found")
 	}
 	levels := parseHierarchical(tokens[1:], rootDef)
 	return buildParsedFromLevels(input, rawArgs, levels)
@@ -192,9 +193,12 @@ func ParseFromDefinition(input string, rootDef *Definition, prefix string) (*Par
 		return nil, fmt.Errorf("command mismatch: expected %s, got %s", expectedCmd, rawArgs.Command)
 	}
 
-	tokens, err := tokenize(input)
-	if err != nil {
-		return nil, err
+	// 容错分词：正文里的英文撇号（pelican's）、路径结尾反斜杠、半边引号
+	// 不应让命令解析整体失败——解析失败意味着整条消息被静默丢弃
+	//（OnParseCommand 规则不匹配），/ai 这类自由文本命令会彻底无响应。
+	tokens := tokenizeLenient(input)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("no tokens found")
 	}
 	levels := parseHierarchical(tokens[1:], rootDef)
 	return buildParsedFromLevels(input, rawArgs, levels)

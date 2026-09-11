@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Args 命令参数结构
@@ -35,10 +37,7 @@ type Args struct {
 // - 预分配 map 和 slice 容量
 // - 减少字符串操作和内存分配
 func ParseCommandLine(input string) (*Args, error) {
-	tokens, err := tokenize(input)
-	if err != nil {
-		return nil, fmt.Errorf("tokenize error: %w", err)
-	}
+	tokens := tokenizeLenient(input)
 	if len(tokens) == 0 {
 		return nil, fmt.Errorf("no tokens found")
 	}
@@ -117,6 +116,29 @@ func ParseCommandLine(input string) (*Args, error) {
 
 	args.parsed = true
 	return args, nil
+}
+
+// tokenizeLenient 是 tokenize 的容错版本：分词失败时退化为纯空白分词。
+//
+// 为什么需要容错：命令派发依赖解析成功——OnParseCommand 规则解析失败时
+// 整条消息会被静默丢弃（见 core/context/command_helper.go）。而命令正文常常是
+// 人写的自然语言，下列输入都会让 tokenize 返回错误，进而使 /ai 这类
+// "自由文本命令"完全无响应：
+//
+//   - 英文撇号：`/ai 给 pelican's bicycle 画个 SVG`（单个 ' 被判为未闭合引号）
+//   - 路径结尾反斜杠：`/ai 打开 C:\Users\`
+//   - 漏掉半边引号：`/ai 解释一下 "量子纠缠`
+//
+// 退化为空白分词后，命令词与子命令结构照常解析，只是不再做引号分组与转义；
+// 引号完整时行为与 tokenize 完全一致（不改变既有语义）。
+func tokenizeLenient(s string) []string {
+	tokens, err := tokenize(s)
+	if err == nil {
+		return tokens
+	}
+	// 降级为空白分词，记一条 debug 日志便于排查"引号写错导致参数变样"的情况。
+	logger.Debugf("[command] tokenize failed (%v), fallback to whitespace split: %q", err, s)
+	return strings.Fields(s)
 }
 
 // isShortFlag 检查 token 是否看起来像短标志（-x，x 为字母）

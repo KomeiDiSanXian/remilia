@@ -290,6 +290,60 @@ func TestParseCommandLine(t *testing.T) {
 	}
 }
 
+// TestParseCommandLine_LenientOnMalformedQuotes 验证命令正文中的
+// 英文撇号 / 结尾反斜杠 / 半边引号不会让解析整体失败。
+//
+// 回归背景：这类输入以前让 tokenize 报错 → OnParseCommand 规则不匹配 →
+// 整条消息静默丢弃（如 /ai pelican's bicycle 完全无响应）。
+func TestParseCommandLine_LenientOnMalformedQuotes(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantCmd   string
+		wantFirst string // 第一个位置参数
+	}{
+		{
+			name:      "英文撇号",
+			input:     "/ai Generate a valid SVG of a pelican's bicycle",
+			wantCmd:   "/ai",
+			wantFirst: "Generate",
+		},
+		{
+			name:      "前导空格 + 撇号（QQ 群 @ 报文形态）",
+			input:     " /ai draw the bike's wheels",
+			wantCmd:   "/ai",
+			wantFirst: "draw",
+		},
+		{
+			name:      "路径结尾反斜杠",
+			input:     `/ai open C:\Users\`,
+			wantCmd:   "/ai",
+			wantFirst: "open",
+		},
+		{
+			name:      "漏掉半边双引号",
+			input:     `/ai explain "quantum entanglement`,
+			wantCmd:   "/ai",
+			wantFirst: "explain",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args, err := ParseCommandLine(tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCmd, args.Command)
+			assert.Equal(t, tt.wantFirst, args.Get(0))
+		})
+	}
+}
+
+// TestTokenizeStillReportsBrokenQuotes 验证容错只发生在解析入口：
+// tokenize 本体仍对未闭合引号报错（供需要严格校验的调用方使用）。
+func TestTokenizeStillReportsBrokenQuotes(t *testing.T) {
+	_, err := tokenize("hello 'world")
+	assert.Error(t, err)
+}
+
 // TestArgs_Get 测试获取位置参数
 func TestArgs_Get(t *testing.T) {
 	args, err := ParseCommandLine("/cmd arg0 arg1 arg2")

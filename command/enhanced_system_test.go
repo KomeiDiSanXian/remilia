@@ -162,6 +162,34 @@ func TestParseFromDefinition_WithSubCommands(t *testing.T) {
 	assert.Equal(t, "8080:80", parsed.GetString("port"))
 }
 
+// TestParseFromDefinition_ApostropheInBody 验证正文含英文撇号时命令仍能解析。
+//
+// 回归背景（线上报文 2026-09-11）：QQ 群 @ 机器人发送
+// ` /ai Generate ... a pelican's legs ...`，content 以空格开头且含
+// 单个 ' ——tokenize 报 unclosed quote，命令规则不匹配，AI 完全不响应。
+func TestParseFromDefinition_ApostropheInBody(t *testing.T) {
+	def := &Definition{
+		Name: "ai",
+		SubCommands: []*Definition{
+			{Name: "reset"},
+			{Name: "status"},
+		},
+	}
+	const body = " /ai Generate a self-contained, valid SVG of a pelican riding " +
+		"a bicycle. The pelican's legs must move in sync with the pedals."
+
+	parsed, err := ParseFromDefinition(body, def, "/")
+	require.NoError(t, err)
+	require.NotNil(t, parsed)
+	assert.Equal(t, []string{"ai"}, parsed.CommandPath)
+	assert.Equal(t, strings.TrimSpace(body), parsed.Raw)
+
+	// 子命令仍然正常识别
+	sub, err := ParseFromDefinition(" /ai reset now", def, "/")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ai", "reset"}, sub.CommandPath)
+}
+
 // TestParseFromDefinition_CommandMismatch 测试命令不匹配
 func TestParseFromDefinition_CommandMismatch(t *testing.T) {
 	def := &Definition{Name: "expected"}
