@@ -1,5 +1,142 @@
 # Changelog
 
+## v1.60.0 (2026-09-11)
+
+### ✨ AI 插件：管理员按权限查询他人使用状态
+
+- **背景**：会话严格按 `platform:chatID:userID` 隔离且无按用户索引，
+  `/ai status`、`/ai stats` 只能查调用者自己，运营/客服没有手段了解某个用户的
+  用量
+- **用法**：`/ai status [@用户|用户ID]`、`/ai stats [@用户|用户ID]`，以及
+  @机器人 自然语言路径（`@bot 统计 @张三`）；未指定目标时行为与旧版逐字一致
+- **目标解析**：结构化 @ 列表优先（跳过机器人自身），其次正文中的显式用户 ID；
+  纯字母 token（`update`、`detailed`）一律按自然语言处理，避免把
+  "@bot status 是什么" 这类正常聊天劫持成查询
+- **两档授权**（fail-closed）：平台群主/管理员仅限**本群**成员；RBAC
+  `admin`/`superadmin` 可查任意会话；新增可委托权限 `ai.usage.view`
+  （与 `ai.message.send` 同构）供客服/运维角色使用，无需下发通配权限。
+  非 superadmin 不得窥探 superadmin（与 `/perm` 分级一致）
+- **隐私边界**：只输出会话级计数与时间（消息数、LLM 调用次数、工具调用次数、
+  创建/最后活跃时间、长期记忆条数），全程不读对话正文、不返回工具调用追踪
+- **只读查询**：`SessionManager.PeekOrLoad` 依次查 LRU 与持久化存储，不创建
+  会话、不写库、不 trim、不重排缓存——原 `GetOrCreate` 会为从未与 AI 对话过的
+  用户凭空造出空会话并扰动 LRU 淘汰顺序
+- **回归**：`usage_test.go` 覆盖 ID 形态、子命令前缀匹配、目标解析优先级、
+  完整授权矩阵（含 superadmin 保护与权限来源缺失）、只读性、两条接线路径，
+  以及"查询自己输出不变""自然语言不被劫持"两项回归
+
+### 🐛 修复：@机器人 消息双重派发 + QQ @机器人 事件判定失效
+
+- **根因**：`@` 判定与"本条消息是否已被 AI 触发命令 matcher 接管"的判定散落在
+  matcher 规则、handler 内部与平台适配器三处，没有单一事实来源，由此产生两个
+  方向相反的缺陷
+- **双重派发**：`trigger_cmd` 已配置时，`OnMentionedBot + OnCommand(trigger)`
+  与触发命令 matcher（注册在 `EventType=""`，覆盖全部会话类型）同时命中，
+  一条 `@bot /ai hello` 产生**两轮完整对话**（两次 LLM 调用、两条回复），
+  并发下还会通过 `Session.RequestInterrupt` 打断用户自己的回合。该分支本意是
+  阻止 AI 抢答其他插件的命令，实际却关掉了文档主路径"直接 @机器人"（默认配置
+  `at_bot: true` 下普通 @机器人 消息**完全无响应**）
+- **修复**：对齐"群自主发言/私聊兜底"的形态——`OnMentionedBot` 加排除"命令
+  消息"与"触发前缀已接管的正文"；新增 `triggerParses` 重算命令 matcher 的
+  `OnParseCommand` 规则（`TrimSpace + SplitCommandPattern +
+  ParseFromDefinition`），使"命中即必然被命令路径派发"成为精确互斥而非"是否以
+  符号开头"，非符号触发词也不再双重派发
+- **QQ @机器人**：`GROUP_AT_MESSAGE_CREATE` / `AT_MESSAGE_CREATE` 的事件类型
+  本身即"@机器人"，报文不带 mentions 数组且正文占位符被替换为空格；因
+  `qqEvent` 实现了 `MentionsEvent`，`OnMentionedBot` 走"扫描 @ 列表"分支恒
+  返回 false（`at_bot` 无 `trigger_cmd` 时 @机器人 消息无任何响应；群策略
+  `mention=on` 时 @ 了机器人的用户仍被 handleAI 丢弃）
+- **统一口径**：新增 `platform.DirectedAtBotEvent`（事件级能力接口）承载该语义，
+  并以 `platform.MentionedBot` 作为"本条消息是否 @ 机器人"的跨平台唯一定义：
+  结构化 @ 列表（`IsSelf`）优先、`DirectedAtBot` 兜底；`OnMentionedBot` 与 AI
+  插件的 `mentionedBot` 均委托它。不伪造 @ 条目——`Mentions()` 保持为空，避免
+  messagelog 记录空 ID 的 @ 条目、段模型与 `Mentions()` 自相矛盾
+- **回归**：`builtin/ai/routing_test.go` 用真实引擎跑 `registerHandlers` +
+  `ProcessEventSync`，使重复派发表现为两条对话：`@bot + 触发前缀` 恰好 1 次
+  LLM 调用/1 条回复，普通 @机器人 消息 1 次（修复前为 0），`/help` 为 0，
+  `/ai reset` 恰好 1 条子命令回复，群自主发言与非符号触发词同样单次派发；
+  `platform/qq` 覆盖 @ 正反例且 `Mentions()` 保持为空；`core/context` 覆盖
+  `OnMentionedBot` 的决策顺序
+
+### 🚀 平台能力：私聊/直聊事件的 DirectedAtBot
+
+- `platform.DirectedAtBotEvent` 下发到事件类型本身即"直达机器人"但报文无法表达
+  `@` 的适配器，修复私聊消息被 `platform.MentionedBot` /
+  `context.OnMentionedBot` 判为"未 @ 机器人"
+- 落地：Discord（DM 频道）、Telegram（私聊）、Satori（direct 频道）、
+  OneBot（`message_type=private`）、Milky（friend/temp 场景）与 terminal
+  开发适配器（私聊事件）
+- 群/频道消息仍返回 false，继续依赖结构化 @ 列表（`IsSelf`）
+
+### 🐛 修复：命令正文含撇号/半个引号时被静默丢弃
+
+- **现象**：命令正文通常是自由文本，以下输入使 tokenize 失败，进而触发命令的
+  `OnParseCommand` 规则静默返回 false，消息既不进 handler 也无任何提示
+  （线上表现为"@bot 没反应"）：
+  - 英文撇号：`/ai draw a pelican's bicycle as SVG`（孤立 `'` 被当作未闭合引号）
+  - 路径尾反斜杠：`/ai open C:\Users\`
+  - 半个引号：`/ai explain "quantum entanglement`
+- **修复**：新增 `tokenizeLenient`——先试 `tokenize`，失败时退化为纯空白切分并
+  打 debug 日志；引号闭合时与 `tokenize` 完全一致，既有语义不变。
+  `ParseCommandLine` / `Parser.Parse` / `ParseFromDefinition` 统一使用它，避免
+  同一输入在一个入口被容忍、在另一个入口被拒绝
+- **回归**：`command` 包断言上述三种输入能解析出命令词与首个位置参数，同时
+  `tokenize` 本身仍拒绝未闭合引号（宽容只存在于解析入口）；`core/engine` 复现
+  插件层注册并覆盖 "@bot + 触发命令 + 自然语言正文" 的完整派发链路
+
+### 🐛 修复：显式点名 AI 时正文被当作其他插件的命令丢弃
+
+- **现象**：`handleAI` 在 `parsed == nil` 路径上无条件执行
+  `isCommandMessage(content)` 并 `return nil`，把用户明确交给 AI 的正文当成其他
+  插件的命令丢弃——既无回复也无提示，用户侧只看到机器人沉默
+- **两个可复现场景**（均需 `cleanMessage` 剥离触发前缀后正文呈命令样式）：
+  - 非符号触发词：`trigger_cmd` 为裸词时，正文 `<word>!cmd` 被清洗为 `!cmd` 后丢弃
+  - 私聊直发合并转发：正文取自记录首行，以 `/` 开头时被丢弃
+- **修复**：跳过判定改为"本条消息是否显式指向 AI"——命令解析路径
+  （`parsed != nil`）、携带触发前缀的正文（已注册为独立前缀）、私聊直发合并
+  转发，三者均把正文原样交给 AI；群自主发言/私聊自动回复等兜底路径仍跳过命令
+  样式正文，不抢答其他插件的命令（`/ping`、`!!admin` 等）
+- **回归**：`commandguard_test.go` 以"是否真的调用了 LLM"为信号，覆盖 `/ai` 后接
+  命令样式正文（命令路径与兜底路径均须触达 LLM）、`/help`、`/ping now`、
+  `!!admin status`、`/aiother` 不触发，以及 `/ai reset` 仍走子命令
+
+### ✨ AI 插件：plugins.ai.fallback 成为跨会话兜底
+
+- 开启后任何未命中命令的消息（群聊 + 私聊的全部非命令消息，即
+  `group_autonomous` 与 `private_chat` 的并集）都会得到 AI 回复，不再需要
+  "预留字段 + 低优先级路由规则"
+- 入口 matcher 归一化为群/私聊一对 catch-all，确保一条消息不会被派发进两个 AI
+  对话（两轮 LLM、两条回复）；群策略要求 @ 时仍在 `handleAI` 内按群过滤
+- 移除配置中"预留字段，待低优先级路由规则"的过时注释，AI 插件指南补充说明；
+  新增群（含/不含 @）、私聊与命令消息的路由测试
+
+### 🔧 修复：RBAC 权限管理器从未注入事件上下文
+
+- **根因**：生产代码从未调用 `ctx.SetPermissionManager`（只有测试调用），
+  `ctx.GetPermissionManager()` 恒为 nil，所有基于它的检查静默退化为"权限系统
+  未初始化"。缺陷不限于某个功能，以下路径全部是**死代码**：
+  - `builtin/ai`：`isAdmin`（技能提升；也是 `isGroupAdmin` 的 RBAC 半边，该判定
+    把守清空群记忆与修改群策略）与 `isSuperAdmin`（`/ai group global`）
+  - `builtin/knowledgebase`：`isSuperAdmin`（管理子命令）
+  - `core/context`：`OnHasRole` / `OnHasPermission` 路由规则从不匹配
+  - `middleware/auth`：`RequireRole` / `RequirePermission` / `RequireAdmin`
+    拒绝一切请求
+- **可复现现象**：superadmin 无法清空群作用域记忆——清空群记忆只接受平台群主/
+  管理员，本应接受 superadmin 角色的 RBAC 兜底从未生效
+- **修复**：新增 `Bot.UsePermissionManager`，由 `Bot` 在创建每个事件上下文时
+  写入（唯一的生产事件入口），并在 `cmd/bot` 用权限插件的 manager 接线——与
+  HTTP API 解析出的是同一实例，两个入口授予的角色保持一致
+- **回归**：`bot_permission_test.go` 断言经 `Bot` 到达的 handler 能看到同一实例
+  的注入 manager 及其角色，未注入时上下文返回 nil 而非 panic（回滚注入即失败）；
+  `builtin/ai` 断言 RBAC superadmin/admin 无需平台群角色即可清空群记忆，且无
+  manager 时仍 fail-closed；`builtin/knowledgebase` 断言 `isSuperAdmin` 识别
+  superadmin 角色，对无权用户与缺失 manager 返回 false
+
+### 🔧 工程
+
+- `cmd/bot/plugins/pic` 并发测试改用 `sync.WaitGroup.Go`（go.mod 已是 go 1.27），
+  去掉 `Add/Done` + 闭包样板，行为不变
+
 ## v1.59.0 (2026-09-08)
 
 ### 🖼 AI 插件：模型多模态输出（图片附件）不再静默丢失
