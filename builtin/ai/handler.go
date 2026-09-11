@@ -35,13 +35,23 @@ import (
 // 处理流程：
 //  1. 若通过 /ai 命令触发，使用 GetParsedCommand 检测子命令
 //  2. 若通过 @bot 或私聊触发，使用 cleanMessage 清洗后检测子命令
-//  3. 检查 FSM 是否有当前用户的活跃会话（技能添加等两步流程）
-//  4. 均非子命令时进入 AI 对话流程
+//  3. 命令样式正文（/help 等）仅在未显式点名 AI 时被跳过（其他插件的命令）
+//  4. 检查 FSM 是否有当前用户的活跃会话（技能添加等两步流程）
+//  5. 均非子命令时进入 AI 对话流程
 //
-// 注意：FSM 检查必须在 AI 对话之前，确保用户发送的内容被正确处理为技能 Prompt。
+// 注意：
+//   - FSM 检查必须在 AI 对话之前，确保用户发送的内容被正确处理为技能 Prompt。
+//   - “显式点名 AI”（/ai 前缀、私聊直发合并转发）时正文原样交给 AI，
+//     不把以符号开头的正文当作其他插件的命令丢弃（见下方 explicit）。
 func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	parsed := ctx.GetParsedCommand()
 	atts := platform.Attachments(ctx.GetPlatformEvent())
+
+	// explicit：本条消息是否“显式指向 AI”（命令路径 /ai、@机器人+触发前缀、
+	// 私聊直发合并转发）。只有显式指向时，正文里的命令样式内容（/help、
+	// #tag、C:\path）才原样交给 AI；自主发言/私聊兜底路径仍需跳过其他插件
+	// 的命令（见末尾 isCommandMessage 检查），避免抢答。
+	explicit := parsed != nil
 
 	if parsed != nil {
 		if len(parsed.CommandPath) > 1 {
@@ -69,11 +79,19 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 				return nil
 			}
 			content = text
+			// 转发内容已由 forwardTriggerContent 判定为“应回复”（私聊直发
+			// 视为直接对话），不再按命令样式跳过。
+			explicit = true
 		}
 	}
 	if content == "" && len(atts) == 0 {
 		return nil
 	}
+	// 触发前缀由 AI 插件独占注册（见 buildAIDefinition），因此“正文以触发
+	// 前缀开头”本身就意味着用户显式点名 AI。不能依赖 mentionedBot：QQ
+	// GROUP_AT_MESSAGE_CREATE 报文不带 mentions 数组，mentionedBot 恒为
+	// false，@机器人+触发前缀 的 matcher 路径会漏判。
+	explicit = explicit || p.hasTriggerPrefix(content)
 
 	// per-group @ 触发要求（/ai group set mention on）：群策略显式要求必须 @ 时，
 	// 未 @ 机器人的群消息（全局 GroupAutonomous 模式下会进入此路径）直接跳过。
@@ -97,7 +115,14 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	if p.handleSubCommand(ctx, content) {
 		return nil
 	}
-	if isCommandMessage(content) {
+	// 命令样式正文默认跳过：自主发言/私聊兜底路径下这通常是其他插件的
+	// 命令（如 /help），AI 不应抢答。但显式点名 AI 时正文就是交给 AI 的内容。
+	//
+	// 本检查位于 parsed == nil 的路径上（命令解析路径在上方已直接进入对话），
+	// 主要是 QQ 群 @机器人 这种无法产生 Parsed 的入口：旧行为会把
+	// “@机器人 /ai /tmp 是什么”清洗后的 “/tmp 是什么” 当作外部命令丢弃，
+	// 用户侧只能看到“发了消息没反应”。
+	if !explicit && isCommandMessage(content) {
 		return nil
 	}
 
@@ -735,6 +760,17 @@ func inferAudioFormat(mimeType string) string {
 	default:
 		return ""
 	}
+}
+
+// hasTriggerPrefix 判断原始正文（未清洗）是否以触发命令开头。
+//
+// 匹配语义与命令路由一致：忽略前导空白后按前缀比较（见 [eventctx.OnCommand]
+// 与 cleanMessage 的剥离逻辑），因此对 /ai 与“帮助”这类非前缀触发词都成立。
+func (p *Plugin) hasTriggerPrefix(content string) bool {
+	if p.triggerCmd == "" {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimLeftFunc(content, unicode.IsSpace), p.triggerCmd)
 }
 
 // isCommandMessage 判断消息是否为命令消息。
