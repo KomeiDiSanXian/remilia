@@ -6,6 +6,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -110,6 +111,53 @@ func TestMemoryClearGroupByOwner(t *testing.T) {
 	}
 	if got := len(p.memory.Facts(groupScope("group-1"))); got != 0 {
 		t.Fatalf("group facts after owner clear = %d, want 0", got)
+	}
+}
+
+// TestMemoryClearGroupByRBACRole 固定 RBAC 通道：拥有 superadmin / admin 角色的
+// 用户即使没有平台群主/管理员身份（GroupRole = Unknown），也能清空本群公共记忆。
+//
+// 该通道完全依赖 ctx.GetPermissionManager()（由 Bot 在事件入口注入），
+// 因此它同时是“事件 Context 必须带上权限管理器”这条接线的回归测试：
+// 一旦注入断掉，本用例与线上现象一致——超管被判为无权、群记忆删不掉。
+func TestMemoryClearGroupByRBACRole(t *testing.T) {
+	for _, role := range []string{"superadmin", "admin"} {
+		t.Run(role, func(t *testing.T) {
+			p := newManagePlugin(t)
+
+			pm := eventctx.NewPermissionManager()
+			pm.RegisterRole(permission.NewRole(role, permission.Permission{Resource: "*", Action: "*"}))
+			if err := pm.AssignRole("user", role); err != nil {
+				t.Fatalf("AssignRole(%s): %v", role, err)
+			}
+
+			// 平台侧无群主/管理员身份：只能靠 RBAC 角色放行。
+			ctx := makeManageCtx("/ai memory clear group", true)
+			ctx.SetPermissionManager(pm)
+			p.memory.Add(groupScope("group-1"), "本群规则：禁止剧透")
+
+			if err := p.handleMemoryClear(ctx, "group"); err != nil {
+				t.Fatalf("handleMemoryClear: %v", err)
+			}
+			if got := len(p.memory.Facts(groupScope("group-1"))); got != 0 {
+				t.Fatalf("角色 %s 应可清空群记忆，剩余 %d 条", role, got)
+			}
+		})
+	}
+}
+
+// TestMemoryClearGroupByRBACRoleWithoutManager 固定未注入权限管理器时的
+// fail-closed 语义：角色查不到 → 拒绝，群记忆保留。
+func TestMemoryClearGroupByRBACRoleWithoutManager(t *testing.T) {
+	p := newManagePlugin(t)
+	ctx := makeManageCtx("/ai memory clear group", true)
+	p.memory.Add(groupScope("group-1"), "本群规则：禁止剧透")
+
+	if err := p.handleMemoryClear(ctx, "group"); err != nil {
+		t.Fatalf("handleMemoryClear: %v", err)
+	}
+	if got := len(p.memory.Facts(groupScope("group-1"))); got != 1 {
+		t.Fatalf("无权限管理器时应拒绝清空，剩余 %d 条", got)
 	}
 }
 

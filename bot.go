@@ -11,6 +11,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
@@ -80,6 +81,12 @@ type Bot struct {
 
 	// router 是可选的策略路由层。
 	router *router.Router
+
+	// permManager 是可选的 RBAC 权限管理器。
+	//
+	// 非 nil 时写入每个事件 Context，使 ctx.GetPermissionManager() 在运行时
+	// 可用（见 UsePermissionManager）。热路径只做一次 atomic Load，无锁。
+	permManager infraatomic.Value[*permission.Manager]
 
 	// adapterSnapshot 在 Start() 时构建，此后只读，用于热路径零锁访问。
 	// 使用 atomic.Value 存储 map[string]adapterCache 快照：
@@ -367,6 +374,12 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		ctx.SetBotName(botName)
 	}
 	ctx.SetPlatformCapabilities(caps)
+
+	// 注入 RBAC 权限管理器（未接线时为 nil，ctx.GetPermissionManager() 返回 nil，
+	// 依赖它的规则/中间件按“权限系统未初始化”处理）。
+	if pm := b.permManager.Load(); pm != nil {
+		ctx.SetPermissionManager(pm)
+	}
 
 	if b.router != nil {
 		b.router.Dispatch(ctx)
@@ -717,6 +730,28 @@ func (b *Bot) UseRouter(r *router.Router) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.router = r
+	return b
+}
+
+// UsePermissionManager 注入 RBAC 权限管理器。
+//
+// 注入后 Bot 会把该管理器写入每个事件 Context，使运行时的
+// ctx.GetPermissionManager() 可用。依赖它的检查包括：
+//   - core/context 的 [OnHasRole] / [OnHasPermission] 规则
+//   - middleware/auth 的 RequireRole / RequirePermission / RequireAdmin 中间件
+//   - 插件内基于 ctx 的 RBAC 判定（如 AI 插件的 isAdmin / isSuperAdmin）
+//
+// 不注入时这些检查一律按“权限系统未初始化”处理：规则恒不命中、中间件
+// fail-closed 拒绝、插件内的角色判定恒为 false——表现为超管也被判为无权。
+//
+// 建议在 Bot.Start() 之前、permission 插件 Setup 完成后调用：
+//
+//	raw, ok := pluginMgr.GetContainer().Get("permission")
+//	if pp, ok2 := raw.(*permission.Plugin); ok && ok2 {
+//	    bot.UsePermissionManager(pp.GetManager())
+//	}
+func (b *Bot) UsePermissionManager(m *permission.Manager) *Bot {
+	b.permManager.Store(m)
 	return b
 }
 

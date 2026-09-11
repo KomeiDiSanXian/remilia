@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func TestChunkMarkdown(t *testing.T) {
@@ -257,5 +260,39 @@ func TestDedupNearDuplicates(t *testing.T) {
 	}
 	if out[0].Content != "命令系统使用说明与参数解析方式" {
 		t.Errorf("kept wrong first hit: %q", out[0].Content)
+	}
+}
+
+// kbCtx 构造带指定发送者的私聊事件上下文。
+func kbCtx(userID string) *eventctx.Context {
+	evt := platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hi",
+		platform.WithSyntheticSender(platform.UserInfo{ID: userID}))
+	return eventctx.NewContextFromEvent(evt, nil)
+}
+
+// TestIsSuperAdminUsesContextPermissionManager 固定知识库管理命令的权限通道：
+// isSuperAdmin 读的是 ctx.GetPermissionManager()（由 Bot 在事件入口注入），
+// 未注入时必须 fail-closed 返回 false，而不是误放行。
+func TestIsSuperAdminUsesContextPermissionManager(t *testing.T) {
+	pm := eventctx.NewPermissionManager()
+	pm.RegisterRole(permission.NewRole("superadmin", permission.Permission{Resource: "*", Action: "*"}))
+	if err := pm.AssignRole("root", "superadmin"); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+
+	rootCtx := kbCtx("root")
+	rootCtx.SetPermissionManager(pm)
+	if !isSuperAdmin(rootCtx) {
+		t.Error("superadmin 角色应被识别为有权限")
+	}
+
+	memberCtx := kbCtx("member")
+	memberCtx.SetPermissionManager(pm)
+	if isSuperAdmin(memberCtx) {
+		t.Error("未分配角色的用户不应被识别为 superadmin")
+	}
+
+	if isSuperAdmin(kbCtx("root")) {
+		t.Error("未注入权限管理器时应 fail-closed 返回 false")
 	}
 }

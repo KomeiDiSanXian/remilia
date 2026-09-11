@@ -103,6 +103,7 @@ func main() {
 	registerUpdaterShutdownHook(pm)
 
 	discoverAll(bot, pm)
+	wirePermissionManager(bot, pm)
 
 	healthHandler := newHealthHandler(bot, reg)
 	applyBuildInfo(bot)

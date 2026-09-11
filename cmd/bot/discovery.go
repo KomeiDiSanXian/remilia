@@ -3,10 +3,35 @@ package main
 import (
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
+
+// wirePermissionManager 把 permission 插件的 RBAC 管理器注入 Bot，使每个事件
+// Context 都带上权限管理器（ctx.GetPermissionManager）。
+//
+// 必须在插件注册（permission 插件 Setup）之后、Bot.Start() 之前调用。
+// 不注入时所有基于 ctx 的 RBAC 检查都会退化为“权限系统未初始化”：
+// core/context 的 OnHasRole / OnHasPermission 规则恒不命中、middleware/auth
+// 的 RequireRole 等中间件 fail-closed 拒绝、插件内的 isAdmin / isSuperAdmin
+// 恒为 false（超管同样被判为无权）。
+func wirePermissionManager(bot *remilia.Bot, pm *plugin.Manager) {
+	raw, ok := pm.GetContainer().Get("permission")
+	if !ok || raw == nil {
+		logger.Warn("[remilia] permission plugin not found; RBAC checks based on " +
+			"ctx.GetPermissionManager() will deny by default")
+		return
+	}
+	pp, ok := raw.(*permission.Plugin)
+	if !ok {
+		logger.Warn("[remilia] unexpected permission plugin type; RBAC manager not wired")
+		return
+	}
+	bot.UsePermissionManager(pp.GetManager())
+	logger.Info("[remilia] RBAC permission manager wired into event contexts")
+}
 
 // discoverAll 在 FreezeContainer 后执行所有插件的自动发现与注册。
 //
