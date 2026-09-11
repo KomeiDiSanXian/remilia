@@ -335,6 +335,23 @@ type MentionsEvent interface {
 	Mentions() []UserInfo
 }
 
+// DirectedAtBotEvent 是"消息本身即指向机器人"感知的可选接口。
+//
+// 部分平台的事件类型已经隐含"这条消息 @ 了机器人"，但载荷无法表达 @：
+// QQ 群 @机器人（GROUP_AT_MESSAGE_CREATE）与频道 @机器人（AT_MESSAGE_CREATE）
+// 的事件类型即代表 @ 机器人，payload 不含 mentions 数组（该字段仅
+// GROUP_MESSAGE_CREATE 提供），正文里的 <@id> 占位符也被服务端替换为空格。
+//
+// 这类事件若不声明本接口，[GetMentions] 恒为空，[MentionedBot] 与
+// [OnMentionedBot] 会判定"没有 @ 机器人"——表现为需 @ 触发的插件在
+// QQ 群 @机器人 时静默无响应、群策略要求 @ 时消息被丢弃。
+//
+// 框架通过 [MentionedBot] 帮助函数安全访问，无需直接断言。
+type DirectedAtBotEvent interface {
+	// DirectedAtBot 返回本条消息在平台语义上是否直接发给机器人。
+	DirectedAtBot() bool
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 可选接口帮助函数
 // ────────────────────────────────────────────────────────────────────────────
@@ -412,4 +429,32 @@ func GetMentions(e Event) []UserInfo {
 		return me.Mentions()
 	}
 	return SegmentsMentions(e.Segments(), "")
+}
+
+// MentionedBot 判断消息是否 @ 了机器人自身。
+//
+// 派生顺序（跨平台统一口径）：
+//
+//  1. [GetMentions] 中 IsSelf=true 的条目——各平台的结构化 @ 列表；
+//  2. [DirectedAtBotEvent] 标记——事件类型本身即"@机器人"、载荷无法表达 @
+//     的平台（如 QQ 群 @机器人 消息）。
+//
+// 两者都没有时返回 false。"平台无法感知 @ 列表即放行"这一宽松语义只保留在
+// [OnMentionedBot] 中，不在本函数内表达：插件内的 @ 判定（如群策略要求 @ 时
+// 的过滤）需要严格结果，不能被无条件放宽。
+//
+// 若事件为 nil，返回 false。
+func MentionedBot(e Event) bool {
+	if e == nil {
+		return false
+	}
+	for _, m := range GetMentions(e) {
+		if m.IsSelf {
+			return true
+		}
+	}
+	if de, ok := e.(DirectedAtBotEvent); ok {
+		return de.DirectedAtBot()
+	}
+	return false
 }

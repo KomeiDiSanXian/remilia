@@ -134,16 +134,16 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 }
 
 // mentionedBot 判断当前群消息是否 @ 了机器人自身。
+//
+// 判定委托 platform.MentionedBot：结构化 @ 列表（IsSelf）优先，平台级
+// "事件本身即 @机器人" 标记兜底。仅扫 @ 列表会让 QQ 群 @机器人 消息
+// （GROUP_AT_MESSAGE_CREATE 不带 mentions 数组）被判为"未 @ 机器人"，
+// 群策略要求 @ 时也把用户 @机器人 的消息直接丢掉。
 func mentionedBot(ctx *eventctx.Context) bool {
 	if ctx == nil || ctx.GetPlatformEvent() == nil {
 		return false
 	}
-	for _, m := range platform.GetMentions(ctx.GetPlatformEvent()) {
-		if m.IsSelf {
-			return true
-		}
-	}
-	return false
+	return platform.MentionedBot(ctx.GetPlatformEvent())
 }
 
 // handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息（含附件）、调用 LLM。

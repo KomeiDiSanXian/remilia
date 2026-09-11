@@ -54,6 +54,12 @@ type Plugin struct {
 	cmdPatterns map[string]string
 	skillReg    *SkillRegistry
 
+	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。
+	// 注册触发命令 matcher 与判定"正文是否已由该 matcher 接管"（triggerParses）
+	// 必须使用同一份定义，且该定义逐消息重建不划算。
+	defOnce sync.Once
+	def     *command.Definition
+
 	// summaryMu / summaries 防止同一会话重复触发 /ai summary 产生无界后台 goroutine。
 	summaryMu sync.Mutex
 	summaries map[string]bool
@@ -534,7 +540,7 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	trigger := p.cfg.TriggerCmd
 	if trigger != "" {
 		p.triggerCmd = trigger
-		def := buildAIDefinition()
+		def := p.aiDefinition()
 		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
@@ -551,26 +557,22 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		// 注意：此模式覆盖 @机器人 的群聊路径（@ 消息也命中），
 		// 因此开启时不再单独注册 AtBot 群聊 matcher，避免重复处理。
 		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(func(c *eventctx.Context) bool {
-				return !isCommandMessage(c.GetMessageContent())
-			}).
+			Where(p.autoReplyEligible()).
 			Handle(p.handleAI)
 	} else if p.cfg.AtBot {
-		if trigger != "" {
-			// trigger_cmd 已设置：@机器人 时仅响应带触发前缀的消息
-			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-				Where(eventctx.OnMentionedBot()).
-				Where(eventctx.OnCommand(trigger)).
-				Handle(p.handleAI)
-		} else {
-			// 无 trigger_cmd：@机器人 时响应任意消息（排除命令）
-			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-				Where(eventctx.OnMentionedBot()).
-				Where(func(c *eventctx.Context) bool {
-					return !isCommandMessage(c.GetMessageContent())
-				}).
-				Handle(p.handleAI)
-		}
+		// @机器人 触发：响应 @机器人 的任意消息，排除命令消息（其他插件的
+		// 命令不被 AI 抢答）与 AI 自身触发命令（由触发命令 matcher 接管）。
+		//
+		// 此前 trigger_cmd 已设置时要求正文必须带触发前缀（见 c4f75fc），
+		// 方向恰好相反：带前缀的正文正是触发命令 matcher 已经接管的对象，
+		// 两个 matcher 同时成立 → 同一条 "@机器人 /ai …" 被派发两次；
+		// 而文档承诺的主路径"@机器人 后直接发消息"（含 @机器人 说"停止"
+		// 这类文本子命令）反而被关掉——默认配置下 @机器人 的普通消息静默
+		// 无响应，与"允许 @机器人 触发"的配置语义相悖。
+		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+			Where(eventctx.OnMentionedBot()).
+			Where(p.autoReplyEligible()).
+			Handle(p.handleAI)
 	}
 
 	// per-group @ 触发要求（/ai group set mention off）：群策略显式允许自主发言时，
@@ -587,17 +589,68 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 				if !ok || require {
 					return false
 				}
-				// 群策略允许自主发言：放行未 @ 且非命令的消息
-				return !eventctx.OnMentionedBot()(c) && !isCommandMessage(c.GetMessageContent())
+				// 群策略允许自主发言：放行未 @ 且不属于其他入口的消息
+				return !eventctx.OnMentionedBot()(c) && p.autoReplyEligible()(c)
 			}).
 			Handle(p.handleAI)
 	}
 
 	if p.cfg.PrivateChat {
 		ctx.Reg.RegisterMatcher(string(platform.EventKindPrivateMessage)).
-			Where(func(c *eventctx.Context) bool {
-				return !isCommandMessage(c.GetMessageContent())
-			}).
+			Where(p.autoReplyEligible()).
 			Handle(p.handleAI)
 	}
+}
+
+// autoReplyEligible 返回 matcher 规则：报告正文是否可由 AI 的自动响应入口
+// （群自主发言 / @机器人 / 群策略放行 / 私聊）接手。
+//
+// 两类正文必须排除：
+//
+//  1. 命令消息（/ping 等）：属于其他插件，AI 不得抢答
+//     （见 c4f75fc “Prevents AI catch-all from stealing /ping”）；
+//  2. AI 自身触发命令已接管的正文：触发命令 matcher 注册在 EventType="" 上
+//     （覆盖所有会话类型），若自动响应入口也放行，同一条消息会被派发两次
+//     ——两轮 LLM 调用、两条回复；若第二轮在首轮进行中到达，还会经
+//     Session.RequestInterrupt 打断用户自己的回合。
+//
+// 判据是“命令 matcher 一定会派发”的精确补集（见 triggerParses），不依赖
+// matcher 求值顺序，也不依赖正文是否以符号开头：非符号触发词（如 trigger_cmd:
+// "帮助"）同样能正确互斥。
+func (p *Plugin) autoReplyEligible() eventctx.Rule {
+	return func(c *eventctx.Context) bool {
+		content := c.GetMessageContent()
+		if isCommandMessage(content) {
+			return false
+		}
+		return !p.triggerParses(content)
+	}
+}
+
+// triggerParses 判断正文是否会被 AI 触发命令 matcher 派发。
+//
+// 触发命令 matcher 由 ctx.OnCommandDefWith 注册，规则为 OnParseCommand(def)
+// （见 plugin.OnCommandDef）；命令索引另按“首个空格前的命令词”精确匹配触发
+// 模式。此处用同一组原语复算（TrimSpace + SplitCommandPattern +
+// ParseFromDefinition），因此“true ⇒ 触发命令 matcher 必定派发”，可安全用作
+// 自动响应入口的排除条件。
+//
+// 未配置 trigger_cmd（无触发命令 matcher）时恒为 false。
+func (p *Plugin) triggerParses(content string) bool {
+	if p.triggerCmd == "" {
+		return false
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	prefix, _ := eventctx.SplitCommandPattern(content)
+	_, err := command.ParseFromDefinition(content, p.aiDefinition(), prefix)
+	return err == nil
+}
+
+// aiDefinition 返回缓存的触发命令定义（首次调用时构建）。
+func (p *Plugin) aiDefinition() *command.Definition {
+	p.defOnce.Do(func() { p.def = buildAIDefinition() })
+	return p.def
 }

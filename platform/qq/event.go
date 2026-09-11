@@ -1256,7 +1256,29 @@ func (e *qqEvent) ReplyToID() string {
 // Mentions 实现 platform.MentionsEvent，返回 @ 用户列表。
 //
 // 仅 GROUP_MESSAGE_CREATE 事件携带 mentions 字段，其他事件返回 nil。
+// 群/频道 @机器人 这类"事件类型即代表 @机器人"的消息不走此处，
+// 见 [qqEvent.DirectedAtBot]。
 func (e *qqEvent) Mentions() []platform.UserInfo { return e.mentions }
+
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// GROUP_AT_MESSAGE_CREATE（群 @机器人）与 AT_MESSAGE_CREATE（频道 @机器人）
+// 的事件类型本身即代表"这条消息 @ 了机器人"：payload 不含 mentions 数组
+// （该字段仅 GROUP_MESSAGE_CREATE 提供，实测 2026-08 报文），正文里的
+// <@id> 占位符也被服务端替换为空格——两者都无法让 [platform.GetMentions]
+// 看到机器人自身。
+//
+// 缺此标记时，平台的 @ 判定（框架 [context.OnMentionedBot]、插件内
+// @ 检测）对这两种事件恒为 false：at_bot 触发失效、群策略要求 @ 时
+// @机器人 的消息被静默丢弃。
+func (e *qqEvent) DirectedAtBot() bool {
+	switch e.rawType {
+	case dto.GroupAtMessageCreate, dto.AtMessageCreate:
+		return true
+	default:
+		return false
+	}
+}
 
 // RawPayload 返回 nil。
 //

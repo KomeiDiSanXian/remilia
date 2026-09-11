@@ -663,18 +663,16 @@ func OnMentionedBot() Rule {
 			return false
 		}
 		// 平台未实现 MentionsEvent（无法感知 @ 列表）时放行，
-		// 与文档语义一致：由 EventType 路由自行过滤
-		// （如 QQ GROUP_AT_MESSAGE_CREATE 事件本身已隐含 @ 机器人）。
+		// 与文档语义一致：由 EventType 路由自行过滤。
 		// 此前实现对这类平台恒返回 false，导致挂载此规则的命令永不触发。
 		if _, ok := event.(platform.MentionsEvent); !ok {
 			return true
 		}
-		for _, m := range platform.GetMentions(event) {
-			if m.IsSelf {
-				return true
-			}
-		}
-		return false
+		// 实现了 MentionsEvent 的平台按统一口径判定：结构化 @ 列表（IsSelf）
+		// 优先，平台级"事件本身即 @机器人"标记兜底（见 platform.MentionedBot）。
+		// QQ 群 @机器人 报文不带 mentions 数组，只能由后者覆盖——此前只扫
+		// @ 列表，这类消息被判为"未 @ 机器人"。
+		return platform.MentionedBot(event)
 	}
 }
 
