@@ -469,8 +469,12 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("retry").Description("重新生成上一条回复").Build()).
 		SubCommand(command.NewDef("stop").Description("停止当前正在生成的回复").Build()).
 		SubCommand(command.NewDef("summary").Description("总结当前对话").Build()).
-		SubCommand(command.NewDef("status").Description("查看会话状态").Build()).
-		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
+		SubCommand(command.NewDef("status").Description("查看会话状态（可指定用户：status [@用户|用户ID]，需管理员权限）").
+			Arg("target", "目标用户（@ 提及或平台用户 ID），需群管理员/管理员权限", false).
+			Example("/ai status").Example("/ai status 123456").Build()).
+		SubCommand(command.NewDef("stats").Description("查看使用统计（可指定用户：stats [@用户|用户ID]，需管理员权限）").
+			Arg("target", "目标用户（@ 提及或平台用户 ID），需群管理员/管理员权限", false).
+			Example("/ai stats").Example("/ai stats 123456").Build()).
 		SubCommand(command.NewDef("trace").Description("查看工具调用追踪（最近 50 条）").Build()).
 		SubCommand(command.NewDef("tools").Description("列出可用工具").Alias("help").Build()).
 		SubCommand(command.NewDef("memory").Description("查看/删除/清空长期记忆").

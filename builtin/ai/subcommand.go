@@ -125,6 +125,11 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return nil
 
 	case "status":
+		// 携带目标用户时按权限查询他人状态（"status 12345"、"status @张三"）；
+		// 未指定目标则保持原有"查询自己"逻辑。
+		if p.handleUsageQuery(ctx, p.usageRest(ctx, "status")) {
+			return nil
+		}
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil {
 			ctx.ReplyText("当前没有活跃的对话")
@@ -155,6 +160,10 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return nil
 
 	case "stats":
+		// 同 status：指定目标时走权限查询，否则查询自己。
+		if p.handleUsageQuery(ctx, p.usageRest(ctx, "stats")) {
+			return nil
+		}
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil {
 			ctx.ReplyText("当前没有活跃的对话")
@@ -230,8 +239,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s summary` — 总结当前对话", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s status` — 查看会话状态", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s status` — 查看会话状态（管理员可加 @用户/ID 查询他人）", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计（管理员可加 @用户/ID 查询他人）", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s memory` — 查看/清空长期记忆", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s todo` — 管理会话待办清单", p.cfg.TriggerCmd)
@@ -287,6 +296,15 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 	if cmd == "skill" || strings.HasPrefix(cmd, "skill ") || cmd == "技能" || strings.HasPrefix(cmd, "技能 ") {
 		err = p.handleSkillCommand(ctx)
 		return err == nil
+	}
+
+	// 带目标用户的 status/stats（"status 12345"、"stats @张三"）：整词前缀匹配。
+	// 解析不出可识别目标时 handleUsageQuery 返回 false，本条不计为子命令，
+	// 交回下方精确匹配（查询自己）或 AI 对话，既有行为不变。
+	if sub := matchUsageSubCommand(cmd); sub != "" {
+		if p.handleUsageQuery(ctx, p.usageRest(ctx, sub)) {
+			return true
+		}
 	}
 
 	switch cmd {

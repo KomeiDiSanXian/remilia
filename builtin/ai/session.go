@@ -337,6 +337,8 @@ func (s *Session) setCachedContent(url string, data []byte, mimeType, audioForma
 //
 // 功能：
 //   - GetOrCreate: 自动创建或获取会话（LRU 缓存 → 持久化存储 → 新建）
+//   - Peek: 仅内存查找（不创建、不访问存储）
+//   - PeekOrLoad: 只读查找（LRU → 持久化存储，不创建、不写库、不动 LRU）
 //   - Save: 持久化保存会话
 //   - Delete: 删除会话（LRU + 持久化）
 //   - AppendMessage: 追加消息并自动裁剪上下文窗口
@@ -445,6 +447,34 @@ func (sm *SessionManager) Peek(sessionID string) *Session {
 		return elem.Value.(*sessionEntry).session
 	}
 	return nil
+}
+
+// PeekOrLoad 只读地查找会话：先查内存 LRU，未命中再查持久化存储。
+//
+// 与 GetOrCreate 的区别：不创建会话、不写库、不 trim、不插入或重排 LRU，
+// 因此不会为从未与 AI 交互过的用户凭空造出一个会话，也不影响缓存淘汰顺序。
+// 用于管理员查询他人使用状态这类只读场景。未找到返回 nil。
+//
+// 返回的会话可能是缓存中的活跃对象（会被并发回合修改），因此调用方读取
+// 可变字段（Messages/CallCount/ToolCount 等）时需自行加锁。
+func (sm *SessionManager) PeekOrLoad(sessionID string) *Session {
+	sm.mu.RLock()
+	if elem, ok := sm.sessions[sessionID]; ok {
+		session := elem.Value.(*sessionEntry).session
+		sm.mu.RUnlock()
+		return session
+	}
+	sm.mu.RUnlock()
+
+	if sm.storage == nil {
+		return nil
+	}
+	stored, err := sm.storage.Load(sessionID)
+	if err != nil {
+		logger.Errorf("[AI] Failed to load session %s: %v", sessionID, err)
+		return nil
+	}
+	return stored
 }
 
 // Save 持久化保存会话到存储后端。调用方应已持有 session 锁。
