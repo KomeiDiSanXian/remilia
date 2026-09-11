@@ -204,6 +204,14 @@ func (e *satoriEvent) Mentions() []platform.UserInfo {
 	return e.mentions
 }
 
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// Satori 私聊频道（channel.type = direct）的消息在平台语义上即"发给机器人自身"：
+// 私聊没有 <at> 元素，Mentions() 恒为空，GetMentions 无法表达"这条消息指向机器人"。
+// 因此这类消息只有靠本标记才能让 [platform.MentionedBot] / [context.OnMentionedBot]
+// 判定为真。群/文本频道消息返回 false，仍由 <at> 元素还原出的 @ 列表（IsSelf）判定。
+func (e *satoriEvent) DirectedAtBot() bool { return e.Chat().IsDM }
+
 // ReplyToID 实现 platform.ReplyEvent，返回被回复消息的 ID。
 func (e *satoriEvent) ReplyToID() string { return e.replyToID }
 

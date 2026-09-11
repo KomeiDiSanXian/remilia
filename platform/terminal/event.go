@@ -171,6 +171,17 @@ func (e *Event) Mentions() []platform.UserInfo {
 	return e.mentions
 }
 
+// ── platform.DirectedAtBotEvent 实现 ────────────────────────────────────────
+
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// 终端私聊事件（NewEvent）的输入本身就是发给机器人的：终端没有 @ 概念，
+// Mentions() 默认恒为空。群组终端事件（NewGroupEvent）返回 false，仍需
+// 显式 SetMentions 才能判定"@ 了机器人"。
+func (e *Event) DirectedAtBot() bool {
+	return !e.isGroup
+}
+
 // eventCounter 用于生成唯一事件 ID 的计数器。
 //
 // 必须使用原子类型：NewEvent / NewGroupEvent 以及导出的测试辅助方法

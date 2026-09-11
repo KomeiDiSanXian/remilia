@@ -27,6 +27,9 @@ type telegramEvent struct {
 	mentions   []platform.UserInfo
 	// botID 机器人自身 ID（适配器注入），用于 Mentions() 的 IsSelf 判定。
 	botID string
+	// directedAt 标记"消息本身即指向机器人"（私聊），
+	// 实现 platform.DirectedAtBotEvent。
+	directedAt bool
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -74,13 +77,23 @@ func (e *telegramEvent) Mentions() []platform.UserInfo {
 	return e.mentions
 }
 
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// Telegram 私聊（chat.type = private）的消息在平台语义上即"发给机器人自身"：
+// 私聊没有 text_mention/mention 实体，Mentions() 恒为空，GetMentions 无法
+// 表达"这条消息指向机器人"。因此这类消息只有靠本标记才能让
+// [platform.MentionedBot] / [context.OnMentionedBot] 判定为真。
+// 群/超级群/频道消息返回 false，仍由实体还原出的 @ 列表（IsSelf）判定。
+func (e *telegramEvent) DirectedAtBot() bool { return e.directedAt }
+
 // compile-time interface checks
 var (
-	_ platform.Event         = (*telegramEvent)(nil)
-	_ platform.RawEvent      = (*telegramEvent)(nil)
-	_ platform.ReplyEvent    = (*telegramEvent)(nil)
-	_ platform.EditableEvent = (*telegramEvent)(nil)
-	_ platform.MentionsEvent = (*telegramEvent)(nil)
+	_ platform.Event              = (*telegramEvent)(nil)
+	_ platform.RawEvent           = (*telegramEvent)(nil)
+	_ platform.ReplyEvent         = (*telegramEvent)(nil)
+	_ platform.EditableEvent      = (*telegramEvent)(nil)
+	_ platform.MentionsEvent      = (*telegramEvent)(nil)
+	_ platform.DirectedAtBotEvent = (*telegramEvent)(nil)
 )
 
 // newEvent converts a Telegram Update to a platform.Event.
@@ -141,6 +154,9 @@ func newMessageEventWithBot(msg *Message, edited bool, botID string) platform.Ev
 		e.senderInfo = userFromTelegram(msg.From)
 	}
 	e.chat = chatFromTelegram(msg.Chat)
+	if msg.Chat.Type == ChatTypePrivate {
+		e.directedAt = true
+	}
 
 	switch msg.Chat.Type {
 	case ChatTypePrivate:

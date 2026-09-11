@@ -68,6 +68,9 @@ type milkyEvent struct {
 	rawPayload any    // 解析后的载荷结构体
 	// botID 机器人自身 QQ 号（适配器注入），用于 Mentions() 的 IsSelf 判定。
 	botID string
+	// directedAt 标记"消息本身即指向机器人"（好友/临时会话），
+	// 实现 platform.DirectedAtBotEvent。
+	directedAt bool
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -98,6 +101,15 @@ func (e *milkyEvent) ReplyToID() string { return platform.SegmentsReplyToID(e.se
 func (e *milkyEvent) Mentions() []platform.UserInfo {
 	return platform.SegmentsMentions(e.segments, e.botID)
 }
+
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// Milky 好友（friend）与临时会话（temp）的消息在平台语义上即"发给机器人自身"：
+// 这两类会话没有 @ 概念（mention 段只出现在群消息里），Mentions() 恒为空，
+// GetMentions 无法表达"这条消息指向机器人"。因此这类消息只有靠本标记才能让
+// [platform.MentionedBot] / [context.OnMentionedBot] 判定为真。
+// 群消息返回 false，仍由 mention 段（IsSelf 以注入的 botID 判定）覆盖。
+func (e *milkyEvent) DirectedAtBot() bool { return e.directedAt }
 
 // ────────────────────────────────────────────────────────────────────────────
 // 事件解析
@@ -232,8 +244,10 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 		e.kind = platform.EventKindGroupMessage
 	case sceneFriend:
 		e.kind = platform.EventKindPrivateMessage
+		e.directedAt = true
 	case sceneTemp:
 		e.kind = platform.EventKindPrivateMessage
+		e.directedAt = true
 	}
 
 	// 解析消息段（保序输出统一段）

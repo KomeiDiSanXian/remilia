@@ -78,6 +78,16 @@ func (e *discordEvent) Mentions() []platform.UserInfo {
 	return e.mentions
 }
 
+// ── platform.DirectedAtBotEvent ─────────────────────────────────────────────
+
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// Discord 私聊频道（DM，GuildID == ""）的消息在平台语义上即"发给机器人自身"：
+// DM 里没有 @ 概念，mentions 数组恒为空，GetMentions 无法表达"这条消息指向机器人"。
+// 因此这类消息只有靠本标记才能让 [platform.MentionedBot] / [context.OnMentionedBot]
+// 判定为真。群/服务器频道消息返回 false，仍由 mentions 列表（IsSelf）判定。
+func (e *discordEvent) DirectedAtBot() bool { return e.chat.IsDM }
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helper converters
 // ────────────────────────────────────────────────────────────────────────────

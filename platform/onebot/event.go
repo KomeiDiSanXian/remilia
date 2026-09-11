@@ -60,6 +60,16 @@ func (e *onebotEvent) ReplyToID() string { return segmentsReplyToID(e.segments) 
 
 func (e *onebotEvent) Mentions() []platform.UserInfo { return segmentsToMentions(e.segments, e.botID) }
 
+// ── platform.DirectedAtBotEvent ─────────────────────────────────────────────
+
+// DirectedAtBot 实现 platform.DirectedAtBotEvent。
+//
+// OneBot 私聊消息（message_type=private）在平台语义上即"发给机器人自身"：
+// 私聊没有 @ 概念（OneBot 的 at 段只出现在群消息里），GetMentions 恒为空。
+// 因此这类消息只有靠本标记才能让 [platform.MentionedBot] / [context.OnMentionedBot]
+// 判定为真。群消息返回 false，仍由 at 段（IsSelf 以 self_id 判定）覆盖。
+func (e *onebotEvent) DirectedAtBot() bool { return e.chat.IsDM }
+
 // ────────────────────────────────────────────────────────────────────────────
 // 顶层事件解析
 // ────────────────────────────────────────────────────────────────────────────
