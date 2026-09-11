@@ -151,7 +151,10 @@ type Config struct {
 	// markdown=false 或非 Markdown 消息/频道不附加。
 	QQPlanButton bool `yaml:"qq_plan_button"`
 	// Fallback 当没有命令匹配时，是否由 AI 兜底回复。
-	// 当前预留字段，需要配合 Router 低优先级 RouteRule 使用。
+	// 开启后等价于对群聊与私聊的**全部非命令消息**应答（不看是否 @ 机器人），
+	// 即 group_autonomous 与 private_chat 的并集；群策略要求 @ 时仍由
+	// handleAI 按群过滤。它是这些入口的超集，开启时不再单独注册 at_bot /
+	// group_autonomous / private_chat 的 matcher，避免同一条消息重复派发。
 	Fallback bool `yaml:"fallback"`
 	// VisionEnabled 是否启用图片识别。设为 false 时入站图片会被忽略。
 	VisionEnabled bool `yaml:"vision_enabled"`

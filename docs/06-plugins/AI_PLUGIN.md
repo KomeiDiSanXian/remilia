@@ -6,6 +6,9 @@
 
 - **@机器人** 后直接发消息（`at_bot: true`，默认）
 - **私聊**（`private_chat: true`）
+- **群聊自主发言**：不 @ 机器人也响应群内非命令消息（`group_autonomous: true`）
+- **无命令匹配兜底**：群聊与私聊的全部非命令消息都由 AI 应答（`fallback: true`，
+  即 `group_autonomous` + `private_chat` 的并集；命令消息仍归其他插件）
 - 消息前缀触发：`trigger_cmd`（默认 `/ai`）
 
 ## 命令
@@ -76,11 +79,12 @@ plugins:
     trigger_cmd: "/ai"            # 命令触发前缀
     at_bot: true                  # 允许 @机器人 触发
     private_chat: true            # 允许私聊触发
+    group_autonomous: false       # 群聊自主发言：不 @ 机器人也响应群内非命令消息
     markdown: true                # 回复使用 Markdown
     qq_regen_button: true         # QQ 单聊/群聊（频道除外）AI Markdown 回复附加"重新生成"指令按钮（type=2，单聊手机端自动发送 /ai retry，其余填入输入框）
     qq_clear_button: true         # QQ 单聊/群聊（频道除外）AI Markdown 回复附加"清空会话"指令按钮（type=2，仅填入输入框，不自动发送 /ai reset）
     qq_plan_button: true          # QQ 单聊/群聊（频道除外）Markdown 计划消息附加"查看计划/停止生成"指令按钮（/ai plan、/ai stop；stop 同时取消计划）
-    fallback: false               # 非触发消息是否兜底回复
+    fallback: false               # 无命令匹配时兜底回复（群聊+私聊全部非命令消息，group_autonomous+private_chat 并集）
     vision_enabled: false         # 是否支持图片附件（多模态）
     max_attachment_size: 0        # 附件大小上限
     skill_timeout: ""             # 技能执行超时

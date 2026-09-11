@@ -544,6 +544,14 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
+	// fallback（无命令匹配时兜底回复）归一化为"群聊 + 私聊对全部非命令消息
+	// 应答"：group_autonomous 与 private_chat 是它的子集，归一化后复用同一组
+	// matcher，避免并存两套路由导致同一条消息被多个 matcher 重复派发
+	// （两轮 LLM 调用、两条回复）。群策略要求 @ 时由 handleAI 内部按群过滤
+	// （见 handler.go 的 groupRequireMention 检查），无需在此重复门控。
+	groupCatchAll := p.cfg.GroupAutonomous || p.cfg.Fallback
+	privateCatchAll := p.cfg.PrivateChat || p.cfg.Fallback
+
 	// 互动事件回调（EventKindInteraction）：统一分派审批按钮
 	// （ai:approve:* / ai:deny:*，见 approval.go）与 QQ 操作按钮回调兜底——
 	// "重新生成"（ai:regenerate）与"清空会话"（ai:clear / 原生 type=14
@@ -551,7 +559,7 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	// （type=2），点击不产生互动事件，文本命令路径已覆盖其语义。
 	ctx.Reg.RegisterMatcher(string(platform.EventKindInteraction)).Handle(p.handleInteraction)
 
-	if p.cfg.GroupAutonomous {
+	if groupCatchAll {
 		// 群聊自主发言：不 @ 机器人也响应群内非命令消息。
 		// 等价官方 OpenClaw 插件的 requireMention=false。
 		// 注意：此模式覆盖 @机器人 的群聊路径（@ 消息也命中），
@@ -581,7 +589,7 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	//
 	// 全局 GroupAutonomous=true 时不注册此兜底：自主 matcher 已覆盖全部
 	// 非命令消息，群策略 mention=on 的"必须 @"限制在 handleAI 内按群过滤。
-	if !p.cfg.GroupAutonomous {
+	if !groupCatchAll {
 		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
 			Where(func(c *eventctx.Context) bool {
 				require, ok := p.groupRequireMention(c)
@@ -595,7 +603,7 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 			Handle(p.handleAI)
 	}
 
-	if p.cfg.PrivateChat {
+	if privateCatchAll {
 		ctx.Reg.RegisterMatcher(string(platform.EventKindPrivateMessage)).
 			Where(p.autoReplyEligible()).
 			Handle(p.handleAI)

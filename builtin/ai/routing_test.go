@@ -286,6 +286,56 @@ func TestTriggerParses(t *testing.T) {
 	}
 }
 
+// TestRegisterHandlers_FallbackCatchAll 固定 fallback 的接法：
+// "无命令匹配时由 AI 兜底回复"——群聊（含未 @）与私聊的全部非命令消息都应答，
+// 且同一条消息只产生一轮对话。fallback 归一化为 group_autonomous + private_chat
+// 后复用同一组 matcher，不得与 at_bot / 私聊入口重复注册导致双重派发。
+func TestRegisterHandlers_FallbackCatchAll(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		content   string
+		groupAt   bool
+		groupNone bool
+		dm        bool
+		wantCalls int32
+	}{
+		{name: "群内未被 @ 的普通消息", content: "你好啊", groupNone: true, wantCalls: 1},
+		{name: "群内 @机器人 的普通消息", content: "你好啊", groupAt: true, wantCalls: 1},
+		{name: "私聊普通消息", content: "你好啊", dm: true, wantCalls: 1},
+		{name: "群内其他插件命令不被抢答", content: "/help", groupNone: true, wantCalls: 0},
+		{name: "私聊其他插件命令不被抢答", content: "/help", dm: true, wantCalls: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testRoutingConfig()
+			// 仅开启 fallback：证明它自身即可覆盖群聊与私聊，不依赖
+			// group_autonomous / private_chat。
+			cfg.Fallback = true
+			cfg.GroupAutonomous = false
+			cfg.PrivateChat = false
+			env := newRouteTestEnv(t, cfg)
+
+			var evt platform.Event
+			switch {
+			case tt.groupAt:
+				evt = env.groupMsg(tt.content)
+			case tt.groupNone:
+				evt = env.plainGroupMsg(tt.content)
+			default:
+				evt = env.dmMsg(tt.content)
+			}
+			env.dispatch(evt)
+
+			if got := env.calls.Load(); got != tt.wantCalls {
+				t.Errorf("LLM 调用 %d 次，期望 %d 次（正文 %q）", got, tt.wantCalls, tt.content)
+			}
+			// 归一化后同一条消息只命中一个对话入口：出站回复条数应等于调用次数。
+			if replies := env.textReplies(); len(replies) != int(tt.wantCalls) {
+				t.Errorf("出站文本回复 %d 条，期望 %d 条：%v", len(replies), tt.wantCalls, replies)
+			}
+		})
+	}
+}
+
 // textReplies 取出经 sender 发出的纯文本回复。
 func (e *routeTestEnv) textReplies() []string {
 	var out []string

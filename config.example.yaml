@@ -313,7 +313,7 @@ messagelog:
 #                                         #     （等价官方 OpenClaw 插件的 requireMention=false，
 #                                         #     需平台授予群全量消息权限）；默认 false = 仅 @ 触发
 #     private_chat: true                  # [R] 是否自动响应私聊消息（命令消息自动跳过）
-#     fallback: false                     # [R] 无命令匹配时是否由 AI 兜底回复（预留字段）
+#     fallback: false                     # [R] 无命令匹配时是否由 AI 兜底回复（群聊+私聊全部非命令消息）
 #
 #     # —— 输出与多模态 ——
 #     markdown: true                      # [R] 平台支持 MD 时用 Markdown 回复，否则回退纯文本
