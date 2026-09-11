@@ -104,12 +104,10 @@ func TestProcessPicSemaphoreLimitsConcurrency(t *testing.T) {
 	const workers = 8
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			att := p.processPic(context.Background(), post, "")
 			require.NotNil(t, att)
-		}()
+		})
 	}
 	wg.Wait()
 
