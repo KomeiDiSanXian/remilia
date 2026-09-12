@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"image"
-
 	// 解码内置资源使用的图片格式：WebP（塔罗牌面与签纸扫描）与 JPEG/PNG（兜底）。
 	_ "image/jpeg"
 	_ "image/png"

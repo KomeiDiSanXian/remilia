@@ -73,8 +73,9 @@ func New() *plugin.Descriptor {
 
 // handleOmikuji 处理 /omikuji 命令。
 //
-// 只发一条消息：签纸两页（签文页与解签页）合成的图片。
-// 番号、吉凶、漢詩与解签都由签纸本身承载，不再附加生成的解读文本。
+// 发一条消息：签纸两页（签文页与解签页）合成的图片，下方附中文解签
+// （汉诗、签意、各项运势，以及出处说明与免责声明）。平台不支持
+// Markdown 时降级为纯文本；图文无法同发时拆成两条。
 func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
@@ -93,50 +94,90 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 	}
 
 	number = drawOmikuji(number)
+	slip := omikujiSlip(number)
 
-	png, renderErr := renderOmikujiCard(p.omikujiPages(number)...)
+	card, renderErr := renderOmikujiCard(p.omikujiPages(number)...)
 	if renderErr != nil {
 		ctx.ReplyError("御神签素材不可用，请稍后重试")
 		return nil
 	}
 
-	ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("omikuji_%03d.png", number), "image/png"))
+	msg := platform.ImageDataMessage(card, fmt.Sprintf("omikuji_%03d.jpg", number), "image/jpeg")
+	if slip == nil {
+		ctx.Reply(msg)
+		return nil
+	}
+
+	caps := ctx.GetPlatformCapabilities()
+	switch {
+	case caps.Has(platform.CapMarkdown):
+		msg.Markdown = formatOmikujiMD(slip)
+		ctx.Reply(msg)
+	case caps.Has(platform.CapCaption):
+		msg.Text = formatOmikujiText(slip)
+		ctx.Reply(msg)
+	default:
+		ctx.Reply(msg)
+		ctx.ReplyText(formatOmikujiText(slip))
+	}
 	return nil
 }
 
 // handleTarot 处理 /tarot 命令。
-// 每张牌发送一张图片卡片，最后发送综合文字解读。
+//
+// 发一条消息：整副牌阵合成的图片，下方附位置含义、牌意与逐张解读，
+// 以及牌面出处与免责声明。平台不支持 Markdown 时降级为纯文本；
+// 牌阵图片渲染失败时只发文字。
 func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
-		ctx.ReplyError("用法: /tarot [数量], /tarot = 1张, /tarot 3 = 三张")
+		ctx.ReplyError(tarotUsage)
 		return nil
 	}
 
 	count := 1
 	if len(parsed.Positional) > 0 {
 		n, parseErr := strconv.Atoi(parsed.Positional[0])
-		if parseErr == nil && (n == 1 || n == 3) {
-			count = n
+		if parseErr != nil || (n != 1 && n != 3) {
+			ctx.ReplyError(tarotUsage)
+			return nil
 		}
+		count = n
 	}
 
 	readings := drawTarot(count)
+	positions := tarotPositionsFor(count)
 
-	for i, reading := range readings {
-		card := reading.Card
-		cardImg := p.tarotImage(card.NameShort)
-
-		png, renderErr := renderTarotCard(&reading, cardImg)
-		if renderErr != nil {
-			ctx.ReplyText(formatTarotText(readings[i : i+1]))
-			continue
+	cols := make([]tarotColumn, len(readings))
+	for i := range readings {
+		cols[i] = tarotColumn{
+			Reading:  readings[i],
+			Face:     p.tarotImage(readings[i].Card.NameShort),
+			Position: positionName(positions, i),
 		}
-
-		ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("tarot_%d.png", i), "image/png"))
 	}
 
-	ctx.ReplyText(formatTarotText(readings))
+	text := formatTarotText(readings)
+	card, renderErr := renderTarotSpread(cols)
+	if renderErr != nil {
+		p.errf("fortune: 塔罗牌阵渲染失败: %v", renderErr)
+		ctx.ReplyText(text)
+		return nil
+	}
+
+	msg := platform.ImageDataMessage(card, fmt.Sprintf("tarot_%d.jpg", count), "image/jpeg")
+	caps := ctx.GetPlatformCapabilities()
+	switch {
+	case caps.Has(platform.CapMarkdown):
+		msg.Markdown = formatTarotMD(readings)
+		ctx.Reply(msg)
+	case caps.Has(platform.CapCaption):
+		msg.Text = text
+		ctx.Reply(msg)
+	default:
+		ctx.Reply(msg)
+		ctx.ReplyText(text)
+	}
 	return nil
 }
 
@@ -146,7 +187,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "draw_omikuji",
 			Categories:  []string{"fortune"},
-			Description: "抽取御神签（浅草寺风）来占卜运势",
+			Description: "抽取御神签（浅草寺观音签，共 100 番），返回该签实际的吉凶、漢詩与解签。可指定签号 1-100",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
 				Properties: map[string]ai.ToolParamSchema{
@@ -161,16 +202,18 @@ func (p *Plugin) ListTools() []ai.Tool {
 				if n, ok := args["number"].(float64); ok {
 					number = int(n)
 				}
-				drawn := drawOmikuji(number)
-				return fmt.Sprintf("已抽取御神签第 %d 番（浅草寺百番观音签）。"+
-					"签纸的番号、吉凶、漢詩与解签均印在签纸图片上；"+
-					"本工具不返回签文内容，请勿自行杜撰签文或吉凶。", drawn), nil
+				slip := omikujiSlip(drawOmikuji(number))
+				if slip == nil {
+					return "", fmt.Errorf("fortune: 签号无效: %d", number)
+				}
+				return formatOmikujiText(slip) +
+					"\n\n（以上为该签的固定签文，非随机生成；用户发送 /omikuji 可获取对应签纸图片。）", nil
 			},
 		},
 		{
 			Name:        "draw_tarot",
 			Categories:  []string{"fortune"},
-			Description: "抽取塔罗牌进行占卜，可抽 1 张或 3 张（过去·现在·未来）",
+			Description: "抽取塔罗牌占卜（韦特塔罗 78 张，含正位与逆位）。返回牌阵中每张牌的位置含义、正逆位、牌意关键词与逐张解读",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
 				Properties: map[string]ai.ToolParamSchema{
@@ -189,7 +232,8 @@ func (p *Plugin) ListTools() []ai.Tool {
 					count = 1
 				}
 				readings := drawTarot(count)
-				return formatTarotText(readings), nil
+				return formatTarotText(readings) +
+					"\n\n（以上牌面由内置牌库随机抽取；用户发送 /tarot 可获取对应牌阵图片。）", nil
 			},
 		},
 	}
@@ -203,9 +247,11 @@ func (p *Plugin) ListSkills() []ai.Skill {
 			Description: "运势占卜与解读",
 			Prompt: `你是一个精通日本浅草寺御神签和塔罗牌的占卜师。
 当用户询问运势或占卜时：
-- 使用 draw_omikuji 抽取御神签。该工具只返回签号，签文、吉凶与解签都印在签纸
-  图片上，请引导用户查看签纸图片，不要自行杜撰签文或吉凶
-- 使用 draw_tarot 抽取塔罗牌，解读正位或逆位的牌意，并结合问题给出指引
+- 使用 draw_omikuji 抽取御神签。工具会返回该签的实际吉凶、漢詩与各项运势，
+  请依据返回值解读，不要自行增减或杜撰签文内容
+- 使用 draw_tarot 抽取塔罗牌。抽 3 张时位置依次是过去・现在・未来，
+  请结合位置含义解读，不要只逐张复述牌意；逆位也不等于单纯的不吉，
+  多表示这股力量受阻或尚未成熟
 
 以温暖、鼓励的语气回应，并给予实用的建议。`,
 			Tools: p.ListTools(),

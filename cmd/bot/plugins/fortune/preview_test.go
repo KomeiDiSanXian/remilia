@@ -40,15 +40,42 @@ func TestPreviewRender(t *testing.T) {
 			decodeAsset(omikujiAssetPath(n, 0)),
 			decodeAsset(omikujiAssetPath(n, 1)),
 		)
-		write(fmt.Sprintf("omikuji_%03d.png", n), data, err)
+		write(fmt.Sprintf("omikuji_%03d.jpg", n), data, err)
 	}
 
 	// 每种花色各取一张，正逆位成对输出，便于核对逆位是否翻转。
 	for _, short := range []string{"ar10", "wa01", "cu07"} {
 		for _, reverse := range []bool{false, true} {
-			reading := &TarotReading{Card: *tarotDeck[short], IsReverse: reverse}
-			data, err := renderTarotCard(reading, decodeAsset(tarotAssetPath(short)))
-			write("tarot_"+short+"_"+reading.Orientation()+".png", data, err)
+			reading := TarotReading{Card: *tarotDeck[short], IsReverse: reverse}
+			data, err := renderTarotSpread([]tarotColumn{{
+				Reading: reading,
+				Face:    decodeAsset(tarotAssetPath(short)),
+			}})
+			write("tarot_"+short+"_"+reading.Orientation()+".jpg", data, err)
 		}
+	}
+
+	// 塔罗牌阵：单张与三张（过去·现在·未来），用于核对位置标签与整体排版。
+	spreads := map[string][]TarotReading{
+		"tarot_spread_1": {
+			{Card: *tarotDeck["ar18"], IsReverse: true},
+		},
+		"tarot_spread_3": {
+			{Card: *tarotDeck["ar10"], IsReverse: false},
+			{Card: *tarotDeck["wa01"], IsReverse: true},
+			{Card: *tarotDeck["cu07"], IsReverse: false},
+		},
+	}
+	for name, readings := range spreads {
+		cols := make([]tarotColumn, len(readings))
+		for i, reading := range readings {
+			cols[i] = tarotColumn{
+				Reading:  reading,
+				Face:     decodeAsset(tarotAssetPath(reading.Card.NameShort)),
+				Position: positionName(tarotPositionsFor(len(readings)), i),
+			}
+		}
+		data, err := renderTarotSpread(cols)
+		write(name+".jpg", data, err)
 	}
 }
