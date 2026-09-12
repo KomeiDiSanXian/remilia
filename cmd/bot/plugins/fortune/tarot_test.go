@@ -268,11 +268,17 @@ func TestFormatTarotMulti(t *testing.T) {
 		"① 过去", "② 现在", "③ 未来",
 		"命运之轮", "权杖一", "圣杯七",
 		"（正位）", "（逆位）",
-		"**牌意**", "**解读**",
+		"**牌意**：", "**解读**：",
 		tarotSource, tarotReverseHint, tarotDisclaimer,
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("Markdown 输出缺少 %q\n%s", want, md)
+		}
+	}
+	// 位置说明行后必须留空行，否则引用块会把后续的牌意与解读一并吞掉。
+	for _, pos := range tarotPositionsFor(3) {
+		if !strings.Contains(md, "> "+pos.Focus+"\n\n**牌意**：") {
+			t.Errorf("位置「%s」的说明与牌意之间缺少空行:\n%s", pos.Name, md)
 		}
 	}
 
@@ -314,6 +320,9 @@ func TestFormatTarotSingle(t *testing.T) {
 	}
 	if !strings.Contains(txt, "牌意：") || !strings.Contains(txt, "解读：") {
 		t.Errorf("单张纯文本缺少牌意或解读:\n%s", txt)
+	}
+	if !strings.Contains(md, "**牌意**：") || !strings.Contains(md, "**解读**：") {
+		t.Errorf("单张 Markdown 缺少牌意或解读（含冒号）:\n%s", md)
 	}
 }
 

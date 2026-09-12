@@ -134,9 +134,19 @@ func TestFormatOmikujiSections(t *testing.T) {
 	if strings.Contains(md, omikujiKyoHint) {
 		t.Error("大吉不应出现凶签提示")
 	}
-	// 分类运势以表格呈现，至少有表头分隔行。
-	if !strings.Contains(md, ":---:") {
-		t.Error("Markdown 解签应包含运势表格")
+	// 分类运势以列表呈现，不用表格——分块表格的分隔行会被平台当正文显示。
+	if !strings.Contains(md, "- **愿望**：") {
+		t.Errorf("Markdown 解签的运势应为列表项:\n%s", md)
+	}
+	for _, it := range daikichi.Items {
+		if !strings.Contains(md, "- **"+it.Name+"**："+it.Value) {
+			t.Errorf("Markdown 解签缺少运势项 %q:\n%s", it.Name, md)
+		}
+	}
+	for _, bad := range []string{":---:", "|"} {
+		if strings.Contains(md, bad) {
+			t.Errorf("Markdown 解签不应包含表格标记 %q:\n%s", bad, md)
+		}
 	}
 
 	if mdKyo := formatOmikujiMD(kyo); !strings.Contains(mdKyo, omikujiKyoHint) {
@@ -160,12 +170,15 @@ func TestFormatOmikujiSections(t *testing.T) {
 	}
 }
 
-// TestMdCellEscapes 确认会破坏表格排版的字符被转义。
-func TestMdCellEscapes(t *testing.T) {
-	if got := mdCell("a|b"); got != `a\|b` {
+// TestMdInlineEscapes 确认会破坏 Markdown 行内排版的字符被转义。
+func TestMdInlineEscapes(t *testing.T) {
+	if got := mdInline("a|b"); got != `a\|b` {
 		t.Errorf("竖线应被转义，实际 %q", got)
 	}
-	if got := mdCell("a\nb"); got != "a b" {
+	if got := mdInline("a*b_c`d"); got != "a\\*b\\_c\\`d" {
+		t.Errorf("星号、下划线与反引号应被转义，实际 %q", got)
+	}
+	if got := mdInline("a\nb"); got != "a b" {
 		t.Errorf("换行应被替换为空格，实际 %q", got)
 	}
 }

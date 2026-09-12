@@ -108,11 +108,13 @@ func formatTarotMD(readings []TarotReading) string {
 			fmt.Fprintf(&b, "**%s %s · %s（%s）**\n",
 				tarotIndex(i), positionName(positions, i), r.Card.NameCN, r.Orientation())
 			if i < len(positions) {
-				fmt.Fprintf(&b, "> %s\n", positions[i].Focus)
+				// 引用行后必须留空行：CommonMark 的惰性续行会把紧跟的
+				// 「牌意」「解读」两行并进引用块，整段被当成引文渲染。
+				fmt.Fprintf(&b, "> %s\n\n", positions[i].Focus)
 			}
 		}
-		fmt.Fprintf(&b, "**牌意** %s\n", r.Meaning())
-		fmt.Fprintf(&b, "**解读** %s\n", r.Reading())
+		fmt.Fprintf(&b, "**牌意**：%s\n", r.Meaning())
+		fmt.Fprintf(&b, "**解读**：%s\n", r.Reading())
 	}
 
 	b.WriteString("\n---\n")

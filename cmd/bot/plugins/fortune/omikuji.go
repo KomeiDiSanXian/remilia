@@ -128,28 +128,16 @@ func formatOmikujiMD(s *OmikujiSlip) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// formatOmikujiItems 把分类运势渲染为 Markdown 表格，每行最多 4 列，
-// 避免项目较多时在窄屏上被挤压。
+// formatOmikujiItems 把分类运势渲染为 Markdown 列表，每项一行。
+//
+// 这里刻意不用表格：项目名（如「盖新居、搬家、嫁娶、旅行、交往等」）与内容
+// 长短悬殊，表格在窄屏上会被挤压；而一旦项目数超过一行的列数就得分成多张表，
+// 分块之间缺少空行时，后一张表的分隔行（`:---:`）会被并进前一张表当作正文
+// 原样显示出来。列表在任何 Markdown 实现下都稳定，也与纯文本排版一一对应。
 func formatOmikujiItems(items []OmikujiItem) string {
-	const perRow = 4
-
 	var b strings.Builder
-	for i := 0; i < len(items); i += perRow {
-		chunk := items[i:min(i+perRow, len(items))]
-
-		b.WriteString("|")
-		for _, it := range chunk {
-			fmt.Fprintf(&b, " %s |", mdCell(it.Name))
-		}
-		b.WriteString("\n|")
-		for range chunk {
-			b.WriteString(" :---: |")
-		}
-		b.WriteString("\n|")
-		for _, it := range chunk {
-			fmt.Fprintf(&b, " %s |", mdCell(it.Value))
-		}
-		b.WriteString("\n")
+	for _, it := range items {
+		fmt.Fprintf(&b, "- **%s**：%s\n", mdInline(it.Name), mdInline(it.Value))
 	}
 	return b.String()
 }
@@ -178,7 +166,24 @@ func formatOmikujiText(s *OmikujiSlip) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// mdCell 转义 Markdown 表格单元格里会破坏排版的字符。
-func mdCell(s string) string {
-	return strings.NewReplacer("|", "\\|", "\n", " ").Replace(s)
+// mdInlineEscaper 转义正文里会破坏 Markdown 行内排版的字符。
+//
+// 签文数据本身不含这些字符，这里只作防御：日后修订数据源时，未转义的
+// 星号或反引号会让其后整段排版错乱。换行被替换为空格，保证一项占一行。
+var mdInlineEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	"`", "\\`",
+	"*", "\\*",
+	"_", "\\_",
+	"[", "\\[",
+	"]", "\\]",
+	"|", "\\|",
+	"\r\n", " ",
+	"\n", " ",
+	"\r", " ",
+)
+
+// mdInline 把一段签文文本转义为可安全嵌入 Markdown 行的形式。
+func mdInline(s string) string {
+	return mdInlineEscaper.Replace(s)
 }
