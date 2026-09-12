@@ -206,9 +206,17 @@ func applyGS4(status *MCServerStatus, gs4 *GS4Stat) {
 		status.MOTD = ParseMotd(gs4.Hostname)
 		status.MOTDPlain = stripMotd(gs4.Hostname)
 	}
-	if status.Software == "" && gs4.Plugins != "" {
-		status.Software, status.PluginNames = parsePluginList(gs4.Plugins)
-		status.PluginCount = len(status.PluginNames)
+	// GS4 的 plugins 字段是服务端自报的权威信息（"服务端描述: 插件A, 插件B"），
+	// 优先于 version.name 的启发式推断。
+	if gs4.Plugins != "" {
+		software, names := parsePluginList(gs4.Plugins)
+		if software != "" {
+			status.Software = software
+		}
+		if len(names) > 0 {
+			status.PluginNames = names
+			status.PluginCount = len(names)
+		}
 	}
 }
 

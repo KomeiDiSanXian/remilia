@@ -85,6 +85,29 @@ func TestDisplayVersionAndSoftware(t *testing.T) {
 	}
 }
 
+// TestFavManagerNilReceiverSafe 验证存储不可用（FavManager 为 nil）时
+// 收藏相关方法返回错误而不是 panic。
+// 依赖此契约：/mc list 在未启用 storage 插件时会回复"存储服务不可用"，
+// 而不是把 "list" 当成主机名去查询。
+func TestFavManagerNilReceiverSafe(t *testing.T) {
+	var f *FavManager
+	if f.Available() {
+		t.Error("nil FavManager 不应可用")
+	}
+	if _, err := f.List("qq:1"); err == nil {
+		t.Error("nil FavManager 的 List 应返回错误")
+	}
+	if _, err := f.Add("qq:1", "n", "a.example.com"); err == nil {
+		t.Error("nil FavManager 的 Add 应返回错误")
+	}
+	if _, err := f.Remove("qq:1", "n"); err == nil {
+		t.Error("nil FavManager 的 Remove 应返回错误")
+	}
+	if _, err := f.Get("qq:1", "n"); err == nil {
+		t.Error("nil FavManager 的 Get 应返回错误")
+	}
+}
+
 // newTestFavManager 用临时 SQLite 打开收藏管理器。
 func newTestFavManager(t *testing.T) *FavManager {
 	t.Helper()

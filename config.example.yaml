@@ -483,7 +483,11 @@ messagelog:
 #     default_server: ""          # [H]  默认服务器（主机[:端口]）；/mc 不带参数时查询
 #     timeout: "10s"              # [H]  单次查询总超时（Java/Bedrock 直连与 API 回退共享预算）
 #     cache_ttl: "60s"            # [H]  查询结果缓存时长（避免连查打满 mcsrvstat.us 限额）
+#     err_cache_ttl: "15s"        # [H]  查询失败（离线等）的负缓存时长；0 = 不缓存失败结果。
+#                                 #      防止群聊连查离线服务器反复走完整链路（直连超时 + API 回退）
 #     avatars: true               # [H]  是否拉取在线玩家头像（mc-heads.net，关闭可省流量）
+#     cooldown: "3s"              # [H]  /mc 查询的每用户冷却（同会话同用户）；0 = 不限制。
+#                                 #      单次查询最坏链路为 Java + Bedrock + GS4 + 头像，耗时较长
 #     direct_query: true          # [H]  是否先尝试直连发包查询（Java SLP / Bedrock RakNet）。
 #                                 #      直连是裸 TCP/UDP，无法经过 HTTP 代理：在出站需代理
 #                                 #      或防火墙限制的部署中仅内网可用、外网必失败，
@@ -491,7 +495,15 @@ messagelog:
 #                                 #      （注意：API 无法看到内网服务器，关闭后内网查询不可用）
 #     enable_query: true          # [H]  是否尝试 GS4 Query 获取完整玩家列表（需服务器开启 enable-query；
 #                                 #      直连 UDP，direct_query=false 时一并禁用）
+#     gs4_mode: "auto"            # [H]  GS4 尝试策略：auto = 仅当 SLP 玩家样本不完整时尝试；
+#                                 #      always = 总是尝试（0 人在线也能拿到服务端软件与插件清单，
+#                                 #      代价是未开启 enable-query 的服务器每次多等一个 UDP 超时）；
+#                                 #      never = 从不尝试
 #     query_port: 0               # [H]  Query 端口；0 = 与服务器端口一致（仅服务器单独设置过 query.port 时需要）
+#     block_private_targets: false # [H]  是否禁止直连内网/回环地址。默认 false（内网自建服务器
+#                                 #      正是自建 bot 的常见查询目标）；仅当 /mc 对所有群成员开放、
+#                                 #      且不希望它被当作内网端口探测器时设为 true。
+#                                 #      注：API 路径始终拒绝私有地址（第三方 API 也路由不到内网）
 #   sauce:
 #     proxy: ""                   # [R]  引擎请求代理地址（如 "http://127.0.0.1:7890"）。
 #                                 #      国内部署访问 SauceNAO / IQDB 等被墙站点必需；

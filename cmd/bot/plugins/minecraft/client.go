@@ -20,6 +20,10 @@ const (
 	DefaultJavaPort    = 25565
 	DefaultBedrockPort = 19132
 	protocolVersion    = 766
+	// maxStatusPacketBytes 单个 SLP 响应包的字节上限。
+	// 状态 JSON（含 base64 favicon）实测在数百 KB 以内，1MB 余量充足；
+	// 设上限是为了避免异常/恶意服务器用超长长度字段触发巨额内存分配。
+	maxStatusPacketBytes = 1 << 20
 )
 
 // 连接错误 sentinel。
@@ -84,6 +88,9 @@ type MCServerStatus struct {
 	Edition  string
 	Version  string
 	Protocol int
+	// EnforcesSecureChat / PreviewsChat 聊天签名相关标志（SLP 可选字段）。
+	EnforcesSecureChat bool
+	PreviewsChat       bool
 	// Via 查询途径：slp（Java 直连）/ raknet（Bedrock 直连）/ api（mcsrvstat.us）。
 	Via       string
 	MOTD      []MotdSegment
@@ -267,19 +274,23 @@ func parseHostPort(addr string) (string, int, error) {
 	for _, scheme := range []string{"https://", "http://", "tcp://"} {
 		addr = strings.TrimPrefix(addr, scheme)
 	}
+	// 容忍粘贴自浏览器/面板的完整 URL：丢弃端口之后的部分（路径、查询串等）
+	if i := strings.IndexAny(addr, "/?#"); i >= 0 {
+		addr = addr[:i]
+	}
 	if addr == "" {
 		return "", 0, errors.New("服务器地址为空")
 	}
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
-		// 无端口：整体视为主机名（含裸 IPv6）
-		return addr, 0, nil
+		// 无端口：整体视为主机名（含裸 IPv6 与 [IPv6] 括号形式）
+		return unwrapIPv6Literal(addr), 0, nil
 	}
 	if host == "" {
 		return "", 0, fmt.Errorf("服务器地址无效: %q", addr)
 	}
 	if portStr == "" {
-		return host, 0, nil
+		return unwrapIPv6Literal(host), 0, nil
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
@@ -288,10 +299,23 @@ func parseHostPort(addr string) (string, int, error) {
 	return host, port, nil
 }
 
-// remainingTimeout 返回自 start 起的剩余超时预算，下限 2s，
-// 保证每次回退（API 查询等）至少仍有一次尝试机会。
+// unwrapIPv6Literal 去掉裸 IPv6 字面量的方括号（"[::1]" → "::1"）。
+// net.SplitHostPort 只接受带端口的括号形式，不带端口时括号会残留，
+// 直接当成主机名会导致解析失败。
+func unwrapIPv6Literal(host string) string {
+	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		return host[1 : len(host)-1]
+	}
+	return host
+}
+
+// remainingTimeout 返回自 start 起的剩余超时预算。
+//
+// 下限取 min(2s, total)：既保证预算耗尽时回退链路（API 查询等）仍有
+// 一次尝试机会，又避免固定 2s 下限在小 timeout 配置下把总耗时拉长到
+// 远超配置值（回退链路上限约为 timeout + 各跳下限之和）。
 func remainingTimeout(start time.Time, total time.Duration) time.Duration {
-	return max(total-time.Since(start), 2*time.Second)
+	return max(total-time.Since(start), min(2*time.Second, total))
 }
 
 // Ping 自动探测服务器版本，先尝试 Java 版查询，失败后回退到 Bedrock。
@@ -322,22 +346,53 @@ type srvEntry struct {
 // srvCache SRV 解析缓存。
 var srvCache = newTTLCache[srvEntry](5*time.Minute, 1024)
 
-// ResolveAddr 解析服务器地址。若 port > 0 直接返回；否则尝试 SRV 记录查询 minecraft._tcp
-// （结果缓存 5 分钟，未配置 SRV 的主机同样缓存，避免每次查询都打 DNS）。
+// ResolveAddr 解析 Java 版服务器地址。若 port > 0 直接返回；否则查询
+// minecraft._tcp SRV 记录，无记录时回退 25565。返回的 port 始终 > 0。
 func ResolveAddr(host string, port int) (string, int, error) {
 	if port > 0 {
 		return host, port, nil
 	}
-	if e, ok := srvCache.get(host); ok {
-		return e.host, e.port, nil
-	}
-	target, tport := host, DefaultJavaPort
-	if _, srvs, err := net.LookupSRV("minecraft", "tcp", host); err == nil && len(srvs) > 0 {
-		target = srvs[0].Target
-		tport = int(srvs[0].Port)
-	}
-	srvCache.set(host, srvEntry{host: target, port: tport})
+	target, tport := resolveSRV("tcp", host, DefaultJavaPort)
 	return target, tport, nil
+}
+
+// ResolveBedrockAddr 解析 Bedrock 版服务器地址。若 port > 0 直接返回；
+// 否则查询 minecraft._udp SRV 记录（Bedrock 的 SRV 约定不如 Java 普及），
+// 无记录时回退 19132。返回的 port 始终 > 0。
+func ResolveBedrockAddr(host string, port int) (string, int, error) {
+	if port > 0 {
+		return host, port, nil
+	}
+	target, tport := resolveSRV("udp", host, DefaultBedrockPort)
+	return target, tport, nil
+}
+
+// resolveSRV 查询 _minecraft._<proto> SRV 记录，失败或缺失时回退 fallbackPort。
+//
+// 结果（含"无 SRV 记录"的否定结果）缓存 5 分钟，避免高频查询反复打 DNS。
+func resolveSRV(proto, host string, fallbackPort int) (string, int) {
+	key := proto + "|" + normalizeHostKey(host)
+	if e, ok := srvCache.get(key); ok {
+		return e.host, e.port
+	}
+	target, tport := host, fallbackPort
+	if _, srvs, err := net.LookupSRV("minecraft", proto, host); err == nil && len(srvs) > 0 {
+		// Go 的 LookupSRV 返回带尾点的绝对域名，去掉尾点便于展示与后续复用
+		if name := strings.TrimSuffix(srvs[0].Target, "."); name != "" {
+			target = name
+		}
+		if srvs[0].Port > 0 {
+			tport = int(srvs[0].Port)
+		}
+	}
+	srvCache.set(key, srvEntry{host: target, port: tport})
+	return target, tport
+}
+
+// normalizeHostKey 归一化用于缓存与 singleflight 的主机名 key
+// （大小写不敏感、忽略末尾根点），避免 "MC.a.com"/"mc.a.com." 被当成两个目标。
+func normalizeHostKey(host string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
 // isPrivateIP 判断 IP 是否为私有/保留地址（回环、链路本地、RFC1918、CGNAT、IPv6 ULA）。
@@ -424,6 +479,45 @@ func protocolVersionName(protocol int) string {
 	return "未知"
 }
 
+// serverSoftwareBrands 常见服务端软件品牌。
+//
+// 用于从 SLP 的 version.name 里补充"服务端软件"信息：多数非原版服务端会把
+// 品牌写进版本名（"Paper 1.21.1"、"Purpur 1.20.4"、"Velocity 1.2.3"），
+// 这样无需额外发包即可展示；GS4 Query 不可用时（绝大多数公网服务器并未开启
+// enable-query）这是唯一零成本的来源。原版服务器通常只给纯版本号。
+var serverSoftwareBrands = []string{
+	"Paper", "Purpur", "Pufferfish", "Spigot", "CraftBukkit", "Bukkit",
+	"Folia", "Leaves", "Leaf", "Airplane", "Tuinity", "Yatopia",
+	"Fabric", "Forge", "NeoForge", "Quilt", "Sponge", "Mohist", "Magma",
+	"Arclight", "CatServer", "Kettle", "Thermos", "Crucible",
+	"Velocity", "BungeeCord", "Waterfall", "Travertine", "Gate",
+	"Geyser", "Nukkit", "Cloudburst", "PocketMine-MP", "Glowstone", "Cuberite",
+	"Vanilla",
+}
+
+// guessSoftwareFromVersionName 从 SLP 的 version.name 中识别服务端软件品牌。
+// 识别不出（原版纯版本号等）时返回空串，调用方保留原有空值语义。
+func guessSoftwareFromVersionName(name string) string {
+	if name == "" {
+		return ""
+	}
+	tokens := strings.FieldsFunc(name, func(r rune) bool {
+		switch r {
+		case ' ', '\t', '-', '_', '/', '\\', '(', ')', '[', ']', ',', '+', '|':
+			return true
+		}
+		return false
+	})
+	for _, tok := range tokens {
+		for _, brand := range serverSoftwareBrands {
+			if strings.EqualFold(tok, brand) {
+				return brand
+			}
+		}
+	}
+	return ""
+}
+
 // PingViaAPI 仅通过 mcsrvstat.us HTTP API 查询，跳过直连发包。
 //
 // 直连发包是裸 TCP/UDP socket，无法经过 HTTP 代理；在出站需代理或有
@@ -436,7 +530,9 @@ func PingViaAPI(host string, port int, edition string, timeout time.Duration) (*
 	case "java":
 		return pingJavaViaAPI(host, port, timeout)
 	case "bedrock":
-		return pingBedrockViaAPI(host, port, timeout)
+		// Bedrock 未指定端口时按 _minecraft._udp SRV 解析，无记录则回退 19132
+		_, bport, _ := ResolveBedrockAddr(host, port)
+		return pingBedrockViaAPI(host, bport, timeout)
 	default:
 		if port == DefaultBedrockPort {
 			status, err := pingBedrockViaAPI(host, port, timeout/2)
@@ -459,13 +555,24 @@ func PingViaAPI(host string, port int, edition string, timeout time.Duration) (*
 func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
 	start := time.Now()
 	origHost, origPort := host, port
-	host, port, _ = ResolveAddr(host, port)
-	addr := net.JoinHostPort(host, fmt.Sprint(port))
+	dialHost, dialPort, _ := ResolveAddr(host, port)
+	addr := net.JoinHostPort(dialHost, fmt.Sprint(dialPort))
+
+	// 直连失败或响应无法解析时统一回退 API：端口上跑着非 Minecraft 服务、
+	// 响应被截断等情况下，API 能给出更准确的"离线"判定，比只抛一个晦涩的
+	// 解析错误更有用。
+	viaAPI := func(cause error) (*MCServerStatus, error) {
+		status, apiErr := pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+		if apiErr == nil {
+			return status, nil
+		}
+		return nil, fmt.Errorf("%w（API 回退亦失败: %v）", cause, apiErr)
+	}
 
 	// "tcp" 双栈：IPv4/IPv6 均可（Go 会按解析结果逐一尝试）
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+		return viaAPI(fmt.Errorf("dial %s: %w", addr, err))
 	}
 	defer conn.Close()
 	// 整个握手 + 往返共享同一 deadline，避免各阶段超时被逐一拉长
@@ -473,49 +580,47 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 
 	pkt := &packetBuffer{}
 	pkt.writeVarInt(protocolVersion)
-	pkt.writeString(host)
-	pkt.writeUint16(uint16(port))
+	// 握手携带用户请求的原始主机名，而非 SRV 解析后的目标地址：
+	// BungeeCord/Velocity 的虚拟主机路由（forced-host）依据该字段决定响应内容。
+	pkt.writeString(origHost)
+	pkt.writeUint16(uint16(dialPort))
 	pkt.writeVarInt(1)
 
 	if err := sendPacket(conn, 0x00, pkt.bytes()); err != nil {
-		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+		return viaAPI(fmt.Errorf("send handshake: %w", err))
 	}
 	// 握手后立即发送空的 Status Request
 	if err := sendPacket(conn, 0x00, nil); err != nil {
-		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+		return viaAPI(fmt.Errorf("send status request: %w", err))
 	}
 
 	respData, err := readPacket(conn)
 	if err != nil {
-		status, apiErr := pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
-		if apiErr == nil {
-			return status, nil
-		}
-		return nil, fmt.Errorf("read status response: %w", err)
+		return viaAPI(fmt.Errorf("read status response: %w", err))
 	}
 	r := &packetReader{data: respData}
 	pid, err := r.readVarInt()
 	if err != nil {
-		return nil, fmt.Errorf("read packet id: %w", err)
+		return viaAPI(fmt.Errorf("read packet id: %w", err))
 	}
 	if pid != 0x00 {
-		return nil, fmt.Errorf("unexpected status packet id 0x%02x", pid)
+		return viaAPI(fmt.Errorf("unexpected status packet id 0x%02x", pid))
 	}
 	jsonStr, err := r.readString()
 	if err != nil {
-		return nil, fmt.Errorf("read json string: %w", err)
+		return viaAPI(fmt.Errorf("read json string: %w", err))
 	}
 
 	var jr javaResponse
 	if err := json.Unmarshal([]byte(jsonStr), &jr); err != nil {
-		return nil, fmt.Errorf("parse json: %w", err)
+		return viaAPI(fmt.Errorf("parse json: %w", err))
 	}
 
 	pingStart := time.Now()
 	sendPing := &packetBuffer{}
 	sendPing.writeInt64(pingStart.UnixMilli())
 	if err := sendPacket(conn, 0x01, sendPing.bytes()); err != nil {
-		return nil, fmt.Errorf("send ping: %w", err)
+		return viaAPI(fmt.Errorf("send ping: %w", err))
 	}
 	pongData, err := readPacket(conn)
 	if err == nil {
@@ -526,14 +631,16 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	latency := time.Since(pingStart)
 
 	result := &MCServerStatus{
-		Online:   true,
-		Host:     host,
-		Port:     port,
-		Latency:  latency,
-		Edition:  "java",
-		Via:      "slp",
-		Version:  jr.Version.Name,
-		Protocol: jr.Version.Protocol,
+		Online:             true,
+		Host:               dialHost,
+		Port:               dialPort,
+		Latency:            latency,
+		Edition:            "java",
+		Via:                "slp",
+		Version:            jr.Version.Name,
+		Protocol:           jr.Version.Protocol,
+		EnforcesSecureChat: jr.EnforcesSecureChat,
+		PreviewsChat:       jr.PreviewsChat,
 		Players: struct {
 			Online int
 			Max    int
@@ -544,6 +651,8 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 			List:   jr.Players.Sample,
 		},
 	}
+	// 服务端软件：优先由 version.name 推断（零成本），GS4 可用时会覆盖为更准确的描述
+	result.Software = guessSoftwareFromVersionName(jr.Version.Name)
 
 	parseJavaDescription(jr.Description, result)
 
@@ -562,11 +671,12 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 // 直连与 API 回退共享 timeout 总预算。
 func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
 	start := time.Now()
-	if port <= 0 {
-		port = DefaultBedrockPort
-	}
+	// Bedrock 也有 SRV 约定（_minecraft._udp）；未指定端口时先查 SRV，
+	// 无记录则回退默认端口 19132。
+	dialHost, dialPort, _ := ResolveBedrockAddr(host, port)
+	port = dialPort
 
-	addr := net.JoinHostPort(host, fmt.Sprint(port))
+	addr := net.JoinHostPort(dialHost, fmt.Sprint(port))
 	ra, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: resolve: %w", ErrNotOnline, err)
@@ -618,7 +728,7 @@ func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus,
 
 	result := &MCServerStatus{
 		Online:  true,
-		Host:    host,
+		Host:    dialHost,
 		Port:    port,
 		Latency: latency,
 		Edition: "bedrock",
@@ -690,23 +800,38 @@ func apiResponseError(resp *http.Response) error {
 	return fmt.Errorf("mcsrvstat.us API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
-// applyAPIMOTD 将 API 返回的多行 MOTD 写入状态（Raw 保留颜色码，Clean 兜底）。
+// applyAPIMOTD 将 API 返回的多行 MOTD 写入状态。
+//
+// raw 保留 § 颜色码，是彩色渲染的唯一来源，因此优先采用；clean 是 API 预先
+// 去码的纯文本，只用于 MOTDPlain，并在 raw 缺失时兜底构造分段。此前 clean
+// 会无条件覆盖 MOTD，导致走 API 的查询颜色全部退化为白色。
 func applyAPIMOTD(result *MCServerStatus, raw, clean []string) {
-	if len(raw) > 0 {
+	hasRawMain := len(raw) > 0 && strings.TrimSpace(raw[0]) != ""
+	hasRawSub := len(raw) > 1 && strings.TrimSpace(raw[1]) != ""
+
+	if hasRawMain {
 		result.MOTD = ParseMotd(raw[0])
 	}
-	if len(raw) > 1 {
+	if hasRawSub {
 		result.SubMOTD = ParseMotd(raw[1])
 	}
+
 	if len(clean) > 0 {
 		result.MOTDPlain = clean[0]
-		result.MOTD = []MotdSegment{{Text: clean[0], Color: color.White}}
+		if !hasRawMain {
+			result.MOTD = []MotdSegment{{Text: clean[0], Color: color.White}}
+		}
+	} else if hasRawMain {
+		result.MOTDPlain = stripMotd(raw[0])
 	}
+
 	if len(clean) > 1 {
 		result.SubMOTDPlain = clean[1]
-		if len(raw) <= 1 {
+		if !hasRawSub {
 			result.SubMOTD = []MotdSegment{{Text: clean[1], Color: color.White}}
 		}
+	} else if hasRawSub {
+		result.SubMOTDPlain = stripMotd(raw[1])
 	}
 }
 
@@ -714,13 +839,10 @@ func applyAPIMOTD(result *MCServerStatus, raw, clean []string) {
 // 用于 UDP 直连失败时的回退方案，API 使用 HTTPS 因而能穿透 UDP 封锁。
 // 私有地址不经过第三方 API（公网 API 无法路由内网地址，且会泄露内网拓扑）。
 func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
-	if port <= 0 {
-		port = DefaultBedrockPort
-	}
 	if isPrivateTarget(host) {
 		return nil, fmt.Errorf("%w（私有地址不通过第三方 API 查询）", ErrNotOnline)
 	}
-	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/bedrock/3/%s:%d", host, port)
+	apiURL := apiEndpoint("bedrock/3", host, port)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -781,6 +903,8 @@ type javaAPIResponse struct {
 	Hostname string `json:"hostname"`
 	Version  string `json:"version"`
 	Protocol int    `json:"protocol"`
+	// Software 服务端软件品牌（Paper/Spigot/Fabric 等，API 可能不返回）。
+	Software string `json:"software"`
 	MOTD     struct {
 		Clean []string `json:"clean"`
 		Raw   []string `json:"raw"`
@@ -793,16 +917,24 @@ type javaAPIResponse struct {
 	Favicon string `json:"favicon"`
 }
 
+// apiEndpoint 构造 mcsrvstat.us API 地址。
+//
+// port <= 0 时省略端口：API 会自行做 SRV 解析，而显式写死默认端口反而会
+// 跳过 SRV 记录，导致只配置了 SRV 的服务器被误判为离线。
+func apiEndpoint(kind, host string, port int) string {
+	if port > 0 {
+		return fmt.Sprintf("https://api.mcsrvstat.us/%s/%s:%d", kind, host, port)
+	}
+	return fmt.Sprintf("https://api.mcsrvstat.us/%s/%s", kind, host)
+}
+
 // pingJavaViaAPI 通过 mcsrvstat.us HTTP API 查询 Java 版服务器状态。
 // 私有地址不经过第三方 API（公网 API 无法路由内网地址，且会泄露内网拓扑）。
 func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
-	if port <= 0 {
-		port = DefaultJavaPort
-	}
 	if isPrivateTarget(host) {
 		return nil, fmt.Errorf("%w（私有地址不通过第三方 API 查询）", ErrNotOnline)
 	}
-	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/3/%s:%d", host, port)
+	apiURL := apiEndpoint("3", host, port)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -849,6 +981,12 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 	}
 
 	applyAPIMOTD(result, apiResp.MOTD.Raw, apiResp.MOTD.Clean)
+
+	// 服务端软件：API 提供时优先采用，否则由版本名推断（零成本兜底）
+	result.Software = apiResp.Software
+	if result.Software == "" {
+		result.Software = guessSoftwareFromVersionName(result.Version)
+	}
 
 	if apiResp.Favicon != "" {
 		clean := strings.TrimPrefix(apiResp.Favicon, "data:image/png;base64,")
@@ -1066,11 +1204,20 @@ func sendPacket(conn net.Conn, packetID int, payload []byte) error {
 	return err
 }
 
+// readPacket 读取一个完整的 SLP 数据包（变长长度前缀 + 载荷）。
+//
+// 长度字段必须做上限校验：变长整数在移位过程中可能溢出为负数，或被恶意
+// 服务器设为极大值，直接 make([]byte, length) 会 panic（makeslice: len out
+// of range），而 panic 会经 singleflight 传播到同 key 的并发等待者。
 func readPacket(conn net.Conn) ([]byte, error) {
 	var length int
 	{
 		var tmp [1]byte
 		for shift := 0; ; shift += 7 {
+			// MC 的长度前缀最多 5 字节（21 位有效 + 冗余），超出即为异常数据
+			if shift > 28 {
+				return nil, errors.New("packet length varint too long")
+			}
 			if _, err := io.ReadFull(conn, tmp[:]); err != nil {
 				return nil, err
 			}
@@ -1079,6 +1226,9 @@ func readPacket(conn net.Conn) ([]byte, error) {
 				break
 			}
 		}
+	}
+	if length < 0 || length > maxStatusPacketBytes {
+		return nil, fmt.Errorf("packet length out of range: %d", length)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(conn, data); err != nil {

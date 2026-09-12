@@ -61,6 +61,16 @@ func (c *ttlCache[T]) set(key string, value T) {
 	c.entries[key] = ttlEntry[T]{value: value, expire: time.Now().Add(c.ttl)}
 }
 
+// size 返回当前条目数（含尚未被惰性清理的过期项），供健康检查观测使用。
+func (c *ttlCache[T]) size() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries)
+}
+
 // evictLocked 清除全部过期项；容量仍满则淘汰最早过期者。
 // 调用方必须持有 mu。
 func (c *ttlCache[T]) evictLocked(now time.Time) {
