@@ -504,6 +504,29 @@ messagelog:
 #                                 #      正是自建 bot 的常见查询目标）；仅当 /mc 对所有群成员开放、
 #                                 #      且不希望它被当作内网端口探测器时设为 true。
 #                                 #      注：API 路径始终拒绝私有地址（第三方 API 也路由不到内网）
+#     admin:                      # [H]  服务器管理（/mcadmin 命令，需服务端开启 RCON；默认关闭）
+#                                 #      注意：RCON 仅 Java 版服务端支持，Bedrock（BDS）没有远程控制台
+#       enabled: false            # [H]  是否开启 /mcadmin。开启即等于把服务器控制台的一部分
+#                                 #      能力交给聊天里的使用者，必须由运维显式打开
+#       permission: "minecraft.admin" # [H]  操作服务器所需的 RBAC 权限点；superadmin 角色始终可用
+#       allow_group_admins: true  # [H]  是否允许“已绑定会话”的群主/群管理员操作该会话的服务器。
+#                                 #      仅对 scope 绑定到当前会话的服务器生效；全局服务器始终需要权限点。
+#                                 #      注：QQ 群消息的 payload 不含群角色，该通道在 QQ 上不生效，
+#                                 #      会退回到 RBAC 权限点（Discord 等平台可正常判定）
+#       timeout: "5s"             # [H]  单条 RCON 命令的连接与读写超时
+#       max_output: 1200          # [H]  单条命令回显的最大字符数（超出截断）
+#       servers:                  # [H]  服务器注册表（仅来自本配置，不支持聊天自助注册）
+#         - name: "生存服"        #      服务器名（命令中引用，需唯一）
+#           address: "mc.example.com:25565" # 游戏地址 主机[:端口]
+#           rcon_host: ""         #      RCON 主机（默认同 address 的主机）
+#           rcon_port: 25575      #      RCON 端口（默认 25575）
+#           password: "${MC_RCON_PW}" #  RCON 密码；请用 ${ENV_VAR} 引用而非明文
+#           scope: ""             #      绑定的会话（群号）；留空为全局（仅权限点可操作），
+#                                 #      填写后仅该会话可见，且其群主/管理员（allow_group_admins）可操作
+#                                 # 安全说明：密码不会回显、不会写入审计日志；不提供原生控制台透传，
+#                                 # 只开放白名单子命令，每条命令写入审计日志（action: minecraft.rcon）；
+#                                 # whitelist off 需二次确认（/mcadmin confirm <验证码>）；
+#                                 # 未加载权限服务时管理命令按拒绝处理（不会向群成员放行）
 #   sauce:
 #     proxy: ""                   # [R]  引擎请求代理地址（如 "http://127.0.0.1:7890"）。
 #                                 #      国内部署访问 SauceNAO / IQDB 等被墙站点必需；

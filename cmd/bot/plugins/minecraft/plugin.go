@@ -1,6 +1,9 @@
-// Package minecraft 提供 Minecraft 服务器状态查询功能。
+// Package minecraft 提供 Minecraft 服务器状态查询与服务器管理功能。
 //
-// 命令: /mc [add|rm|list] [java|bedrock] [名称|序号|主机名[:端口]]
+// 命令:
+//   - /mc [add|rm|list] [java|bedrock] [名称|序号|主机名[:端口]] — 状态查询
+//   - /mcadmin <list|status|say|whitelist|kick|save>  — RCON 服务器管理（默认关闭）
+//
 // AI 工具: query_minecraft_server
 // AI 技能: minecraft_query
 package minecraft
@@ -27,6 +30,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 )
 
 // Config minecraft 插件配置（plugins.minecraft 节）。
@@ -105,6 +110,19 @@ type mcPlugin struct {
 	cooldown *scopeLimiter
 	// probes 外部依赖健康探针（mcsrvstat.us / mc-heads.net）
 	probes []*health.APIProbe
+
+	// ── 服务器管理（/mcadmin，默认关闭）──
+
+	// adminCfg 管理配置（服务器注册表 + 权限与超时）。
+	adminCfg AdminConfig
+	// rcon 各服务器的 RCON 长连接池。
+	rcon *rconPool
+	// confirm 高危操作的二次确认存储。
+	confirm *confirmStore
+	// permSvc 权限服务（可选依赖，缺失时管理命令按拒绝处理）。
+	permSvc *permission.Plugin
+	// audit 审计日志服务（可选依赖；缺失时仅执行不记账）。
+	audit *auditlog.Plugin
 }
 
 // loadConfig 从配置中读取设置，未配置时使用默认值。
@@ -183,8 +201,8 @@ func New() *plugin.Descriptor {
 	p := &mcPlugin{cfg: DefaultConfig}
 	return &plugin.Descriptor{
 		Name:         "minecraft",
-		Version:      "1.2.0",
-		OptionalDeps: []string{"storage"},
+		Version:      "1.3.0",
+		OptionalDeps: []string{"storage", "permission", "auditlog"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Community",
 			Description: "Minecraft 服务器状态查询（Java + Bedrock）",
@@ -201,6 +219,16 @@ func New() *plugin.Descriptor {
   /mc rm <名称>                — 移除收藏
   /mc list                     — 查看收藏列表
   /mc                          — 查询配置的默认服务器
+
+服务器管理（默认关闭，需配置 plugins.minecraft.admin.enabled: true）：
+  /mcadmin list                        — 列出可管理的服务器
+  /mcadmin status <服务器>              — 玩家列表与 TPS（Paper）
+  /mcadmin say <服务器> <文本>          — 以控制台身份广播
+  /mcadmin whitelist <服务器> on|off|list
+  /mcadmin whitelist <服务器> add|remove <玩家>
+  /mcadmin kick <服务器> <玩家> [原因]   — 踢出玩家
+  /mcadmin save <服务器>                — 立即保存世界
+  /mcadmin confirm <验证码>             — 确认高危操作
 
 特性：
   - SRV 记录自动解析（Java _minecraft._tcp / Bedrock _minecraft._udp，结果缓存）
@@ -225,7 +253,33 @@ func New() *plugin.Descriptor {
   不希望它被当作内网端口探测器时设为 true）
 
   提示：出站需代理或防火墙限制的部署（直连仅内网可用）请设 direct_query: false，
-  全部走 API（代价：API 无法看到内网服务器，内网查询不可用）`,
+  全部走 API（代价：API 无法看到内网服务器，内网查询不可用）
+
+服务器管理配置（plugins.minecraft.admin，默认关闭）：
+  enabled / permission / allow_group_admins / timeout / max_output / servers
+
+  enabled: 是否开启 /mcadmin（默认 false）。开启即等于把服务器控制台的一部分
+  能力交给聊天里的使用者，必须由运维显式打开。
+  permission: 操作服务器所需的 RBAC 权限点（默认 minecraft.admin）；
+  superadmin 角色始终可用。
+  allow_group_admins: 是否允许已绑定会话的群主/群管理员操作该会话的服务器
+  （默认 true，仅对 scope 绑定到当前会话的服务器生效）。
+
+  servers 条目字段：
+    name        服务器名（命令中引用，需唯一）
+    address     游戏地址 主机[:端口]
+    rcon_host   RCON 主机（默认同 address 主机）
+    rcon_port   RCON 端口（默认 25575）
+    password    RCON 密码，支持 ${ENV_VAR} 引用环境变量
+    scope       绑定的会话（群号）；留空为全局（仅权限点可操作）
+
+  安全说明：
+    - 密码只从配置读取，不会回显、不会写入审计日志；请用 ${ENV} 引用而非明文。
+    - 不提供原生控制台透传，只开放白名单子命令；每条命令都写入审计日志
+      （action: minecraft.rcon）。
+    - whitelist off 需二次确认（/mcadmin confirm <验证码>，60 秒内有效）。
+    - 未加载权限服务时管理命令按拒绝处理（不会向群成员放行）。
+    - RCON 仅 Java 版服务端支持；Bedrock（BDS）没有远程控制台，只能查询。`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
@@ -268,7 +322,49 @@ func New() *plugin.Descriptor {
 				Example("/mc 潜行服 生存服").Example("/mc add 潜行服 mc.steal.example:25565").Build()
 			ctx.OnCommandDefWith("", "/mc", mcDef, p.handleMC, eventctx.OnMentionedBotOrNoMentions())
 
+			// 服务器管理（RCON）：命令与 /mc 分开注册，
+			// 避免 /mc 的收藏名/序号位置参数与子命令互相占用。
+			p.adminCfg = loadAdminConfig(ctx)
+			p.rcon = newRconPool()
+			p.confirm = newConfirmStore(confirmTTL)
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
+				p.permSvc = svc
+			}
+			if svc, ok := ctx.TryService[*auditlog.Plugin]("auditlog"); ok {
+				p.audit = svc
+			}
+			p.registerAdminCommands(ctx)
+
+			if p.adminCfg.Enabled {
+				if ctx.Log != nil {
+					ctx.Log.Infof("[minecraft] 服务器管理已启用：%d 台服务器，权限点 %q",
+						len(p.adminCfg.Servers), p.adminCfg.Permission)
+				}
+				if !ctx.DryRun {
+					// 定期回收空闲 RCON 连接（不打断执行中的命令）
+					ctx.Spawn(func(runCtx context.Context) {
+						ticker := time.NewTicker(rconIdleSweep)
+						defer ticker.Stop()
+						for {
+							select {
+							case <-runCtx.Done():
+								return
+							case <-ticker.C:
+								p.rcon.CloseIdle(rconIdleTimeout)
+							}
+						}
+					})
+				}
+			}
+
 			return p, nil
+		},
+		Teardown: func(*plugin.TeardownContext) error {
+			// 关闭 RCON 连接（未启用管理时 rcon 为 nil）
+			if p.rcon != nil {
+				p.rcon.Close()
+			}
+			return nil
 		},
 	}
 }

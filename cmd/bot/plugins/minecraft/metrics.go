@@ -45,6 +45,15 @@ var (
 		},
 		[]string{"result"},
 	)).(*prometheus.CounterVec)
+
+	mcAdminTotal = metrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "minecraft",
+			Name:      "rcon_commands_total",
+			Help:      "RCON 管理命令执行次数（result: ok/error/auth_failed/unreachable）",
+		},
+		[]string{"command", "result"},
+	)).(*prometheus.CounterVec)
 )
 
 // recordQuery 记录一次查询结果（result: ok/offline/error）。

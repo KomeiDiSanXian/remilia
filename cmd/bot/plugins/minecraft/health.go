@@ -32,6 +32,12 @@ func (c pluginHealthChecker) Check(context.Context) health.CheckResult {
 		meta["avatars"] = c.p.cfg.Avatars
 		meta["cooldown"] = c.p.cfg.Cooldown.String()
 		meta["favorites_enabled"] = c.p.fav != nil && c.p.fav.Available()
+		meta["admin_enabled"] = c.p.adminCfg.Enabled
+		if c.p.adminCfg.Enabled {
+			meta["admin_servers"] = len(c.p.adminCfg.Servers)
+			meta["admin_permission"] = c.p.adminCfg.Permission
+			meta["admin_allow_group_admins"] = c.p.adminCfg.AllowGroupAdmins
+		}
 	}
 	return health.CheckResult{Status: health.Healthy, Metadata: meta}
 }
