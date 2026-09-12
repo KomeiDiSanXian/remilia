@@ -121,10 +121,27 @@ func New(opts ...Option) *plugin.Descriptor {
 	}
 }
 
+// issInclinationDeg 国际空间站轨道倾角（度）。
+//
+// ISS 倾角长期稳定在 51.6° 附近，而 wheretheiss.at 接口只返回星下点与高度，
+// 因此地面轨迹示意使用该常量作为轨道倾角。
+const issInclinationDeg = 51.64
+
+// issGroundTrack 以圆轨道近似推算 ISS 单圈地面轨迹（当前时刻前后各半圈）。
+func issGroundTrack(pos *IssPosition, now time.Time) []satutil.TrackPoint {
+	period := satutil.OrbitalPeriod(pos.Altitude)
+	if period <= 0 {
+		return nil
+	}
+	half := time.Duration(period / 2 * float64(time.Minute))
+	return satutil.OrbitGroundTrack(now, pos.Latitude, pos.Longitude, pos.Altitude,
+		issInclinationDeg, now.Add(-half), now.Add(half), time.Minute, true)
+}
+
 // handleIss 处理 /iss 命令。
 //
 // 获取 ISS 当前位置、在轨航天员和历史高度数据，
-// 渲染为图片卡片（含高度面积图）。
+// 渲染为图片卡片（含地面轨迹图与高度面积图）。
 func (p *Plugin) handleIss(ctx *eventctx.Context) error {
 	reqCtx, cancel := context.WithTimeout(ctx.Context(), 10*time.Second)
 	defer cancel()
@@ -154,15 +171,33 @@ func (p *Plugin) handleIss(ctx *eventctx.Context) error {
 
 	select {
 	case r := <-ch:
+		now := time.Now()
 		history := p.tracker.GetRecent(0)
-		trend := computeTrend(history)
-		png, err := renderCard(r.pos, r.astros, r.count, history, trend)
+		// open-notify 的 number 字段统计的是"全太空人数"（含中国空间站乘组），
+		// 因此卡片上的在轨人数优先按筛出的 ISS 乘组名单计数。
+		crew := len(r.astros)
+		if crew == 0 {
+			crew = r.count
+		}
+		data := cardData{
+			Now:         now,
+			Pos:         r.pos,
+			Astros:      r.astros,
+			AstroCount:  crew,
+			Series:      history,
+			Trend:       computeTrend(history),
+			Inclination: issInclinationDeg,
+			PeriodMin:   satutil.OrbitalPeriod(r.pos.Altitude),
+			FootprintKm: satutil.FootprintDiameter(r.pos.Altitude),
+			Track:       issGroundTrack(r.pos, now),
+		}
+		png, err := renderCard(data)
 		if err != nil {
-			ctx.ReplyText(formatISSText(r.pos, r.astros, r.count, trend))
+			ctx.ReplyText(formatISSText(r.pos, r.astros, r.count, data.Trend))
 			return nil
 		}
 		ctx.Reply(platform.ImageDataMessage(png, "iss.png", "image/png"))
-		return err
+		return nil
 	case err := <-errCh:
 		ctx.ReplyError(fmt.Sprintf("ISS 数据获取失败: %v", err))
 		return nil

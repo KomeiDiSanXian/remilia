@@ -172,7 +172,7 @@ func (p *Plugin) refreshOEM(ctx context.Context) error {
 // handleCSS 处理 /css 命令。
 //
 // 从缓存的 OEM 数据中计算当前位置、高度、速度，
-// 并渲染含高度趋势折线图的图片卡片。
+// 并渲染含地面轨迹图与高度预报曲线的图片卡片。
 func (p *Plugin) handleCSS(ctx *eventctx.Context) error {
 	p.mu.RLock()
 	oem := p.oem
@@ -194,18 +194,43 @@ func (p *Plugin) handleCSS(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	vel := computeSpeed(oem, now)
-	history := computeAltHistory(oem, 4*time.Hour)
-	trend := computeTrend(history)
+	speed := computeSpeed(oem, now)
+	period := satutil.OrbitalPeriod(alt)
 
-	png, err := renderCard(lat, lng, alt, vel, history, trend, oem)
+	// 高度序列覆盖当前时刻前后各约一个轨道周期：既用于曲线展示，
+	// 也用于近/远地点判定。
+	windowStart := now.Add(-50 * time.Minute)
+	windowEnd := now.Add(95 * time.Minute)
+	series := computeAltWindow(oem, windowStart, windowEnd)
+	trend := cardTrend(oem, now)
+	eclipse, remaining, known := computeEclipsePhase(oem, now, time.Duration(period)*time.Minute)
+
+	data := cardData{
+		Now:              now,
+		Lat:              lat,
+		Lon:              lng,
+		Alt:              alt,
+		Speed:            speed,
+		Inclination:      computeInclination(oem, now),
+		Eclipse:          eclipse,
+		EclipseRemaining: remaining,
+		EclipseKnown:     known,
+		PeriodMin:        period,
+		FootprintKm:      satutil.FootprintDiameter(alt),
+		Series:           series,
+		Trend:            trend,
+		Track:            computeGroundTrack(oem, windowStart, windowEnd),
+		OEM:              oem,
+	}
+
+	png, err := renderCard(data)
 	if err != nil {
-		ctx.ReplyText(formatCSSText(lat, lng, alt, vel, trend, oem))
+		ctx.ReplyText(formatCSSText(lat, lng, alt, speed, trend, oem))
 		return nil
 	}
 
 	ctx.Reply(platform.ImageDataMessage(png, "css.png", "image/png"))
-	return err
+	return nil
 }
 
 // ListTools 返回可供 AI 调用的工具列表。
@@ -238,7 +263,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 					return "", fmt.Errorf("cannot compute CSS position")
 				}
 				return formatCSSText(lat, lng, alt, computeSpeed(oem, now),
-					computeTrend(computeAltHistory(oem, 4*time.Hour)), oem), nil
+					cardTrend(oem, now), oem), nil
 			},
 		},
 	}
@@ -264,39 +289,4 @@ func (p *Plugin) HealthCheckers() []health.Checker {
 		out[i] = pr
 	}
 	return out
-}
-
-// formatCSSText 将 CSS 数据格式化为纯文本（备用方案）。
-func formatCSSText(lat, lng, alt, vel float64, trend Trend, oem *OEMEphemeris) string {
-	period := satutil.OrbitalPeriod(alt)
-	minLat, maxLat, minLng, maxLng := satutil.VisibleBounds(lat, lng, alt)
-
-	gmst := satutil.GMST(time.Now())
-	ex, ey, ez := satutil.GeodeticToECEF(lat, lng, alt)
-	ix, iy, iz := satutil.ECEFtoECI(ex, ey, ez, gmst)
-	eclipse := satutil.IsInEclipse(ix, iy, iz, gmst)
-	eclipseLabel := "[光照]"
-	if eclipse {
-		eclipseLabel = "[地影]"
-	}
-
-	text := fmt.Sprintf("[CSS] 中国空间站 - 天宫 (轨道预报)\n纬度: %s\n经度: %s\n高度: %.1f km\n速度: %.2f km/s\n轨道周期: %.1f min\n可见区域: 纬度 %.0f~%.0f  经度 %.0f~%.0f\n光照: %s\n近地点: %.1f km\n远地点: %.1f km\n",
-		fmtLat(lat), fmtLng(lng), alt, vel, period, minLat, maxLat, minLng, maxLng, eclipseLabel, trend.MinAlt, trend.MaxAlt)
-	if trend.Slope != 0 {
-		dir := "[上升]"
-		if trend.Slope < 0 {
-			dir = "[下降]"
-		}
-		abs := trend.Slope
-		if abs < 0 {
-			abs = -abs
-		}
-		if abs < 1 {
-			text += fmt.Sprintf("轨道趋势: %s %.0f m/天\n", dir, abs*1000)
-		} else {
-			text += fmt.Sprintf("轨道趋势: %s %.2f km/天\n", dir, abs)
-		}
-	}
-	text += "数据来源: 中国载人航天工程办公室 (cmse.gov.cn)\n基于 CMSE 7 天轨道预报"
-	return text
 }

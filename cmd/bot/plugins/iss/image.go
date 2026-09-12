@@ -2,7 +2,6 @@ package iss
 
 import (
 	"fmt"
-	"image"
 	"image/color"
 	"time"
 
@@ -10,213 +9,230 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
 
-const cardWidth = 800
+const (
+	cardWidth    = 800
+	contentWidth = cardWidth - 72 // 与画布左右内边距（36）对齐
 
-func renderCard(pos *IssPosition, astros []string, astroCount int, history []AltRecord, trend Trend) ([]byte, error) {
-	bg := textimage.LinearGradient(cardWidth, 1400, 150,
-		textimage.Stop(0.0, color.RGBA{R: 8, G: 4, B: 30, A: 255}),
-		textimage.Stop(0.5, color.RGBA{R: 16, G: 10, B: 50, A: 255}),
-		textimage.Stop(1.0, color.RGBA{R: 25, G: 15, B: 60, A: 255}),
-	)
+	// bgHeight 为背景图高度估算值：作为画布背景按 cover 语义铺满，
+	// 取值小于卡片最终高度可确保顶部柔光不被居中裁剪。
+	bgHeight = 900
+)
+
+// cardData 渲染 /iss 卡片所需的全部数据。
+type cardData struct {
+	Now         time.Time
+	Pos         *IssPosition
+	Astros      []string
+	AstroCount  int
+	Series      []AltRecord
+	Trend       Trend
+	Inclination float64
+	PeriodMin   float64
+	FootprintKm float64
+	Track       []satutil.TrackPoint
+}
+
+// renderCard 绘制国际空间站信息卡片：
+// 头部标识 → 实时高度/速度 → 状态徽章 → 数据面板 → 地面轨迹图
+// → 高度历史曲线 → 在轨航天员 → 数据来源。
+func renderCard(d cardData) ([]byte, error) {
+	theme := satutil.ISSTheme()
 
 	canvas, err := textimage.NewCanvas(cardWidth,
 		textimage.WithCJKFont(),
-		textimage.WithBgImage(bg, textimage.BgFitFill),
-		textimage.WithFontColor(color.RGBA{R: 220, G: 225, B: 240, A: 255}),
-		textimage.WithLineHeight(1.6),
-		textimage.WithPadding(36, 16),
+		textimage.WithBgImage(satutil.CardBackground(theme, cardWidth, bgHeight), textimage.BgFitFill),
+		textimage.WithFontColor(theme.Label),
+		textimage.WithLineHeight(1.5),
+		textimage.WithPadding(36, 14),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	titleColor := color.RGBA{R: 100, G: 200, B: 255, A: 255}
-	labelColor := color.RGBA{R: 180, G: 200, B: 230, A: 255}
-	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	canvas.AddSpacer(8)
 
-	canvas.AddSpacer(24)
-
-	canvas.AddText("国际空间站 (ISS)",
-		textimage.WithFontSize(26),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(titleColor),
-		textimage.WithTextShadow(color.RGBA{A: 120}, 1, 2, 4),
-		textimage.WithPadding(32, 10),
-	)
-
-	canvas.AddSpacer(20)
-
+	// ── 头部：空间站图标 + 标题 + 副标题 ─────────────────────────────────────
 	canvas.AddRow(
 		textimage.RowItem{
-			Text: "纬度",
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(14), textimage.WithFontColor(labelColor),
-				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(36, 4),
+			Width: 80,
+			Image: satutil.IconSpaceStation(64, theme.Title),
+			ImageOpts: []textimage.ImageOption{
+				textimage.WithImgWidth(64),
+				textimage.WithImgAlign(textimage.AlignCenter),
 			},
 		},
 		textimage.RowItem{
-			Text: "经度",
+			Text: "国际空间站 · ISS",
 			TextOpts: []textimage.Option{
-				textimage.WithFontSize(14), textimage.WithFontColor(labelColor),
-				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(36, 4),
+				textimage.WithFontSize(25),
+				satutil.BoldFontOption(),
+				textimage.WithFontColor(theme.Title),
+				textimage.WithAlign(textimage.AlignLeft),
+				textimage.WithPadding(0, 2),
 			},
 		},
 	)
-
-	canvas.AddRow(
-		textimage.RowItem{
-			Text: fmtLat(pos.Latitude),
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(20), textimage.WithFontColor(valueColor),
-				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(36, 2),
-			},
-		},
-		textimage.RowItem{
-			Text: fmtLng(pos.Longitude),
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(20), textimage.WithFontColor(valueColor),
-				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(36, 2),
-			},
-		},
-	)
-
-	canvas.AddSpacer(16)
-
-	canvas.AddRow(
-		textimage.RowItem{
-			Text: fmt.Sprintf("高度 %.1f km", pos.Altitude),
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(18), textimage.WithFontColor(valueColor),
-				textimage.WithAlign(textimage.AlignLeft), textimage.WithPadding(36, 8),
-			},
-		},
-		textimage.RowItem{
-			Text: fmt.Sprintf("速度 %.2f km/s", pos.Velocity/3600),
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(18), textimage.WithFontColor(valueColor),
-				textimage.WithAlign(textimage.AlignRight), textimage.WithPadding(36, 8),
-			},
-		},
-	)
-
-	period := satutil.OrbitalPeriod(pos.Altitude)
-
-	visLabel := "[光照]"
-	if pos.Visibility == "eclipsed" {
-		visLabel = "[地影]"
-	}
-
-	canvas.AddRow(
-		textimage.RowItem{
-			Text: fmt.Sprintf("轨道周期 %.1f min", period),
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(15), textimage.WithFontColor(labelColor),
-				textimage.WithAlign(textimage.AlignLeft), textimage.WithPadding(36, 6),
-			},
-		},
-		textimage.RowItem{
-			Text: visLabel,
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(15), textimage.WithFontColor(labelColor),
-				textimage.WithAlign(textimage.AlignRight), textimage.WithPadding(36, 6),
-			},
-		},
-	)
-
-	minLat, maxLat, minLng, maxLng := satutil.VisibleBounds(pos.Latitude, pos.Longitude, pos.Altitude)
-
-	canvas.AddText("可见区域",
-		textimage.WithFontSize(15),
-		textimage.WithFontColor(labelColor),
+	canvas.AddText("International Space Station  |  低地球轨道 · 实时遥测",
+		textimage.WithFontSize(12),
+		textimage.WithFontColor(theme.Muted),
 		textimage.WithAlign(textimage.AlignLeft),
-		textimage.WithPadding(36, 4),
-	)
-
-	canvas.AddText(fmt.Sprintf("纬度 %.0f ~ %.0f   经度 %.0f ~ %.0f",
-		minLat, maxLat, minLng, maxLng),
-		textimage.WithFontSize(14), textimage.WithFontColor(labelColor),
 		textimage.WithPadding(36, 2),
 	)
 
 	canvas.AddSpacer(12)
 
-	if len(history) >= 2 {
-		minAlt, maxAlt := minMaxHistory(history)
-		chartImg := renderAltChart(history, minAlt, maxAlt)
-		if chartImg != nil {
-			canvas.AddSpacer(16)
-			canvas.AddText("过去24小时轨道高度 (km)",
-				textimage.WithFontSize(15),
-				textimage.WithFontColor(titleColor),
-				textimage.WithAlign(textimage.AlignLeft),
-				textimage.WithPadding(36, 6),
-			)
+	// ── 实时高度 ─────────────────────────────────────────────────────────────
+	canvas.AddText("轨道高度 (km)",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(theme.Label),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithPadding(28, 2),
+	)
+	canvas.AddText(fmt.Sprintf("%.1f", d.Pos.Altitude),
+		textimage.WithFontSize(54),
+		satutil.BoldFontOption(),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithFontColor(theme.Value),
+		textimage.WithTextShadow(color.RGBA{R: 96, G: 180, B: 255, A: 110}, 1, 3, 6),
+		textimage.WithPadding(28, 0),
+	)
+	canvas.AddRow(
+		textimage.RowItem{
+			Text: fmt.Sprintf("速度 %.2f km/s", d.Pos.Velocity/3600),
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(14), textimage.WithFontColor(theme.Label),
+				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(28, 4),
+			},
+		},
+		textimage.RowItem{
+			Text: fmt.Sprintf("倾角 %.1f°", d.Inclination),
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(14), textimage.WithFontColor(theme.Label),
+				textimage.WithAlign(textimage.AlignCenter), textimage.WithPadding(28, 4),
+			},
+		},
+	)
 
-			if err := canvas.AddImage(chartImg,
-				textimage.WithImgWidth(cardWidth-80),
-				textimage.WithImgAlign(textimage.AlignCenter),
-				textimage.WithImgPadding(0, 8),
-			); err != nil {
-				canvas.AddText(fmt.Sprintf("高度区间: %.1f - %.1f km", minAlt, maxAlt),
-					textimage.WithFontSize(14),
-					textimage.WithFontColor(labelColor),
-					textimage.WithPadding(36, 4),
-				)
-			}
+	canvas.AddSpacer(10)
+
+	// ── 状态徽章 ─────────────────────────────────────────────────────────────
+	visText := "光照中"
+	visColor := color.NRGBA{R: 52, G: 156, B: 104, A: 235}
+	if d.Pos.Visibility == "eclipsed" {
+		visText = "地影中"
+		visColor = color.NRGBA{R: 92, G: 106, B: 164, A: 235}
+	}
+	crew := len(d.Astros)
+	if crew == 0 {
+		crew = d.AstroCount
+	}
+	badges := []textimage.BadgeItem{
+		{Text: visText, BgColor: visColor, TextColor: color.White},
+		{Text: fmt.Sprintf("在轨 %d 人", crew), BgColor: color.NRGBA{R: 52, G: 108, B: 190, A: 235}, TextColor: color.White},
+	}
+	if d.PeriodMin > 0 {
+		badges = append(badges, textimage.BadgeItem{
+			Text:      fmt.Sprintf("周期 %.1f min", d.PeriodMin),
+			BgColor:   color.NRGBA{R: 96, G: 70, B: 170, A: 225},
+			TextColor: color.White,
+		})
+	}
+	if len(d.Series) >= 3 && absf(d.Trend.Slope) > 0.001 {
+		arrow, trendColor := "↑", color.NRGBA{R: 52, G: 156, B: 104, A: 235}
+		if d.Trend.Slope < 0 {
+			arrow, trendColor = "↓", color.NRGBA{R: 190, G: 112, B: 66, A: 235}
 		}
+		badges = append(badges, textimage.BadgeItem{
+			Text:      fmt.Sprintf("%s %.2f km/天", arrow, absf(d.Trend.Slope)),
+			BgColor:   trendColor,
+			TextColor: color.White,
+		})
+	}
+	canvas.AddBadgeRow(badges,
+		textimage.WithBadgeFontSize(12),
+		textimage.WithBadgeRadius(9),
+		textimage.WithBadgeRowPadding(30, 4),
+	)
+
+	canvas.AddSpacer(14)
+
+	// ── 数据面板 ─────────────────────────────────────────────────────────────
+	panelW := 232
+	panelH := 162
+	periodArc := clamp01((d.PeriodMin - 85) / 15)
+	speedArc := clamp01(d.Pos.Velocity / 29000)
+	coverArc := clamp01(d.FootprintKm / 5000)
+
+	canvas.AddRow(
+		textimage.RowItem{Image: satutil.StatPanel(theme, satutil.StatPanelSpec{
+			Width: panelW, Height: panelH, Title: "轨道周期",
+			Value: fmt.Sprintf("%.1f", d.PeriodMin), Sub: "分钟 / 圈", Arc: periodArc, ArcColor: theme.Accent,
+		}), ImageOpts: imgWidth(panelW)},
+		textimage.RowItem{Image: satutil.StatPanel(theme, satutil.StatPanelSpec{
+			Width: panelW, Height: panelH, Title: "轨道速度",
+			Value: fmt.Sprintf("%.0f", d.Pos.Velocity), Sub: "km/h", Arc: speedArc, ArcColor: theme.Accent,
+		}), ImageOpts: imgWidth(panelW)},
+		textimage.RowItem{Image: satutil.StatPanel(theme, satutil.StatPanelSpec{
+			Width: panelW, Height: panelH, Title: "可见范围",
+			Value: fmt.Sprintf("%.0f", d.FootprintKm), Sub: "km / 地面直径", Arc: coverArc, ArcColor: theme.Accent,
+		}), ImageOpts: imgWidth(panelW)},
+	)
+
+	canvas.AddSpacer(14)
+
+	// ── 地面轨迹 ─────────────────────────────────────────────────────────────
+	if len(d.Track) >= 2 {
+		// 单圈示意不区分已飞过/待飞行（不传 Now），整条轨迹用实线绘制。
+		canvas.AddImage(satutil.GroundTrackPanel(theme, satutil.MapSpec{
+			Width: contentWidth, Height: satutil.WorldMapPanelHeight(contentWidth),
+			Track: d.Track, Lat: d.Pos.Latitude, Lon: d.Pos.Longitude,
+			FootprintDeg: satutil.VisibleAngularRadius(d.Pos.Altitude),
+			Title:        "地面轨迹",
+			Note:         "单圈示意",
+			Caption: fmt.Sprintf("星下点 %.2f°%s %.2f°%s · 圆轨道近似",
+				absf(d.Pos.Latitude), nsLabel(d.Pos.Latitude),
+				absf(d.Pos.Longitude), ewLabel(d.Pos.Longitude)),
+		}), textimage.WithImgWidth(contentWidth), textimage.WithImgAlign(textimage.AlignCenter))
+
+		canvas.AddSpacer(14)
 	}
 
-	canvas.AddSpacer(12)
+	// ── 高度历史曲线 ─────────────────────────────────────────────────────────
+	if chart := satutil.AltitudeChart(theme, satutil.ChartSpec{
+		Width: contentWidth, Height: 220,
+		Points:   toChartPoints(d.Series),
+		Title:    "轨道高度历史",
+		Unit:     "高度 km · 时间 UTC",
+		Now:      d.Now,
+		NowLabel: "现在",
+		Caption:  historyCaption(d.Series, d.Trend),
+	}); chart != nil {
+		canvas.AddImage(chart,
+			textimage.WithImgWidth(contentWidth),
+			textimage.WithImgAlign(textimage.AlignCenter))
+		canvas.AddSpacer(14)
+	}
 
+	// ── 在轨航天员 ───────────────────────────────────────────────────────────
+	if len(d.Astros) > 0 {
+		canvas.AddImage(satutil.ChipWall(theme, satutil.ChipSpec{
+			Width: contentWidth,
+			Title: fmt.Sprintf("在轨航天员 · %d 人", crew),
+			Chips: d.Astros,
+		}), textimage.WithImgWidth(contentWidth), textimage.WithImgAlign(textimage.AlignCenter))
+		canvas.AddSpacer(12)
+	}
+
+	// ── 页脚 ─────────────────────────────────────────────────────────────────
 	canvas.AddDivider(
-		textimage.WithDividerColor(color.RGBA{R: 80, G: 100, B: 150, A: 140}),
+		textimage.WithDividerColor(color.NRGBA{R: 110, G: 150, B: 220, A: 130}),
 		textimage.WithDividerThickness(1),
 		textimage.WithDividerInset(36),
 		textimage.WithDividerPadding(4),
 	)
+	canvas.AddSpacer(6)
 
-	canvas.AddSpacer(8)
-
-	infoColor := color.RGBA{R: 180, G: 200, B: 230, A: 220}
-	if trend.Slope != 0 {
-		dir := "[上升]"
-		if trend.Slope < 0 {
-			dir = "[下降]"
-		}
-		abs := trend.Slope
-		if abs < 0 {
-			abs = -abs
-		}
-		trendStr := fmt.Sprintf("高度趋势: %s %.2f km/天", dir, abs)
-		if abs < 1 {
-			trendStr = fmt.Sprintf("高度趋势: %s %.0f m/天", dir, abs*1000)
-		}
-		canvas.AddText(trendStr,
-			textimage.WithFontSize(14),
-			textimage.WithFontColor(infoColor),
-			textimage.WithAlign(textimage.AlignCenter),
-			textimage.WithPadding(28, 4),
-		)
-		canvas.AddSpacer(4)
-	}
-
-	canvas.AddText(fmt.Sprintf("在轨: %d人", astroCount),
-		textimage.WithFontSize(16),
-		textimage.WithFontColor(titleColor),
-		textimage.WithPadding(36, 6),
-	)
-
-	for _, name := range astros {
-		canvas.AddText(fmt.Sprintf("  . %s", name),
-			textimage.WithFontSize(13),
-			textimage.WithFontColor(labelColor),
-			textimage.WithPadding(36, 2),
-		)
-	}
-
-	canvas.AddSpacer(16)
-
-	sourceColor := color.RGBA{R: 120, G: 140, B: 180, A: 200}
+	sourceColor := color.NRGBA{R: 154, G: 178, B: 218, A: 220}
 	canvas.AddRow(
 		textimage.RowItem{
 			Text: "数据来源: wheretheiss.at / open-notify.org",
@@ -227,7 +243,7 @@ func renderCard(pos *IssPosition, astros []string, astroCount int, history []Alt
 			},
 		},
 		textimage.RowItem{
-			Text: pos.Timestamp.Format("2006-01-02 15:04"),
+			Text: d.Pos.Timestamp.UTC().Format("2006-01-02 15:04"),
 			TextOpts: []textimage.Option{
 				textimage.WithFontSize(11), textimage.WithFontColor(sourceColor),
 				textimage.WithAlign(textimage.AlignRight), textimage.WithPadding(28, 6),
@@ -236,108 +252,71 @@ func renderCard(pos *IssPosition, astros []string, astroCount int, history []Alt
 		},
 	)
 
-	canvas.AddSpacer(16)
-
+	canvas.AddSpacer(14)
 	return canvas.ResultPNG()
 }
 
-func renderAltChart(history []AltRecord, minAlt, maxAlt float64) *image.RGBA {
-	if len(history) < 2 {
-		return nil
-	}
-
-	marginL := 55.0
-	marginR := 15.0
-	marginT := 25.0
-	marginB := 35.0
-	chartW := 720.0
-	chartH := 220.0
-	innerW := chartW - marginL - marginR
-	innerH := chartH - marginT - marginB
-
-	vc := textimage.NewVectorCanvas(int(chartW), int(chartH))
-
-	if fp := textimage.SystemCJKFontPath(); fp != "" {
-		vc.LoadFontFace(fp, 12)
-	}
-
-	vc.SetColor(color.RGBA{R: 10, G: 5, B: 30, A: 255})
-	vc.DrawRectangle(0, 0, chartW, chartH)
-	vc.Fill()
-
-	altRange := maxAlt - minAlt
-	if altRange < 1 {
-		altRange = 1
-	}
-	padAlt := altRange * 0.05
-	yMin := minAlt - padAlt
-	yMax := maxAlt + padAlt
-	yRange := yMax - yMin
-
-	norm := make([]float64, len(history))
-	for i, r := range history {
-		norm[i] = (r.Altitude - yMin) / yRange
-	}
-
-	chartX := marginL
-	chartY := marginT
-
-	lineColor := color.RGBA{R: 80, G: 200, B: 255, A: 255}
-	fillColor := color.RGBA{R: 40, G: 100, B: 180, A: 100}
-	vc.DrawLineChartFilled(chartX, chartY, innerW, innerH, norm, lineColor, fillColor, 2)
-
-	gridColor := color.RGBA{R: 60, G: 80, B: 130, A: 80}
-	labelColor := color.RGBA{R: 150, G: 170, B: 200, A: 220}
-
-	const yTicks = 5
-	for i := range yTicks {
-		frac := float64(i) / float64(yTicks-1)
-		val := yMin + frac*yRange
-		y := chartY + innerH*(1-frac)
-
-		vc.SetColor(gridColor)
-		vc.SetLineWidth(0.5)
-		vc.MoveTo(chartX, y)
-		vc.LineTo(chartX+innerW, y)
-		vc.Stroke()
-
-		vc.SetColor(labelColor)
-		vc.DrawString(fmt.Sprintf("%.1f", val), 3, y+4)
-	}
-
-	vc.SetColor(labelColor)
-	vc.DrawString("km", 3, chartH-marginB+14)
-
-	if len(history) >= 2 {
-		t0 := history[0].Time
-		t1 := history[len(history)-1].Time
-		dur := t1.Sub(t0)
-		const xTicks = 5
-		for i := range xTicks {
-			t := t0.Add(time.Duration(float64(i) / float64(xTicks-1) * float64(dur)))
-			x := chartX + float64(i)*innerW/float64(xTicks-1)
-			vc.SetColor(labelColor)
-			vc.DrawString(t.Format("15:04"), x-16, chartH-5)
-		}
-		vc.SetColor(labelColor)
-		vc.DrawString("UTC", chartX+innerW-20, marginT-5)
-	}
-
-	return vc.Image().(*image.RGBA)
+// imgWidth 返回设置图片宽度的选项列表。
+func imgWidth(w int) []textimage.ImageOption {
+	return []textimage.ImageOption{textimage.WithImgWidth(w), textimage.WithImgAlign(textimage.AlignCenter)}
 }
 
-func minMaxHistory(history []AltRecord) (float64, float64) {
-	if len(history) == 0 {
-		return 0, 0
+// toChartPoints 将高度历史转换为曲线图数据点。
+func toChartPoints(series []AltRecord) []satutil.ChartPoint {
+	out := make([]satutil.ChartPoint, 0, len(series))
+	for _, r := range series {
+		out = append(out, satutil.ChartPoint{Time: r.Time, Value: r.Altitude})
 	}
-	mn, mx := history[0].Altitude, history[0].Altitude
-	for _, h := range history {
-		if h.Altitude < mn {
-			mn = h.Altitude
-		}
-		if h.Altitude > mx {
-			mx = h.Altitude
-		}
+	return out
+}
+
+// historyCaption 生成高度历史曲线的底部说明（时长 + 高度区间）。
+func historyCaption(series []AltRecord, trend Trend) string {
+	if len(series) < 2 {
+		return ""
 	}
-	return mn, mx
+	span := series[len(series)-1].Time.Sub(series[0].Time)
+	rangeText := ""
+	if trend.MaxAlt > trend.MinAlt {
+		rangeText = fmt.Sprintf(" · 区间 %.0f–%.0f km", trend.MinAlt, trend.MaxAlt)
+	}
+	if span.Hours() < 1 {
+		return fmt.Sprintf("近 %.0f 分钟 · 每 5 分钟采样%s", span.Minutes(), rangeText)
+	}
+	return fmt.Sprintf("近 %.1f 小时 · 每 5 分钟采样%s", span.Hours(), rangeText)
+}
+
+// absf 返回浮点数绝对值。
+func absf(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// clamp01 将 v 截断到 [0, 1]。
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// nsLabel 返回南北方向后缀。
+func nsLabel(lat float64) string {
+	if lat < 0 {
+		return "S"
+	}
+	return "N"
+}
+
+// ewLabel 返回东西方向后缀。
+func ewLabel(lng float64) string {
+	if lng < 0 {
+		return "W"
+	}
+	return "E"
 }
