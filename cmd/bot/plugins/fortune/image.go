@@ -1,158 +1,75 @@
 package fortune
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
-	"math/rand"
+	"image/draw"
+	"image/png"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
 
-const cardWidth = 800
+// tarotCardWidth 塔罗卡片宽度（牌面按 320 宽居中）。
+const tarotCardWidth = 400
+
+// omikujiPageGap 御神签两页扫描之间的间隔。
+const omikujiPageGap = 12
 
 var (
-	red    = color.RGBA{R: 200, G: 40, B: 40, A: 255} //nolint:unused
-	gold   = color.RGBA{R: 210, G: 170, B: 50, A: 255}
-	white  = color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	black  = color.RGBA{R: 40, G: 30, B: 20, A: 255}
-	darkBg = color.RGBA{R: 140, G: 20, B: 30, A: 255} //nolint:unused
-	greyBg = color.RGBA{R: 80, G: 80, B: 85, A: 255}  //nolint:unused
+	paperBg = color.RGBA{R: 252, G: 250, B: 245, A: 255} // 签纸底色，用于补齐两页高度差
+	white   = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 )
 
-// levelColor 返回运势等级对应的文字颜色。
-func levelColor(level FortuneLevel) color.Color {
-	switch level {
-	case Daikichi:
-		return gold
-	case Kichi:
-		return color.RGBA{R: 220, G: 60, B: 50, A: 255}
-	case Chukichi:
-		return color.RGBA{R: 240, G: 140, B: 40, A: 255}
-	case Shokichi:
-		return color.RGBA{R: 60, G: 180, B: 80, A: 255}
-	case Matsukichi:
-		return color.RGBA{R: 60, G: 120, B: 200, A: 255}
-	case Kyo:
-		return color.RGBA{R: 130, G: 130, B: 140, A: 255}
-	case Daikyo:
-		return black
-	default:
-		return white
+// renderOmikujiCard 把御神签的两页扫描（签文页与解签页）并排合成为一张图片。
+//
+// 番号、吉凶、漢詩与解签都由签纸本身承载，因此不再叠加任何生成文本。
+// nil 页面会被跳过；两页都缺失时返回错误，由调用方降级处理。
+func renderOmikujiCard(pages ...image.Image) ([]byte, error) {
+	valid := make([]image.Image, 0, len(pages))
+	for _, page := range pages {
+		if page != nil {
+			valid = append(valid, page)
+		}
 	}
-}
-
-// levelBgColor 返回运势等级对应的卡片背景色。
-func levelBgColor(level FortuneLevel) color.Color {
-	switch level {
-	case Daikichi:
-		return color.RGBA{R: 180, G: 30, B: 40, A: 255}
-	case Kyo, Daikyo:
-		return color.RGBA{R: 60, G: 55, B: 55, A: 255}
-	default:
-		return color.RGBA{R: 160, G: 40, B: 50, A: 255}
+	if len(valid) == 0 {
+		return nil, errors.New("fortune: 御神签扫描不可用")
 	}
-}
 
-// renderOmikujiCard 渲染御神签图片卡片。
-// bgImg 为浅草寺签文背景图，为 nil 时只使用纯色背景。
-func renderOmikujiCard(slip *OmikujiSlip, bgImg image.Image) ([]byte, error) {
-	canvas, err := textimage.NewCanvas(cardWidth,
-		textimage.WithCJKFont(),
-		textimage.WithFontColor(white),
-		textimage.WithLineHeight(1.7),
-		textimage.WithPadding(32, 16),
-		textimage.WithBgColor(levelBgColor(slip.Level)),
-	)
-	if err != nil {
+	width, height := 0, 0
+	for i, page := range valid {
+		bounds := page.Bounds()
+		width += bounds.Dx()
+		if i > 0 {
+			width += omikujiPageGap
+		}
+		height = max(height, bounds.Dy())
+	}
+
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: paperBg}, image.Point{}, draw.Src)
+
+	x := 0
+	for _, page := range valid {
+		bounds := page.Bounds()
+		draw.Draw(canvas, image.Rect(x, 0, x+bounds.Dx(), bounds.Dy()), page, bounds.Min, draw.Src)
+		x += bounds.Dx() + omikujiPageGap
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, canvas); err != nil {
 		return nil, err
 	}
-
-	if bgImg != nil {
-		canvas.AddImage(bgImg,
-			textimage.WithImgWidth(cardWidth),
-			textimage.WithImgAlign(textimage.AlignCenter),
-		)
-		canvas.AddSpacer(8)
-	}
-
-	lvl := slip.Level.String()
-	lc := levelColor(slip.Level)
-
-	canvas.AddText("✦ 御神签 ✦",
-		textimage.WithFontSize(22),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(gold),
-		textimage.WithTextShadow(color.RGBA{R: 0, G: 0, B: 0, A: 120}, 1, 2, 4),
-		textimage.WithPadding(20, 4),
-	)
-
-	canvas.AddText(fmt.Sprintf("第 %d 番", slip.Number),
-		textimage.WithFontSize(14),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(color.RGBA{R: 255, G: 220, B: 180, A: 220}),
-		textimage.WithPadding(8, 2),
-	)
-
-	canvas.AddSpacer(12)
-
-	canvas.AddText(lvl,
-		textimage.WithFontSize(48),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(lc),
-		textimage.WithTextShadow(color.RGBA{R: 0, G: 0, B: 0, A: 100}, 2, 3, 8),
-		textimage.WithPadding(32, 8),
-		textimage.WithTextBackdrop(color.RGBA{R: 0, G: 0, B: 0, A: 80}, 4),
-		textimage.WithTextBackdropPadding(24, 12),
-	)
-
-	canvas.AddSpacer(16)
-
-	canvas.AddText(slip.Translation,
-		textimage.WithFontSize(16),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(white),
-		textimage.WithTextShadow(color.RGBA{R: 0, G: 0, B: 0, A: 100}, 1, 1, 3),
-		textimage.WithPadding(28, 4),
-	)
-
-	canvas.AddSpacer(20)
-
-	canvas.AddDivider(
-		textimage.WithDividerColor(color.RGBA{R: 255, G: 200, B: 150, A: 100}),
-	)
-
-	canvas.AddSpacer(8)
-
-	attrs := slip.LuckyAttrs()
-	info := fmt.Sprintf("幸运方向: %s    幸运色: %s    幸运数字: %d",
-		attrs.Direction, attrs.Color, attrs.Number)
-	canvas.AddText(info,
-		textimage.WithFontSize(14),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(color.RGBA{R: 255, G: 220, B: 180, A: 220}),
-		textimage.WithPadding(20, 4),
-	)
-
-	canvas.AddSpacer(4)
-
-	badgeText := fmt.Sprintf("愿望: %s  |  待人: %s  |  失物: %s  |  旅: %s",
-		slip.Wish, slip.Waiting, slip.LostItem, slip.Travel)
-	canvas.AddText(badgeText,
-		textimage.WithFontSize(12),
-		textimage.WithAlign(textimage.AlignCenter),
-		textimage.WithFontColor(color.RGBA{R: 255, G: 200, B: 160, A: 180}),
-		textimage.WithPadding(12, 2),
-	)
-
-	return canvas.ResultPNG()
+	return buf.Bytes(), nil
 }
 
 // renderTarotCard 渲染单张塔罗牌图片卡片。
 // cardImg 为从 sacred-texts 缓存的牌面图片，为 nil 时只显示文字。
 func renderTarotCard(reading *TarotReading, cardImg image.Image) ([]byte, error) {
-	canvas, err := textimage.NewCanvas(400,
+	canvas, err := textimage.NewCanvas(tarotCardWidth,
 		textimage.WithCJKFont(),
 		textimage.WithFontColor(white),
 		textimage.WithLineHeight(1.6),
@@ -164,6 +81,9 @@ func renderTarotCard(reading *TarotReading, cardImg image.Image) ([]byte, error)
 	}
 
 	if cardImg != nil {
+		if reading.IsReverse {
+			cardImg = rotate180(cardImg)
+		}
 		canvas.AddImage(cardImg,
 			textimage.WithImgMaxWidth(320),
 			textimage.WithImgAlign(textimage.AlignCenter),
@@ -238,17 +158,6 @@ func renderErrorCard(message string) ([]byte, error) { //nolint:unused
 	return canvas.ResultPNG()
 }
 
-// formatOmikujiText 将御神签格式化为纯文本（图片渲染失败的备用方案）。
-func formatOmikujiText(slip *OmikujiSlip) string {
-	attrs := slip.LuckyAttrs()
-	return fmt.Sprintf("第%d番 %s\n%s\n愿望: %s | 待人: %s | 失物: %s | 旅: %s\n幸运方向: %s 幸运色: %s 幸运数字: %d",
-		slip.Number, slip.Level.String(),
-		slip.Translation,
-		slip.Wish, slip.Waiting, slip.LostItem, slip.Travel,
-		attrs.Direction, attrs.Color, attrs.Number,
-	)
-}
-
 // formatTarotText 将塔罗占卜结果格式化为纯文本（图片渲染失败的备用方案）。
 func formatTarotText(readings []TarotReading) string {
 	var buf strings.Builder
@@ -275,17 +184,14 @@ func formatTarotText(readings []TarotReading) string {
 	return buf.String()
 }
 
-// pickOmikujiVariant 随机选择浅草寺签图的变体（0 或 1）。
-func pickOmikujiVariant() int {
-	return rand.Intn(2)
-}
-
-// sensojiImageURL 返回指定番号和变体的浅草寺签图原始 URL。
-func sensojiImageURL(number, variant int) string {
-	return fmt.Sprintf("https://raw.githubusercontent.com/fumiama/senso-ji-omikuji/main/%d_%d.jpg", number, variant)
-}
-
-// sensojiCacheKey 返回浅草寺签图的缓存键名。
-func sensojiCacheKey(number, variant int) string {
-	return fmt.Sprintf("sensoji_%d_%d.jpg", number, variant)
+// rotate180 返回旋转 180 度后的图像，用于渲染塔罗逆位牌面。
+func rotate180(src image.Image) image.Image {
+	b := src.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	for y := range b.Dy() {
+		for x := range b.Dx() {
+			dst.Set(b.Dx()-1-x, b.Dy()-1-y, src.At(b.Min.X+x, b.Min.Y+y))
+		}
+	}
+	return dst
 }

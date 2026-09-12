@@ -160,7 +160,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 
 		// 娱乐插件
 		anime.New(),
-		fortune.New(fortune.WithDataDir(dataDir + "/fortune")),
+		fortune.New(),
 		minecraft.New(),
 		genshin.New(),
 		starrail.New(),

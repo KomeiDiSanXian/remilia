@@ -9,34 +9,21 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
-var _ health.CheckProvider = (*Plugin)(nil)
-
 // Plugin 占卜插件实例。
+//
+// 签纸扫描与塔罗牌面均编译进二进制，运行时不依赖任何外部图床。
 type Plugin struct {
-	dataDir string             // 数据目录（图片缓存）
-	probes  []*health.APIProbe // 健康探针列表
-	log     plugin.Logger
-	cache   *imageCache // 插件级别的图片缓存
+	log plugin.Logger
 }
-
-// WithDataDir 设置占卜插件的数据目录。
-func WithDataDir(path string) Option {
-	return func(p *Plugin) { p.dataDir = path }
-}
-
-// Option 占卜插件配置函数类型。
-type Option func(*Plugin)
 
 // New 创建占卜插件的 Descriptor。
 //
@@ -45,14 +32,11 @@ type Option func(*Plugin)
 //   - /tarot [数量]   — 塔罗牌占卜
 //
 // AI:
-//   - draw_omikuji(number?) → 御神签结果
+//   - draw_omikuji(number?) → 御神签签号
 //   - draw_tarot(count: 1|3) → 塔罗占卜结果
 //   - fortune_query — 占卜师技能
-func New(opts ...Option) *plugin.Descriptor {
+func New() *plugin.Descriptor {
 	p := &Plugin{}
-	for _, o := range opts {
-		o(p)
-	}
 	return &plugin.Descriptor{
 		Name:    "fortune",
 		Version: "1.0.0",
@@ -72,18 +56,6 @@ func New(opts ...Option) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
 
-			ghProbe := health.NewAPIProbe("github-raw", "https://raw.githubusercontent.com", 5*time.Second, health.WithMaxSeverity(health.Degraded))
-			stProbe := health.NewAPIProbe("sacred-texts", "https://www.sacred-texts.com", 5*time.Second, health.WithMaxSeverity(health.Degraded))
-			p.probes = []*health.APIProbe{ghProbe, stProbe}
-
-			for _, pr := range p.probes {
-				ctx.Spawn(func(runCtx context.Context) {
-					pr.StartBackground(runCtx, 1*time.Minute)
-				})
-			}
-
-			p.cache = newImageCache(p.dataDir)
-
 			omikujiDef := command.NewDef("omikuji").Description("抽取御神签占卜运势").
 				Arg("number", "签号 1-100（可选，不指定则随机）", false).
 				Example("/omikuji").Example("/omikuji 42").Build()
@@ -100,9 +72,9 @@ func New(opts ...Option) *plugin.Descriptor {
 }
 
 // handleOmikuji 处理 /omikuji 命令。
-// 先发送签文图片卡片，再发送中文解签文本。
 //
-// 图片渲染失败时只发送纯文本。
+// 只发一条消息：签纸两页（签文页与解签页）合成的图片。
+// 番号、吉凶、漢詩与解签都由签纸本身承载，不再附加生成的解读文本。
 func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
@@ -120,24 +92,15 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 		number = n
 	}
 
-	slip := drawOmikuji(number)
+	number = drawOmikuji(number)
 
-	variant := pickOmikujiVariant()
-	key := sensojiCacheKey(slip.Number, variant)
-	url := sensojiImageURL(slip.Number, variant)
-	bgImg, _ := p.cache.Get(ctx.Context(), key, url)
-
-	png, renderErr := renderOmikujiCard(slip, bgImg)
+	png, renderErr := renderOmikujiCard(p.omikujiPages(number)...)
 	if renderErr != nil {
-		ctx.ReplyText(formatOmikujiText(slip))
+		ctx.ReplyError("御神签素材不可用，请稍后重试")
 		return nil
 	}
 
-	if ctx.Reply(platform.ImageDataMessage(png, "omikuji.png", "image/png")); err != nil {
-		return err
-	}
-
-	ctx.ReplyText(formatOmikujiText(slip))
+	ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("omikuji_%03d.png", number), "image/png"))
 	return nil
 }
 
@@ -162,7 +125,7 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 
 	for i, reading := range readings {
 		card := reading.Card
-		cardImg, _ := p.cache.Get(ctx.Context(), "tarot_"+card.NameShort, card.ImageURL)
+		cardImg := p.tarotImage(card.NameShort)
 
 		png, renderErr := renderTarotCard(&reading, cardImg)
 		if renderErr != nil {
@@ -198,8 +161,10 @@ func (p *Plugin) ListTools() []ai.Tool {
 				if n, ok := args["number"].(float64); ok {
 					number = int(n)
 				}
-				slip := drawOmikuji(number)
-				return formatOmikujiText(slip), nil
+				drawn := drawOmikuji(number)
+				return fmt.Sprintf("已抽取御神签第 %d 番（浅草寺百番观音签）。"+
+					"签纸的番号、吉凶、漢詩与解签均印在签纸图片上；"+
+					"本工具不返回签文内容，请勿自行杜撰签文或吉凶。", drawn), nil
 			},
 		},
 		{
@@ -238,20 +203,12 @@ func (p *Plugin) ListSkills() []ai.Skill {
 			Description: "运势占卜与解读",
 			Prompt: `你是一个精通日本浅草寺御神签和塔罗牌的占卜师。
 当用户询问运势或占卜时：
-- 使用 draw_omikuji 抽取御神签，为用户解读签文含义、吉凶等级和运势建议
+- 使用 draw_omikuji 抽取御神签。该工具只返回签号，签文、吉凶与解签都印在签纸
+  图片上，请引导用户查看签纸图片，不要自行杜撰签文或吉凶
 - 使用 draw_tarot 抽取塔罗牌，解读正位或逆位的牌意，并结合问题给出指引
 
 以温暖、鼓励的语气回应，并给予实用的建议。`,
 			Tools: p.ListTools(),
 		},
 	}
-}
-
-// HealthCheckers 返回插件的 API 健康探针。实现 health.CheckProvider。
-func (p *Plugin) HealthCheckers() []health.Checker {
-	out := make([]health.Checker, len(p.probes))
-	for i, pr := range p.probes {
-		out[i] = pr
-	}
-	return out
 }
