@@ -41,6 +41,9 @@ cmd/bot/dashboarddist/
 .codex/
 .ai/
 
+# 代理工作区笔记（个人记忆，不随项目分发）
+MEMORY.md
+
 # coverage output
 coverage
 coverage.out
@@ -52,3 +55,6 @@ site/
 
 # runtime logs
 logs/
+
+# 抓取/调研临时产物（http_request 落盘、素材下载、OCR 中间结果）
+.fetch/
