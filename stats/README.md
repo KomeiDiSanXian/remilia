@@ -1,13 +1,17 @@
 # Remilia Stats Package
 
-**基础统计原语**，提供零依赖、线程安全的统计数据收集功能，供框架内部组件使用。
+**基础统计原语**，提供零依赖、线程安全的统计数据收集功能，面向宿主应用与插件作者。
 
-> **与 `plugins/stats` 的区别**
+> **与 `builtin/stats` 的区别**
 >
 > | 包 | 定位 | 使用者 |
 > |---|---|---|
-> | `stats/`（本包）| 基础数据结构：Counter、Gauge、Histogram | 框架内部（如 `middleware/adaptive.go`）|
-> | `plugins/stats/` | 用户行为统计插件：命令次数、活跃 UV | Bot 业务层，通过插件系统注册 |
+> | `stats/`（本包）| 基础数据结构：Counter、Gauge、Histogram、QuantileHistogram | 宿主应用与插件作者 |
+> | `builtin/stats/` | 用户行为统计插件：命令次数、活跃 UV | Bot 业务层，通过插件系统注册 |
+>
+> 框架内部的时间序列指标**不经过本包**：`middleware/ratelimit` 为自适应限流器实现了
+> 固定桶 + ping-pong 双缓冲的专用直方图，`core/engine` 使用自身的 `MatcherStats` /
+> `TempManagerStats`。因此修改本包不会影响限流或引擎行为。
 
 ## 功能
 
@@ -54,7 +58,9 @@ avg := histogram.Avg()      // 平均值
 
 ## 类型定义
 
-### BatchStats
+### BatchStats（已废弃）
+
+> **Deprecated**：无内部使用者，且 `core/engine` 使用自身的统计类型。仅为兼容保留。
 
 批量处理统计信息：
 
@@ -69,7 +75,10 @@ type BatchStats struct {
 }
 ```
 
-### EngineStats
+### EngineStats（已废弃）
+
+> **Deprecated**：无内部使用者。`core/engine` 使用 `MatcherStats` 与 `TempManagerStats`
+> （见 `core/engine/engine_query.go`、`core/engine/temp_manager.go`）。
 
 Engine 统计信息：
 

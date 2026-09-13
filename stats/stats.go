@@ -1,30 +1,38 @@
-// Package stats 提供零依赖的基础统计原语，供框架内部组件使用。
+// Package stats 提供零依赖、线程安全的基础统计原语。
 //
-// # 与 plugins/stats 的区别
+// # 与 builtin/stats 的区别
 //
 // Remilia 统计相关代码分为两个层次：
 //
 //	stats/         — 基础统计原语（本包），零外部依赖
-//	plugins/stats/ — 用户行为统计插件，基于插件系统
+//	builtin/stats/ — 用户行为统计插件，基于插件系统
 //
 // ## stats/（本包）
 //
-// 提供轻量、线程安全的统计数据结构，专为框架**内部组件**设计：
-//   - Counter         — 原子计数器（Inc/Add/Get/Reset）
-//   - Gauge           — 原子计量器（Set/Inc/Dec/Get）
-//   - Histogram       — 简单直方图（Count/Sum/Min/Max/Avg）
+// 提供轻量、线程安全的统计数据结构，面向**宿主应用与插件作者**：
+//   - Counter           — 原子计数器（Inc/Add/Get/Reset）
+//   - Gauge             — 原子计量器（Set/Inc/Dec/Get）
+//   - Histogram         — 简单直方图（Count/Sum/Min/Max/Avg）
 //   - QuantileHistogram — 分位数直方图（P50/P90/P95/P99），使用环形缓冲区，O(1) 写入
 //
-// 典型使用者：middleware/adaptive.go（P99 延迟计算）、engine 内部性能统计
+// # 关于框架内部实现
 //
-// ## plugins/stats/（插件层）
+// 框架自身的时间序列指标目前不经过本包：
+//   - middleware/ratelimit 为自适应限流器实现了固定桶 + ping-pong 双缓冲的
+//     专用直方图（见 middleware/ratelimit/adaptive.go），以换取限流决策路径上的
+//     确定性开销与明确的误差上界；
+//   - core/engine 的统计由 core/engine 自身的 MatcherStats / TempManagerStats 承担。
+//
+// 本包不参与上述路径，因此修改本包不会影响限流或引擎行为。
+//
+// ## builtin/stats/（插件层）
 //
 // 基于插件系统构建，面向**Bot 业务层**，记录用户行为数据：
 //   - 命令调用次数统计（TopCommands）
 //   - 活跃用户 UV（按日/周/月）
 //   - 可选对接 storage 插件实现持久化
 //
-// 参见：github.com/KomeiDiSanXian/remilia/plugins/stats
+// 参见：github.com/KomeiDiSanXian/remilia/builtin/stats
 package stats
 
 import (
@@ -153,7 +161,10 @@ func (qh *QuantileHistogram) Reset() {
 	qh.sorted = false
 }
 
-// BatchStats 批量处理统计信息
+// BatchStats 批量处理统计信息。
+//
+// Deprecated: 无内部使用者，且 core/engine 使用自身的统计类型。
+// 仅为兼容保留，新代码请直接定义所需的统计结构。
 type BatchStats struct {
 	TotalBatches    uint64        // 总批次数
 	TotalEvents     uint64        // 总事件数
@@ -163,7 +174,11 @@ type BatchStats struct {
 	EventsPerSecond float64       // 吞吐量（事件/秒）
 }
 
-// EngineStats engine 统计信息
+// EngineStats engine 统计信息。
+//
+// Deprecated: 无内部使用者。core/engine 使用 MatcherStats 与
+// TempManagerStats（见 core/engine/engine_query.go、
+// core/engine/temp_manager.go）。
 type EngineStats struct {
 	MatcherCount      int   // 匹配器数量
 	EventsProcessed   int64 // 已处理事件数

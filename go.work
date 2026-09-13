@@ -1,5 +1,11 @@
 go 1.27
 
+// examples/showcase/wasm 有意不列入本 workspace：
+//   - 它是 TinyGo 构建的 WASI 插件（build.ps1 以 GOWORK=off 调用 tinygo），
+//     依赖 //go:wasmimport 声明，无函数体，无法在宿主平台通过类型检查；
+//   - 列入后 go vet / golangci-lint 在 workspace 模式下会扫描到它并报错；
+//   - 其 go.mod 保持较低的 go 指令以兼容 TinyGo。
+// 需要单独构建时进入该目录并指定 wasm 目标（或使用 build.ps1）。
 use (
 	.
 	cmd/bot
