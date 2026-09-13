@@ -15,8 +15,23 @@ import (
 )
 
 // counterValue 读取 CounterVec 中 (labels) 组合的当前值（无样本返回 0）。
+//
+// 这些计数器是包级 Prometheus 指标，进程内只增不减，所以用例必须断言「本次
+// 调用带来的增量」而不是绝对值：绝对值只在单次运行（-count=1）且没有其他用例
+// 写过同一标签时成立，`go test -count=N` 会因累计值被放大而失败。core/engine、
+// middleware、infra/metrics 等包的指标用例同样使用增量断言。
 func counterValue(cv *prometheus.CounterVec, labels ...string) float64 {
 	return testutil.ToFloat64(cv.WithLabelValues(labels...))
+}
+
+// checkDelta 断言计数器在 before→after 区间恰好增加了 want。
+//
+// 失败信息同时给出两个绝对值，便于区分「少记/多记」与「累计值干扰」两种成因。
+func checkDelta(t *testing.T, name string, before, after, want float64) {
+	t.Helper()
+	if got := after - before; got != want {
+		t.Errorf("%s 增量 = %v, 期望 %v（计数器 %v → %v）", name, got, want, before, after)
+	}
 }
 
 // TestOpenAIUsageParsing 验证非流式与流式响应的 token 用量解析。
@@ -96,19 +111,17 @@ func TestMetricsProviderChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
+	callsBefore := counterValue(llmCalls, "test-model", "ok")
+	promptBefore := counterValue(llmTokens, "test-model", "prompt")
+	completionBefore := counterValue(llmTokens, "test-model", "completion")
+
 	if _, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "x"}}}); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
-	if got := counterValue(llmCalls, "test-model", "ok"); got != 1 {
-		t.Errorf("ai_llm_calls_total = %v, 期望 1", got)
-	}
-	if got := counterValue(llmTokens, "test-model", "prompt"); got != 5 {
-		t.Errorf("prompt tokens = %v, 期望 5", got)
-	}
-	if got := counterValue(llmTokens, "test-model", "completion"); got != 6 {
-		t.Errorf("completion tokens = %v, 期望 6", got)
-	}
+	checkDelta(t, "ai_llm_calls_total{result=ok}", callsBefore, counterValue(llmCalls, "test-model", "ok"), 1)
+	checkDelta(t, "ai_llm_tokens_total{type=prompt}", promptBefore, counterValue(llmTokens, "test-model", "prompt"), 5)
+	checkDelta(t, "ai_llm_tokens_total{type=completion}", completionBefore, counterValue(llmTokens, "test-model", "completion"), 6)
 }
 
 // TestMetricsProviderStreamError 验证流式错误路径的指标（同步错误 → result=error）。
@@ -123,13 +136,13 @@ func TestMetricsProviderStreamError(t *testing.T) {
 		t.Fatalf("NewProvider: %v", err)
 	}
 	// doStreamRequest 对 5xx 同步返回错误（重试后），装饰器同步计数
+	before := counterValue(llmCalls, "err-model", "error")
+
 	_, err = prov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "x"}}})
 	if err == nil {
 		t.Fatal("5xx 流式请求应同步报错")
 	}
-	if got := counterValue(llmCalls, "err-model", "error"); got != 1 {
-		t.Errorf("error 调用应计数, got %v", got)
-	}
+	checkDelta(t, "ai_llm_calls_total{result=error}", before, counterValue(llmCalls, "err-model", "error"), 1)
 }
 
 // TestAnthropicStreamUsage 验证 Anthropic 流式 usage 解析（message_start/message_delta）。
@@ -168,8 +181,10 @@ func TestAnthropicStreamUsage(t *testing.T) {
 
 // TestLLMRecordStopped 验证停止路径的 result=stopped 标签。
 func TestLLMRecordStopped(t *testing.T) {
+	before := counterValue(llmCalls, "stop-model", "stopped")
+
 	recordLLMCall("stop-model", 100*time.Millisecond, nil, "stopped")
-	if got := counterValue(llmCalls, "stop-model", "stopped"); got < 1 {
-		t.Errorf("stopped 调用应计数, got %v", got)
-	}
+
+	// 原先写作 got < 1：重复运行时恒真，等于没有断言增量恰好为 1。
+	checkDelta(t, "ai_llm_calls_total{result=stopped}", before, counterValue(llmCalls, "stop-model", "stopped"), 1)
 }
