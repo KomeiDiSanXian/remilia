@@ -63,7 +63,7 @@ func tlvRead(data []byte, key string) string {
 
 func decodeULEB128(data []byte) (uint32, int) {
 	var v uint32
-	for i := 0; i < len(data); i++ {
+	for i := range data {
 		c := data[i]
 		v |= uint32(c&0x7f) << (7 * i)
 		if c&0x80 == 0 {

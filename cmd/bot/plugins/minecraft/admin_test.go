@@ -1,6 +1,7 @@
 package minecraft
 
 import (
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +39,7 @@ func adminPrivateCtx(userID string) *eventctx.Context {
 
 func serverEntry(name, addr, pw string, extra map[string]any) map[string]any {
 	m := map[string]any{"name": name, "address": addr, "password": pw}
-	for k, v := range extra {
-		m[k] = v
-	}
+	maps.Copy(m, extra)
 	return m
 }
 
@@ -445,7 +444,7 @@ func TestConfirmStoreReplacesPrevious(t *testing.T) {
 }
 
 func TestNewConfirmCodeFormat(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		code := newConfirmCode()
 		if len(code) != 6 {
 			t.Fatalf("验证码格式错误: %q", code)

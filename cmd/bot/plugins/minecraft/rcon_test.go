@@ -266,7 +266,7 @@ func TestRCONPoolReusesConnection(t *testing.T) {
 	pool := newRconPool()
 	defer pool.Close()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := pool.Do("srv", f.addr(), "pw", 3*time.Second, "list"); err != nil {
 			t.Fatalf("Do #%d: %v", i, err)
 		}

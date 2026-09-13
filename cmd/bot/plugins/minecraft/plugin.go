@@ -509,10 +509,7 @@ func cooldownKey(ctx *eventctx.Context) string {
 // humanizeWait 将等待时长格式化为可读文本。
 func humanizeWait(d time.Duration) string {
 	if d < time.Second {
-		ms := d.Milliseconds()
-		if ms < 1 {
-			ms = 1
-		}
+		ms := max(d.Milliseconds(), 1)
 		return fmt.Sprintf("%d 毫秒", ms)
 	}
 	return fmt.Sprintf("%.1f 秒", d.Seconds())

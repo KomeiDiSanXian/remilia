@@ -231,7 +231,7 @@ func (c *rconClient) readPacket() (*rconPacket, error) {
 // 长输出被拆成多个满包时继续读，直到服务端补上的尾包（通常为空包）。
 func (c *rconClient) readResponse() (string, error) {
 	var sb strings.Builder
-	for i := 0; i < rconMaxPackets; i++ {
+	for range rconMaxPackets {
 		pkt, err := c.readPacket()
 		if err != nil {
 			return "", err
