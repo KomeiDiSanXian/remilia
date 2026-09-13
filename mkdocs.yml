@@ -87,6 +87,7 @@ nav:
       - AI 对话插件: 06-plugins/AI_PLUGIN.md
       - WASM 插件开发: 06-plugins/wasm-plugin-development.md
   - 架构设计:
+      - 分层与依赖约定: 03-architecture/LAYERING.md
       - 并发事件处理: 03-architecture/CONCURRENT_EVENT_PROCESSING.md
       - 多平台抽象: 03-architecture/MULTI_PLATFORM.md
       - 权限系统架构: 03-architecture/permission-system.md
