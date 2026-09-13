@@ -20,9 +20,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
 	"github.com/KomeiDiSanXian/remilia/middleware/degradation"
@@ -42,12 +42,12 @@ type Bridge struct {
 
 	middlewareConfig atomic.Value // *config.MiddlewareConfig
 
-	pprofSrv  *remilia.PprofServer
+	pprofSrv  *pprof.Server
 	tracingTP *tracing.Provider
 
 	lastLogCfg          logger.Config // 上次日志输出配置（Format/Console/File/FilePath）
 	lastSamplingRate    float64
-	lastPprofCfg        remilia.PprofConfig
+	lastPprofCfg        pprof.Config
 	lastRetryCfg        config.RetryConfig
 	lastDedupMaxSize    int
 	lastDedupDefaultTTL string
@@ -60,7 +60,7 @@ func NewBridge() *Bridge {
 }
 
 // SetPprofServer 注册 pprof 服务器以接收热更新
-func (b *Bridge) SetPprofServer(srv *remilia.PprofServer) {
+func (b *Bridge) SetPprofServer(srv *pprof.Server) {
 	b.pprofSrv = srv
 }
 
@@ -168,32 +168,32 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	}
 
 	// 同步 Pprof 参数（仅当相关字段变化时）
-	pprof := newCfg.Pprof
-	parsedInterval := parseDurationFallback(pprof.ProfileInterval, time.Hour)
-	parsedDuration := parseDurationFallback(pprof.ProfileDuration, 30*time.Second)
-	if changed(b.lastPprofCfg.AutoProfile, pprof.AutoProfile) ||
+	pc := newCfg.Pprof
+	parsedInterval := parseDurationFallback(pc.ProfileInterval, time.Hour)
+	parsedDuration := parseDurationFallback(pc.ProfileDuration, 30*time.Second)
+	if changed(b.lastPprofCfg.AutoProfile, pc.AutoProfile) ||
 		changed(b.lastPprofCfg.ProfileInterval, parsedInterval) ||
 		changed(b.lastPprofCfg.ProfileDuration, parsedDuration) ||
-		changed(b.lastPprofCfg.EnableMutex, pprof.EnableMutex) ||
-		changed(b.lastPprofCfg.EnableBlock, pprof.EnableBlock) {
+		changed(b.lastPprofCfg.EnableMutex, pc.EnableMutex) ||
+		changed(b.lastPprofCfg.EnableBlock, pc.EnableBlock) {
 		if b.pprofSrv != nil {
-			b.pprofSrv.UpdateConfig(remilia.PprofConfig{
-				AutoProfile:          pprof.AutoProfile,
+			b.pprofSrv.UpdateConfig(pprof.Config{
+				AutoProfile:          pc.AutoProfile,
 				ProfileInterval:      parsedInterval,
 				ProfileDuration:      parsedDuration,
-				EnableMutex:          pprof.EnableMutex,
-				EnableBlock:          pprof.EnableBlock,
+				EnableMutex:          pc.EnableMutex,
+				EnableBlock:          pc.EnableBlock,
 				MutexProfileFraction: 1,
 				BlockProfileRate:     1,
 			})
 		}
 	}
-	b.lastPprofCfg = remilia.PprofConfig{
-		AutoProfile:     pprof.AutoProfile,
+	b.lastPprofCfg = pprof.Config{
+		AutoProfile:     pc.AutoProfile,
 		ProfileInterval: parsedInterval,
 		ProfileDuration: parsedDuration,
-		EnableMutex:     pprof.EnableMutex,
-		EnableBlock:     pprof.EnableBlock,
+		EnableMutex:     pc.EnableMutex,
+		EnableBlock:     pc.EnableBlock,
 	}
 
 	// 刷新中间件配置快照（供 setup.go 的运行时开关检查）

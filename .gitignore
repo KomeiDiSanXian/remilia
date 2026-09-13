@@ -18,12 +18,13 @@ data/
 
 # 性能分析产物。目录名与框架内的 pprof 服务器（infra/pprof）区分开：
 # 默认 PprofConfig.OutputDir 为 ./profiles，pprof/ 是历史遗留写法。
-profiles/
-profile/
+# 全部根锚定，避免裸 pprof/ 把源码目录 infra/pprof 一并忽略。
+/profiles/
+/profile/
+/pprof/
 *.exe
 *.pprof
 *.prof
-pprof/
 
 # Web Dashboard
 dashboard/node_modules/
