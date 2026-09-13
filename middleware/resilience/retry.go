@@ -146,13 +146,13 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 // RetryWithDeadLetter 带死信队列的重试中间件
 // 超过最大重试次数后，将事件发送到死信队列
 //
-// deadLetterCh 的元素类型为 infra/dlq.PlatformEventItem（即 dlq.Item[platform.Event]），
+// deadLetterCh 的元素类型为 dlq.Item[platform.Event]，
 // 平台无关，符合分层原则：middleware → infra/dlq（而非 middleware → core/engine）。
 //
 // 使用示例:
 //
 //	// 1. 创建死信队列 channel
-//	deadLetterCh := make(chan dlq.PlatformEventItem, 128)
+//	deadLetterCh := make(chan dlq.Item[platform.Event], 128)
 //
 //	// 2. 启动消费者处理死信
 //	go func() {

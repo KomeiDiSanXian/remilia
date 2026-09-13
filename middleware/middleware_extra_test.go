@@ -153,7 +153,7 @@ func TestRetryDeadLetterExtra(t *testing.T) {
 			assert.Error(t, err)
 			select {
 			case item := <-dlCh:
-				_ = item // PlatformEventItem.Data may be nil for old-path ctx; just confirm item arrived
+				_ = item // dlq.Item.Data may be nil for old-path ctx; just confirm item arrived
 				assert.Equal(t, 2, item.Attempt)
 			case <-time.After(100 * time.Millisecond):
 				t.Fatal("Expected dead letter")

@@ -150,7 +150,7 @@ type dlqStater interface {
 //
 // 使用示例：
 //
-//	q := dlq.NewPayloadQueue(dlq.PayloadConfig{...})
+//	q := dlq.New(dlq.Config[platform.Event]{MaxSize: 1000, Workers: 2})
 //	adapter := remilia.NewDLQHealthAdapter(q)
 //	botHealth.AddChecker(health.NewDeadLetterQueueHealthChecker(adapter, 1000, 0.1))
 type DLQHealthAdapter struct {
@@ -158,7 +158,7 @@ type DLQHealthAdapter struct {
 }
 
 // NewDLQHealthAdapter 创建 DLQ 健康检查适配器。
-// 接受任意实现了 Stats() dlq.Stats 的队列，例如 *dlq.PayloadQueue 或 *dlq.PlatformEventQueue。
+// 接受任意实现了 Stats() dlq.Stats 的队列，即任意 dlq.Queue[T] 实例。
 func NewDLQHealthAdapter(q dlqStater) *DLQHealthAdapter {
 	return &DLQHealthAdapter{q: q}
 }

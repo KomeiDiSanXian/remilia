@@ -1,4 +1,4 @@
-package dlq
+package deadletter
 
 import (
 	"bufio"
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func TestPlatformFileConsumer_Consume_WritesJSONLine(t *testing.T) {
 	consumer := PlatformFileConsumer{Path: path}
 	event := makeTestPlatformEvent("qq", "message_create")
 
-	item := Item[platform.Event]{
+	item := dlq.Item[platform.Event]{
 		Data:    event,
 		Err:     assert.AnError,
 		Attempt: 2,
@@ -104,7 +105,7 @@ func TestPlatformFileConsumer_Consume_AppendMultiple(t *testing.T) {
 	consumer := PlatformFileConsumer{Path: path}
 
 	for i := range 3 {
-		consumer.Consume(Item[platform.Event]{
+		consumer.Consume(dlq.Item[platform.Event]{
 			Data:    makeTestPlatformEvent("discord", "message"),
 			Attempt: i + 1,
 		})
@@ -133,7 +134,7 @@ func TestPlatformFileConsumer_Consume_NilEvent(t *testing.T) {
 	consumer := PlatformFileConsumer{Path: path}
 
 	assert.NotPanics(t, func() {
-		consumer.Consume(Item[platform.Event]{Data: nil, Err: assert.AnError, Attempt: 1})
+		consumer.Consume(dlq.Item[platform.Event]{Data: nil, Err: assert.AnError, Attempt: 1})
 	})
 
 	content, err := os.ReadFile(path)
@@ -163,7 +164,7 @@ func TestPlatformWebhookConsumer_Consume_Success(t *testing.T) {
 	defer srv.Close()
 
 	consumer := PlatformWebhookConsumer{URL: srv.URL, Timeout: 2 * time.Second, MaxRetries: 0}
-	consumer.Consume(Item[platform.Event]{
+	consumer.Consume(dlq.Item[platform.Event]{
 		Data:    makeTestPlatformEvent("telegram", "msg"),
 		Attempt: 1,
 	})
@@ -185,7 +186,7 @@ func TestPlatformWebhookConsumer_Consume_RetryOnFailure(t *testing.T) {
 	defer srv.Close()
 
 	consumer := PlatformWebhookConsumer{URL: srv.URL, Timeout: 2 * time.Second, MaxRetries: 3}
-	consumer.Consume(Item[platform.Event]{
+	consumer.Consume(dlq.Item[platform.Event]{
 		Data:    makeTestPlatformEvent("wechat", "text"),
 		Attempt: 1,
 	})
@@ -202,7 +203,7 @@ func TestPlatformWebhookConsumer_Consume_AllRetriesFail(t *testing.T) {
 
 	consumer := PlatformWebhookConsumer{URL: srv.URL, Timeout: 1 * time.Second, MaxRetries: 1}
 	assert.NotPanics(t, func() {
-		consumer.Consume(Item[platform.Event]{
+		consumer.Consume(dlq.Item[platform.Event]{
 			Data:    makeTestPlatformEvent("qq", "fail"),
 			Attempt: 1,
 		})
@@ -215,7 +216,7 @@ func TestPlatformWebhookConsumer_Consume_AllRetriesFail(t *testing.T) {
 func TestMarshalPlatformEventItem(t *testing.T) {
 	t.Run("all fields populated", func(t *testing.T) {
 		event := makeTestPlatformEvent("qq", "c2c_message_create")
-		item := Item[platform.Event]{
+		item := dlq.Item[platform.Event]{
 			Data:    event,
 			Err:     assert.AnError,
 			Attempt: 3,
@@ -241,7 +242,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 	})
 
 	t.Run("nil event data", func(t *testing.T) {
-		item := Item[platform.Event]{Data: nil, Err: assert.AnError, Attempt: 1}
+		item := dlq.Item[platform.Event]{Data: nil, Err: assert.AnError, Attempt: 1}
 		data, err := MarshalPlatformEventItem(item)
 		require.NoError(t, err)
 
@@ -252,7 +253,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 	})
 
 	t.Run("nil error", func(t *testing.T) {
-		item := Item[platform.Event]{Data: makeTestPlatformEvent("discord", "msg"), Err: nil}
+		item := dlq.Item[platform.Event]{Data: makeTestPlatformEvent("discord", "msg"), Err: nil}
 		data, err := MarshalPlatformEventItem(item)
 		require.NoError(t, err)
 
@@ -264,7 +265,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 
 // BenchmarkMarshalPlatformEventItem 基准测试平台事件序列化
 func BenchmarkMarshalPlatformEventItem(b *testing.B) {
-	item := Item[platform.Event]{
+	item := dlq.Item[platform.Event]{
 		Data:    makeTestPlatformEvent("qq", "c2c_message_create"),
 		Err:     assert.AnError,
 		Attempt: 3,
