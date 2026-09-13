@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
@@ -17,7 +16,8 @@ import (
 // core/context 的 OnHasRole / OnHasPermission 规则恒不命中、middleware/auth
 // 的 RequireRole 等中间件 fail-closed 拒绝、插件内的 isAdmin / isSuperAdmin
 // 恒为 false（超管同样被判为无权）。
-func wirePermissionManager(bot *remilia.Bot, pm *plugin.Manager) {
+func (a *app) wirePermissionManager() {
+	pm := a.pm
 	raw, ok := pm.GetContainer().Get("permission")
 	if !ok || raw == nil {
 		logger.Warn("[remilia] permission plugin not found; RBAC checks based on " +
@@ -29,7 +29,7 @@ func wirePermissionManager(bot *remilia.Bot, pm *plugin.Manager) {
 		logger.Warn("[remilia] unexpected permission plugin type; RBAC manager not wired")
 		return
 	}
-	bot.UsePermissionManager(pp.GetManager())
+	a.bot.UsePermissionManager(pp.GetManager())
 	logger.Info("[remilia] RBAC permission manager wired into event contexts")
 }
 
@@ -40,7 +40,9 @@ func wirePermissionManager(bot *remilia.Bot, pm *plugin.Manager) {
 //  2. 健康检查自动注册 — 扫描容器中的 CheckProvider
 //
 // 扩展: 后续如需新增自动发现阶段，在此函数中添加即可。
-func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
+func (a *app) discoverAll() {
+	pm := a.pm
+
 	if aiRaw, ok := pm.GetContainer().Get("ai"); ok {
 		aiPlugin := aiRaw.(*ai.Plugin)
 		// 先注册显式工具/技能，再自动发现命令工具：
@@ -51,7 +53,7 @@ func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 		aiPlugin.DiscoverCommands(excludedToolPlugins(pm)...)
 	}
 
-	if hc := bot.HealthCheck(); hc != nil {
+	if hc := a.bot.HealthCheck(); hc != nil {
 		for _, name := range pm.List() {
 			svc, ok := pm.GetContainer().Get(name)
 			if !ok || svc == nil {

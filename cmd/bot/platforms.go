@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -18,9 +19,9 @@ import (
 
 // setupPlatforms 创建平台注册表：注册所有启用适配器，
 // 未配置任何平台时回退到 Terminal 适配器便于本地开发。
-func setupPlatforms(cfg *config.Config) *platform.Registry {
+func (a *app) setupPlatforms() {
 	reg := platform.NewRegistry()
-	registerPlatforms(reg, cfg)
+	registerPlatforms(reg, a.cfg)
 	if reg.Len() == 0 {
 		logger.Warn("[remilia] No platform configured, using Terminal adapter for development")
 		reg.Register(terminal.NewAdapter(
@@ -28,7 +29,7 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			terminal.WithBotName("DevBot"),
 		))
 	}
-	return reg
+	a.reg = reg
 }
 
 // registerPlatforms 根据 cfg 将所有已启用的平台适配器注册到 reg 中。
@@ -58,6 +59,32 @@ func buildDesiredAdapters(cfg *config.Config) map[string]platform.Adapter {
 		desired[name] = a
 	}
 	return desired
+}
+
+// subscribePlatformHotReload 订阅平台热更新：仅当 bot.* 配置实际变化时同步平台适配器，
+// 避免修改日志级别等无关字段导致连接断开。
+func (a *app) subscribePlatformHotReload() {
+	bot := a.bot
+	var lastBotCfg = &a.cfg.Bot // 启动时的 bot 配置
+	var lastBotMu sync.Mutex    // 保护 lastBotCfg 并发读写
+	config.Subscribe(func(newCfg *config.Config) {
+		if newCfg == nil {
+			return
+		}
+		lastBotMu.Lock()
+		changed := lastBotCfg.HasChanged(&newCfg.Bot)
+		if changed {
+			*lastBotCfg = newCfg.Bot
+		}
+		lastBotMu.Unlock()
+		if !changed {
+			return
+		}
+		desired := buildDesiredAdapters(newCfg)
+		if err := bot.SyncPlatforms(desired); err != nil {
+			logger.WithError(err).Error("[remilia] Failed to sync platforms")
+		}
+	})
 }
 
 // platformFactories 返回当前配置中所有启用的平台及其创建函数。

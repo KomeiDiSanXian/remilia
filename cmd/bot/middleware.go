@@ -1,15 +1,11 @@
 package main
 
 import (
-	"context"
 	"slices"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
@@ -19,9 +15,12 @@ import (
 	"github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 )
 
-// setupMiddleware 创建中间件链（不含自适应限流器）并返回热重载桥接器。
-// 自适应限流器需要绑 bot.Context()，由调用方在 bot.Start() 之后 setupAdaptiveLimiter 完成。
-func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.Config) *hotreload.Bridge {
+// setupMiddleware 创建中间件链（不含自适应限流器），结果写入 a.bridge。
+// 自适应限流器需要绑 bot.Context()，由 setupAdaptiveLimiter 在 bot.Start() 之后完成。
+func (a *app) setupMiddleware() {
+	cfg := a.cfg
+	traceCfg := &cfg.Tracing
+	eng := a.eng
 	mc := cfg.Middleware
 	bridge := hotreload.NewBridge()
 
@@ -99,7 +98,8 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	bridge.Subscribe()
 	logger.Info("[remilia] Hot-reload bridge initialized")
 
-	return bridge
+	a.bridge = bridge
+	a.bridge.SetTracingProvider(a.tp)
 }
 
 // outboundMetricsMiddleware 按事件注入出站发送观察者（remilia_send_total{platform,status}）。
@@ -144,11 +144,11 @@ func parseDuration(s string, fallback time.Duration) time.Duration {
 
 // setupAdaptiveLimiter 在 bot 启动后创建自适应限流器并接入引擎。
 // 此时 bot.Context() 返回真正 lifecycle context，goroutine 自动随 bot 停止而退出。
-func setupAdaptiveLimiter(eng *engine.Engine, bridge *hotreload.Bridge, botCtx context.Context) {
-	arl := ratelimit.NewAdaptiveRateLimiterWithContext(botCtx, ratelimit.DefaultAdaptiveConfig())
-	bridge.WatchAdaptive(arl)
+func (a *app) setupAdaptiveLimiter() {
+	arl := ratelimit.NewAdaptiveRateLimiterWithContext(a.bot.Context(), ratelimit.DefaultAdaptiveConfig())
+	a.bridge.WatchAdaptive(arl)
 	arl.Start()
-	eng.Use(arl.Middleware())
+	a.eng.Use(arl.Middleware())
 	logger.Info("[remilia] Adaptive rate limiter started (bound to bot lifecycle)")
 }
 

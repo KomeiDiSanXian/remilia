@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/builtin/about"
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
@@ -61,28 +60,26 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
-	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // dataDir 插件持久化数据的根目录。
 const dataDir = "data"
 
-// pluginPlatformRegistry 平台适配器注册表，由 main 在 setupPlugins 前注入，
-// 供需要主动推送的插件（如 bilibili 开播通知）在 Setup 阶段获取 sender。
-var pluginPlatformRegistry *platform.Registry
-
 // setupPluginManager 创建插件管理器并注入 Bot。
-func setupPluginManager(bot *remilia.Bot, eng *engine.Engine, cfg *config.Config) *plugin.Manager {
-	cp := plugin.NewYAMLConfigProvider(cfg)
-	pm := plugin.NewManager(eng, plugin.WithConfigProvider(cp))
+func (a *app) setupPluginManager() {
+	cp := plugin.NewYAMLConfigProvider(a.cfg)
+	pm := plugin.NewManager(a.eng, plugin.WithConfigProvider(cp))
 	pm.SetStrictDeps(false)
-	bot.UsePlugins(pm)
-	return pm
+	a.bot.UsePlugins(pm)
+	a.pm = pm
 }
 
 // setupPlugins 注册全部内置与自定义插件，冻结容器后挂载插件提供的引擎中间件。
-func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
+func (a *app) setupPlugins() {
+	pm := a.pm
+	eng := a.eng
+
 	ensureDataDirs()
 
 	// messagelog 事实层事件广播：必须在插件 Setup（订阅 MessageRecorded）之前
@@ -156,7 +153,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		websearch.New(),
 		iss.New(iss.WithDataDir(dataDir + "/iss")),
 		css.New(css.WithDataDir(dataDir + "/css")),
-		bilibili.New(bilibili.WithPlatformRegistry(pluginPlatformRegistry)),
+		bilibili.New(bilibili.WithPlatformRegistry(a.reg)),
 
 		// 娱乐插件
 		anime.New(),
