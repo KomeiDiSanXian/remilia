@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/helper"
+	"github.com/KomeiDiSanXian/remilia/infra/bytesconv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
@@ -201,7 +201,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 		"Operation":     payload.Operation,
 		"OperationName": dto.OperationCodeName[payload.Operation],
 		"Type":          payload.Type,
-		"Detail":        helper.BytesToString(payload.Detail),
+		"Detail":        bytesconv.BytesToString(payload.Detail),
 	}).Debug("[Webhook] Received payload")
 
 	// 处理操作
@@ -265,7 +265,7 @@ func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
 		return
 	}
 
-	logger.WithField("Result", helper.BytesToString(result)).Debug("[Webhook] Response sent")
+	logger.WithField("Result", bytesconv.BytesToString(result)).Debug("[Webhook] Response sent")
 }
 
 // handleOperation 处理各种操作码。
@@ -302,7 +302,7 @@ func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) (result
 func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte, error) {
 	h := header.Clone()
 	h.Set(HeaderTimestamp, req.EventTs)
-	sign, err := c.Sign(h, helper.StringToBytes(req.PlainToken))
+	sign, err := c.Sign(h, bytesconv.StringToBytes(req.PlainToken))
 	if err != nil {
 		return nil, errutil.Wrap(err, "failed to sign the validation request")
 	}

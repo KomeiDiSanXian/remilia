@@ -1,34 +1,25 @@
 package helper
 
 import (
-	"hash/fnv"
-	"strconv"
 	"strings"
-	"unsafe"
 
+	"github.com/KomeiDiSanXian/remilia/infra/bytesconv"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// BytesToString unsafe 零拷贝转换, b 不能被修改。
+// BytesToString 以零拷贝方式把 []byte 转为 string。
+//
+// Deprecated: 使用 infra/bytesconv.BytesToString。本包保留该转发仅为兼容，
+// 新代码请直接引用 infra/bytesconv，以免底层包反向依赖 helper。
 func BytesToString(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	return unsafe.String(unsafe.SliceData(b), len(b))
+	return bytesconv.BytesToString(b)
 }
 
-// StringToBytes unsafe 零拷贝将 string 转为只读 []byte。
-// 使用 Go 1.20+ unsafe.Slice + unsafe.StringData，正确设置 data 和 len，
-// 不再依赖 *(*[]byte)(unsafe.Pointer(&s))——后者会将 string 结构体后面的
-// 任意内存误读为 cap 字段，属于未定义行为。
+// StringToBytes 以零拷贝方式把 string 转为只读 []byte。
 //
-// 注意：返回的 []byte 不可写入，其底层指向 string 的只读内存。
-// 若需要可修改的副本，请使用 []byte(s)。
+// Deprecated: 使用 infra/bytesconv.StringToBytes。
 func StringToBytes(s string) []byte {
-	if len(s) == 0 {
-		return []byte{}
-	}
-	return unsafe.Slice(unsafe.StringData(s), len(s))
+	return bytesconv.StringToBytes(s)
 }
 
 // HideURL 隐藏URL
@@ -39,14 +30,16 @@ func HideURL(url string) string {
 	return url
 }
 
-// FNVHash 计算字符串的FNV-1a哈希值并返回十六进制字符串
+// FNVHash 计算字符串的FNV-1a哈希值并返回十六进制字符串。
+//
+// Deprecated: 使用 infra/bytesconv.FNVHash。
 func FNVHash(s string) string {
-	h := fnv.New64a()
-	_, _ = h.Write(StringToBytes(s))
-	return strconv.FormatUint(h.Sum64(), 16)
+	return bytesconv.FNVHash(s)
 }
 
 // ExtractContent 从平台无关事件中提取消息文本内容。
+//
+// Deprecated: 直接使用 platform.Content(e)，本函数只是其 nil 安全包装。
 func ExtractContent(e platform.Event) string {
 	if e == nil {
 		return ""
@@ -55,6 +48,8 @@ func ExtractContent(e platform.Event) string {
 }
 
 // ExtractSenderID 从平台无关事件中提取发送者 ID。
+//
+// Deprecated: 直接使用 e.Sender().ID，本函数只是其 nil 安全包装。
 func ExtractSenderID(e platform.Event) string {
 	if e == nil {
 		return ""
@@ -63,6 +58,8 @@ func ExtractSenderID(e platform.Event) string {
 }
 
 // ExtractChatID 从平台无关事件中提取会话 ID。
+//
+// Deprecated: 直接使用 e.Chat().ID，本函数只是其 nil 安全包装。
 func ExtractChatID(e platform.Event) string {
 	if e == nil {
 		return ""
