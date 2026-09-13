@@ -18,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
@@ -38,7 +39,7 @@ func main() {
 	}
 
 	// ── 性能分析 ────────────────────────────────────────────────────────────
-	pprofSrv := remilia.NewPprofServer(remilia.PprofConfig{
+	pprofSrv := pprof.NewServer(pprof.Config{
 		Enabled: true, Addr: "localhost:9001",
 		AutoProfile: true, ProfileInterval: 30 * time.Minute,
 		ProfileDuration: 30 * time.Second, OutputDir: "./profiles",
