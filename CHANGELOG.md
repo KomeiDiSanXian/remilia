@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.63.0 (2026-09-13)
+
+### 🧱 分层重构：消除分组级依赖环与分层倒置
+
+本次发布集中收敛仓库里累积的分层问题：抽出若干零依赖的底层叶子包、把跨层适配器
+移到上层一侧，并首次把分层约定落成文档与可执行检查。公开能力保持不变，仅有少数
+导入路径发生破坏性变更（见下）。
+
+- **分层约定成文**：新增 `docs/03-architecture/LAYERING.md`——L0–L8 层次表与各层
+  职责、硬性依赖规则（`infra` 不得引用 `core`/`platform`；`middleware` 不得引用
+  根包；跨层适配器放在上层一侧）、由 `go list` 实测的当前依赖图、新增包的放置决策
+  表，以及可执行的环检测脚本（PowerShell）与针对两条硬性规则的 grep 检查；已登记
+  到 mkdocs 导航与架构文档索引
+- **新增 `infra/bytesconv`（断开 platform ↔ helper 环）**：零拷贝转换与字符串哈希
+  抽为不依赖仓库内任何包的叶子包（`BytesToString`、`StringToBytes`、`FNVHash`），
+  由唯一真实消费者 webhook 直接引用；helper 保留同名转发函数并标注 `Deprecated`，
+  公开 API 不变
+- **新增 `infra/buildinfo`（解除 builtin → api）**：构建信息本是中立数据，抽为
+  `infra/buildinfo`（`Set`/`Get` 以 `atomic.Value` 保存，消除启动期注入与 handler
+  读取在 `-race` 下的数据竞争）；`builtin/about` 直接引用，`api.SetBuildInfo` /
+  `GetBuildInfo` 保留为转发。改后仅剩 `api → builtin` 单向依赖
+- **新增 `infra/pprof`（断开 middleware → 根包）**：pprof 服务器是可观测性基础
+  设施而非 Bot 核心职责，从根包下沉；根包 `pprof.go` 改为类型别名与构造函数转发，
+  保留 `remilia.PprofConfig` / `PprofServer` / `NewPprofServer` /
+  `DefaultPprofConfig` / `CaptureTrace`，既有调用方无需改动
+- **新增 `middleware/audit`（消除 infra → core）**：原 `infra/audit/middleware.go`
+  是记录器与 `core/context` 之间的适配器，落在 infra 层造成反向依赖；上移到
+  middleware 层后，infra 生产代码不再依赖 core
+- **新增 `platform/deadletter`（消除 infra ↔ platform）**：迁出 `infra/dlq` 中
+  「DLQ 泛型化」后遗留的平台相关部分（`platform.Event` 的文件/Webhook 消费者与
+  序列化），`infra/dlq` 只保留泛型队列（`Queue[T]`/`Item[T]`/`Consumer[T]`），
+  不再引用 platform
+- **`cmd/bot` 装配重构**：345 行的 `main()` 装配/启动/关闭流程改为 `app` 结构体
+  方法（拆为 `app.go`/`bootstrap.go`/`services.go`/`shutdown.go`），删除包级全局
+  变量与闭包切片；不改调用顺序、日志与错误处理语义
+- **仓库卫生**：修正 `stats` 包文档的错误声明（所列使用方实际并未引用本包）并为
+  无使用者的 `BatchStats`/`EngineStats` 标注 `Deprecated`；移除被 git 跟踪的测试
+  备份 `bench_test.go.bak`；本地性能转储目录由 `pprof/` 更名 `profiles/` 以避免与
+  pprof 服务器概念撞名并补充 `*.prof`；`go.work` 补注释说明 `examples/showcase/wasm`
+  有意排除的原因
+- **⚠️ 破坏性导入路径变更**：`audit.Middleware` → `middleware/audit.Middleware`；
+  `dlq.PlatformFileConsumer` 等 → `deadletter.PlatformFileConsumer`。仓库内调用方
+  分别只有一处集成测试与零处（仅注释提及），已随改动更新
+- **工具链与回归**：应用 `go fix` 现代化建议（`maps.Copy`、整数 range 循环、
+  `max` 内建）并归一化 `gofmt` 格式；根模块与 `cmd/bot` 模块 `go build`/`go vet`/
+  `go test` 全绿，`infra` 分组生产代码已不依赖 `core`/`platform`，仓库内无分组级
+  循环
+
 ## v1.62.0 (2026-09-12)
 
 ### 🛰️ ISS / CSS：卡片重绘与真实海岸线地面轨迹
