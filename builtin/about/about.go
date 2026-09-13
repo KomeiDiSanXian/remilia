@@ -14,9 +14,9 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 
 	"github.com/KomeiDiSanXian/remilia"
-	"github.com/KomeiDiSanXian/remilia/api"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/buildinfo"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -112,7 +112,7 @@ func (p *Plugin) handleButtonClick(ctx *eventctx.Context) error {
 // botName 为机器人显示名称，platformName 为当前事件来源平台，
 // 均由 handler 从事件上下文获取，保持本函数可独立测试。
 func (p *Plugin) buildInfo(botName, platformName string) (md, text string) {
-	commit, buildDate := api.GetBuildInfo()
+	commit, buildDate := buildinfo.Get()
 	if commit != "" && len(commit) > 7 {
 		commit = commit[:7]
 	}
