@@ -190,6 +190,13 @@ jobs:
   windows:
     name: Test (Windows)
     runs-on: windows-latest
+    env:
+      # A hard crash inside a test binary (e.g. the 0xc0000005 seen in package
+      # plugin) dumps only the faulting goroutine by default, and the frames
+      # printed below its entry point are recycled-stack leftovers rather than a
+      # real call chain. GOTRACEBACK=system dumps every goroutine with full
+      # frames, so the next occurrence can be triaged instead of guessed at.
+      GOTRACEBACK: system
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -204,12 +211,47 @@ jobs:
         run: go mod download
       - name: Run tests
         run: |
-          $pkgs = go list ./... | Where-Object { $_ -notmatch '/examples' } | ForEach-Object { $_ }
-          go test -count=1 -timeout 300s $pkgs
+          $pkgs = go list ./... | Where-Object { $_ -notmatch '/examples' }
+          # Verbose output is captured to a file rather than the job log: if the
+          # binary dies, the preceding "=== RUN" lines identify the test that was
+          # running, and the full log is uploaded as an artifact below. A green
+          # run stays quiet.
+          $log = Join-Path $env:RUNNER_TEMP 'windows-test.log'
+          go test -count=1 -timeout 300s -v $pkgs *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -and (Test-Path $log)) {
+            Write-Host '::group::last started tests'
+            Select-String -Path $log -Pattern '=== RUN' | Select-Object -Last 20 | ForEach-Object { $_.Line }
+            Write-Host '::endgroup::'
+            Write-Host '::group::go test output (tail)'
+            Get-Content $log -Tail 400
+            Write-Host '::endgroup::'
+          }
+          if ($null -eq $code) { $code = 1 }
+          exit $code
       - name: Run cmd/bot tests
         run: |
-          cd cmd/bot
-          go test -count=1 -timeout 300s ./...
+          $log = Join-Path $env:RUNNER_TEMP 'cmdbot-test.log'
+          Set-Location cmd/bot
+          go test -count=1 -timeout 300s -v ./... *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -and (Test-Path $log)) {
+            Write-Host '::group::last started tests'
+            Select-String -Path $log -Pattern '=== RUN' | Select-Object -Last 20 | ForEach-Object { $_.Line }
+            Write-Host '::endgroup::'
+            Write-Host '::group::go test output (tail)'
+            Get-Content $log -Tail 400
+            Write-Host '::endgroup::'
+          }
+          if ($null -eq $code) { $code = 1 }
+          exit $code
+      - name: Upload Windows test logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-test-logs
+          path: ${{ runner.temp }}/*-test.log
+          if-no-files-found: ignore
 
   build:
     name: Build
