@@ -1,3 +1,8 @@
+// Package audit 提供把审计记录器（infra/audit）接入事件处理链的中间件。
+//
+// 本包位于 middleware 层，是 infra/audit 与 core/context 之间的适配器：
+// infra/audit 只负责记录与存储，不认识事件 Context；本包负责取值并调用记录器。
+// 这样 infra 层不会反向依赖 core 层。
 package audit
 
 import (
@@ -5,6 +10,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/audit"
 )
 
 // Middleware 创建审计日志中间件
@@ -15,7 +21,7 @@ import (
 //
 //	auditLogger, _ := audit.NewLogger(config)
 //	engine.Use(audit.Middleware(auditLogger))
-func Middleware(logger *Logger) context.Middleware {
+func Middleware(logger *audit.Logger) context.Middleware {
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
 			start := time.Now()
@@ -56,9 +62,9 @@ func Middleware(logger *Logger) context.Middleware {
 					metadata["event_id"] = pe.ID()
 				}
 
-				entry := &Entry{
-					Level:    LevelInfo,
-					Action:   Action("event." + string(ctx.GetEventType())),
+				entry := &audit.Entry{
+					Level:    audit.LevelInfo,
+					Action:   audit.Action("event." + string(ctx.GetEventType())),
 					Actor:    actor,
 					Result:   "success",
 					Duration: duration.Milliseconds(),
@@ -66,7 +72,7 @@ func Middleware(logger *Logger) context.Middleware {
 				}
 
 				if err != nil {
-					entry.Level = LevelError
+					entry.Level = audit.LevelError
 					entry.Result = "failure"
 					entry.Error = err.Error()
 				}
@@ -80,7 +86,7 @@ func Middleware(logger *Logger) context.Middleware {
 }
 
 // CommandMiddleware 创建命令级别的审计中间件
-func CommandMiddleware(logger *Logger, commandName string) context.Middleware {
+func CommandMiddleware(logger *audit.Logger, commandName string) context.Middleware {
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
 			start := time.Now()

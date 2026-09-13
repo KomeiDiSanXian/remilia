@@ -12,6 +12,7 @@ import (
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/audit"
+	auditmw "github.com/KomeiDiSanXian/remilia/middleware/audit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,7 +170,7 @@ func TestE2E_AuditLogging(t *testing.T) {
 		// 创建 engine 并注册审计中间件
 		eng := engine.NewEngine(engine.WithExecPoolDisabled())
 		defer eng.Shutdown(context.Background())
-		eng.Use(audit.Middleware(auditLogger))
+		eng.Use(auditmw.Middleware(auditLogger))
 
 		// 注册命令
 		executed := false
