@@ -370,13 +370,13 @@ messagelog:
 #     memory_enabled: false               # [R] 长期事实记忆（默认关闭，隐私考虑）。开启后每轮对话回复
 #                                         #     完成后异步调用一次 LLM 自动提取稳定长期事实（偏好/习惯/
 #                                         #     约定），按 用户/群 作用域存入 LevelDB（data/ai_memory），
-#                                         #     后续对话按用户消息检索注入系统提示（无新增命令）。
+#                                         #     后续对话按用户消息检索注入本轮动态上下文（无新增命令）。
 #                                         #     配置了 embedding_base_url 时记忆检索叠加语义余弦
 #                                         #     （无关键词重叠也能命中，如"想喝点东西"→"喜欢喝咖啡"）；
 #                                         #     未配置则纯关键词打分
 #     memory_min_interval: "10m"          # [R] 同一作用域两次自动抽取的最小间隔，防止高频对话烧 token
 #     memory_max_facts: 50                # [R] 每个作用域最多保留的事实条数；超出按次数最少、最旧淘汰
-#     memory_inject_max: 8                # [R] 每次注入系统提示的长期记忆条数上限（按相关度取 Top-N）
+#     memory_inject_max: 8                # [R] 每次注入动态上下文的长期记忆条数上限（按相关度取 Top-N）
 #     plan_max_steps: 8                   # [R] 单个任务计划的最大步骤数（create_plan 超限报错并提示合并）
 #     verify_enabled: false               # [R] 回答质量校验（LLM-as-judge，默认关闭）。开启后最终回答发送
 #                                         #     前多一次评审 LLM 调用：检查是否回答了问题/是否捏造信息；
@@ -385,7 +385,7 @@ messagelog:
 #     context_rag_messages: 0             # [R] 相关历史消息检索（消息级 RAG，默认 0=关闭；>0 开启，数值同时作为注入上限）。
 #                                          #     实际每次注入条数 = min(context_rag_messages, context_rag_inject_max)，
 #                                          #     建议设为 ≥ context_rag_inject_max。开启后按用户
-#                                         #     消息在 messagelog 历史中检索相关消息注入系统提示，覆盖
+#                                         #     消息在 messagelog 历史中检索相关消息注入本轮动态上下文，覆盖
 #                                         #     "上周讨论的方案""上次谁说的"这类时间线/细节查询。两阶段：
 #                                         #     本地关键词预筛（零成本，无命中不花 embedding）→ 候选集
 #                                         #     embedding 语义精排（复用 embedding_base_url；未配置则纯关键词）。
@@ -393,9 +393,11 @@ messagelog:
 #     context_rag_days: 7                 # [R] 历史检索的时间窗口（天）
 #     context_rag_candidates: 500         # [R] 关键词预筛的候选消息上限
 #     context_rag_inject_max: 3           # [R] 每次注入的相关历史消息条数上限
-#     context_window: 0                   # [R] 系统提示的全局 token 预算（默认 0=不限）。开启后按模型
-#                                         #     上下文窗口控制注入总量，超出时按优先级（群聊窗口 > 长期记忆
-#                                         #     > 相关历史 > 运行时上下文）动态缩减，防止小上下文模型被撑爆
+#     context_window: 0                   # [R] 动态上下文的全局 token 预算（默认 0=不限）。开启后按模型
+#                                         #     上下文窗口控制动态上下文注入总量，超出时按优先级（运行时
+#                                         #     上下文 > 群聊窗口 > 长期记忆 > 相关历史）动态缩减，防止
+#                                         #     小上下文模型被撑爆；稳定系统提示词（框架+自定义指令）
+#                                         #     优先扣除、不参与缩减
 #     verify_model: ""                    # [R] 回答校验器使用的模型（空=跟随主模型）；可配置便宜轻量模型
 #     extract_model: ""                   # [R] 记忆抽取使用的模型（空=跟随主模型）
 #     tool_parallel: 4                    # [R] 工具调用并行度（最小 1）。模型一次返回多个工具调用时并发执行
@@ -433,7 +435,9 @@ messagelog:
 #     skill_max_depth: 3                  # [R] Skill 内部工具调用的最大递归深度
 #
 #     # —— 隐私控制（随请求发送给第三方 LLM 的内容）——
-#     include_runtime_context: true       # [R] 是否注入运行时上下文（用户/群聊/时间等）。false = 完全不注入
+#     include_runtime_context: true       # [R] 是否注入运行时上下文（用户/群聊/时间等）。false = 完全不注入。
+#                                         #     注：运行时上下文属于动态上下文，每轮附在当前用户消息尾部，
+#                                         #     不写进 System 消息（否则 LLM 前缀缓存会在很靠前的位置失效）
 #     context_fields: []                  # [R] 运行时上下文字段白名单；[] = 全部。
 #                                         #     可选: time, platform, bot_id, bot_name,
 #                                         #     user_name, user_id, user_is_bot, chat_type,
@@ -442,7 +446,7 @@ messagelog:
 #
 #     # —— 结构级上下文（依赖 messagelog 消息历史）——
 #     include_reply_context: true         # [R] 是否注入"被回复消息"的内容；机器人自己的对话回复也会被记录
-#     context_group_messages: 10          # [R] 注入系统提示的最近群消息条数；0 = 关闭（默认 10，开启 AI 感知群聊历史）
+#     context_group_messages: 10          # [R] 注入动态上下文的最近群消息条数；0 = 关闭（默认 10，开启 AI 感知群聊历史）
 #     context_group_include_bot: false    # [R] 群聊消息窗口是否包含机器人的出站回复（AI 与其他插件的回复，
 #                                         #     以机器人自身名称标注，未注入时兜底"机器人"，并附说明行
 #                                         #     提示由本账号发出）；默认 false。开启后与当前会话历史重合的

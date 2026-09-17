@@ -176,24 +176,9 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	}
 	defer session.EndTurn()
 
-	systemPrompt := p.buildSystemPrompt(ctx, session)
-
-	session.Lock()
-	if session.Messages == nil {
-		session.Messages = make([]Message, 0)
-	}
-	var foundSystem bool
-	for i, m := range session.Messages {
-		if m.Role == RoleSystem {
-			session.Messages[i].Content = systemPrompt
-			foundSystem = true
-			break
-		}
-	}
-	if !foundSystem {
-		session.Messages = append([]Message{{Role: RoleSystem, Content: systemPrompt}}, session.Messages...)
-	}
-	session.Unlock()
+	// 稳定系统提示词（框架+自定义指令）：每轮重建同一内容，作为前缀缓存
+	// 的可复用起点；逐轮变化的上下文由 processWithTools 挂到本轮用户消息上。
+	setSystemMessage(session, p.buildStaticSystemPrompt(ctx))
 
 	// 构建用户消息：前置回复上下文 → 追加 @ 提及的结构化信息 → 提取入站附件转为多模态 ContentParts
 	if p.cfg.IncludeReplyContext {
@@ -838,73 +823,97 @@ func appendMentionInfo(content string, mentions []platform.UserInfo) string {
 	return content + "\n\n[本条消息 @ 提及了: " + strings.Join(others, ", ") + "]"
 }
 
-// buildSystemPrompt 构建复合系统提示词，由三层组成：
+// buildStaticSystemPrompt 构建 Stable System Prompt —— 唯一的 System 消息。
+//
+// 只包含两节：
 //
 //  1. Framework Prompt — 硬编码的 AI 行为规则，不可被用户覆盖
 //  2. User Custom Prompt — 配置文件 system_prompt 中的自定义指令
 //     （群聊时被 per-group 策略的 prompt 覆盖，见 /ai group set prompt）
-//  3. Runtime Context — 动态运行时环境信息（受 include_runtime_context 配置控制）
 //
-// session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含
-// 机器人回复（context_group_include_bot）时去重；nil 时不去重。
-func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) string {
-	// 全局预算编排（context_window > 0 时启用）：按优先级动态缩减各注入节，
-	// 防止小上下文模型被注入内容撑爆；非法预算回退默认构建。
+// 这两节只随配置/群策略变化，在同一会话的连续请求之间字节稳定，因此
+// 放在请求最前面作为 LLM 前缀缓存的可复用段。
+//
+// 任何逐轮变化的内容（运行时上下文、群聊窗口、长期记忆、相关历史、
+// 执行计划）一律不得进入本函数——它们由 [buildDynamicContext] 构建，
+// 并在请求构建时挂到本轮用户消息尾部（见 processWithTools）。把动态
+// 内容混进 System 消息会让缓存前缀在很靠前的位置失效，历史消息随之
+// 整段无法复用（cache hit 长期只有个位数~十几个百分点）。
+func (p *Plugin) buildStaticSystemPrompt(ctx *eventctx.Context) string {
+	parts := []string{DefaultFrameworkPrompt}
+	if custom := p.effectiveCustomPrompt(ctx); custom != "" {
+		parts = append(parts, "===== 自定义指令 =====\n"+custom)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// setSystemMessage 把稳定系统提示词写入会话的 System 消息（不存在时插在最前）。
+//
+// 会话始终只有这一条 System 消息（位置固定为消息数组第一个），且每轮重建的
+// 内容逐字节一致——这是历史消息能被前缀缓存复用的前提。请求期才需要的
+// 动态内容不得写进会话，见 injectDynamicContext。
+func setSystemMessage(session *Session, prompt string) {
+	session.Lock()
+	defer session.Unlock()
+	if session.Messages == nil {
+		session.Messages = make([]Message, 0)
+	}
+	for i, m := range session.Messages {
+		if m.Role == RoleSystem {
+			session.Messages[i].Content = prompt
+			return
+		}
+	}
+	session.Messages = append([]Message{{Role: RoleSystem, Content: prompt}}, session.Messages...)
+}
+
+// buildDynamicContext 构建 Dynamic Context —— 逐轮变化的上下文。
+//
+// 依次包含（各自独立配置控制）：
+//
+//	运行时上下文（include_runtime_context）→ 群聊最近消息（context_group_messages）
+//	→ 长期记忆（memory_enabled）→ 相关历史消息（context_rag_messages）
+//
+// context_window > 0 时按预算编排，动态各节按上述优先级依次装入、装不下
+// 则缩减或丢弃（见 buildDynamicContextBudgeted）。
+//
+// 返回空串表示当前无动态上下文。调用方负责把它注入到请求尾部
+// （processWithTools 挂在本轮用户消息上），不要写进 System 消息。
+//
+// session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含机器人
+// 回复（context_group_include_bot）时去重；nil 时不去重。同时用于长期
+// 记忆/相关历史的检索查询词，因此调用时应保证本轮用户消息已写入会话。
+func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, session *Session) string {
 	if p.cfg.ContextWindow > 0 {
-		if budgeted := p.buildSystemPromptBudgeted(ctx, session); budgeted != "" {
+		if budgeted := p.buildDynamicContextBudgeted(ctx, session); budgeted != "" {
 			return budgeted
 		}
 	}
 
 	var parts []string
 
-	// 1. Framework Prompt
-	parts = append(parts, DefaultFrameworkPrompt)
-
-	// 2. User Custom Prompt（群聊时优先使用群策略 prompt）
-	systemPrompt := p.cfg.SystemPrompt
-	if gp := p.groupPolicyFor(ctx); gp != nil {
-		if gpPrompt := gp.EffectiveSystemPrompt(); gpPrompt != "" {
-			systemPrompt = gpPrompt
-		}
-	}
-	if systemPrompt != "" {
-		parts = append(parts, "===== 自定义指令 =====\n"+systemPrompt)
-	}
-
-	// 3. Runtime Context（可通过 include_runtime_context / context_fields 控制，
-	//    避免用户 ID、群 ID 等隐私信息随请求发送给第三方 LLM）
+	// 运行时上下文（可通过 include_runtime_context / context_fields 控制，
+	// 避免用户 ID、群 ID 等隐私信息随请求发送给第三方 LLM）
 	if p.cfg.IncludeRuntimeContext {
 		parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
 	}
 
-	// 4. 群聊最近消息窗口（context_group_messages > 0 时开启，默认 10，
-	//    独立于 include_runtime_context，由自身配置控制）
+	// 群聊最近消息窗口（context_group_messages > 0 时开启，默认 10，
+	// 独立于 include_runtime_context，由自身配置控制）
 	if p.cfg.ContextGroupMessages > 0 {
-		// 会话历史已包含 AI 自己的回复（assistant 轮次）——
-		// 开启 context_group_include_bot 时按内容去重，避免重复注入
-		var skipBot map[string]bool
-		if p.cfg.ContextGroupIncludeBot && session != nil {
-			skipBot = make(map[string]bool)
-			for _, m := range session.Messages {
-				if m.Role == RoleAssistant && m.Content != "" {
-					skipBot[m.Content] = true
-				}
-			}
-		}
-		if groupCtx := p.buildGroupContext(ctx, skipBot); groupCtx != "" {
+		if groupCtx := p.buildGroupContext(ctx, p.botReplyContents(session)); groupCtx != "" {
 			parts = append(parts, "===== 群聊最近消息 =====\n"+groupCtx)
 		}
 	}
 
-	// 5. 长期记忆（memory_enabled 开启时，按用户消息关键词检索注入）
+	// 长期记忆（memory_enabled 开启时，按用户消息关键词检索注入）
 	if p.memory != nil && p.memory.Enabled() {
 		if memCtx := p.buildMemoryContext(ctx, session); memCtx != "" {
 			parts = append(parts, "===== 长期记忆 =====\n"+memCtx)
 		}
 	}
 
-	// 6. 相关历史消息（context_rag_messages > 0 时开启，消息级 RAG）
+	// 相关历史消息（context_rag_messages > 0 时开启，消息级 RAG）
 	if p.cfg.ContextRAGMessages > 0 {
 		if ragCtx := p.buildRAGContext(ctx, session); ragCtx != "" {
 			parts = append(parts, "===== 相关历史消息 =====\n"+ragCtx)
@@ -912,6 +921,22 @@ func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) stri
 	}
 
 	return strings.Join(parts, "\n\n")
+}
+
+// botReplyContents 收集会话中 AI 已回复的内容集合。
+// 开启 context_group_include_bot 时用于群聊窗口去重：机器人在会话历史中
+// 已说过的内容不再重复注入窗口（两侧存的是同一文本）。session 为 nil 时返回 nil。
+func (p *Plugin) botReplyContents(session *Session) map[string]bool {
+	if !p.cfg.ContextGroupIncludeBot || session == nil {
+		return nil
+	}
+	skip := make(map[string]bool)
+	for _, m := range session.SnapshotMessages() {
+		if m.Role == RoleAssistant && m.Content != "" {
+			skip[m.Content] = true
+		}
+	}
+	return skip
 }
 
 // buildMemoryContext 检索并格式化长期记忆注入系统提示。

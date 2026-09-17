@@ -110,6 +110,34 @@ plugins:
 | `/ai skill promote <名称>` | 提升为系统级技能（所有用户可见可调用，需管理员） |
 | `/ai skill info <名称>` | 查看技能详情（含 Prompt 预览） |
 
+## 提示词结构与缓存
+
+每次请求的消息序列固定分四段，越稳定的越靠前：
+
+```
+Stable System Prompt    框架提示词 + 自定义指令（system_prompt / 群策略），逐轮字节一致
+Stable Tool Definitions 工具列表（按名称升序，见下）
+Conversation History    会话历史（system 消息之后、当前用户消息之前）
+Dynamic Context         运行时上下文 / 群聊最近消息 / 长期记忆 / 相关历史 / 当前执行计划
+Current User Message    本轮用户消息（动态上下文附着在它前面）
+```
+
+LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI / Anthropic prompt cache）只在请求前缀
+逐字节一致时才命中，因此：
+
+- **System 消息只放稳定内容**：框架提示词与自定义指令不随事件/时间变化；运行时上下文
+  （含当前时间）、群聊窗口、长期记忆、相关历史都不会写进 System 消息
+- **动态上下文附在当前用户消息里**：只对本次请求生效，不写回会话历史（否则旧时间、
+  旧群状态会污染后续请求的前缀），也不新增消息（Anthropic 要求消息数组 user/assistant
+  交替、system 只在顶级字段）
+- **历史裁剪是批量的**：超过 `max_history` 时一次裁到低水位，避免逐条滑窗让历史前缀
+  每轮都向右位移
+- **工具顺序确定**：工具注册表底层是 map，`ToolRegistry.List()` 按工具名升序返回，
+  工具集不变时序列化结果字节稳定
+
+缓存命中量导出为 Prometheus 指标 `ai_llm_tokens_total{type="prompt_cached"}`，
+命中率 = `rate(ai_llm_tokens_total{type="prompt_cached"}) / rate(ai_llm_tokens_total{type="prompt"})`。
+
 ## 多模态（Vision）
 
 启用 `vision_enabled` 后，对话中的图片附件会随消息发送给视觉模型（提供商需支持多模态）。

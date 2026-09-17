@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -198,6 +199,36 @@ func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 	trimMessages(s, 0)
 	if len(s.Messages) != 1 {
 		t.Error("trimMessages with 0 maxHistory should not modify")
+	}
+}
+
+// TestTrimMessagesKeepsPrefixStable 验证裁剪是批量的：超限时一次裁到低水位，
+// 之后连续追加少量消息不会再触发裁剪。逐条滑窗会让每次请求的历史前缀都发生
+// 位移，LLM 侧的前缀缓存从第一条历史消息起整段失效。
+func TestTrimMessagesKeepsPrefixStable(t *testing.T) {
+	s := &Session{Messages: []Message{{Role: RoleSystem, Content: "sys"}}}
+	for i := 1; i <= 21; i++ {
+		s.Messages = append(s.Messages, Message{Role: RoleUser, Content: fmt.Sprintf("u%d", i)})
+	}
+
+	trimMessages(s, 20)
+	if len(s.Messages) > 20 {
+		t.Fatalf("expected at most 20 messages after trim, got %d", len(s.Messages))
+	}
+	if len(s.Messages) < 2 {
+		t.Fatalf("trim must keep recent messages, got %+v", s.Messages)
+	}
+	first := s.Messages[1].Content
+
+	// 追加后仍在上限以内：前缀应逐字不动
+	s.Messages = append(s.Messages,
+		Message{Role: RoleUser, Content: "u22"},
+		Message{Role: RoleAssistant, Content: "a22"},
+		Message{Role: RoleUser, Content: "u23"},
+	)
+	trimMessages(s, 20)
+	if s.Messages[1].Content != first {
+		t.Errorf("retained window and cacheable prefix shifted: got %q want %q", s.Messages[1].Content, first)
 	}
 }
 

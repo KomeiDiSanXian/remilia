@@ -554,8 +554,18 @@ func (sm *SessionManager) evictLocked() {
 	}
 }
 
+// trimLowWaterDivisor 批量裁剪的"低水位"除数：超限时一次性多裁
+// usable/trimLowWaterDivisor 条，裁后要累积这么多条才会再次触发裁剪。
+//
+// 逐条滑窗（每次都裁到恰好 maxHistory）会让每次请求的历史前缀都向右位移
+// 一条消息，LLM 侧的前缀缓存从第一条历史消息起整段失效——即使 System 提示
+// 词完全稳定，历史也永远命中不了。批量裁剪牺牲少量保留条数，换来两次裁剪
+// 之间前缀字节一致（默认 20 条约可稳定复用 4 轮左右）。
+const trimLowWaterDivisor = 4
+
 // trimMessages 裁剪消息列表，保留最近的 maxHistory 条消息。
-// System 消息优先保留。
+// System 消息优先保留。超限时一次裁到低水位（见 trimLowWaterDivisor），
+// 避免历史前缀逐轮位移。
 //
 // 裁剪边界不会落在 tool 消息上：tool 消息必须紧邻其前的
 // assistant(tool_calls)（OpenAI/Anthropic API 硬性约束），若 assistant
@@ -583,7 +593,8 @@ func trimMessages(s *Session, maxHistory int) {
 
 	targetOther := max(usable-len(systemMsgs), 0)
 	if len(otherMsgs) > targetOther {
-		start := max(len(otherMsgs)-targetOther, 0)
+		keep := max(targetOther-max(targetOther/trimLowWaterDivisor, 1), 1)
+		start := max(len(otherMsgs)-keep, 0)
 		for start < len(otherMsgs) && otherMsgs[start].Role == RoleTool {
 			start++
 		}

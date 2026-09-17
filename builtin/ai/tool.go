@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -200,7 +202,13 @@ func (r *ToolRegistry) Remove(name string) bool {
 	return true
 }
 
-// List 返回当前注册的所有工具的切片副本。每次调用创建新切片。
+// List 返回当前注册的所有工具的切片副本，按工具名升序排序。
+// 每次调用创建新切片。
+//
+// 排序是提示词前缀缓存的前提：注册表底层是 map，直接遍历的迭代顺序在
+// 不同调用之间是随机的，同一会话每轮请求的 tools 段会因此发生重排，
+// LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI/Anthropic prompt cache）
+// 会在 tools 段整段失效。按名称排序后，工具集不变时序列化结果字节稳定。
 func (r *ToolRegistry) List() []Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -208,6 +216,7 @@ func (r *ToolRegistry) List() []Tool {
 	for _, t := range r.tools {
 		out = append(out, t)
 	}
+	slices.SortFunc(out, func(a, b Tool) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }
 

@@ -114,6 +114,12 @@ type ChatRequest struct {
 type TokenUsage struct {
 	PromptTokens     int
 	CompletionTokens int
+	// CachedTokens 命中提示词前缀缓存的输入 token 数（提供商返回时才有值）。
+	// OpenAI 兼容端点取 prompt_tokens_details.cached_tokens（DeepSeek 走
+	// prompt_cache_hit_tokens），Anthropic 取 cache_read_input_tokens。
+	// 用于量化前缀缓存命中率（CachedTokens/PromptTokens），验证提示词
+	// 结构改动（稳定前缀长度、工具顺序）是否真的提高了复用。
+	CachedTokens int
 }
 
 // ChatResponse 非流式聊天的响应。

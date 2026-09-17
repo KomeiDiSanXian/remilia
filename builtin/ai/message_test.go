@@ -446,24 +446,28 @@ func TestBuildSystemPromptGatesRuntimeContext(t *testing.T) {
 	evt := platform.NewSyntheticEvent(platform.EventKind("c2c"), "/test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	// 开启（默认）：包含运行时上下文
+	// 开启（默认）：动态上下文包含运行时上下文
 	p := &Plugin{cfg: &Config{IncludeRuntimeContext: true}}
-	prompt := p.buildSystemPrompt(ctx, nil)
-	if !strings.Contains(prompt, "运行时上下文") {
+	dyn := p.buildDynamicContext(ctx, nil)
+	if !strings.Contains(dyn, "运行时上下文") {
 		t.Error("expected runtime context section when enabled")
 	}
 
-	// 关闭：不包含运行时上下文，但保留框架与自定义提示
+	// 关闭：动态上下文不含运行时上下文，稳定提示词仍保留框架与自定义提示
 	p2 := &Plugin{cfg: &Config{IncludeRuntimeContext: false, SystemPrompt: "自定义"}}
-	prompt2 := p2.buildSystemPrompt(ctx, nil)
-	if strings.Contains(prompt2, "运行时上下文") {
+	dyn2 := p2.buildDynamicContext(ctx, nil)
+	if strings.Contains(dyn2, "运行时上下文") {
 		t.Error("expected runtime context section omitted when disabled")
 	}
-	if !strings.Contains(prompt2, "自定义") {
+	static2 := p2.buildStaticSystemPrompt(ctx)
+	if !strings.Contains(static2, "自定义") {
 		t.Error("expected custom system prompt still present")
 	}
-	if !strings.Contains(prompt2, DefaultFrameworkPrompt) {
+	if !strings.Contains(static2, DefaultFrameworkPrompt) {
 		t.Error("expected framework prompt still present")
+	}
+	if strings.Contains(static2, "运行时上下文") {
+		t.Error("stable system prompt must not embed dynamic sections")
 	}
 }
 

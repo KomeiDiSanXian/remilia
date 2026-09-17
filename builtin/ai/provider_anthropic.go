@@ -115,6 +115,17 @@ type anthropicChatRequest struct {
 type anthropicUsageBody struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// 前缀缓存用量。Anthropic 的 input_tokens 不含这两项：
+	// 本次总输入 = input_tokens + cache_read + cache_creation。
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+}
+
+// totalInputTokens 返回本次请求的输入 token 总量（含缓存命中与新写入部分）。
+// 与 OpenAI 的 prompt_tokens 口径对齐（后者本就包含 cached_tokens），
+// 使 CachedTokens/总输入 在两种提供商下都表示真实的缓存命中率。
+func (u *anthropicUsageBody) totalInputTokens() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 }
 
 type anthropicChatResponse struct {
@@ -373,8 +384,9 @@ func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatRe
 
 	if anthropicResp.Usage != nil {
 		result.Usage = &TokenUsage{
-			PromptTokens:     anthropicResp.Usage.InputTokens,
+			PromptTokens:     anthropicResp.Usage.totalInputTokens(),
 			CompletionTokens: anthropicResp.Usage.OutputTokens,
+			CachedTokens:     anthropicResp.Usage.CacheReadInputTokens,
 		}
 	}
 
@@ -447,7 +459,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		}
 		pendingTools := make(map[int]*anthropicStreamToolUse)
 
-		var promptTokens, completionTokens int
+		var promptTokens, completionTokens, cacheReadTokens int
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -500,7 +512,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			case "message_start":
 				// 输入 token 用量在 message_start 的 message.usage 中
 				if streamEvent.Message != nil && streamEvent.Message.Usage != nil {
-					promptTokens = streamEvent.Message.Usage.InputTokens
+					promptTokens = streamEvent.Message.Usage.totalInputTokens()
+					cacheReadTokens = streamEvent.Message.Usage.CacheReadInputTokens
 				}
 
 			case "content_block_start":
@@ -565,6 +578,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				sendEvent(StreamEvent{Type: StreamEventDone, Usage: &TokenUsage{
 					PromptTokens:     promptTokens,
 					CompletionTokens: completionTokens,
+					CachedTokens:     cacheReadTokens,
 				}})
 				return
 

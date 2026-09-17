@@ -133,6 +133,12 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	}
 	activeTools = p.selectToolsForTurn(ctx, session, activeTools)
 
+	// 动态上下文（运行时/群聊窗口/长期记忆/相关历史）逐轮变化，统一挂到本轮
+	// 用户消息尾部发送，不写进 System 消息（见 buildDynamicContext）。
+	// 一个回合内只构建一次并复用：同一回合的各次请求（工具轮）因此拥有
+	// 字节一致的前缀，本回合生成的工具结果能继续被前缀缓存复用。
+	dynamicContext := p.buildDynamicContext(ctx, session)
+
 	for currentDepth < maxDepth {
 		currentDepth++
 
@@ -162,19 +168,14 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		// 都可能让 assistant(tool_calls) 缺少对应 tool 消息（OpenAI/Anthropic
 		// API 硬性约束，缺失即 400）。按需补占位 tool 消息，自愈会话历史。
 		msgs = repairToolCallSequence(msgs)
+		msgs = injectDynamicContext(msgs, dynamicContext)
 
 		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"作为 system 消息
-		// 插在主系统提示之后，让模型有状态可依地推进多步任务。
+		// 附在消息序列末尾（而不是插到系统提示词之后），让模型有状态可依地
+		// 推进多步任务，同时不使已完成的历史（含本回合的工具结果）失去缓存
+		// 复用能力。
 		if planText := session.planText(); planText != "" {
-			planMsg := Message{Role: RoleSystem, Content: "===== 当前执行计划 =====\n" + planText}
-			idx := 0
-			for i, m := range msgs {
-				if m.Role != RoleSystem {
-					idx = i
-					break
-				}
-			}
-			msgs = append(msgs[:idx], append([]Message{planMsg}, msgs[idx:]...)...)
+			msgs = append(msgs, Message{Role: RoleSystem, Content: "===== 当前执行计划 =====\n" + planText})
 		}
 
 		req := &ChatRequest{
@@ -743,6 +744,59 @@ type imageRetention struct {
 	maxTurns      int           // ImageContextTurns：最近 N 条 user 消息
 	window        time.Duration // ImageContextWindow：时间窗（0 = 仅按条数）
 	maxPerRequest int           // MaxImagesPerRequest：单请求图片总数上限
+}
+
+// injectDynamicContext 把动态上下文挂到消息序列中最后一条 user 消息上。
+//
+// 为什么挂在这里，而不是写进 System 消息：
+//
+//	LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI/Anthropic prompt cache）按
+//	请求前缀逐块比对。System 消息位于请求最前面，一旦它逐轮变化，其后的
+//	全部历史消息都会变成缓存未命中。动态内容（运行时上下文/群聊窗口/长期
+//	记忆/相关历史）每轮都不同，因此必须排在稳定前缀（System + 历史）之后。
+//
+// 为什么附着在最后一条 user 消息上，而不是追加一条新消息：
+//
+//	各提供商对消息序列的约束不同（Anthropic 只接受顶级 system 字段，
+//	消息数组内要求 user/assistant 交替，且非首条 system 消息会被丢弃），
+//	附着在既有 user 消息里对所有提供商都成立。
+//
+// 只作用于本次请求的消息副本，不写回会话历史：否则上一轮的运行时上下文
+// （旧时间、旧群状态）会被持久化进历史，既污染后续请求的前缀，又让过期
+// 信息长期留在上下文里。
+//
+// 无 user 消息或 dynamic 为空时原样返回。
+func injectDynamicContext(msgs []Message, dynamic string) []Message {
+	if dynamic == "" {
+		return msgs
+	}
+	lastUser := -1
+	for i := range msgs {
+		if msgs[i].Role == RoleUser {
+			lastUser = i
+		}
+	}
+	if lastUser < 0 {
+		return msgs
+	}
+
+	block := "===== 动态上下文 =====\n" + dynamic
+
+	if len(msgs[lastUser].ContentParts) == 0 {
+		if msgs[lastUser].Content == "" {
+			msgs[lastUser].Content = block
+		} else {
+			msgs[lastUser].Content = block + "\n\n" + msgs[lastUser].Content
+		}
+		return msgs
+	}
+
+	// 多模态消息：上下文作为首个 text part 前置（新建切片，不修改原消息的 parts）
+	parts := make([]ContentPart, 0, len(msgs[lastUser].ContentParts)+1)
+	parts = append(parts, ContentPart{Type: ContentPartText, Text: block})
+	parts = append(parts, msgs[lastUser].ContentParts...)
+	msgs[lastUser].ContentParts = parts
+	return msgs
 }
 
 // imageRetentionConfig 返回当前配置下的历史图片保留策略参数。

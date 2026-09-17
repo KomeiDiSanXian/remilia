@@ -333,30 +333,32 @@ func TestEstimateTextTokens(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptBudgeted(t *testing.T) {
+func TestBuildDynamicContextBudgeted(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	session := &Session{ID: "s", UserID: "u", ChatID: "g1"}
 	session.Messages = []Message{{Role: RoleUser, Content: "hi"}}
 
-	// 极小预算：只保留核心（框架+自定义），各节全部丢弃
+	// 稳定系统提示词只含框架 + 自定义指令，不受预算影响（它是唯一的 System 消息）
 	tiny := Plugin{cfg: &Config{ContextWindow: 60, SystemPrompt: "自定义指令内容", ContextGroupMessages: 10}}
-	prompt := tiny.buildSystemPrompt(ctx, session)
-	if !strings.Contains(prompt, "自定义指令内容") {
-		t.Error("core custom prompt should survive tiny budget")
+	static := tiny.buildStaticSystemPrompt(ctx)
+	if !strings.Contains(static, "自定义指令内容") || !strings.Contains(static, DefaultFrameworkPrompt) {
+		t.Errorf("static prompt should carry framework and custom instructions, got %q", static)
 	}
-	if strings.Contains(prompt, "群聊最近消息") || strings.Contains(prompt, "长期记忆") || strings.Contains(prompt, "相关历史消息") {
-		t.Errorf("tiny budget should drop all sections, got %q", prompt)
+
+	// 极小预算：动态各节全部丢弃
+	if dyn := tiny.buildDynamicContext(ctx, session); dyn != "" {
+		t.Errorf("tiny budget should drop all dynamic sections, got %q", dyn)
 	}
 
 	// 大预算：运行时上下文 + 群窗口纳入（提供 history 才能构建群窗口）
 	l, db := newRAGTestLogger(t)
 	insertMessage(t, db, "g1", "张三", "服务器方案选型讨论", time.Hour, "")
 	big := Plugin{history: l, cfg: &Config{ContextWindow: 100000, SystemPrompt: "自定义指令内容", ContextGroupMessages: 10, IncludeRuntimeContext: true}}
-	prompt2 := big.buildSystemPrompt(ctx, session)
-	if !strings.Contains(prompt2, "群聊最近消息") || !strings.Contains(prompt2, "运行时上下文") {
-		t.Errorf("large budget should include sections, got %q", prompt2)
+	dyn := big.buildDynamicContext(ctx, session)
+	if !strings.Contains(dyn, "群聊最近消息") || !strings.Contains(dyn, "运行时上下文") {
+		t.Errorf("large budget should include sections, got %q", dyn)
 	}
 }
 

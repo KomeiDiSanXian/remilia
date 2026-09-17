@@ -5,7 +5,10 @@ package ai
 // 指标族（namespace "ai"）：
 //   - ai_llm_calls_total{model, result}       LLM 调用次数（result: ok/error/stopped）
 //   - ai_llm_latency_seconds{model}           LLM 调用耗时（含流式全时长）
-//   - ai_llm_tokens_total{model, type}        token 用量（type: prompt/completion）
+//   - ai_llm_tokens_total{model, type}        token 用量（type: prompt/completion/prompt_cached）
+//
+// prompt_cached 为命中提示词前缀缓存的输入 token 数，
+// rate(prompt_cached)/rate(prompt) 即前缀缓存命中率。
 //   - ai_tool_calls_total{tool, result}       工具调用次数（result: ok/error）
 //
 // LLM 指标经 metricsProvider（Provider 装饰器，NewProvider 统一包装）采集；
@@ -44,7 +47,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: "ai",
 			Name:      "llm_tokens_total",
-			Help:      "LLM token 用量（type: prompt/completion）",
+			Help:      "LLM token 用量（type: prompt/completion/prompt_cached）",
 		},
 		[]string{"model", "type"},
 	)).(*prometheus.CounterVec)
@@ -69,6 +72,10 @@ func recordLLMCall(model string, duration time.Duration, usage *TokenUsage, resu
 		}
 		if usage.CompletionTokens > 0 {
 			llmTokens.WithLabelValues(model, "completion").Add(float64(usage.CompletionTokens))
+		}
+		// 前缀缓存命中量（供应商返回时才记），用于计算缓存命中率
+		if usage.CachedTokens > 0 {
+			llmTokens.WithLabelValues(model, "prompt_cached").Add(float64(usage.CachedTokens))
 		}
 	}
 }

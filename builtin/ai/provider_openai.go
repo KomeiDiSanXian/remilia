@@ -189,6 +189,23 @@ type openaiChatRequest struct {
 type openaiUsageBody struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// DeepSeek（及部分兼容端点）直接给出缓存命中/未命中的输入 token 数。
+	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
+	// OpenAI 把命中量放在 prompt_tokens_details.cached_tokens。
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+// cachedPromptTokens 返回缓存命中的输入 token 数。
+// 两种字段布局按可用性降级：OpenAI 的 prompt_tokens_details.cached_tokens
+// 优先，其次 DeepSeek 的 prompt_cache_hit_tokens。
+func (u *openaiUsageBody) cachedPromptTokens() int {
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > 0 {
+		return u.PromptTokensDetails.CachedTokens
+	}
+	return u.PromptCacheHitTokens
 }
 
 type openaiChatChoice struct {
@@ -456,6 +473,7 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 		result.Usage = &TokenUsage{
 			PromptTokens:     openaiResp.Usage.PromptTokens,
 			CompletionTokens: openaiResp.Usage.CompletionTokens,
+			CachedTokens:     openaiResp.Usage.cachedPromptTokens(),
 		}
 	}
 
@@ -579,6 +597,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 				usage = &TokenUsage{
 					PromptTokens:     streamResp.Usage.PromptTokens,
 					CompletionTokens: streamResp.Usage.CompletionTokens,
+					CachedTokens:     streamResp.Usage.cachedPromptTokens(),
 				}
 			}
 

@@ -1,13 +1,14 @@
-// Package ai budget.go — 系统提示的全局 token 预算编排。
+// Package ai budget.go — 动态上下文的全局 token 预算编排。
 //
-// 本文件实现 context_window 配置：按模型上下文窗口控制系统提示各注入节的
-// 总量。此前各节（群聊窗口/长期记忆/相关历史/运行时上下文）各自为政，
+// 本文件实现 context_window 配置：按模型上下文窗口控制动态上下文各注入节
+// （运行时上下文/群聊窗口/长期记忆/相关历史）的总量。此前各节各自为政，
 // 小上下文模型可能被注入内容撑爆——预算模式按优先级动态缩减：
 //
-//	核心（框架+自定义指令）→ 运行时上下文 → 群聊窗口 → 长期记忆 → 相关历史
+//	稳定系统提示词（框架+自定义指令）→ 运行时上下文 → 群聊窗口 → 长期记忆 → 相关历史
 //
-// 预算分配：核心内容优先保障；其余各节按优先级依次装入，每节以"计数减半"
-// 的方式适配剩余预算（群聊窗口减条数、记忆/RAG 减注入上限），装不下则丢弃。
+// 预算分配：稳定系统提示词（buildStaticSystemPrompt）不参与缩减、优先扣除；
+// 其余各节按优先级依次装入，每节以"计数减半"的方式适配剩余预算（群聊窗口
+// 减条数、记忆/RAG 减注入上限），装不下则丢弃。
 // context_window <= 0 时维持旧行为（各节按配置上限）。
 package ai
 
@@ -55,9 +56,9 @@ func (p *Plugin) effectiveCustomPrompt(ctx *eventctx.Context) string {
 	return systemPrompt
 }
 
-// buildSystemPromptBudgeted 按 context_window 预算编排系统提示。
-// 返回空串表示预算非法（调用方回退默认构建）。
-func (p *Plugin) buildSystemPromptBudgeted(ctx *eventctx.Context, session *Session) string {
+// buildDynamicContextBudgeted 按 context_window 预算编排动态上下文。
+// 返回空串表示剩余预算装不下任何动态节。
+func (p *Plugin) buildDynamicContextBudgeted(ctx *eventctx.Context, session *Session) string {
 	window := p.cfg.ContextWindow
 	if window <= 0 {
 		return ""
@@ -68,18 +69,14 @@ func (p *Plugin) buildSystemPromptBudgeted(ctx *eventctx.Context, session *Sessi
 		remain = window / 2
 	}
 
-	// 核心内容：框架提示词 + 自定义指令（始终保障）。
-	core := DefaultFrameworkPrompt
-	if custom := p.effectiveCustomPrompt(ctx); custom != "" {
-		core += "\n\n===== 自定义指令 =====\n" + custom
-	}
-	remain -= estimateTextTokens(core)
+	// 稳定系统提示词（框架 + 自定义指令）始终作为 System 消息发送，
+	// 先从这里扣除它的预算，剩余额度才归动态各节分配。
+	remain -= estimateTextTokens(p.buildStaticSystemPrompt(ctx))
 	if remain <= 0 {
-		return core
+		return ""
 	}
 
 	var parts []string
-	parts = append(parts, core)
 
 	// 运行时上下文（预算允许时纳入）。
 	if p.cfg.IncludeRuntimeContext {
@@ -103,15 +100,7 @@ func (p *Plugin) buildSystemPromptBudgeted(ctx *eventctx.Context, session *Sessi
 
 	// 会话历史已包含 AI 自己的回复（assistant 轮次）——开启
 	// context_group_include_bot 时按内容去重，避免窗口与对话历史重复。
-	var skipBot map[string]bool
-	if p.cfg.ContextGroupIncludeBot && session != nil {
-		skipBot = make(map[string]bool)
-		for _, m := range session.Messages {
-			if m.Role == RoleAssistant && m.Content != "" {
-				skipBot[m.Content] = true
-			}
-		}
-	}
+	skipBot := p.botReplyContents(session)
 
 	if text := fitSection(&remain, groupDefault, func(n int) string {
 		return p.buildGroupContextN(ctx, skipBot, n)
