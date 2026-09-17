@@ -1,0 +1,33 @@
+# 行尾统一：仓库与工作区都固定为 LF。
+#
+# 为什么必须显式声明、而不是交给 core.autocrlf：
+# Git for Windows 的**系统级**配置默认 core.autocrlf=true，且位于 Git 安装目录
+# 的 gitconfig 中，本仓库无法覆盖。因此任何 Windows 开发者克隆本仓库，全部文本
+# 文件都会按 CRLF 落盘，随之而来三个问题：
+#
+#   1. gofmt 要求 LF，`gofmt -l ./...` 会把 1000+ 个 .go 文件全部报为"未格式化"，
+#      而这些文件其实完全规范——检查信号被整仓库的行尾噪声淹没；
+#   2. `go fix`、编辑器格式化、以及任何"写文件再比对"的流程都会产出整文件级的
+#      行尾差异，真实改动被掩盖；
+#   3. 手动对齐行尾（把 CRLF 改回 LF）会让 diff 充满噪声，甚至误把行尾变更当成
+#      内容变更提交。
+#
+# 声明 text=auto eol=lf 后，检出与提交都以 LF 为准，不再受本机 git 配置影响：
+# 只要是文本文件就走 LF，二进制文件自动识别、不做转换。
+* text=auto eol=lf
+
+# Windows 批处理脚本保持 CRLF：cmd.exe 对 LF 换行的标签跳转与行续接解析不可靠。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源：禁止行尾转换与文本 diff，避免内容被破坏或无意义的 diff 噪声。
+# （*.webp/*.png 等本就能被自动识别，这里显式列出以免自动识别策略变化时回归。）
+*.webp  binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.wasm  binary
+*.bin   binary

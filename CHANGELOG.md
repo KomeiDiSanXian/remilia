@@ -69,6 +69,11 @@
   goroutine，且不显示当时在跑哪个用例；改为 `GOTRACEBACK=system`、测试输出写入文件
   （失败时打印最后启动的用例与输出尾部，成功时保持安静），并在失败时上传完整日志
   作为 artifact
+- **行尾固定为 LF**：新增 `.gitattributes`（`* text=auto eol=lf`，批处理脚本保留 CRLF，
+  二进资源禁止转换）。此前行尾完全依赖开发机的 `core.autocrlf`，而 Git for Windows 把
+  它默认设为 true 且写在 Git 安装目录的系统级配置里，本仓库无法覆盖——结果任何
+  Windows 克隆都把全部文本文件落成 CRLF，`gofmt -l ./...` 会把 1000+ 个 `.go` 文件
+  全部误报为未格式化，行尾差异也淹没真实改动
 - **回归**：`gofmt` / `go fix` 无改动，`golangci-lint` 0 issues，根模块与 `cmd/bot`
   模块 `go build` / `go vet` / `go test ./...` 全绿，`builtin/ai` 另跑 `-race`
 
