@@ -56,6 +56,11 @@ type Session struct {
 	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
 	selCache *selectionCache `json:"-"`
 
+	// toolSet 会话级工具集稳定状态（json:"-" 不持久化，重启后重新收敛）。
+	// 用于抑制工具集抖动——tools 是请求前缀的前段，集合一变其后的
+	// 历史全部失去前缀缓存（见 toolset.go）。
+	toolSet *ToolSetState `json:"-"`
+
 	// toolFailures 各工具在本会话中的连续失败次数（json:"-" 不持久化）。
 	// 用于工具执行的重试预算与反思引导；成功执行后归零。
 	toolFailures map[string]int `json:"-"`

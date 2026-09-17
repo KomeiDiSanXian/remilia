@@ -231,7 +231,9 @@ func (p *Plugin) sessionUsedTools(session *Session) map[string]bool {
 //  3. 必保集：通用工具（Categories 空或含 general）与会话已用工具恒被选中
 //  4. embedding 配置启用时叠加余弦相似度；请求失败自动降级纯关键词
 //  5. 会话缓存：TTL 内且关键词 Jaccard ≥ 0.5 时复用上次选择
-//     （避免每轮重算与重复嵌入；话题漂移自动失效）。
+//     （避免每轮重算与重复嵌入；话题漂移自动失效）
+//  6. 会话级稳定策略：在候选之上叠加滞回与单调并集，抑制工具集抖动
+//     （见 toolset.go；tool_set_sticky=false 时跳过）。
 //
 // scoredTool 携带分数的工具候选。
 type scoredTool struct {
@@ -259,7 +261,13 @@ func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, too
 	if cached := session.toolSelection(); cached != nil && cached.ToolCount == len(tools) {
 		if time.Since(cached.At) <= selectionCacheTTL &&
 			jaccardSimilarity(queryTokens, cached.QueryTokens) >= selectionCacheJaccard {
-			return cached.Tools(tools)
+			cand := cached.Tools(tools)
+			if p.cfg.ToolSetSticky {
+				// 稳定策略下按缓存名剪枝，而非回退全量：个别工具失效不应
+				// 让整个稳定集合瞬间膨胀。
+				cand = resolveToolsByName(tools, cached.Names)
+			}
+			return p.stabilizeToolSet(session, tools, cand)
 		}
 	}
 
@@ -348,7 +356,8 @@ func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, too
 		usedBudget += estimateToolTokens(s.tool)
 	}
 
-	// 按原始注册顺序排序返回（稳定，利于 prompt 缓存与可测试性）。
+	// 按输入工具列表的顺序排序返回（ToolRegistry.List 已按工具名升序，
+	// 因此可保证跨请求字节稳定，利于 prompt 缓存与可测试性）。
 	idx := make(map[string]int, len(tools))
 	for i, t := range tools {
 		idx[t.Name] = i
@@ -368,5 +377,5 @@ func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, too
 		Names:       names,
 	})
 
-	return out
+	return p.stabilizeToolSet(session, tools, out)
 }

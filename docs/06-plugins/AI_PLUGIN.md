@@ -138,6 +138,31 @@ LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI / Anthropic prompt cache
 缓存命中量导出为 Prometheus 指标 `ai_llm_tokens_total{type="prompt_cached"}`，
 命中率 = `rate(ai_llm_tokens_total{type="prompt_cached"}) / rate(ai_llm_tokens_total{type="prompt"})`。
 
+### 工具集稳定（`tool_set_sticky`）
+
+`tools` 是请求的顶级字段，在提示词序列里排在 system 之前，相当于一个
+**全局前缀开关**：集合一变，其后的稳定 System Prompt 与整段历史全部失去缓存。
+而工具检索是按当前 query 本地打分取 Top-K，话题一抖动就会换掉集合里的补充项。
+
+默认开启的稳定策略在检索结果之上叠加三件事：
+
+| 情况 | 行为 |
+|------|------|
+| 候选等于当前集合 | 保持 |
+| 候选是当前集合的子集 | 保持（补充项留着：一轮没选中不等于话题不再需要） |
+| 候选新增了工具 | 并集（只增不减，避免话题来回摆动时反复替换） |
+| 补充项长时间未被命中 | 按 `tool_set_ttl` 批量衰减；超过 `tool_set_sticky_max` 按最近使用淘汰 |
+
+效果：话题往复（A→B→A）与回访不再产生新的缓存失效，一次工具集切换只在真正
+需要新工具时发生。换来的代价是每轮工具数量可多出至多 `tool_set_sticky_max` 个，
+以及集合滑出 `tool_budget` 时不再追加补充项（可调高 `tool_budget` 或调低
+`tool_set_sticky_max`）。
+
+**权限边界**：稳定集合始终是本轮可用工具（群策略白名单 + RBAC 过滤后）的子集，
+被收回的工具立即从集合与状态中剔除——工具集状态不会成为绕过过滤的旁路。
+
+工具集抖动程度看 `ai_toolset_changes_total`（变更次数 / 请求次数）与 `ai_toolset_size`。
+
 ## 多模态（Vision）
 
 启用 `vision_enabled` 后，对话中的图片附件会随消息发送给视觉模型（提供商需支持多模态）。

@@ -359,8 +359,20 @@ messagelog:
 #                                         #     消息内容本地检索打分（关键词 + 会话热用 + 可选 embedding），
 #                                         #     取相关度最高的子集发送（零额外 LLM 调用，跨域任务自动覆盖）。
 #                                         #     通用工具（Categories 为空或含 general）与会话已用工具恒被保留。
+#                                         #     开启 tool_set_sticky 后，实际发送数量可再多出至多
+#                                         #     tool_set_sticky_max 个补充工具（见下）
 #     tool_budget: 8000                   # [R] 工具 schema 的 token 预算；选择工具时按 schema 大小估算
 #                                         #     逐条累加，超过预算即停止追加（防止工具描述撑爆上下文窗口）
+#     tool_set_sticky: true               # [R] 会话级工具集稳定策略（默认开启）。tools 排在请求最前面，
+#                                         #     集合一变其后的 System 与整段历史全部失去前缀缓存；
+#                                         #     开启后对检索结果叠加"滞回 + 单调并集 + 空闲衰减"：
+#                                         #     话题重叠或回访时集合不变，只在真需要新工具时增长。
+#                                         #     false = 每轮按 query 重新决定集合（便于 A/B 对比）
+#     tool_set_sticky_max: 8              # [R] 稳定集合中"补充工具"的数量上限。超出时按最近使用
+#                                         #     时间淘汰最陈旧者（整批回收，避免逐轮抖动）
+#     tool_set_ttl: "20m"                 # [R] 补充工具的空闲存活时长：连续超过此时长未被候选命中
+#                                         #     即移除，让旧话题的工具自然退场。不配置 = 20m；
+#                                         #     0 等同于未配置；负值（如 -1s）= 关闭衰减
 #     embedding_base_url: ""              # [R] Embedding API 地址（OpenAI 兼容 /embeddings 端点，如
 #                                         #     https://api.openai.com/v1 或本地 Ollama）。非空时启用工具
 #                                         #     选择语义检索加权；未配置或请求失败自动降级纯关键词打分。

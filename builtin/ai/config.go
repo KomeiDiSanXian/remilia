@@ -191,6 +191,26 @@ type Config struct {
 	// 选择工具时按 schema 大小估算逐条累加，超过预算即停止追加。
 	// 防止大量工具的描述与参数撑爆上下文窗口。
 	ToolBudget int `yaml:"tool_budget"`
+	// ToolSetSticky 是否启用会话级工具集稳定策略（默认 true）。
+	//
+	// tools 是请求的顶级字段，在 LLM 的提示词序列里排在 system 之前，等价于
+	// 一个"全局前缀开关"：工具集合一变，其后的稳定 System Prompt 与整段会话
+	// 历史全部失去前缀缓存。工具检索按当前 query 打分，话题一抖动就会换掉
+	// 集合里的补充项，于是历史反复 miss。开启后对检索结果叠加"滞回 + 单调
+	// 并集 + 空闲衰减"：话题重叠或回访时集合不变，只在真正需要新工具时增长。
+	// 设为 false 时恢复"每轮按 query 重新决定集合"（便于 A/B 对比缓存收益）。
+	ToolSetSticky bool `yaml:"tool_set_sticky"`
+	// ToolSetStickyMax 稳定集合中"补充工具"的数量上限（默认 8）。
+	//
+	// 补充工具 = 当前集合中不在本轮候选里的部分（来自此前话题，或此前已
+	// 确认需要的工具）。上限用于防止"只增不减"无限膨胀到失去检索意义：
+	// 超出时按最近使用时间淘汰最陈旧的补充项。
+	ToolSetStickyMax int `yaml:"tool_set_sticky_max"`
+	// ToolSetTTL 补充工具的空闲存活时长（默认 20 分钟）。
+	//
+	// 补充项连续超过该时长未被候选命中即批量移除，让长期不再相关的话题
+	// 工具自然退场；负值（如 -1s）表示关闭衰减（仅受 ToolSetStickyMax 约束）。
+	ToolSetTTL time.Duration `yaml:"tool_set_ttl"`
 	// EmbeddingBaseURL Embedding API 地址（OpenAI 兼容 /embeddings 端点）。
 	// 非空时启用语义检索加权：工具选择叠加 embedding 余弦相似度，
 	// 未配置或请求失败时自动降级为纯关键词打分。
@@ -334,6 +354,9 @@ var DefaultConfig = Config{
 	ApprovalTimeout:        60 * time.Second,
 	ToolSelectMax:          20,
 	ToolBudget:             8000,
+	ToolSetSticky:          true,
+	ToolSetStickyMax:       8,
+	ToolSetTTL:             20 * time.Minute,
 	EmbeddingModel:         "text-embedding-3-small",
 	MemoryMinInterval:      10 * time.Minute,
 	MemoryMaxFacts:         50,
@@ -496,6 +519,14 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetInt("tool_budget", 0); v > 0 {
 		cfg.ToolBudget = v
+	}
+	cfg.ToolSetSticky = ctx.Config.GetBool("tool_set_sticky", cfg.ToolSetSticky)
+	if v := ctx.Config.GetInt("tool_set_sticky_max", 0); v > 0 {
+		cfg.ToolSetStickyMax = v
+	}
+	// 非零即生效：允许负值显式关闭闲置衰减（0 等同于未配置）。
+	if v := ctx.Config.GetDuration("tool_set_ttl", 0); v != 0 {
+		cfg.ToolSetTTL = v
 	}
 	if v := ctx.Config.GetString("embedding_base_url", ""); v != "" {
 		cfg.EmbeddingBaseURL = v
