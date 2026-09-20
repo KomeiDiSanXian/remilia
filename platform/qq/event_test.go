@@ -311,7 +311,8 @@ func TestNewEvent_MemberJoinLeaveGroupFields(t *testing.T) {
 
 // TestNewEvent_GroupMemberAdd 验证群成员加入事件：
 // 入群者字段为 member_openid（非 op_member_openid），且携带 event_id
-// 被动回复 token（入群欢迎消息不依赖群"允许主动发送"开关）。
+// 被动回复 token（平台 2026-09-18 起开始以 40034025 拒绝该 event_id，
+// 届时由 Sender 用同一个 event_id 退避重试，见 passive_eventid_test.go）。
 func TestNewEvent_GroupMemberAdd(t *testing.T) {
 	payload := makePayload(dto.GroupMemberAdd, map[string]any{
 		"group_openid":  "group_001",

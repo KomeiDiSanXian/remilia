@@ -67,11 +67,27 @@ type qqSender struct {
 	api       openapi.OpenAPI
 	msgSeqMap sync.Map     // map[string]*msgSeqEntry，按 msg_id 管理回复状态
 	lastSweep atomic.Int64 // 上次清理 msgSeqMap 的 UnixNano 时间戳
+
+	// passiveRetryDelays 覆盖 event_id 被拒后的同值重试间隔（为空用默认值）。
+	// 由 QQ_PASSIVE_REPLY_DELAYS 环境变量或测试注入，见 passive_eventid.go。
+	passiveRetryDelays []time.Duration
 }
 
 // NewSender 创建 QQ 平台的消息发送器
 func NewSender(api openapi.OpenAPI) platform.Sender {
-	return &qqSender{api: api}
+	s := &qqSender{api: api}
+	// 诊断/调优用：允许用环境变量覆盖 event_id 被拒后的重试间隔（见 passive_eventid.go）。
+	delays, raw, err := envPassiveReplyDelays()
+	switch {
+	case err != nil:
+		logger.WithError(err).Warnf("[qq.Sender] 忽略非法的 %s=%q，改用默认 event_id 重试间隔",
+			passiveReplyDelaysEnv, raw)
+	case len(delays) > 0:
+		s.passiveRetryDelays = delays
+		logger.Infof("[qq.Sender] 已按 %s=%q 覆盖 event_id 重试间隔（诊断用，生产应留空）",
+			passiveReplyDelaysEnv, raw)
+	}
+	return s
 }
 
 // PlatformAPI 实现 platform.APIProvider，返回 QQ 开放平台 OpenAPI 客户端，
@@ -110,10 +126,27 @@ var _ platform.SessionNotifier = (*qqSender)(nil)
 //   - Attachments 非空（取第一个）→ 两步富媒体发送（上传 → 发送）
 //   - 其余 → Text / Markdown 文本消息
 //
+// 携带 event_id 的被动回复被平台以 40034025 拒绝时会按退避间隔重试**同一个**
+// event_id（见 passive_eventid.go）：平台把事件登记为"可回复"存在约 0.6~0.8 秒的
+// 滞后，收到回调就回复必然踩空。重试是同一个被动回复的重发，不改消息语义；
+// 重试仍失败则如实返回错误，不擅自改成主动消息。
+//
 // SendResult.Raw 类型为 *SendResult，包含完整的 QQ 平台响应字段。
 // 富媒体两步发送时，上传阶段（FileInfo、FileUUID、TTL）与发送阶段（MessageID）
 // 均合并在同一个 *SendResult 中返回。
 func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
+	rawEventID := passiveEventIDValue(req)
+	res, err := s.sendOnce(ctx, req)
+	// 没带 event_id 授权，或错误与被动授权无关（内容违规、msg_id 过期等）：直接返回，
+	// 不重试——尤其不能对 msg_id 被拒重试，否则绕过平台被动回复限制。
+	if err == nil || rawEventID == "" || !qqEventIDRejected(err) {
+		return res, err
+	}
+	return s.retryPassiveReply(ctx, req, res, err)
+}
+
+// sendOnce 执行一次发送，不做任何重试。
+func (s *qqSender) sendOnce(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if s.api == nil {
 		return platform.SendResult{}, fmt.Errorf("qq sender: openAPI client is nil")
 	}
@@ -854,8 +887,11 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		dtoMsg.MessageSeq = s.nextMsgSeq(string(dtoMsg.MessageID))
 	}
 
-	// event_id：被动回复授权 token（event-based，仅 INTERACTION_CREATE / C2C_MSG_RECEIVE 等）
+	// event_id：被动回复授权 token（event-based）
 	// 优先级：extra.EventID（手动 ApplyExtra）> chat.Tokens[TokenEventID]（框架从事件类型自动填充）
+	// 官方文档只声明部分事件支持（群聊 INTERACTION_CREATE / GROUP_ADD_ROBOT /
+	// GROUP_MSG_RECEIVE），清单外的事件仍在此处设置并尝试；被平台以 40034025
+	// 拒绝时由 Send 用同一个 event_id 退避重试（见 passive_eventid.go）。
 	resolvedEventID := extra.EventID
 	if resolvedEventID == "" {
 		resolvedEventID = chat.Tokens[TokenEventID]

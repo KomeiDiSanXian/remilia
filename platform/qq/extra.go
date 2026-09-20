@@ -22,8 +22,10 @@ const (
 	TokenMsgID = "msg_id"
 
 	// TokenEventID 事件 ID 被动回复 token（QQ v2 API event_id 字段）。
-	// 来源：INTERACTION_CREATE、GROUP_ADD_ROBOT、GROUP_MSG_RECEIVE、
-	//        FRIEND_ADD、C2C_MSG_RECEIVE 等事件的 payload.ID。
+	// 来源：事件的 payload.ID。官方文档声明群聊接口只支持 INTERACTION_CREATE、
+	// GROUP_ADD_ROBOT、GROUP_MSG_RECEIVE（单聊为 FRIEND_ADD、C2C_MSG_RECEIVE），
+	// 其余事件（如 GROUP_MEMBER_ADD）仍会先带 event_id 尝试，被平台拒绝时由
+	// Sender 用同一个 event_id 退避重试（见 passive_eventid.go），不改发主动消息。
 	TokenEventID = "event_id"
 
 	// TokenQuoteID 本条消息的引用标识（message_scene.ext 中 msg_idx=REFIDX_...）。

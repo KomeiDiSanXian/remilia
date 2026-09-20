@@ -144,7 +144,9 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.GroupMemberAdd:
 		e.kind = platform.EventKindMemberJoin
 		e.populateGroupMemberEvent(detail)
-		// GROUP_MEMBER_ADD 支持 event_id 被动回复：欢迎消息不依赖群"允许主动发送"开关
+		// 仍先带 event_id 尝试被动回复（平台长期接受本事件，2026-09-18 起开始以
+		// 40034025 拒绝，且时而成时而败）；被拒后由 Sender 用同一个 event_id 退避重试，
+		// 重试仍失败则如实报错（不改语义为主动消息），见 passive_eventid.go。
 		e.chat.Tokens = map[string]string{TokenEventID: e.id}
 	case dto.GroupMemberRemove:
 		e.kind = platform.EventKindMemberLeave
@@ -1092,8 +1094,10 @@ func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
 //
 // 与 populateNoticeGroup 不同：进出成员字段为 member_openid（而非 op_member_openid）。
 // event_id 被动回复 token 由调用方按事件类型决定：
-//   - GROUP_MEMBER_ADD：支持（欢迎消息不依赖群"允许主动发送"开关；
-//     官方文档的 event_id 支持清单虽未列出本事件，但实测可用）
+//   - GROUP_MEMBER_ADD：带 event_id 尝试被动回复（欢迎消息不依赖群"允许主动发送"
+//     开关；官方文档的 event_id 支持清单未列出本事件，平台于 2026-09-18 起开始以
+//     40034025 拒绝且时而成时而败，失败后由 Sender 用同一个 event_id 退避重试，
+//     见 passive_eventid.go）
 //   - GROUP_MEMBER_REMOVE：不支持（实测错误码 40034027"该事件不能回复消息"），
 //     告别消息只能以主动消息发送
 func (e *qqEvent) populateGroupMemberEvent(detail json.RawMessage) {

@@ -220,7 +220,7 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
-		ctx.Reply(platform.TextMessage("欢迎消息已设置"))
+		ctx.Reply(platform.TextMessage(p.welcomeSetReply(ctx, "欢迎消息已设置")))
 		return nil
 	case "off":
 		cfg.WelcomeEnabled = false
@@ -261,7 +261,7 @@ func (p *Plugin) handleWelcomeGlobal(ctx *eventctx.Context, args []string) error
 		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
-		ctx.Reply(platform.TextMessage("全局欢迎消息已设置"))
+		ctx.Reply(platform.TextMessage(p.welcomeSetReply(ctx, "全局欢迎消息已设置")))
 		return nil
 	case "on":
 		cfg.WelcomeEnabled = true
@@ -500,6 +500,21 @@ func (p *Plugin) SetGlobalFarewell(message string, enabled bool) {
 	cfg.FarewellMessage = message
 	cfg.FarewellEnabled = enabled
 	cfg.FarewellSet = true
+}
+
+// welcomeSetReply 在欢迎消息设置成功的提示 base 后附加平台注意事项。
+//
+// QQ 平台入群事件（GROUP_MEMBER_ADD）的 event_id 被动回复自 2026-09-18 起常被
+// 平台以 40034025"请求参数event_id无效"拒绝：平台把事件登记为"可回复"比回调到达
+// 晚约 0.6~0.8 秒，收到回调就回复必然踩空。框架会用同一个 event_id 退避重试
+// 被动回复（而不是改用主动消息——那是另一种消息类型，需要群内开关与另外的配额）；
+// 重试仍失败会如实报错。因此仅 QQ 平台附加提醒。
+func (p *Plugin) welcomeSetReply(ctx *eventctx.Context, base string) string {
+	if ctx.GetEventPlatform() != "qq" {
+		return base
+	}
+	return base + "\n（QQ 平台入群事件的被动回复可能被平台短暂拒绝：框架会自动" +
+		"用同一个 event_id 重试；若仍失败会记录错误、不会改发主动消息）"
 }
 
 // farewellSetReply 返回告别消息设置成功的提示。
