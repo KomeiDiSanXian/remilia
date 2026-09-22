@@ -71,23 +71,23 @@ func (Row) TableName() string { return "message_attachments" }
 type Config struct {
 	Dir              string          // 二进制存储目录
 	Scope            string          // hot_window / none / all
+	Backoff          []time.Duration // 退避序列（按 retry_count 取档）
 	HotWindowAge     time.Duration   // scope=hot_window 时的时间窗口
 	MaxDiskUsage     int64           // 附件磁盘预算（soft limit）
 	MaxPending       int             // 待下载任务上限（内存队列）
 	Concurrency      int             // 下载并发 worker 数
 	Retries          int             // 临时失败重试次数（指数退避）
-	Backoff          []time.Duration // 退避序列（按 retry_count 取档）
 	MaxSize          int64           // 单文件硬上限
 	RatePerHost      float64         // 按 host 每秒请求上限（0 = 不限）
-	LazyFallback     bool            // 队列满时降级 pending_lazy（默认 true）
-	GCEnabled        bool            // 引用计数 GC 开关
 	GracePeriod      time.Duration   // 引用归零后的二进制宽限期
-	BackfillEnabled  bool            // 空闲回填开关
 	BackfillBatch    int             // 每批回填条数
 	IdleThreshold    float64         // 队列占用率低于该值视为空闲
 	BackfillAttempts int             // 回填对同一行的最大尝试次数
 	BackfillInterval time.Duration   // 回填扫描周期
 	GCInterval       time.Duration   // GC 周期
+	LazyFallback     bool            // 队列满时降级 pending_lazy（默认 true）
+	GCEnabled        bool            // 引用计数 GC 开关
+	BackfillEnabled  bool            // 空闲回填开关
 }
 
 // InitialStatus 按下载范围策略决定附件的初始状态。

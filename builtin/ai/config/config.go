@@ -39,6 +39,29 @@ type Config struct {
 	SystemPrompt string `yaml:"system_prompt"`
 	// TriggerCmd 触发 AI 对话的命令前缀。为空则不注册命令触发。
 	TriggerCmd string `yaml:"trigger_cmd"`
+	// ToolApproval 命令执行审批模式（2026-08 新增，对齐官方 OpenClaw 插件的
+	// Command Execution Approval 能力）：
+	//   - "off"（默认）: 不审批，工具直接执行
+	//   - "restricted": 仅审批标记 RequiresApproval=true 的工具
+	//   - "always":    审批所有工具调用
+	// 审批交互双通道：平台支持回调按钮时发送"允许/拒绝"按钮；
+	// 任何平台都可用 /ai approve <ID> /ai deny <ID> 文本命令。
+	// 可被 per-group 策略覆盖（/ai group set approval <mode>）。
+	ToolApproval string `yaml:"tool_approval"`
+	// EmbeddingBaseURL Embedding API 地址（OpenAI 兼容 /embeddings 端点）。
+	// 非空时启用语义检索加权：工具选择叠加 embedding 余弦相似度，
+	// 未配置或请求失败时自动降级为纯关键词打分。
+	// 注意：Anthropic 不提供 embedding API，可配置第三方兼容服务或本地 Ollama。
+	EmbeddingBaseURL string `yaml:"embedding_base_url"`
+	// EmbeddingAPIKey Embedding API 密钥。为空时回退使用 api_key。
+	EmbeddingAPIKey string `yaml:"embedding_api_key"`
+	// EmbeddingModel Embedding 模型名称。为空时默认 text-embedding-3-small。
+	EmbeddingModel string `yaml:"embedding_model"`
+	// VerifyModel 回答校验器使用的模型（默认空 = 跟随主模型）。
+	// 可配置便宜的轻量模型降低校验成本。
+	VerifyModel string `yaml:"verify_model"`
+	// ExtractModel 记忆抽取使用的模型（默认空 = 跟随主模型）。
+	ExtractModel string `yaml:"extract_model"`
 	// ToolAllowlist 显式允许自动暴露为工具的命令名称列表。
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
@@ -61,9 +84,6 @@ type Config struct {
 	ContextFields []string `yaml:"context_fields"`
 	// MaxTokens 每次请求的最大输出 token 数。
 	MaxTokens int `yaml:"max_tokens"`
-	// IncludeUsage 流式请求是否携带 stream_options.include_usage（OpenAI 兼容 API）。
-	// 用于 token 用量统计；极少数不兼容 stream_options 的网关可设为 false。
-	IncludeUsage bool `yaml:"include_usage"`
 	// MaxDepth 工具调用的最大递归深度。
 	// 防止工具循环调用过深，默认 5。
 	MaxDepth int `yaml:"max_depth"`
@@ -104,6 +124,98 @@ type Config struct {
 	// 开启后 AI 能感知同群其他成员的发言，融入多人对话。
 	// 依赖 messagelog 插件；只注入入站消息（不含机器人自己的回复）。
 	ContextGroupMessages int `yaml:"context_group_messages"`
+	// ApprovalTimeout 审批等待超时（默认 60s）。超时按拒绝处理。
+	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
+	// ToolSelectMax 每轮实际发送给 LLM 的最大工具数（默认 20）。
+	// 工具总数超过此值时按用户消息内容本地检索打分，取相关度最高的子集，
+	// 替代旧的"LLM 单分类路由"（本地计算，零额外 LLM 调用）。
+	ToolSelectMax int `yaml:"tool_select_max"`
+	// ToolBudget 工具 schema 的 token 预算（默认 8000）。
+	// 选择工具时按 schema 大小估算逐条累加，超过预算即停止追加。
+	// 防止大量工具的描述与参数撑爆上下文窗口。
+	ToolBudget int `yaml:"tool_budget"`
+	// ToolSetStickyMax 稳定集合中"补充工具"的数量上限（默认 8）。
+	//
+	// 补充工具 = 当前集合中不在本轮候选里的部分（来自此前话题，或此前已
+	// 确认需要的工具）。上限用于防止"只增不减"无限膨胀到失去检索意义：
+	// 超出时按最近使用时间淘汰最陈旧的补充项。
+	ToolSetStickyMax int `yaml:"tool_set_sticky_max"`
+	// ToolSetTTL 补充工具的空闲存活时长（默认 20 分钟）。
+	//
+	// 补充项连续超过该时长未被候选命中即批量移除，让长期不再相关的话题
+	// 工具自然退场；负值（如 -1s）表示关闭衰减（仅受 ToolSetStickyMax 约束）。
+	ToolSetTTL time.Duration `yaml:"tool_set_ttl"`
+	// MemoryMinInterval 同一作用域（用户/群）两次自动抽取的最小间隔（默认 10 分钟）。
+	// 防止高频对话造成 LLM 调用成本失控。
+	MemoryMinInterval time.Duration `yaml:"memory_min_interval"`
+	// MemoryMaxFacts 每个作用域最多保留的事实条数（默认 50），
+	// 超出后按出现次数最少、最旧的优先淘汰。
+	MemoryMaxFacts int `yaml:"memory_max_facts"`
+	// MemoryInjectMax 每次注入系统提示的长期记忆条数上限（默认 8），
+	// 按用户消息关键词相关度取 Top-N。
+	MemoryInjectMax int `yaml:"memory_inject_max"`
+	// PlanMaxSteps 单个任务计划的最大步骤数（默认 8）。
+	// create_plan 超过此上限会报错并提示模型合并步骤。
+	PlanMaxSteps int `yaml:"plan_max_steps"`
+	// VerifyMaxRetries 校验不通过后的最大重新生成次数（默认 1）。
+	VerifyMaxRetries int `yaml:"verify_max_retries"`
+	// ContextRAGMessages 相关历史消息检索（消息级 RAG，默认 0 = 关闭）。
+	// 开启后按用户消息在 messagelog 历史（默认最近 7 天）中检索相关消息注入
+	// 系统提示，覆盖"上周讨论的方案""上次谁说的"这类时间线/细节查询
+	// （最近的 context_group_messages 窗口与长期事实记忆均覆盖不到）。
+	// 两阶段检索：本地关键词预筛（零成本，无命中不花 embedding）→
+	// 对候选集做 embedding 语义精排（复用 embedding_base_url）。
+	ContextRAGMessages int `yaml:"context_rag_messages"`
+	// ContextRAGDays 历史检索的时间窗口（天，默认 7）。
+	ContextRAGDays int `yaml:"context_rag_days"`
+	// ContextRAGCandidates 关键词预筛的候选消息上限（默认 500）。
+	ContextRAGCandidates int `yaml:"context_rag_candidates"`
+	// ContextRAGInjectMax 每次注入的相关历史消息条数上限（默认 3）。
+	ContextRAGInjectMax int `yaml:"context_rag_inject_max"`
+	// ContextWindow 系统提示的全局 token 预算（默认 0 = 不限，维持现状）。
+	// 开启后按模型上下文窗口控制注入总量：超出预算时按优先级
+	// （群聊窗口 > 长期记忆 > 相关历史 > 运行时上下文）动态缩减各节，
+	// 防止小上下文模型被注入内容撑爆。
+	ContextWindow int `yaml:"context_window"`
+	// ToolParallel 工具调用的并行度（默认 4，最小 1）。
+	// 模型一次返回多个工具调用时并发执行，缩短多查询回合延迟。
+	ToolParallel int `yaml:"tool_parallel"`
+	// PlanAutoInterval 计划后台推进的间隔（默认 15s）。
+	PlanAutoInterval time.Duration `yaml:"plan_auto_interval"`
+	// PlanAutoRounds 单个计划的后台自动推进轮次上限（默认 3）。
+	PlanAutoRounds int `yaml:"plan_auto_rounds"`
+	// MaxSendsPerRound 一次对话处理内 AI 消息发送工具（send_message /
+	// send_to）的总发送次数上限（默认 5；<=0 表示不限）。
+	// 防止模型滥用发送工具刷屏，并行执行下同样生效。
+	MaxSendsPerRound int `yaml:"max_sends_per_round"`
+	// TurnTimeout AI 一次完整处理（processWithTools 一次调用，含多轮 LLM
+	// 调用与工具执行）的总时间预算。默认 0 = 自动推导：
+	// api_timeout × max(2, min(max_depth, 5))。
+	// 全局 Timeout 中间件（cmd/bot 默认 30s）会给事件上下文注入单次
+	// deadline，多轮工具任务（如 send_message 分步执行、计划推进）会在
+	// 该 deadline 处被整段切断——本配置以独立预算替换之。
+	TurnTimeout time.Duration `yaml:"turn_timeout"`
+	// ImageMergeWindow 群聊"先发图再发字"的合并窗口（默认 30s）。
+	// 窗口内未 @/未引用的纯图片消息不回复，仅记录待后续文字合并为一条
+	// 多模态消息；窗口超时仍无文字则静默丢弃（表情包防误触发）。
+	// 0 = 关闭合并（纯图片消息按旧行为处理）。
+	ImageMergeWindow time.Duration `yaml:"image_merge_window"`
+	// ImageContextTurns 历史图片保留条数（默认 5）：最近 N 条 user 消息中的
+	// 图片二进制随请求发送给模型，支持"继续追问图片细节"；更早的降级为
+	// 文本占位。0 = 仅保留当前轮（旧行为）。
+	ImageContextTurns int `yaml:"image_context_turns"`
+	// ImageContextWindow 历史图片保留时间窗（默认 10 分钟，与附件缓存
+	// contentCache TTL 对齐）。超过窗口的旧图不再随请求上传；0 = 仅按条数。
+	ImageContextWindow time.Duration `yaml:"image_context_window"`
+	// MaxImagesPerMessage 单条 user 消息最大图片数（默认 4）。超限时拒绝
+	// 本次请求并提示用户重新编辑（不调用 LLM）。合并窗口累加后同样生效。
+	MaxImagesPerMessage int `yaml:"max_images_per_message"`
+	// MaxImagesPerRequest 单次 LLM 请求的最大图片总数（默认 8）。超限时
+	// 从最近开始保留并提示用户（本次对话图片较多），继续处理。
+	MaxImagesPerRequest int `yaml:"max_images_per_request"`
+	// IncludeUsage 流式请求是否携带 stream_options.include_usage（OpenAI 兼容 API）。
+	// 用于 token 用量统计；极少数不兼容 stream_options 的网关可设为 false。
+	IncludeUsage bool `yaml:"include_usage"`
 	// ContextGroupIncludeBot 群聊消息窗口是否包含机器人的出站回复
 	// （AI 自己的回复与其他插件的回复）。
 	// 默认 false。开启后出站消息以机器人自身名称标注（未注入名称时
@@ -172,25 +284,6 @@ type Config struct {
 	// 依赖 messagelog 插件记录消息历史（机器人自己的对话回复也会被记录）。
 	// 默认 true。设为 false 时不注入、也不记录出站回复。
 	IncludeReplyContext bool `yaml:"include_reply_context"`
-	// ToolApproval 命令执行审批模式（2026-08 新增，对齐官方 OpenClaw 插件的
-	// Command Execution Approval 能力）：
-	//   - "off"（默认）: 不审批，工具直接执行
-	//   - "restricted": 仅审批标记 RequiresApproval=true 的工具
-	//   - "always":    审批所有工具调用
-	// 审批交互双通道：平台支持回调按钮时发送"允许/拒绝"按钮；
-	// 任何平台都可用 /ai approve <ID> /ai deny <ID> 文本命令。
-	// 可被 per-group 策略覆盖（/ai group set approval <mode>）。
-	ToolApproval string `yaml:"tool_approval"`
-	// ApprovalTimeout 审批等待超时（默认 60s）。超时按拒绝处理。
-	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
-	// ToolSelectMax 每轮实际发送给 LLM 的最大工具数（默认 20）。
-	// 工具总数超过此值时按用户消息内容本地检索打分，取相关度最高的子集，
-	// 替代旧的"LLM 单分类路由"（本地计算，零额外 LLM 调用）。
-	ToolSelectMax int `yaml:"tool_select_max"`
-	// ToolBudget 工具 schema 的 token 预算（默认 8000）。
-	// 选择工具时按 schema 大小估算逐条累加，超过预算即停止追加。
-	// 防止大量工具的描述与参数撑爆上下文窗口。
-	ToolBudget int `yaml:"tool_budget"`
 	// ToolSetSticky 是否启用会话级工具集稳定策略（默认 true）。
 	//
 	// tools 是请求的顶级字段，在 LLM 的提示词序列里排在 system 之前，等价于
@@ -200,113 +293,19 @@ type Config struct {
 	// 并集 + 空闲衰减"：话题重叠或回访时集合不变，只在真正需要新工具时增长。
 	// 设为 false 时恢复"每轮按 query 重新决定集合"（便于 A/B 对比缓存收益）。
 	ToolSetSticky bool `yaml:"tool_set_sticky"`
-	// ToolSetStickyMax 稳定集合中"补充工具"的数量上限（默认 8）。
-	//
-	// 补充工具 = 当前集合中不在本轮候选里的部分（来自此前话题，或此前已
-	// 确认需要的工具）。上限用于防止"只增不减"无限膨胀到失去检索意义：
-	// 超出时按最近使用时间淘汰最陈旧的补充项。
-	ToolSetStickyMax int `yaml:"tool_set_sticky_max"`
-	// ToolSetTTL 补充工具的空闲存活时长（默认 20 分钟）。
-	//
-	// 补充项连续超过该时长未被候选命中即批量移除，让长期不再相关的话题
-	// 工具自然退场；负值（如 -1s）表示关闭衰减（仅受 ToolSetStickyMax 约束）。
-	ToolSetTTL time.Duration `yaml:"tool_set_ttl"`
-	// EmbeddingBaseURL Embedding API 地址（OpenAI 兼容 /embeddings 端点）。
-	// 非空时启用语义检索加权：工具选择叠加 embedding 余弦相似度，
-	// 未配置或请求失败时自动降级为纯关键词打分。
-	// 注意：Anthropic 不提供 embedding API，可配置第三方兼容服务或本地 Ollama。
-	EmbeddingBaseURL string `yaml:"embedding_base_url"`
-	// EmbeddingAPIKey Embedding API 密钥。为空时回退使用 api_key。
-	EmbeddingAPIKey string `yaml:"embedding_api_key"`
-	// EmbeddingModel Embedding 模型名称。为空时默认 text-embedding-3-small。
-	EmbeddingModel string `yaml:"embedding_model"`
 	// MemoryEnabled 是否启用长期事实记忆（自动抽取，默认 false，隐私考虑）。
 	// 开启后每轮对话回复完成后异步调用一次 LLM，从最近一轮对话提取
 	// 稳定长期事实（偏好/习惯/约定），按用户/群作用域存入 LevelDB
 	// （data/ai_memory），并在后续对话中按关键词检索注入系统提示。
 	MemoryEnabled bool `yaml:"memory_enabled"`
-	// MemoryMinInterval 同一作用域（用户/群）两次自动抽取的最小间隔（默认 10 分钟）。
-	// 防止高频对话造成 LLM 调用成本失控。
-	MemoryMinInterval time.Duration `yaml:"memory_min_interval"`
-	// MemoryMaxFacts 每个作用域最多保留的事实条数（默认 50），
-	// 超出后按出现次数最少、最旧的优先淘汰。
-	MemoryMaxFacts int `yaml:"memory_max_facts"`
-	// MemoryInjectMax 每次注入系统提示的长期记忆条数上限（默认 8），
-	// 按用户消息关键词相关度取 Top-N。
-	MemoryInjectMax int `yaml:"memory_inject_max"`
-	// PlanMaxSteps 单个任务计划的最大步骤数（默认 8）。
-	// create_plan 超过此上限会报错并提示模型合并步骤。
-	PlanMaxSteps int `yaml:"plan_max_steps"`
 	// VerifyEnabled 是否开启回答质量校验（LLM-as-judge，默认 false）。
 	// 开启后每次对话多一次评审 LLM 调用：最终回答发送前评审是否
 	// 回答了用户问题、是否捏造信息；不通过则注入修正指令重新生成。
 	VerifyEnabled bool `yaml:"verify_enabled"`
-	// VerifyMaxRetries 校验不通过后的最大重新生成次数（默认 1）。
-	VerifyMaxRetries int `yaml:"verify_max_retries"`
-	// ContextRAGMessages 相关历史消息检索（消息级 RAG，默认 0 = 关闭）。
-	// 开启后按用户消息在 messagelog 历史（默认最近 7 天）中检索相关消息注入
-	// 系统提示，覆盖"上周讨论的方案""上次谁说的"这类时间线/细节查询
-	// （最近的 context_group_messages 窗口与长期事实记忆均覆盖不到）。
-	// 两阶段检索：本地关键词预筛（零成本，无命中不花 embedding）→
-	// 对候选集做 embedding 语义精排（复用 embedding_base_url）。
-	ContextRAGMessages int `yaml:"context_rag_messages"`
-	// ContextRAGDays 历史检索的时间窗口（天，默认 7）。
-	ContextRAGDays int `yaml:"context_rag_days"`
-	// ContextRAGCandidates 关键词预筛的候选消息上限（默认 500）。
-	ContextRAGCandidates int `yaml:"context_rag_candidates"`
-	// ContextRAGInjectMax 每次注入的相关历史消息条数上限（默认 3）。
-	ContextRAGInjectMax int `yaml:"context_rag_inject_max"`
-	// ContextWindow 系统提示的全局 token 预算（默认 0 = 不限，维持现状）。
-	// 开启后按模型上下文窗口控制注入总量：超出预算时按优先级
-	// （群聊窗口 > 长期记忆 > 相关历史 > 运行时上下文）动态缩减各节，
-	// 防止小上下文模型被注入内容撑爆。
-	ContextWindow int `yaml:"context_window"`
-	// VerifyModel 回答校验器使用的模型（默认空 = 跟随主模型）。
-	// 可配置便宜的轻量模型降低校验成本。
-	VerifyModel string `yaml:"verify_model"`
-	// ExtractModel 记忆抽取使用的模型（默认空 = 跟随主模型）。
-	ExtractModel string `yaml:"extract_model"`
-	// ToolParallel 工具调用的并行度（默认 4，最小 1）。
-	// 模型一次返回多个工具调用时并发执行，缩短多查询回合延迟。
-	ToolParallel int `yaml:"tool_parallel"`
 	// PlanAutoContinue 计划后台自动推进（默认 false）。
 	// 开启后创建计划后机器人按 plan_auto_interval 自动继续执行未完成步骤
 	// 并主动汇报，用户无需逐条消息推动；用户发消息时重置推进预算。
 	PlanAutoContinue bool `yaml:"plan_auto_continue"`
-	// PlanAutoInterval 计划后台推进的间隔（默认 15s）。
-	PlanAutoInterval time.Duration `yaml:"plan_auto_interval"`
-	// PlanAutoRounds 单个计划的后台自动推进轮次上限（默认 3）。
-	PlanAutoRounds int `yaml:"plan_auto_rounds"`
-	// MaxSendsPerRound 一次对话处理内 AI 消息发送工具（send_message /
-	// send_to）的总发送次数上限（默认 5；<=0 表示不限）。
-	// 防止模型滥用发送工具刷屏，并行执行下同样生效。
-	MaxSendsPerRound int `yaml:"max_sends_per_round"`
-	// TurnTimeout AI 一次完整处理（processWithTools 一次调用，含多轮 LLM
-	// 调用与工具执行）的总时间预算。默认 0 = 自动推导：
-	// api_timeout × max(2, min(max_depth, 5))。
-	// 全局 Timeout 中间件（cmd/bot 默认 30s）会给事件上下文注入单次
-	// deadline，多轮工具任务（如 send_message 分步执行、计划推进）会在
-	// 该 deadline 处被整段切断——本配置以独立预算替换之。
-	TurnTimeout time.Duration `yaml:"turn_timeout"`
-
-	// ImageMergeWindow 群聊"先发图再发字"的合并窗口（默认 30s）。
-	// 窗口内未 @/未引用的纯图片消息不回复，仅记录待后续文字合并为一条
-	// 多模态消息；窗口超时仍无文字则静默丢弃（表情包防误触发）。
-	// 0 = 关闭合并（纯图片消息按旧行为处理）。
-	ImageMergeWindow time.Duration `yaml:"image_merge_window"`
-	// ImageContextTurns 历史图片保留条数（默认 5）：最近 N 条 user 消息中的
-	// 图片二进制随请求发送给模型，支持"继续追问图片细节"；更早的降级为
-	// 文本占位。0 = 仅保留当前轮（旧行为）。
-	ImageContextTurns int `yaml:"image_context_turns"`
-	// ImageContextWindow 历史图片保留时间窗（默认 10 分钟，与附件缓存
-	// contentCache TTL 对齐）。超过窗口的旧图不再随请求上传；0 = 仅按条数。
-	ImageContextWindow time.Duration `yaml:"image_context_window"`
-	// MaxImagesPerMessage 单条 user 消息最大图片数（默认 4）。超限时拒绝
-	// 本次请求并提示用户重新编辑（不调用 LLM）。合并窗口累加后同样生效。
-	MaxImagesPerMessage int `yaml:"max_images_per_message"`
-	// MaxImagesPerRequest 单次 LLM 请求的最大图片总数（默认 8）。超限时
-	// 从最近开始保留并提示用户（本次对话图片较多），继续处理。
-	MaxImagesPerRequest int `yaml:"max_images_per_request"`
 }
 
 // DefaultConfig AI 插件默认配置。

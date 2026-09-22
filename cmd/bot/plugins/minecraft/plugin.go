@@ -39,10 +39,23 @@ import (
 type Config struct {
 	// DefaultServer 默认服务器（主机[:端口]）；/mc 不带参数时查询。
 	DefaultServer string
+	// GS4Mode GS4 Query 的尝试策略：
+	//   auto   —— 仅当 SLP 返回的玩家样本不完整时才尝试（默认，避免无谓等待）
+	//   always —— 总是尝试，0 人在线时也能拿到服务端软件/插件清单
+	//   never  —— 从不尝试
+	// 无论哪种策略，都要求 direct_query=true（GS4 是裸 UDP）。
+	GS4Mode string
 	// Timeout 单次查询总超时（Java/Bedrock 直连 + API 回退共享预算）。
 	Timeout time.Duration
 	// CacheTTL 查询结果缓存时长（避免连查打满 mcsrvstat.us 限额）。
 	CacheTTL time.Duration
+	// QueryPort GS4 Query 端口；0 = 与服务器端口一致。
+	QueryPort int
+	// ErrCacheTTL 查询失败（离线等）的负缓存时长；0 表示不缓存失败结果。
+	ErrCacheTTL time.Duration
+	// Cooldown /mc 查询命令的每用户冷却间隔；0 表示不限制。
+	// 单次查询最坏链路为 Java 直连 + Bedrock 直连 + GS4 + 头像，耗时可达十几秒。
+	Cooldown time.Duration
 	// Avatars 是否拉取在线玩家头像（mc-heads.net）。
 	Avatars bool
 	// DirectQuery 是否先尝试直连发包查询（Java SLP / Bedrock RakNet）。
@@ -52,24 +65,11 @@ type Config struct {
 	DirectQuery bool
 	// EnableQuery 是否尝试 GS4 Query 获取完整玩家列表（需服务器开 enable-query）。
 	EnableQuery bool
-	// GS4Mode GS4 Query 的尝试策略：
-	//   auto   —— 仅当 SLP 返回的玩家样本不完整时才尝试（默认，避免无谓等待）
-	//   always —— 总是尝试，0 人在线时也能拿到服务端软件/插件清单
-	//   never  —— 从不尝试
-	// 无论哪种策略，都要求 direct_query=true（GS4 是裸 UDP）。
-	GS4Mode string
-	// QueryPort GS4 Query 端口；0 = 与服务器端口一致。
-	QueryPort int
-	// ErrCacheTTL 查询失败（离线等）的负缓存时长；0 表示不缓存失败结果。
-	ErrCacheTTL time.Duration
 	// BlockPrivateTargets 是否拒绝直连私有（内网/回环）地址。
 	// 默认 false：内网自建服务器正是自建 bot 的常见查询目标。
 	// 仅当 /mc 对所有群成员开放、且不希望它被当作内网端口探测器时才打开。
 	// 注意：API 路径始终拒绝私有地址（第三方 API 也无法路由内网）。
 	BlockPrivateTargets bool
-	// Cooldown /mc 查询命令的每用户冷却间隔；0 表示不限制。
-	// 单次查询最坏链路为 Java 直连 + Bedrock 直连 + GS4 + 头像，耗时可达十几秒。
-	Cooldown time.Duration
 }
 
 // GS4 策略取值。
