@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.65.0 (2026-09-22)
+
+### 🧱 分层重构：AI 插件拆分与执行语义解耦
+
+本次发布把 `builtin/ai` 从「所有东西都是 Tool」的平铺包，重塑为一条显式管线：
+**Capability → ActionSpec → Decision → Invocation → Invoker**。运行时可观测行为
+保持不变（例外见下），仅 `builtin/ai` 的门面导入路径发生破坏性变更。
+
+- **拆分子包**：`builtin/ai` 拆为 `config` / `protocol` / `toolkit` /
+  `session` / `catalog` / `retrieval` / `decision` / `execution` / `promptctx` /
+  `runtime` / `textutil` 共 11 个包，依赖一律朝内，插件根只保留装配
+- **能力端口（Capability）**：工具执行上下文不再反向持有 `*Plugin`，
+  改为依赖 `memoryPort` / `todoPort` / `reminderPort` /
+  `reminderSchedulerPort` 四个最小端口
+- **动作描述（Action）**：`ActionSpec` / `ActionPolicy` / `SelectionClass` 把
+  「这是什么类别」与「它什么时候该被保留」拆成两个字段，`general` 不再
+  兼任「必保」；注册表内部只存动作视图，`Execute` 仅经执行视图取出
+- **调用器（Invoker）**：`FuncInvoker` / `CommandInvoker` / `SkillInvoker`
+  分别承载 `Tool.Execute` 原先揉在一起的三种执行语义
+- **上下文管线（Context）**：动态上下文收敛到单一 Provider + 带预算的
+  Builder，并严格保持在稳定前缀之后
+- **选择与决策（Selection + Decision）**：候选发现、检索、选择、稳定策略与
+  调用策略评估分层，`needAction` 闸门就位（当前保守恒真）
+- **代理状态（Agent State）**：`Plugin` 字段按 owner 结构体分区并匿名嵌入，
+  代理状态建立唯一归属表，同时钉死持久化边界
+- **行为修正（逐个独立交付）**：失败判定改用类型化 `ActionResult.Err`、
+  空运行时上下文节两条路径统一、历史检索同分采用确定性次序、群聊窗口开关两路径一致、
+  审批门收敛为 `SendTo` 授权的唯一来源、知识库复用 AI 导出的检索原语
+- **结构清理**：删除 6 个生产不可达的导出名（`executeTool` /
+  `extractAndStore` / `BuildGroupWindow` / `ScoreTool` / `HasCategory` /
+  `ClearPendingImage`）并把 32 处用例改到真实入口；同时恢复
+  `SkillRegistry.IncrementUsage` 的调用。后者是本次唯一有意的可观测行为
+  变更：此前该计数无人自增，`/ai skill list` 与技能详情展示的「调用 N 次」恒为 0
+- **⚠️ 破坏性导入路径变更**：`builtin/ai` 门面退役，删除 `aliases.go`
+  （64 个转发声明）；原先的 `ai.Tool` / `ai.Skill` / `ai.ToolRegistry` /
+  `ai.SkillRegistry` / `ai.CategoryGeneral` / `ai.ActionSpec` 等名改由所属子包
+  提供，仓库内 34 处消费者已同步迁移（无外部插件作者）
+- **冻结清单**：`docs/notes/27-ai-freeze-checklist.md` 的 20 条契约（17 契约 +
+  3 负向不变量）全部落地为可执行用例
+- **工具链与回归**：应用 `go fix` 现代化建议并归一化 `gofmt`；
+  `golangci-lint` 0 issues；`./builtin/ai/...` 710 通过 / 0 失败，全仓 125 包通过
+
 ## v1.64.1 (2026-09-21)
 
 ### 🐛 修复：QQ 入群欢迎的 `event_id` 被动回复被平台拒绝（40034025）
