@@ -69,6 +69,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
@@ -118,9 +119,9 @@ type qqActionRateState struct {
 	lastBusyNotice time.Time // 最近一次忙时提示
 }
 
-// qqActionRateKey 组装限流 map 的键：动作（ai:regenerate / ai:clear /
+// rateKey 组装限流 map 的键：动作（ai:regenerate / ai:clear /
 // "重新生成" 等）与会话 ID 以 NUL 分隔，保证不同动作互不干扰。
-func qqActionRateKey(action, sessionID string) string {
+func (a *adminState) rateKey(action, sessionID string) string {
 	return action + "\x00" + sessionID
 }
 
@@ -253,7 +254,7 @@ func (p *Plugin) handleInteraction(ctx *context.Context) error {
 func (p *Plugin) handleRegenAction(ctx *context.Context) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
-	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
+	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 	if p.sessionTurnActive(sessionID) {
 		p.notifyQQActionBusy(ctx, "重新生成", sessionID)
 		return nil
@@ -278,7 +279,7 @@ func (p *Plugin) handleRegenAction(ctx *context.Context) error {
 func (p *Plugin) handleClearAction(ctx *context.Context) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
-	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
+	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 	if p.sessionTurnActive(sessionID) {
 		p.notifyQQActionBusy(ctx, "清空会话", sessionID)
 		return nil
@@ -294,11 +295,11 @@ func (p *Plugin) handleClearAction(ctx *context.Context) error {
 }
 
 // sessionTurnActive 返回会话当前是否处于生成回合（TurnActive）。
-func (p *Plugin) sessionTurnActive(sessionID string) bool {
-	if p.sm == nil {
+func (r *runtimeState) sessionTurnActive(sessionID string) bool {
+	if r.sm == nil {
 		return false
 	}
-	if s := p.sm.Peek(sessionID); s != nil && s.TurnActive() {
+	if s := r.sm.Peek(sessionID); s != nil && s.TurnActive() {
 		return true
 	}
 	return false
@@ -310,42 +311,42 @@ func (p *Plugin) sessionTurnActive(sessionID string) bool {
 //
 // 指令按钮点击（自动发送文本命令）与 type=1 回调共用此门闩：/ai retry、
 // /ai reset 子命令入口（subcommand.go execSubCommand）先调用本方法再执行。
-func (p *Plugin) qqActionClickAllowed(action, sessionID string) bool {
-	p.actionMu.Lock()
-	defer p.actionMu.Unlock()
-	p.pruneQQActionRateLocked()
-	key := qqActionRateKey(action, sessionID)
-	st := p.actionRate[key]
+func (a *adminState) qqActionClickAllowed(action, sessionID string) bool {
+	a.actionMu.Lock()
+	defer a.actionMu.Unlock()
+	a.pruneQQActionRateLocked()
+	key := a.rateKey(action, sessionID)
+	st := a.actionRate[key]
 	now := time.Now()
 	if now.Sub(st.lastClick) < qqActionClickCooldown {
 		return false
 	}
 	st.lastClick = now
-	p.actionRate[key] = st
+	a.actionRate[key] = st
 	return true
 }
 
 // qqActionBusyNoticeAllowed 原子地检查忙时提示是否可发送（按会话节流）。
-func (p *Plugin) qqActionBusyNoticeAllowed(action, sessionID string) bool {
-	p.actionMu.Lock()
-	defer p.actionMu.Unlock()
-	p.pruneQQActionRateLocked()
-	key := qqActionRateKey(action, sessionID)
-	st := p.actionRate[key]
+func (a *adminState) qqActionBusyNoticeAllowed(action, sessionID string) bool {
+	a.actionMu.Lock()
+	defer a.actionMu.Unlock()
+	a.pruneQQActionRateLocked()
+	key := a.rateKey(action, sessionID)
+	st := a.actionRate[key]
 	now := time.Now()
 	if now.Sub(st.lastBusyNotice) < qqActionBusyNoticeInterval {
 		return false
 	}
 	st.lastBusyNotice = now
-	p.actionRate[key] = st
+	a.actionRate[key] = st
 	return true
 }
 
 // notifyQQActionBusy 在会话忙时给出节流后的提示；节流窗口内静默忽略。
 // 忙时拒绝不消耗触发冷却（lastClick），回合结束后用户再触发一次即可立即
 // 生效。
-func (p *Plugin) notifyQQActionBusy(ctx *context.Context, label, sessionID string) {
-	if !p.qqActionBusyNoticeAllowed(label, sessionID) {
+func (a *adminState) notifyQQActionBusy(ctx *context.Context, label, sessionID string) {
+	if !a.qqActionBusyNoticeAllowed(label, sessionID) {
 		return
 	}
 	ctx.ReplyText(fmt.Sprintf("⏳ 当前还有回复正在生成，稍后再试“%s”即可", label))
@@ -353,15 +354,15 @@ func (p *Plugin) notifyQQActionBusy(ctx *context.Context, label, sessionID strin
 
 // pruneQQActionRateLocked 清理超过节流窗口的旧条目，避免 map 无界增长。
 // 调用方须持有 actionMu；actionRate 为 nil 时先初始化。
-func (p *Plugin) pruneQQActionRateLocked() {
-	if p.actionRate == nil {
-		p.actionRate = make(map[string]qqActionRateState)
+func (a *adminState) pruneQQActionRateLocked() {
+	if a.actionRate == nil {
+		a.actionRate = make(map[string]qqActionRateState)
 	}
 	now := time.Now()
-	for key, st := range p.actionRate {
+	for key, st := range a.actionRate {
 		if now.Sub(st.lastClick) > qqActionClickCooldown &&
 			now.Sub(st.lastBusyNotice) > qqActionBusyNoticeInterval {
-			delete(p.actionRate, key)
+			delete(a.actionRate, key)
 		}
 	}
 }

@@ -7,6 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
@@ -85,11 +93,11 @@ func TestProgressReportingGuidance(t *testing.T) {
 	if !strings.Contains(DefaultFrameworkPrompt, "单轮即可完成的任务不要调用 send_message") {
 		t.Error("framework prompt should restrict send_message to multi-round tasks")
 	}
-	p := &Plugin{cfg: &Config{}}
-	tools := p.buildSendTools()
-	var msgTool *Tool
+	p := &Plugin{cfg: &config.Config{}}
+	tools := buildSendToolsForTest(p)
+	var msgTool *toolkit.Tool
 	for i := range tools {
-		if tools[i].Name == sendMessageToolName {
+		if tools[i].Name == catalog.SendMessageToolName {
 			msgTool = &tools[i]
 			break
 		}
@@ -107,45 +115,45 @@ func TestProgressReportingGuidance(t *testing.T) {
 
 func TestToolSenderContext(t *testing.T) {
 	ctx := context.Background()
-	_, ok := ToolSenderFromContext(ctx)
+	_, ok := toolkit.ToolSenderFromContext(ctx)
 	assert.False(t, ok)
 
 	sender := &loopToolSender{}
-	ctx = WithToolSender(ctx, sender)
-	got, ok := ToolSenderFromContext(ctx)
+	ctx = toolkit.WithToolSender(ctx, sender)
+	got, ok := toolkit.ToolSenderFromContext(ctx)
 	assert.True(t, ok)
 	assert.Same(t, sender, got)
 }
 
 func TestBuildOutboundMessage(t *testing.T) {
-	mdPlugin := &Plugin{cfg: &Config{Markdown: true}}
-	textPlugin := &Plugin{cfg: &Config{Markdown: false}}
+	mdPlugin := &Plugin{cfg: &config.Config{Markdown: true}}
+	textPlugin := &Plugin{cfg: &config.Config{Markdown: false}}
 
 	// 默认跟随插件 markdown 配置（Markdown=true → Markdown 渲染）
-	msg, err := mdPlugin.buildOutboundMessage(map[string]any{"message": "hello"})
+	msg, err := buildOutboundMessageForTest(mdPlugin, map[string]any{"message": "hello"})
 	require.NoError(t, err)
 	assert.Empty(t, msg.Text)
 	assert.Equal(t, "hello", msg.Markdown)
 
 	// Markdown=false → 纯文本
-	msg, err = textPlugin.buildOutboundMessage(map[string]any{"message": "hello"})
+	msg, err = buildOutboundMessageForTest(textPlugin, map[string]any{"message": "hello"})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", msg.Text)
 	assert.Empty(t, msg.Markdown)
 
 	// format 显式覆盖：markdown=false 配置下指定 markdown
-	msg, err = textPlugin.buildOutboundMessage(map[string]any{"message": "# title", "format": "markdown"})
+	msg, err = buildOutboundMessageForTest(textPlugin, map[string]any{"message": "# title", "format": "markdown"})
 	require.NoError(t, err)
 	assert.Empty(t, msg.Text)
 	assert.Equal(t, "# title", msg.Markdown)
 
 	// format 显式覆盖：markdown=true 配置下指定 text
-	msg, err = mdPlugin.buildOutboundMessage(map[string]any{"message": "# title", "format": "text"})
+	msg, err = buildOutboundMessageForTest(mdPlugin, map[string]any{"message": "# title", "format": "text"})
 	require.NoError(t, err)
 	assert.Equal(t, "# title", msg.Text)
 	assert.Empty(t, msg.Markdown)
 
-	msg, err = mdPlugin.buildOutboundMessage(map[string]any{
+	msg, err = buildOutboundMessageForTest(mdPlugin, map[string]any{
 		"message":     "pic",
 		"image_url":   "https://example.com/a.png",
 		"mention_ids": []any{"u1", "u2"},
@@ -156,11 +164,11 @@ func TestBuildOutboundMessage(t *testing.T) {
 	assert.Equal(t, "https://example.com/a.png", msg.Attachments[0].URL)
 	assert.Equal(t, []string{"u1", "u2"}, msg.Mentions)
 
-	_, err = mdPlugin.buildOutboundMessage(map[string]any{})
+	_, err = buildOutboundMessageForTest(mdPlugin, map[string]any{})
 	assert.Error(t, err)
 
-	long := strings.Repeat("a", maxSendMessageRunes+1)
-	_, err = mdPlugin.buildOutboundMessage(map[string]any{"message": long})
+	long := strings.Repeat("a", catalog.MaxSendMessageRunes+1)
+	_, err = buildOutboundMessageForTest(mdPlugin, map[string]any{"message": long})
 	assert.Error(t, err)
 }
 
@@ -176,21 +184,21 @@ func TestLoopToolSenderResolveTarget(t *testing.T) {
 		p        *Plugin
 		raw      string
 		isGroup  bool
-		want     ChatTarget
+		want     toolkit.ChatTarget
 		wantErr  bool
 		wantExpr string
 	}{
-		{"本群（群聊）", groupCtx, &Plugin{}, "本群", false, ChatTarget{ID: "group_1", IsGroup: true}, false, "本群（group_1）"},
-		{"本群（私聊报错）", privateCtx, &Plugin{}, "这个群", false, ChatTarget{}, true, ""},
-		{"我（调用者）", groupCtx, &Plugin{}, "我", false, ChatTarget{ID: "user1"}, false, "我（user1）"},
-		{"对方（私聊）", privateCtx, &Plugin{}, "对方", false, ChatTarget{ID: "chat_1"}, false, "对方（chat_1）"},
-		{"对方（群聊报错）", groupCtx, &Plugin{}, "这里", false, ChatTarget{}, true, ""},
-		{"群成员昵称", groupCtx, groupPlugin, "张三", false, ChatTarget{ID: "u1"}, false, "张三（u1）"},
-		{"私聊对方昵称", privateCtx, privatePlugin, "张三", false, ChatTarget{ID: "chat_1"}, false, "张三（chat_1）"},
-		{"原始 ID", groupCtx, &Plugin{}, "rawid123", true, ChatTarget{ID: "rawid123", IsGroup: true}, false, "rawid123"},
-		{"未知昵称", groupCtx, &Plugin{}, "没有人", false, ChatTarget{}, true, ""},
-		{"含空格的未知目标", groupCtx, &Plugin{}, "not a target", false, ChatTarget{}, true, ""},
-		{"空目标", groupCtx, &Plugin{}, "  ", false, ChatTarget{}, true, ""},
+		{"本群（群聊）", groupCtx, &Plugin{}, "本群", false, toolkit.ChatTarget{ID: "group_1", IsGroup: true}, false, "本群（group_1）"},
+		{"本群（私聊报错）", privateCtx, &Plugin{}, "这个群", false, toolkit.ChatTarget{}, true, ""},
+		{"我（调用者）", groupCtx, &Plugin{}, "我", false, toolkit.ChatTarget{ID: "user1"}, false, "我（user1）"},
+		{"对方（私聊）", privateCtx, &Plugin{}, "对方", false, toolkit.ChatTarget{ID: "chat_1"}, false, "对方（chat_1）"},
+		{"对方（群聊报错）", groupCtx, &Plugin{}, "这里", false, toolkit.ChatTarget{}, true, ""},
+		{"群成员昵称", groupCtx, groupPlugin, "张三", false, toolkit.ChatTarget{ID: "u1"}, false, "张三（u1）"},
+		{"私聊对方昵称", privateCtx, privatePlugin, "张三", false, toolkit.ChatTarget{ID: "chat_1"}, false, "张三（chat_1）"},
+		{"原始 ID", groupCtx, &Plugin{}, "rawid123", true, toolkit.ChatTarget{ID: "rawid123", IsGroup: true}, false, "rawid123"},
+		{"未知昵称", groupCtx, &Plugin{}, "没有人", false, toolkit.ChatTarget{}, true, ""},
+		{"含空格的未知目标", groupCtx, &Plugin{}, "not a target", false, toolkit.ChatTarget{}, true, ""},
+		{"空目标", groupCtx, &Plugin{}, "  ", false, toolkit.ChatTarget{}, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -214,7 +222,7 @@ func TestResolveTargetCaseInsensitive(t *testing.T) {
 
 	target, display, err := sender.ResolveTarget(context.Background(), "zhang san", false)
 	require.NoError(t, err)
-	assert.Equal(t, ChatTarget{ID: "u9"}, target)
+	assert.Equal(t, toolkit.ChatTarget{ID: "u9"}, target)
 	assert.Equal(t, "zhang san（u9）", display)
 }
 
@@ -238,13 +246,13 @@ func TestResolveTargetJoinedGroupName(t *testing.T) {
 
 	target, display, err := s.ResolveTarget(context.Background(), "开发群", false)
 	require.NoError(t, err)
-	assert.Equal(t, ChatTarget{ID: "g9", IsGroup: true}, target)
+	assert.Equal(t, toolkit.ChatTarget{ID: "g9", IsGroup: true}, target)
 	assert.Equal(t, "开发群（g9）", display)
 
 	// 群名不匹配时跳过（回退原始 ID）
 	target, display, err = s.ResolveTarget(context.Background(), "u99", false)
 	require.NoError(t, err)
-	assert.Equal(t, ChatTarget{ID: "u99"}, target)
+	assert.Equal(t, toolkit.ChatTarget{ID: "u99"}, target)
 	assert.Equal(t, "u99", display)
 }
 
@@ -301,13 +309,13 @@ func TestLoopToolSenderSendTo(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: &Plugin{}, budget: &sendBudget{limit: 10}}
 
 	// 未授权（未过审批门）：拒绝
-	_, err := sender.SendTo(context.Background(), ChatTarget{ID: "u1"}, platform.TextMessage("hi"))
+	_, err := sender.SendTo(context.Background(), toolkit.ChatTarget{ID: "u1"}, platform.TextMessage("hi"))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "审批")
 
 	// 授权后：私聊用户走 SessionNotifier.NotifyUser
 	sender.sendToAllowed = true
-	_, err = sender.SendTo(context.Background(), ChatTarget{ID: "u1"}, platform.TextMessage("hi"))
+	_, err = sender.SendTo(context.Background(), toolkit.ChatTarget{ID: "u1"}, platform.TextMessage("hi"))
 	require.NoError(t, err)
 	calls := mockSender.Snapshot()
 	require.Len(t, calls, 1)
@@ -315,18 +323,18 @@ func TestLoopToolSenderSendTo(t *testing.T) {
 	assert.Equal(t, "u1", calls[0].ChatID)
 
 	// 群聊目标走 NotifyGroup
-	_, err = sender.SendTo(context.Background(), ChatTarget{ID: "g1", IsGroup: true}, platform.TextMessage("hi"))
+	_, err = sender.SendTo(context.Background(), toolkit.ChatTarget{ID: "g1", IsGroup: true}, platform.TextMessage("hi"))
 	require.NoError(t, err)
 	calls = mockSender.Snapshot()
 	assert.Equal(t, "NotifyGroup", calls[1].Method)
 	assert.Equal(t, "g1", calls[1].ChatID)
 
 	// 空目标 ID
-	_, err = sender.SendTo(context.Background(), ChatTarget{}, platform.TextMessage("hi"))
+	_, err = sender.SendTo(context.Background(), toolkit.ChatTarget{}, platform.TextMessage("hi"))
 	assert.Error(t, err)
 
 	// 空消息
-	_, err = sender.SendTo(context.Background(), ChatTarget{ID: "u1"}, platform.OutboundMessage{})
+	_, err = sender.SendTo(context.Background(), toolkit.ChatTarget{ID: "u1"}, platform.OutboundMessage{})
 	assert.Error(t, err)
 }
 
@@ -336,7 +344,7 @@ func TestLoopToolSenderSendToFallback(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: &Plugin{}, sendToAllowed: true, budget: &sendBudget{limit: 10}}
 
 	// 平台 Sender 未实现 SessionNotifier 时回退普通 Send
-	_, err := sender.SendTo(context.Background(), ChatTarget{ID: "u9"}, platform.TextMessage("hi"))
+	_, err := sender.SendTo(context.Background(), toolkit.ChatTarget{ID: "u9"}, platform.TextMessage("hi"))
 	require.NoError(t, err)
 	plain.mu.Lock()
 	require.Len(t, plain.replies, 1)
@@ -371,26 +379,26 @@ func TestSendToolsThroughExecuteTool(t *testing.T) {
 	pm.GrantPermission("user1", permission.Permission{Resource: "ai.message", Action: "send"})
 	ctx.SetPermissionManager(pm)
 	p := withHistory(&Plugin{
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}, true, map[string]string{"u1": "张三"})
-	for _, tool := range p.buildSendTools() {
+	for _, tool := range buildSendToolsForTest(p) {
 		p.reg.Register(tool)
 	}
 
 	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: true, budget: &sendBudget{limit: 10}}
 
 	// send_message：向当前会话发送
-	res := p.executeTool(ctx, ToolCall{Name: sendMessageToolName, Arguments: map[string]any{"message": "进度 1/2"}},
-		context.Background(), &captureSender{}, sender)
+	res := p.executeToolResult(ctx, protocol.ToolCall{Name: catalog.SendMessageToolName, Arguments: map[string]any{"message": "进度 1/2"}},
+		context.Background(), &execution.CaptureSender{}, sender).Text
 	assert.Equal(t, "消息已发送", res)
 	calls := mockSender.Snapshot()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "进度 1/2", calls[0].Msg.Text)
 
 	// send_to：昵称自动解析（messagelog 近期发言者）
-	res = p.executeTool(ctx, ToolCall{Name: sendToToolName, Arguments: map[string]any{"target": "张三", "message": "通知"}},
-		context.Background(), &captureSender{}, sender)
+	res = p.executeToolResult(ctx, protocol.ToolCall{Name: catalog.SendToToolName, Arguments: map[string]any{"target": "张三", "message": "通知"}},
+		context.Background(), &execution.CaptureSender{}, sender).Text
 	assert.Equal(t, "消息已发送到 张三（u1）", res)
 	calls = mockSender.Snapshot()
 	notifyCalls := filterCalls(calls, "NotifyUser")
@@ -398,8 +406,8 @@ func TestSendToolsThroughExecuteTool(t *testing.T) {
 	assert.Equal(t, "u1", notifyCalls[0].ChatID)
 
 	// send_to：原始 ID + 群聊
-	res = p.executeTool(ctx, ToolCall{Name: sendToToolName, Arguments: map[string]any{"target": "u2", "is_group": true, "message": "群通知"}},
-		context.Background(), &captureSender{}, sender)
+	res = p.executeToolResult(ctx, protocol.ToolCall{Name: catalog.SendToToolName, Arguments: map[string]any{"target": "u2", "is_group": true, "message": "群通知"}},
+		context.Background(), &execution.CaptureSender{}, sender).Text
 	assert.Equal(t, "消息已发送到 u2", res)
 	calls = mockSender.Snapshot()
 	groupCalls := filterCalls(calls, "NotifyGroup")
@@ -407,52 +415,50 @@ func TestSendToolsThroughExecuteTool(t *testing.T) {
 	assert.Equal(t, "u2", groupCalls[0].ChatID)
 
 	// 无发送能力上下文：工具报错
-	res = p.executeTool(ctx, ToolCall{Name: sendMessageToolName, Arguments: map[string]any{"message": "x"}},
-		context.Background(), &captureSender{}, nil)
+	res = p.executeToolResult(ctx, protocol.ToolCall{Name: catalog.SendMessageToolName, Arguments: map[string]any{"message": "x"}},
+		context.Background(), &execution.CaptureSender{}, nil).Text
 	assert.Contains(t, res, "无消息发送能力")
 
 	// 无法解析的目标：报错
-	res = p.executeTool(ctx, ToolCall{Name: sendToToolName, Arguments: map[string]any{"target": "no such user", "message": "x"}},
-		context.Background(), &captureSender{}, sender)
+	res = p.executeToolResult(ctx, protocol.ToolCall{Name: catalog.SendToToolName, Arguments: map[string]any{"target": "no such user", "message": "x"}},
+		context.Background(), &execution.CaptureSender{}, sender).Text
 	assert.Contains(t, res, "无法解析目标")
 }
 
 func TestSendToApprovalForced(t *testing.T) {
-	reg := NewToolRegistry()
-	reg.Register(Tool{Name: sendToToolName, AlwaysRequireApproval: true, RequiresApproval: true})
-	reg.Register(Tool{Name: "plain_tool"})
-	p := &Plugin{reg: reg, cfg: &Config{ToolApproval: "off"}}
+	reg := toolkit.NewToolRegistry()
+	reg.Register(toolkit.Tool{Name: catalog.SendToToolName, AlwaysRequireApproval: true, RequiresApproval: true})
+	reg.Register(toolkit.Tool{Name: "plain_tool"})
+	p := &Plugin{reg: reg, cfg: &config.Config{ToolApproval: "off"}}
 	ctx, _ := newApprovalTestContext("u1")
 
-	assert.True(t, p.approvalModeFor(ctx, sendToToolName), "off 模式下 send_to 也必须审批")
+	assert.True(t, p.approvalModeFor(ctx, catalog.SendToToolName), "off 模式下 send_to 也必须审批")
 	assert.False(t, p.approvalModeFor(ctx, "plain_tool"), "off 模式下普通工具不审批")
 
 	p.cfg.ToolApproval = "restricted"
-	assert.True(t, p.approvalModeFor(ctx, sendToToolName))
+	assert.True(t, p.approvalModeFor(ctx, catalog.SendToToolName))
 }
 
 func TestExecOneToolSendToDeniedWithoutPermission(t *testing.T) {
 	ctx := newSendTestContext(mock.NewSender())
 	p := &Plugin{
-		cfg:       &Config{ToolTimeout: 5 * time.Second},
-		sm:        NewSessionManager(100, 20, time.Hour, nil),
-		reg:       NewToolRegistry(),
-		skillReg:  NewSkillRegistry(),
-		approvals: newApprovalManager(),
+		cfg:       &config.Config{ToolTimeout: 5 * time.Second},
+		sm:        session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:       toolkit.NewToolRegistry(),
+		skillReg:  toolkit.NewSkillRegistry(),
+		approvals: execution.NewApprovalManager(),
 	}
-	for _, tool := range p.buildSendTools() {
+	for _, tool := range buildSendToolsForTest(p) {
 		p.reg.Register(tool)
 	}
-	session := p.sm.GetOrCreate("send:deny", "user1", "chat_1")
+	sess := p.sm.GetOrCreate("send:deny", "user1", "chat_1")
 
-	res := p.execOneTool(ctx, session, &captureSender{}, &sendBudget{limit: 10}, ToolCall{
-		Name:      sendToToolName,
+	res := p.execOneTool(ctx, sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
+		Name:      catalog.SendToToolName,
 		Arguments: map[string]any{"target": "张三", "message": "hi"},
 	})
-	assert.Contains(t, res.result, "需要权限")
-	p.approvals.mu.Lock()
-	assert.Len(t, p.approvals.pending, 0, "无权限时不应发起审批")
-	p.approvals.mu.Unlock()
+	assert.Contains(t, res.Result, "需要权限")
+	assert.Equal(t, 0, p.approvals.PendingCount(), "无权限时不应发起审批")
 }
 
 func TestExecOneToolSendToApprovalFlow(t *testing.T) {
@@ -463,21 +469,21 @@ func TestExecOneToolSendToApprovalFlow(t *testing.T) {
 	ctx.SetPermissionManager(pm)
 
 	p := withHistory(&Plugin{
-		cfg:       &Config{ToolTimeout: 5 * time.Second},
-		sm:        NewSessionManager(100, 20, time.Hour, nil),
-		reg:       NewToolRegistry(),
-		skillReg:  NewSkillRegistry(),
-		approvals: newApprovalManager(),
+		cfg:       &config.Config{ToolTimeout: 5 * time.Second},
+		sm:        session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:       toolkit.NewToolRegistry(),
+		skillReg:  toolkit.NewSkillRegistry(),
+		approvals: execution.NewApprovalManager(),
 	}, true, map[string]string{"u1": "张三"})
-	for _, tool := range p.buildSendTools() {
+	for _, tool := range buildSendToolsForTest(p) {
 		p.reg.Register(tool)
 	}
-	session := p.sm.GetOrCreate("send:approve", "user1", "group_1")
+	sess := p.sm.GetOrCreate("send:approve", "user1", "group_1")
 
-	done := make(chan toolExecResult, 1)
+	done := make(chan runtime.ToolExecResult, 1)
 	go func() {
-		done <- p.execOneTool(ctx, session, &captureSender{}, &sendBudget{limit: 10}, ToolCall{
-			Name:      sendToToolName,
+		done <- p.execOneTool(ctx, sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
+			Name:      catalog.SendToToolName,
 			Arguments: map[string]any{"target": "张三", "message": "你好"},
 		})
 	}()
@@ -486,20 +492,17 @@ func TestExecOneToolSendToApprovalFlow(t *testing.T) {
 	var id string
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && id == "" {
-		p.approvals.mu.Lock()
-		for k := range p.approvals.pending {
-			id = k
-			break
+		if ids := p.approvals.PendingIDs(); len(ids) > 0 {
+			id = ids[0]
 		}
-		p.approvals.mu.Unlock()
 		time.Sleep(10 * time.Millisecond)
 	}
 	require.NotEmpty(t, id, "send_to 应发起审批")
-	assert.True(t, p.approvals.resolve(id, "user1", true))
+	assert.True(t, p.approvals.Resolve(id, "user1", true))
 
 	select {
 	case res := <-done:
-		assert.Contains(t, res.result, "消息已发送到 张三（u1）")
+		assert.Contains(t, res.Result, "消息已发送到 张三（u1）")
 	case <-time.After(3 * time.Second):
 		t.Fatal("execOneTool did not finish after approval")
 	}

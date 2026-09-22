@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -67,21 +69,21 @@ func (m *reminderManager) nextID(chatID string) string {
 }
 
 // reminderKey 生成提醒在管理器中的唯一键（会话内 ID 仅保证本会话唯一）。
-func reminderKey(chatID, id string) string {
+func (m *reminderManager) key(chatID, id string) string {
 	return chatID + "\x00" + id
 }
 
 // add 注册一条提醒并启动定时器。
 func (m *reminderManager) add(r *reminder) {
 	m.mu.Lock()
-	m.items[reminderKey(r.ChatID, r.ID)] = r
+	m.items[m.key(r.ChatID, r.ID)] = r
 	m.mu.Unlock()
 }
 
 // remove 移除指定会话的提醒并取消定时器，返回是否命中。
 func (m *reminderManager) remove(chatID, id string) bool {
 	m.mu.Lock()
-	key := reminderKey(chatID, id)
+	key := m.key(chatID, id)
 	r, ok := m.items[key]
 	if ok {
 		delete(m.items, key)
@@ -138,20 +140,20 @@ func (p *Plugin) handleRemindCommand(ctx *eventctx.Context, rest string) error {
 		}
 		return p.handleRemindCancel(ctx, strings.TrimSpace(parts[1]))
 	case "":
-		p.replyFormatted(ctx, remindHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.remindHelpText(p.cfg.TriggerCmd))
 		return nil
 	default:
 		// 默认视为设置提醒：<时长> <内容>
-		duration, content, ok := parseRemindArgs(rest)
+		duration, content, ok := p.parseRemindArgs(rest)
 		if !ok {
-			p.replyFormatted(ctx, remindHelpText(p.cfg.TriggerCmd))
+			p.replyFormatted(ctx, p.remindHelpText(p.cfg.TriggerCmd))
 			return nil
 		}
 		return p.handleRemindAdd(ctx, duration, content)
 	}
 }
 
-func remindHelpText(triggerCmd string) string {
+func (a *adminState) remindHelpText(triggerCmd string) string {
 	return fmt.Sprintf(`⏰ **定时提醒**
 
   `+"`%s remind <时长> <内容>`"+`   — 设置提醒（如 `+"`%s remind 5分钟 去喝水`"+`）
@@ -163,12 +165,12 @@ func remindHelpText(triggerCmd string) string {
 
 // parseRemindArgs 解析 "5分钟 去喝水" → (5m, "去喝水")。
 // 支持 "30秒/30s"、"5分钟/5分/5m"、"1小时/1h"、"2天/2d" 等常见写法。
-func parseRemindArgs(rest string) (time.Duration, string, bool) {
+func (a *adminState) parseRemindArgs(rest string) (time.Duration, string, bool) {
 	fields := strings.Fields(rest)
 	if len(fields) < 2 {
 		return 0, "", false
 	}
-	d, err := parseRemindDuration(fields[0])
+	d, err := catalog.ParseRemindDuration(fields[0])
 	if err != nil {
 		return 0, "", false
 	}
@@ -179,52 +181,8 @@ func parseRemindArgs(rest string) (time.Duration, string, bool) {
 	return d, content, true
 }
 
-// parseRemindDuration 解析提醒时长字符串。
-//
-// 支持：
-//   - 英文缩写：30s、5m、1h、2d（及 30sec/5min/1hour/2days）
-//   - 中文：30秒、5分钟、5分、1小时、1时、2天、2日
-//   - 纯数字：视为分钟（"5" → 5 分钟）
-func parseRemindDuration(s string) (time.Duration, error) {
-	s = strings.TrimSpace(strings.ToLower(s))
-	if s == "" {
-		return 0, fmt.Errorf("empty duration")
-	}
-
-	// 纯数字 → 分钟
-	if n, err := strconv.Atoi(s); err == nil {
-		if n <= 0 {
-			return 0, fmt.Errorf("duration must be positive: %q", s)
-		}
-		return time.Duration(n) * time.Minute, nil
-	}
-
-	type unit struct {
-		names  []string
-		amount time.Duration
-	}
-	units := []unit{
-		{[]string{"天", "日", "d", "days", "day"}, 24 * time.Hour},
-		{[]string{"小时", "时", "h", "hours", "hour"}, time.Hour},
-		{[]string{"分钟", "分", "m", "mins", "min", "minutes", "minute"}, time.Minute},
-		{[]string{"秒", "s", "sec", "secs", "seconds", "second"}, time.Second},
-	}
-	for _, u := range units {
-		for _, name := range u.names {
-			if before, ok := strings.CutSuffix(s, name); ok {
-				numStr := before
-				n, err := strconv.Atoi(numStr)
-				if err != nil || n <= 0 {
-					return 0, fmt.Errorf("invalid duration: %q", s)
-				}
-				return time.Duration(n) * u.amount, nil
-			}
-		}
-	}
-	return 0, fmt.Errorf("unsupported duration format: %q", s)
-}
-
-// handleRemindAdd 设置一条定时提醒，到期后主动推送到原会话。
+// addReminder 创建并注册一条定时提醒，返回提醒对象与确认文本。
+// 供 /ai remind 子命令与 set_reminder 工具共用。
 func (p *Plugin) handleRemindAdd(ctx *eventctx.Context, duration time.Duration, content string) error {
 	sender := ctx.GetPlatformSender()
 	if sender == nil {
@@ -267,7 +225,7 @@ func (p *Plugin) addReminder(chat platform.ChatInfo, sender platform.Sender, dur
 		}
 	}()
 
-	return r, fmt.Sprintf("⏰ 已设置提醒：%s（%s 后触发，ID: %s）", content, formatRemindDuration(duration), r.ID)
+	return r, fmt.Sprintf("⏰ 已设置提醒：%s（%s 后触发，ID: %s）", content, catalog.FormatRemindDuration(duration), r.ID)
 }
 
 // fireReminder 触发提醒：通过 SessionNotifier（如 QQ）主动推送，
@@ -318,7 +276,7 @@ func (p *Plugin) handleRemindList(ctx *eventctx.Context) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("⏰ **活跃提醒 (%d)**\n\n", len(items)))
 	for _, r := range items {
-		fmt.Fprintf(&b, "  - `%s` — %s（%s 后触发）\n", r.ID, r.Text, formatRemindDuration(time.Until(r.At)))
+		fmt.Fprintf(&b, "  - `%s` — %s（%s 后触发）\n", r.ID, r.Text, catalog.FormatRemindDuration(time.Until(r.At)))
 	}
 	b.WriteString("\n用 `/ai remind cancel <ID>` 取消提醒")
 	p.replyFormatted(ctx, b.String())
@@ -337,33 +295,4 @@ func (p *Plugin) handleRemindCancel(ctx *eventctx.Context, id string) error {
 		p.replyFormatted(ctx, fmt.Sprintf("❌ 未找到提醒 `%s`（ID 见 `/ai remind list`）", id))
 	}
 	return nil
-}
-
-// formatRemindDuration 格式化剩余时长（"5分钟"、"1小时30分"、"2天"）。
-func formatRemindDuration(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	days := int(d / (24 * time.Hour))
-	d -= time.Duration(days) * 24 * time.Hour
-	hours := int(d / time.Hour)
-	d -= time.Duration(hours) * time.Hour
-	mins := int(d / time.Minute)
-	d -= time.Duration(mins) * time.Minute
-	secs := int(d / time.Second)
-
-	var parts []string
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%d天", days))
-	}
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%d小时", hours))
-	}
-	if mins > 0 {
-		parts = append(parts, fmt.Sprintf("%d分钟", mins))
-	}
-	if secs > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%d秒", secs))
-	}
-	return strings.Join(parts, "")
 }

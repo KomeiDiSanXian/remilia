@@ -9,11 +9,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -21,6 +24,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
@@ -29,85 +35,20 @@ import (
 
 // Plugin AI 对话插件的主结构体，管理整个 AI 插件的生命周期。
 //
-// 字段说明：
-//   - cfg: 插件配置，加载自 config.yaml plugins.ai 节
-//   - coord: 命令协调器（engine.Reader），用于启动时发现已注册的命令
-//   - syncer: 事件处理器（vevent），用于 executeRealCommand 合成事件触发真实命令
-//   - sm: 会话管理器，负责会话的 LRU 缓存、持久化、过期清理
-//   - reg: 工具注册表，管理所有可供 LLM 调用的工具
-//   - prov: LLM 提供商实例，当前支持 OpenAI 兼容 API 和 Anthropic
-//   - triggerCmd: 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离
-//   - cmdPatterns: 工具名到完整命令模式的映射，用于 executeRealCommand 构造合成事件
-//   - skillReg: 技能注册表，管理所有已注册的 Skill
-//   - fsmEngine: 内置 FSM 引擎，用于技能注册等两步对话流程
-//   - lifecycleCtx: 插件生命周期上下文，插件关闭时取消，用于替代 context.Background()
-//   - lifecycleCancel: 取消 lifecycleCtx 的函数
+// 直属字段只有 cfg 与 prov 两项共享依赖；其余字段按职责分区后嵌入
+// （见 pluginparts.go）：catalogState / contextState / executionState /
+// runtimeState / adminState。嵌入让 p.reg、p.sm 这类既有访问保持可用。
 type Plugin struct {
-	cfg         *Config
-	coord       engine.Reader
-	syncer      vevent.EventProcessor
-	sm          *SessionManager
-	reg         *ToolRegistry
-	prov        Provider
-	triggerCmd  string
-	cmdMu       sync.RWMutex
-	cmdPatterns map[string]string
-	skillReg    *SkillRegistry
+	// cfg 插件配置，加载自 config.yaml plugins.ai 节。
+	cfg *config.Config
+	// prov LLM 提供商实例，当前支持 OpenAI 兼容 API 和 Anthropic。
+	prov protocol.Provider
 
-	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。
-	// 注册触发命令 matcher 与判定"正文是否已由该 matcher 接管"（triggerParses）
-	// 必须使用同一份定义，且该定义逐消息重建不划算。
-	defOnce sync.Once
-	def     *command.Definition
-
-	// summaryMu / summaries 防止同一会话重复触发 /ai summary 产生无界后台 goroutine。
-	summaryMu sync.Mutex
-	summaries map[string]bool
-
-	// history 消息历史提供者（messagelog），用于回复上下文与群聊最近消息窗口。
-	// 默认 messagelog.Default()；messagelog 未启用时查询为空，相关功能自动降级为 no-op。
-	history *messagelog.Logger
-
-	fsmEngine       *fsm.Engine
-	lifecycleCtx    context.Context
-	lifecycleCancel context.CancelFunc
-
-	// reminders 定时提醒管理器（/ai remind）。
-	// 依赖 plugin.SessionNotifier 主动推送；进程内存储，重启后失效。
-	reminders *reminderManager
-
-	// todos 会话内待办清单管理器（todo_* 工具）。
-	// 进程内存储，重启后失效。
-	todos *todoManager
-
-	// perms RBAC 权限插件（用于工具级权限校验与按角色注入）。
-	// permission 插件未注册时为 nil，此时权限校验回退到上下文权限管理器
-	// （测试场景），两者皆无则安全拒绝。
-	perms *permission.Plugin
-
-	// approvals 命令执行审批管理器（tool_approval）。
-	approvals *approvalManager
-
-	// groupPolicies per-group 工具策略/提示词（/ai group）。
-	// LevelDB 持久化（data/ai）；store 为 nil 时纯内存（测试场景）。
-	groupPolicies *groupPolicyManager
-
-	// emb 文本向量缓存（embedding_base_url 配置时启用）。
-	// 工具选择与记忆检索共用；为 nil 时两者均退化为纯关键词打分。
-	emb *textVectorCache
-
-	// memory 长期事实记忆（memory_enabled 配置时启用）。
-	// LevelDB 持久化（data/ai_memory）；store 为 nil 时功能关闭。
-	memory *memoryStore
-
-	// realCmdMu 并行工具执行时真实命令路径（syncer）的串行化互斥。
-	realCmdMu sync.Mutex
-
-	// actionMu / actionRate 记录同一会话操作按钮（"重新生成"/"清空会话"）
-	// 与相应文本命令（/ai retry、/ai reset）的限流状态（触发冷却 + 忙时提示
-	// 节流，见 qqaction.go）。键为 action + sessionID。惰性初始化并按需清理。
-	actionMu   sync.Mutex
-	actionRate map[string]qqActionRateState
+	catalogState
+	contextState
+	executionState
+	runtimeState
+	adminState
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -170,16 +111,16 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
     system_prompt: "你是一个有用的AI助手"   # 系统提示词`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			cfg := loadConfig(ctx)
+			cfg := config.Load(ctx)
 			prov, err := NewProvider(cfg)
 			if err != nil {
 				return nil, fmt.Errorf("ai: create provider: %w", err)
 			}
 
-			var store SessionStore = &noopSessionStore{}
+			var store session.SessionStore = &session.NoopStore{}
 			if !ctx.DryRun {
 				if storageSvc, ok := ctx.TryService[*infrastorage.Plugin]("storage"); ok {
-					if s, err := NewGormSessionStore(storageSvc); err == nil {
+					if s, err := session.NewGormSessionStore(storageSvc); err == nil {
 						store = s
 						ctx.Log.Info("Session persistence enabled via storage plugin")
 					} else {
@@ -217,14 +158,14 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 语义检索基础设施（embedding_base_url 配置时启用）：
 			// 文本向量按内容惰性嵌入并缓存，查询向量每轮一次；失败自动降级纯关键词。
 			// 工具选择与记忆检索共用同一缓存实例（相同文本不重复嵌入）。
-			var emb *textVectorCache
+			var emb *retrieval.TextVectorCache
 			if cfg.EmbeddingBaseURL != "" {
 				embKey := cfg.EmbeddingAPIKey
 				if embKey == "" {
 					embKey = cfg.APIKey
 				}
-				if e := newOpenAIEmbedder(cfg.EmbeddingBaseURL, embKey, cfg.EmbeddingModel); e != nil {
-					emb = newTextVectorCache(e)
+				if e := retrieval.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, embKey, cfg.EmbeddingModel); e != nil {
+					emb = retrieval.NewTextVectorCache(e)
 					ctx.Log.Infof("AI semantic retrieval enabled (embedding model %s)", e.Model())
 				} else {
 					ctx.Log.Warn("Invalid embedding_base_url, semantic retrieval disabled")
@@ -250,10 +191,10 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				coord:           coord,
 				syncer:          syncer,
 				prov:            prov,
-				reg:             NewToolRegistry(),
-				sm:              NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
+				reg:             toolkit.NewToolRegistry(),
+				sm:              session.NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
 				cmdPatterns:     make(map[string]string),
-				skillReg:        NewSkillRegistry(),
+				skillReg:        toolkit.NewSkillRegistry(),
 				summaries:       make(map[string]bool),
 				history:         messagelog.Default(),
 				fsmEngine:       fsm.NewEngine(nil),
@@ -262,7 +203,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				reminders:       newReminderManager(),
 				todos:           newTodoManager(),
 				perms:           perms,
-				approvals:       newApprovalManager(),
+				approvals:       execution.NewApprovalManager(),
 				groupPolicies:   groupPolicies,
 				emb:             emb,
 				memory:          memory,
@@ -272,26 +213,26 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			// 规划层内置工具（create_plan / update_plan_step，general 类别恒被选中）。
 			// 模型按需调用：简单任务不创建计划零开销；复杂任务先建计划再逐步执行。
-			for _, t := range buildPlanTools(cfg.PlanMaxSteps) {
+			for _, t := range catalog.BuildPlanTools(cfg.PlanMaxSteps) {
 				p.reg.Register(t)
 			}
 
 			// 消息发送工具（send_message / send_to，默认启用）：
 			// send_message 无需审批；send_to 强制审批 + ai.message.send 权限。
-			for _, t := range p.buildSendTools() {
+			for _, t := range catalog.BuildSendTools(catalog.SendOptions{Markdown: cfg.Markdown}) {
 				p.reg.Register(t)
 			}
 
 			// 会话内能力工具（定时提醒 / 待办清单，默认启用）。
-			for _, t := range p.buildReminderTools() {
+			for _, t := range catalog.BuildReminderTools() {
 				p.reg.Register(t)
 			}
-			for _, t := range p.buildTodoTools() {
+			for _, t := range catalog.BuildTodoTools() {
 				p.reg.Register(t)
 			}
 			// 长期记忆工具仅在 memory_enabled 开启时注册（未开启时不让模型看到）。
 			if memory != nil {
-				for _, t := range p.buildMemoryTools() {
+				for _, t := range catalog.BuildMemoryTools() {
 					p.reg.Register(t)
 				}
 			}
@@ -416,15 +357,15 @@ func (p *Plugin) registerSkillAddFSM() {
 						return nil
 					}
 
-					desc := extractSkillDescription(prompt)
-					skill := Skill{
+					desc := p.extractSkillDescription(prompt)
+					skill := toolkit.Skill{
 						Name: name, Description: desc, Prompt: prompt, Enabled: true,
 					}
 					if err := p.RegisterUserSkill(skill, ownerID); err != nil {
 						fsmCtx.Reply(platform.TextMessage("❌ " + err.Error()))
 					} else {
 						fsmCtx.Reply(platform.TextMessage(
-							fmt.Sprintf("✅ 技能 `%s%s` 已注册！> %s", UserSkillPrefix, name, desc)))
+							fmt.Sprintf("✅ 技能 `%s%s` 已注册！> %s", toolkit.UserSkillPrefix, name, desc)))
 					}
 					return nil
 				},
@@ -437,12 +378,12 @@ func (p *Plugin) registerSkillAddFSM() {
 }
 
 // makeSkillAddSessionID 生成技能添加 FSM 的会话 ID（按用户隔离）。
-func makeSkillAddSessionID(ctx *eventctx.Context) string {
+func (c *catalogState) skillAddSessionID(ctx *eventctx.Context) string {
 	return fmt.Sprintf("skill_add:%s:%s", ctx.GetEventPlatform(), ctx.GetSenderInfo().ID)
 }
 
 // buildHealthProbeURL 根据提供商类型构造健康检查用的探测 URL。
-func buildHealthProbeURL(cfg *Config) string {
+func buildHealthProbeURL(cfg *config.Config) string {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
@@ -629,13 +570,13 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 // 判据是“命令 matcher 一定会派发”的精确补集（见 triggerParses），不依赖
 // matcher 求值顺序，也不依赖正文是否以符号开头：非符号触发词（如 trigger_cmd:
 // "帮助"）同样能正确互斥。
-func (p *Plugin) autoReplyEligible() eventctx.Rule {
+func (r *runtimeState) autoReplyEligible() eventctx.Rule {
 	return func(c *eventctx.Context) bool {
 		content := c.GetMessageContent()
-		if isCommandMessage(content) {
+		if runtime.IsCommandMessage(content) {
 			return false
 		}
-		return !p.triggerParses(content)
+		return !r.triggerParses(content)
 	}
 }
 
@@ -648,8 +589,8 @@ func (p *Plugin) autoReplyEligible() eventctx.Rule {
 // 自动响应入口的排除条件。
 //
 // 未配置 trigger_cmd（无触发命令 matcher）时恒为 false。
-func (p *Plugin) triggerParses(content string) bool {
-	if p.triggerCmd == "" {
+func (r *runtimeState) triggerParses(content string) bool {
+	if r.triggerCmd == "" {
 		return false
 	}
 	content = strings.TrimSpace(content)
@@ -657,12 +598,36 @@ func (p *Plugin) triggerParses(content string) bool {
 		return false
 	}
 	prefix, _ := eventctx.SplitCommandPattern(content)
-	_, err := command.ParseFromDefinition(content, p.aiDefinition(), prefix)
+	_, err := command.ParseFromDefinition(content, r.aiDefinition(), prefix)
 	return err == nil
 }
 
 // aiDefinition 返回缓存的触发命令定义（首次调用时构建）。
-func (p *Plugin) aiDefinition() *command.Definition {
-	p.defOnce.Do(func() { p.def = buildAIDefinition() })
-	return p.def
+func (r *runtimeState) aiDefinition() *command.Definition {
+	r.defOnce.Do(func() { r.def = buildAIDefinition() })
+	return r.def
+}
+
+// NewProvider 根据配置创建对应的 LLM 提供商实例。
+// 返回的实例外层包装了指标采集（ai_llm_* 指标族）；提供商选择与指标包装
+// 都属于装配职责，因此留在本包，协议层只提供具体实现。
+func NewProvider(cfg *config.Config) (protocol.Provider, error) {
+	var prov protocol.Provider
+	switch cfg.Provider {
+	case "openai", "":
+		p, err := protocol.NewOpenAIProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		prov = p
+	case "anthropic":
+		p, err := protocol.NewAnthropicProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		prov = p
+	default:
+		return nil, fmt.Errorf("ai: unknown provider %q (supported: openai, anthropic)", cfg.Provider)
+	}
+	return &metricsProvider{next: prov, defaultModel: cfg.Model}, nil
 }

@@ -6,6 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -47,21 +51,21 @@ type routeTestEnv struct {
 // 不发网络请求），并在真实引擎上执行 registerHandlers。
 //
 // calls 记录 LLM 调用次数：这是"消息是否被交给 AI、被交给几次"最直接的信号。
-func newRouteTestEnv(t *testing.T, cfg *Config) *routeTestEnv {
+func newRouteTestEnv(t *testing.T, cfg *config.Config) *routeTestEnv {
 	t.Helper()
 	var calls atomic.Int32
 
 	p := &Plugin{
 		cfg: cfg,
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
-		reg: NewToolRegistry(),
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
+		reg: toolkit.NewToolRegistry(),
 		// skillReg 供 FSM/技能路径使用；本测试只走对话与子命令路径。
-		skillReg: NewSkillRegistry(),
-		prov: &mockProvider{chatStreamFn: func(context.Context, *ChatRequest) (<-chan StreamEvent, error) {
+		skillReg: toolkit.NewSkillRegistry(),
+		prov: &mockProvider{chatStreamFn: func(context.Context, *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 			calls.Add(1)
-			ch := make(chan StreamEvent, 2)
-			ch <- StreamEvent{Type: StreamEventText, Content: "ok"}
-			ch <- StreamEvent{Type: StreamEventDone}
+			ch := make(chan protocol.StreamEvent, 2)
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "ok"}
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 			close(ch)
 			return ch, nil
 		}},
@@ -121,8 +125,8 @@ func (e *routeTestEnv) dmMsg(content string) platform.Event {
 	)
 }
 
-func testRoutingConfig() *Config {
-	return &Config{
+func testRoutingConfig() *config.Config {
+	return &config.Config{
 		TriggerCmd:  "/ai",
 		AtBot:       true,
 		PrivateChat: true,
@@ -258,7 +262,7 @@ func TestRegisterHandlers_NonSymbolTriggerSingleDispatch(t *testing.T) {
 // TestTriggerParses 固定 triggerParses 与触发命令 matcher 的判据一致：
 // 只有"命令词匹配 + 解析成功"的消息才算已被命令 matcher 接管。
 func TestTriggerParses(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai", cfg: &Config{TriggerCmd: "/ai"}}
+	p := &Plugin{triggerCmd: "/ai", cfg: &config.Config{TriggerCmd: "/ai"}}
 	cases := []struct {
 		content string
 		want    bool
@@ -280,7 +284,7 @@ func TestTriggerParses(t *testing.T) {
 	}
 
 	// 未配置触发命令时不存在触发命令 matcher，恒为 false。
-	noTrigger := &Plugin{cfg: &Config{}}
+	noTrigger := &Plugin{cfg: &config.Config{}}
 	if noTrigger.triggerParses("/ai 你好") {
 		t.Error("未配置 trigger_cmd 时 triggerParses 应为 false")
 	}

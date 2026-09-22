@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 // Plugin 占卜插件实例。
@@ -181,16 +181,16 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 	return nil
 }
 
-// ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回可供 AI 调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "draw_omikuji",
 			Categories:  []string{"fortune"},
 			Description: "抽取御神签（浅草寺观音签，共 100 番），返回该签实际的吉凶、漢詩与解签。可指定签号 1-100",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"number": {
 						Type:        "integer",
 						Description: "指定签号 1-100（可选，不指定则随机）",
@@ -214,9 +214,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "draw_tarot",
 			Categories:  []string{"fortune"},
 			Description: "抽取塔罗牌占卜（韦特塔罗 78 张，含正位与逆位）。返回牌阵中每张牌的位置含义、正逆位、牌意关键词与逐张解读",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"count": {
 						Type:        "integer",
 						Description: "牌数：1 或 3",
@@ -239,9 +239,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回可供 AI 使用的技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回可供 AI 使用的技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "fortune_query",
 			Description: "运势占卜与解读",

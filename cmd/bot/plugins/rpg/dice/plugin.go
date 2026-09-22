@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 // Plugin 骰子引擎插件实例。
@@ -130,16 +130,16 @@ func (p *Plugin) replyRoll(ctx *eventctx.Context, expr string, hidden bool) erro
 	return nil
 }
 
-// ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回 AI 可调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "roll_dice",
 			Categories:  []string{"dice", "rpg"},
 			Description: "掷骰子。支持标准骰子表达式，如 2d20+5（2个20面骰+5）、3d6^2（3个6面骰取最高2个）、d100、2d8v1（2个8面骰取最低1个）。返回掷骰结果。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"expression": {
 						Type:        "string",
 						Description: "骰子表达式，如 \"2d20+5\"、\"d100\"、\"3d6^2\"",
@@ -162,9 +162,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回 AI 技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回 AI 技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "dice_master",
 			Description: "骰子大师 — 解析和执行各种骰子表达式",

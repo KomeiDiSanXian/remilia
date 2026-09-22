@@ -7,79 +7,85 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-func TestIsToolErrorResult(t *testing.T) {
-	cases := []struct {
-		result string
-		want   bool
-	}{
-		{"错误: 工具 \"x\" 执行失败: boom", true},
-		{"错误：工具 \"x\" 执行超时", true},
-		{"错误: 技能 \"s\" 执行失败: boom", true},
-		{"错误: 未找到工具 \"x\"", true},
-		{"工具 `x` 已被用户拒绝执行（审批未通过）", false}, // 审批拒绝不是执行失败
-		{"ok, 一切正常", false},
-		{"", false},
-	}
-	for _, tt := range cases {
-		if got := isToolErrorResult(tt.result); got != tt.want {
-			t.Errorf("isToolErrorResult(%q) = %v, want %v", tt.result, got, tt.want)
-		}
-	}
-}
+// TestToolFailureIsTypedNotTextual 成败由 ActionResult.Err 判定，而不是结果
+// 文本前缀：工具正文以"错误:"开头但调用成功，不得算失败。
+func TestToolFailureIsTypedNotTextual(t *testing.T) {
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
+	p.reg.Register(toolkit.Tool{
+		Name: "looks_like_error",
+		Execute: func(context.Context, map[string]any) (string, error) {
+			return "错误: 这是正常输出，只是恰好以此开头", nil
+		},
+	})
+	p.reg.Register(toolkit.Tool{
+		Name: "really_fails",
+		Execute: func(context.Context, map[string]any) (string, error) {
+			return "", errors.New("boom")
+		},
+	})
 
-func TestBuildReflectionMessage(t *testing.T) {
-	msg := buildReflectionMessage("get_weather", 2, "错误: 工具执行失败")
-	if msg.Role != RoleUser {
-		t.Errorf("reflection should be a user message, got %v", msg.Role)
-	}
-	if !strings.Contains(msg.Content, "get_weather") || !strings.Contains(msg.Content, "反思") {
-		t.Errorf("reflection content should mention tool and ask for reflection: %q", msg.Content)
-	}
-}
+	evt := platform.NewSyntheticEvent("c2c", "test")
+	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-func TestBuildRetryAbortMessage(t *testing.T) {
-	msg := buildRetryAbortMessage("get_weather", 3, "错误: 超时")
-	if !strings.Contains(msg, "get_weather") || !strings.Contains(msg, "已停止尝试") {
-		t.Errorf("abort message mismatch: %q", msg)
+	ok := p.executeToolResult(ctx, protocol.ToolCall{Name: "looks_like_error"}, context.Background(), &execution.CaptureSender{}, nil)
+	if ok.Err != nil {
+		t.Errorf("successful call must not be reported as failure, got err %v", ok.Err)
+	}
+	if ok.Text != "错误: 这是正常输出，只是恰好以此开头" {
+		t.Errorf("result text must be preserved verbatim, got %q", ok.Text)
+	}
+
+	bad := p.executeToolResult(ctx, protocol.ToolCall{Name: "really_fails"}, context.Background(), &execution.CaptureSender{}, nil)
+	if bad.Err == nil {
+		t.Error("failed call must report an error")
+	}
+	if !strings.HasPrefix(bad.Text, "错误:") {
+		t.Errorf("failure text should still be model-visible, got %q", bad.Text)
 	}
 }
 
 func TestEffectiveToolRetryLimit(t *testing.T) {
-	if got := (&Plugin{cfg: &Config{}}).effectiveToolRetryLimit(); got != 2 {
+	if got := runtime.EffectiveToolRetryLimit(&config.Config{}); got != 2 {
 		t.Errorf("default retry limit should be 2, got %d", got)
 	}
-	if got := (&Plugin{cfg: &Config{ToolRetryLimit: 5}}).effectiveToolRetryLimit(); got != 5 {
+	if got := runtime.EffectiveToolRetryLimit(&config.Config{ToolRetryLimit: 5}); got != 5 {
 		t.Errorf("configured retry limit should be 5, got %d", got)
 	}
 }
 
 func TestSessionToolFailureCounters(t *testing.T) {
-	s := &Session{}
-	if got := s.incrToolFailure("a"); got != 1 {
+	s := &session.Session{}
+	if got := s.IncrToolFailure("a"); got != 1 {
 		t.Errorf("expected 1, got %d", got)
 	}
-	if got := s.incrToolFailure("a"); got != 2 {
+	if got := s.IncrToolFailure("a"); got != 2 {
 		t.Errorf("expected 2, got %d", got)
 	}
-	if got := s.incrToolFailure("b"); got != 1 {
+	if got := s.IncrToolFailure("b"); got != 1 {
 		t.Errorf("per-tool counter expected 1, got %d", got)
 	}
-	s.resetToolFailure("a")
-	if got := s.incrToolFailure("a"); got != 1 {
+	s.ResetToolFailure("a")
+	if got := s.IncrToolFailure("a"); got != 1 {
 		t.Errorf("expected reset to 1, got %d", got)
 	}
 }
 
 // alwaysFailingStream 每次流式调用都请求调用指定工具。
-func alwaysFailingStream(toolName string) func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	return func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-		ch := make(chan StreamEvent, 3)
-		ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "call_1", Name: toolName}}
-		ch <- StreamEvent{Type: StreamEventDone}
+func alwaysFailingStream(toolName string) func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+	return func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+		ch := make(chan protocol.StreamEvent, 3)
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{ID: "call_1", Name: toolName}}
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 		close(ch)
 		return ch, nil
 	}
@@ -90,31 +96,31 @@ func alwaysFailingStream(toolName string) func(ctx context.Context, req *ChatReq
 func TestProcessWithToolsRetryAbort(t *testing.T) {
 	var streamCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
 				return alwaysFailingStream("failing_tool")(ctx, req)
 			},
 		},
 	}
-	p.reg.Register(Tool{
+	p.reg.Register(toolkit.Tool{
 		Name: "failing_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "", errors.New("internal error")
 		},
 	})
 
-	session := p.sm.GetOrCreate("test:retry", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "do it"})
+	sess := p.sm.GetOrCreate("test:retry", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "do it"})
 
 	evt := platform.NewSyntheticEvent("c2c", "do it")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
 		t.Fatalf("expected graceful abort without error, got: %v", err)
 	}
@@ -127,8 +133,8 @@ func TestProcessWithToolsRetryAbort(t *testing.T) {
 	}
 	// 反思指令在会话历史中
 	hasReflection := false
-	for _, m := range session.SnapshotMessages() {
-		if m.Role == RoleUser && strings.Contains(m.Content, "反思提示") {
+	for _, m := range sess.SnapshotMessages() {
+		if m.Role == protocol.RoleUser && strings.Contains(m.Content, "反思提示") {
 			hasReflection = true
 		}
 	}
@@ -143,30 +149,30 @@ func TestProcessWithToolsRetrySuccessAfterReflection(t *testing.T) {
 	var streamCalls int
 	var attempts int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 3)
+				ch := make(chan protocol.StreamEvent, 3)
 				switch streamCalls {
 				case 1, 2:
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "call_1", Name: "flaky_tool"}}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{ID: "call_1", Name: "flaky_tool"}}
 				case 3:
 					// 反思后换参数重试成功
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "call_2", Name: "flaky_tool"}}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{ID: "call_2", Name: "flaky_tool"}}
 				default:
-					ch <- StreamEvent{Type: StreamEventText, Content: "done"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "done"}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
-	p.reg.Register(Tool{
+	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			attempts++
@@ -177,13 +183,13 @@ func TestProcessWithToolsRetrySuccessAfterReflection(t *testing.T) {
 		},
 	})
 
-	session := p.sm.GetOrCreate("test:retry2", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "do it"})
+	sess := p.sm.GetOrCreate("test:retry2", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "do it"})
 
 	evt := platform.NewSyntheticEvent("c2c", "do it")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
 		t.Fatalf("processWithTools failed: %v", err)
 	}
@@ -196,8 +202,8 @@ func TestProcessWithToolsRetrySuccessAfterReflection(t *testing.T) {
 	}
 	// 反思指令确实注入过
 	hasReflection := false
-	for _, m := range session.SnapshotMessages() {
-		if m.Role == RoleUser && strings.Contains(m.Content, "反思提示") {
+	for _, m := range sess.SnapshotMessages() {
+		if m.Role == protocol.RoleUser && strings.Contains(m.Content, "反思提示") {
 			hasReflection = true
 		}
 	}
@@ -212,29 +218,29 @@ func TestProcessWithToolsSingleFailureNoReflection(t *testing.T) {
 	var streamCalls int
 	var attempts int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolRetryLimit: 2},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 3)
+				ch := make(chan protocol.StreamEvent, 3)
 				switch streamCalls {
 				case 1:
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "call_1", Name: "flaky_tool"}}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{ID: "call_1", Name: "flaky_tool"}}
 				case 2:
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "call_2", Name: "flaky_tool"}}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{ID: "call_2", Name: "flaky_tool"}}
 				default:
-					ch <- StreamEvent{Type: StreamEventText, Content: "done"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "done"}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
-	p.reg.Register(Tool{
+	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			attempts++
@@ -245,21 +251,21 @@ func TestProcessWithToolsSingleFailureNoReflection(t *testing.T) {
 		},
 	})
 
-	session := p.sm.GetOrCreate("test:retry3", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "do it"})
+	sess := p.sm.GetOrCreate("test:retry3", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "do it"})
 
 	evt := platform.NewSyntheticEvent("c2c", "do it")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
 		t.Fatalf("processWithTools failed: %v", err)
 	}
 	if result.Text != "done" {
 		t.Errorf("expected final text done, got %q", result.Text)
 	}
-	for _, m := range session.SnapshotMessages() {
-		if m.Role == RoleUser && strings.Contains(m.Content, "反思提示") {
+	for _, m := range sess.SnapshotMessages() {
+		if m.Role == protocol.RoleUser && strings.Contains(m.Content, "反思提示") {
 			t.Error("single failure should not inject reflection")
 		}
 	}

@@ -9,55 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
-
-// --- attachmentFromImageURI ---
-
-func TestAttachmentFromImageURI(t *testing.T) {
-	pngData := []byte("fake-png-bytes")
-	dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngData)
-
-	tests := []struct {
-		name     string
-		uri      string
-		wantOK   bool
-		wantURL  string
-		wantData []byte
-		wantMime string
-	}{
-		{name: "data URI 解码为二进制", uri: dataURI, wantOK: true, wantData: pngData, wantMime: "image/png"},
-		{name: "远程 URL 透传", uri: "https://img.example.com/a.png", wantOK: true, wantURL: "https://img.example.com/a.png"},
-		{name: "空 URI", uri: "", wantOK: false},
-		{name: "非 http 协议", uri: "ftp://img.example.com/a.png", wantOK: false},
-		{name: "data URI 缺 base64 标记", uri: "data:image/png,raw", wantOK: false},
-		{name: "base64 非法", uri: "data:image/png;base64,!!!not-base64!!!", wantOK: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			att, ok := attachmentFromImageURI(tt.uri)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if !tt.wantOK {
-				return
-			}
-			if att.Kind != platform.AttachmentKindImage {
-				t.Errorf("Kind = %q, want image", att.Kind)
-			}
-			if att.URL != tt.wantURL {
-				t.Errorf("URL = %q, want %q", att.URL, tt.wantURL)
-			}
-			if string(att.Data) != string(tt.wantData) {
-				t.Errorf("Data mismatch")
-			}
-			if att.MimeType != tt.wantMime {
-				t.Errorf("MimeType = %q, want %q", att.MimeType, tt.wantMime)
-			}
-		})
-	}
-}
 
 // --- OpenAI ---
 
@@ -81,11 +39,11 @@ func TestOpenAIChatImageOutput(t *testing.T) {
 	srv := openAIImageOutServer(t, `[{"type":"text","text":"给你画好了"},{"type":"image_url","image_url":{"url":"`+pngDataURI(t)+`"}}]`)
 	defer srv.Close()
 
-	prov, err := NewOpenAIProvider(&Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "画一个苹果"}}})
+	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +63,8 @@ func TestOpenAIChatURLOutput(t *testing.T) {
 	srv := openAIImageOutServer(t, `{"type":"image_url","image_url":{"url":"https://img.example.com/apple.png"}}`)
 	defer srv.Close()
 
-	prov, _ := NewOpenAIProvider(&Config{BaseURL: srv.URL, APIKey: "k"})
-	resp, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "画一个苹果"}}})
+	prov, _ := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,11 +88,11 @@ func TestOpenAIStreamImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := NewOpenAIProvider(&Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := prov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "画一个苹果"}}})
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,11 +101,11 @@ func TestOpenAIStreamImageOutput(t *testing.T) {
 	var atts []platform.Attachment
 	for ev := range ch {
 		switch ev.Type {
-		case StreamEventText:
+		case protocol.StreamEventText:
 			text.WriteString(ev.Content)
-		case StreamEventAttachment:
+		case protocol.StreamEventAttachment:
 			atts = append(atts, *ev.Attachment)
-		case StreamEventError:
+		case protocol.StreamEventError:
 			t.Fatalf("stream error: %v", ev.Err)
 		}
 	}
@@ -179,11 +137,11 @@ func TestAnthropicChatImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := NewAnthropicProvider(&Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := protocol.NewAnthropicProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "画一个苹果"}}})
+	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +181,11 @@ func TestAnthropicStreamImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := NewAnthropicProvider(&Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := protocol.NewAnthropicProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := prov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "画一个苹果"}}})
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,11 +194,11 @@ func TestAnthropicStreamImageOutput(t *testing.T) {
 	var atts []platform.Attachment
 	for ev := range ch {
 		switch ev.Type {
-		case StreamEventText:
+		case protocol.StreamEventText:
 			text.WriteString(ev.Content)
-		case StreamEventAttachment:
+		case protocol.StreamEventAttachment:
 			atts = append(atts, *ev.Attachment)
-		case StreamEventError:
+		case protocol.StreamEventError:
 			t.Fatalf("stream error: %v", ev.Err)
 		}
 	}
@@ -256,33 +214,33 @@ func TestAnthropicStreamImageOutput(t *testing.T) {
 
 func TestProcessWithToolsStreamAttachment(t *testing.T) {
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 3, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 3, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-				ch := make(chan StreamEvent, 4)
-				ch <- StreamEvent{Type: StreamEventText, Content: "苹果画好了"}
-				ch <- StreamEvent{Type: StreamEventAttachment, Attachment: &platform.Attachment{
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+				ch := make(chan protocol.StreamEvent, 4)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "苹果画好了"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventAttachment, Attachment: &platform.Attachment{
 					Kind:     platform.AttachmentKindImage,
 					Data:     []byte("apple-image"),
 					MimeType: "image/png",
 				}}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
 
-	session := p.sm.GetOrCreate("test:img", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "画一个苹果给我看"})
+	sess := p.sm.GetOrCreate("test:img", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "画一个苹果给我看"})
 
 	evt := platform.NewSyntheticEvent("c2c", "画一个苹果给我看")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
 		t.Fatal(err)
 	}

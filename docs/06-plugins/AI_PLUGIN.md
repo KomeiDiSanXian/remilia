@@ -167,6 +167,14 @@ LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI / Anthropic prompt cache
 
 启用 `vision_enabled` 后，对话中的图片附件会随消息发送给视觉模型（提供商需支持多模态）。
 
+## 架构审查与演进
+
+当前 AI 插件的分层问题（`Tool` 语义过载、`Tool → Plugin` 依赖倒置、Decision 层缺失、
+`ToolSet` 驱动的缓存抖动）已在 [26 — AI 插件分层](../notes/26-ai-layering.md) 中定稿，
+含现状精确行为、目标分层（Context / Retrieval / Capability / Decision / Agent State /
+Execution / Model Provider）与分阶段迁移顺序；Phase 0 需冻结的现状行为与测试缺口见
+[27 — Phase 0 冻结清单](../notes/27-ai-freeze-checklist.md)。改动 `builtin/ai/` 的分层结构前请先阅读这两篇。
+
 ---
 
 *完整的提供商模型兼容信息与 API 差异见 `builtin/ai/provider_*.go`。*

@@ -15,13 +15,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 )
 
 // subCommandRest 从消息内容中提取子命令之后的参数。
 // 如 "/ai memory clear group" → "clear group"（前缀来自调用方）。
-func (p *Plugin) subCommandRest(ctx *eventctx.Context, prefixes ...string) string {
-	content := p.cleanMessage(ctx.GetMessageContent())
+func (r *runtimeState) subCommandRest(ctx *eventctx.Context, prefixes ...string) string {
+	content := runtime.CleanMessage(ctx.GetMessageContent(), r.triggerCmd)
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	for _, prefix := range prefixes {
 		content = strings.TrimPrefix(content, prefix)
@@ -51,7 +53,7 @@ func (p *Plugin) handleMemoryCommand(ctx *eventctx.Context, rest string) error {
 	case "remove", "rm", "del", "删除":
 		return p.handleMemoryRemove(ctx, arg)
 	default:
-		p.replyFormatted(ctx, memoryHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.memoryHelpText(p.cfg.TriggerCmd))
 		return nil
 	}
 }
@@ -68,7 +70,7 @@ func (p *Plugin) handleMemoryList(ctx *eventctx.Context) error {
 	if len(userFacts) == 0 {
 		b.WriteString("  - 我的记忆：暂无（AI 会在对话中自动记录偏好与事实）\n")
 	} else {
-		fmt.Fprintf(&b, "  - 我的记忆（%s）：\n", memoryCountLabel(len(userFacts), p.cfg.MemoryMaxFacts))
+		fmt.Fprintf(&b, "  - 我的记忆（%s）：\n", p.memoryCountLabel(len(userFacts), p.cfg.MemoryMaxFacts))
 		for i, f := range userFacts {
 			fmt.Fprintf(&b, "    %d. %s\n", i+1, f.Text)
 		}
@@ -79,7 +81,7 @@ func (p *Plugin) handleMemoryList(ctx *eventctx.Context) error {
 		if len(groupFacts) == 0 {
 			b.WriteString("  - 本群记忆：暂无\n")
 		} else {
-			fmt.Fprintf(&b, "  - 本群记忆（%s）：\n", memoryCountLabel(len(groupFacts), p.cfg.MemoryMaxFacts))
+			fmt.Fprintf(&b, "  - 本群记忆（%s）：\n", p.memoryCountLabel(len(groupFacts), p.cfg.MemoryMaxFacts))
 			for i, f := range groupFacts {
 				fmt.Fprintf(&b, "    %d. %s\n", i+1, f.Text)
 			}
@@ -192,14 +194,14 @@ func (p *Plugin) handleMemoryRemove(ctx *eventctx.Context, rest string) error {
 }
 
 // memoryCountLabel 生成记忆条数标签（配置了上限时带上上限）。
-func memoryCountLabel(n, max int) string {
+func (a *adminState) memoryCountLabel(n, max int) string {
 	if max > 0 {
 		return fmt.Sprintf("%d/%d", n, max)
 	}
 	return fmt.Sprintf("%d 条", n)
 }
 
-func memoryHelpText(triggerCmd string) string {
+func (a *adminState) memoryHelpText(triggerCmd string) string {
 	return fmt.Sprintf(`🧠 **长期记忆管理**
 
   `+"`%s memory`"+`                  — 查看我的记忆（群聊同时显示本群记忆）
@@ -234,7 +236,7 @@ func (p *Plugin) handleTodoCommand(ctx *eventctx.Context, rest string) error {
 		return p.handleTodoList(ctx, filter)
 	case "add", "新增", "添加":
 		if arg == "" {
-			p.replyFormatted(ctx, todoHelpText(p.cfg.TriggerCmd))
+			p.replyFormatted(ctx, p.todoHelpText(p.cfg.TriggerCmd))
 			return nil
 		}
 		id := p.todos.add(ctx.GetChatInfo().ID, arg)
@@ -247,7 +249,7 @@ func (p *Plugin) handleTodoCommand(ctx *eventctx.Context, rest string) error {
 	case "clear", "清空":
 		return p.handleTodoClear(ctx, strings.ToLower(arg))
 	default:
-		p.replyFormatted(ctx, todoHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.todoHelpText(p.cfg.TriggerCmd))
 		return nil
 	}
 }
@@ -344,7 +346,7 @@ func (p *Plugin) handleTodoClear(ctx *eventctx.Context, arg string) error {
 	return nil
 }
 
-func todoHelpText(triggerCmd string) string {
+func (a *adminState) todoHelpText(triggerCmd string) string {
 	return fmt.Sprintf(`📋 **待办管理**
 
   `+"`%s todo`"+`                      — 列出待办
@@ -363,40 +365,40 @@ func todoHelpText(triggerCmd string) string {
 func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
-	session := p.sm.GetOrCreate(makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
-	if session == nil {
+	sess := p.sm.GetOrCreate(runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
+	if sess == nil {
 		p.replyFormatted(ctx, "📭 当前没有进行中的计划")
 		return nil
 	}
 
 	switch strings.ToLower(strings.TrimSpace(rest)) {
 	case "", "status", "查看":
-		plan := session.planSnapshot()
+		plan := sess.PlanSnapshot()
 		if plan == nil || !plan.Active {
 			p.replyFormatted(ctx, "📭 当前没有进行中的计划")
 			return nil
 		}
-		text := strings.ReplaceAll(formatPlan(plan), "\n", "\n  ")
+		text := strings.ReplaceAll(session.FormatPlan(plan), "\n", "\n  ")
 		// QQ 单聊/群聊（频道除外）Markdown 场景附带"查看计划/停止生成"指令
 		// 按钮：计划可能仍在长回合中逐步执行，用户可一键刷新进度或在回合
 		// 进行中中断（见 maybeAttachQQPlanButtons）。
 		msg := p.formatReplyMessage("🗺️ **当前计划**\n\n  " + text)
-		ctx.Reply(p.maybeAttachQQPlanButtons(ctx, msg, session.TurnActive()))
+		ctx.Reply(p.maybeAttachQQPlanButtons(ctx, msg, sess.TurnActive()))
 		return nil
 	case "cancel", "取消":
-		if session.cancelPlan() {
+		if sess.CancelPlan() {
 			p.replyFormatted(ctx, "🛑 已取消当前计划（剩余步骤不再自动推进）")
 		} else {
 			p.replyFormatted(ctx, "📭 当前没有进行中的计划可取消")
 		}
 		return nil
 	default:
-		p.replyFormatted(ctx, planHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.planHelpText(p.cfg.TriggerCmd))
 		return nil
 	}
 }
 
-func planHelpText(triggerCmd string) string {
+func (a *adminState) planHelpText(triggerCmd string) string {
 	return fmt.Sprintf(`🗺️ **任务计划**
 
   `+"`%s plan`"+`            — 查看当前计划进度

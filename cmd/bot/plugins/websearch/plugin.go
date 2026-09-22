@@ -22,7 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -228,16 +229,16 @@ func truncateRunes(s string, n int) string {
 	return string(runes[:n]) + "…"
 }
 
-// ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回可供 AI 调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "web_search",
 			Categories:  []string{"general"},
 			Description: "通用网页搜索。查询实时信息、新闻、最新版本、人物事件等模型知识截止日期之后的内容时使用。返回标题、链接与摘要列表",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"query":       {Type: "string", Description: "搜索关键词，如 今日热点新闻"},
 					"max_results": {Type: "integer", Description: "返回结果条数上限（默认 5，最大 10）"},
 				},
@@ -272,9 +273,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "fetch_url",
 			Categories:  []string{"general"},
 			Description: "抓取指定网页（https 公网地址）的正文纯文本。读取文章、文档、公告全文时使用；对搜索结果中的链接补充阅读",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"url": {Type: "string", Description: "网页链接，必须是 https 公网地址"},
 				},
 				Required: []string{"url"},

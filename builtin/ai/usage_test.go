@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	permissionplugin "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -53,8 +56,8 @@ func newUsageCtx(content, senderID string, isGroup bool, senderRole platform.Gro
 // newUsagePlugin 构造带最小依赖的插件实例（会话管理器 + 触发前缀）。
 func newUsagePlugin() *Plugin {
 	return &Plugin{
-		sm:         NewSessionManager(100, 20, time.Hour, nil),
-		cfg:        &Config{TriggerCmd: "/ai", Markdown: true},
+		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:        &config.Config{TriggerCmd: "/ai", Markdown: true},
 		triggerCmd: "/ai",
 	}
 }
@@ -96,6 +99,7 @@ func lastReply(sender *approvalCtxSender) string {
 // --- looksLikeUserID ---
 
 func TestLooksLikeUserID(t *testing.T) {
+	admin := &adminState{}
 	cases := []struct {
 		token string
 		want  bool
@@ -115,7 +119,7 @@ func TestLooksLikeUserID(t *testing.T) {
 		{"", false},             //
 	}
 	for _, tc := range cases {
-		if got := looksLikeUserID(tc.token); got != tc.want {
+		if got := admin.looksLikeUserID(tc.token); got != tc.want {
 			t.Errorf("looksLikeUserID(%q) = %v, want %v", tc.token, got, tc.want)
 		}
 	}
@@ -124,6 +128,7 @@ func TestLooksLikeUserID(t *testing.T) {
 // --- matchUsageSubCommand ---
 
 func TestMatchUsageSubCommand(t *testing.T) {
+	admin := &adminState{}
 	cases := []struct {
 		cmd  string
 		want string
@@ -143,20 +148,21 @@ func TestMatchUsageSubCommand(t *testing.T) {
 		{"帮我看看 stats", ""}, // 非前缀
 	}
 	for _, tc := range cases {
-		if got := matchUsageSubCommand(tc.cmd); got != tc.want {
+		if got := admin.matchUsageSubCommand(tc.cmd); got != tc.want {
 			t.Errorf("matchUsageSubCommand(%q) = %q, want %q", tc.cmd, got, tc.want)
 		}
 	}
 }
 
 func TestUsageSubCommandAliases(t *testing.T) {
-	if got := usageSubCommandAliases("status"); len(got) == 0 || got[0] != "status" {
+	admin := &adminState{}
+	if got := admin.usageSubCommandAliases("status"); len(got) == 0 || got[0] != "status" {
 		t.Errorf("status aliases = %v, want 以 status 开头", got)
 	}
-	if got := usageSubCommandAliases("stats"); len(got) == 0 || got[0] != "stats" {
+	if got := admin.usageSubCommandAliases("stats"); len(got) == 0 || got[0] != "stats" {
 		t.Errorf("stats aliases = %v, want 以 stats 开头", got)
 	}
-	if got := usageSubCommandAliases("unknown"); got != nil {
+	if got := admin.usageSubCommandAliases("unknown"); got != nil {
 		t.Errorf("未知子命令应返回 nil，得到 %v", got)
 	}
 }
@@ -330,13 +336,14 @@ func TestAuthorizeUsageQuery_NoPermissionSourceDenied(t *testing.T) {
 // --- usageSessionID ---
 
 func TestUsageSessionID(t *testing.T) {
+	admin := &adminState{}
 	group := platform.ChatInfo{ID: "group-1", IsGroup: true}
-	if got, want := usageSessionID("qq", group, "12345"), "qq:group-1:12345"; got != want {
+	if got, want := admin.usageSessionID("qq", group, "12345"), "qq:group-1:12345"; got != want {
 		t.Errorf("群聊会话 ID = %q, want %q", got, want)
 	}
 	// 私聊：ChatInfo.ID 即用户 ID，故目标与机器人的会话为 {platform}:{目标}:{目标}
 	private := platform.ChatInfo{ID: "12345"}
-	if got, want := usageSessionID("qq", private, "12345"), "qq:12345:12345"; got != want {
+	if got, want := admin.usageSessionID("qq", private, "12345"), "qq:12345:12345"; got != want {
 		t.Errorf("私聊会话 ID = %q, want %q", got, want)
 	}
 }
@@ -363,13 +370,13 @@ func TestUsageSummaryText_WithSessionCounts(t *testing.T) {
 	p := newUsagePlugin()
 	ctx, _ := newUsageCtx("/ai status 12345", "owner", true, platform.GroupRoleOwner)
 
-	session := p.sm.GetOrCreate("qq:group-1:12345", "12345", "group-1")
-	p.sm.AppendMessage(session, Message{Role: RoleSystem, Content: "sys"})
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
-	session.Lock()
-	session.CallCount = 3
-	session.ToolCount = 2
-	session.Unlock()
+	sess := p.sm.GetOrCreate("qq:group-1:12345", "12345", "group-1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleSystem, Content: "sys"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	sess.Lock()
+	sess.CallCount = 3
+	sess.ToolCount = 2
+	sess.Unlock()
 
 	out := p.usageSummaryText(ctx, "12345", "")
 	if !strings.Contains(out, "`3`") {
@@ -513,9 +520,9 @@ func TestExecSubCommand_StatusSelfUnchanged(t *testing.T) {
 	p := newUsagePlugin()
 	ctx, sender := newUsageCtx("/ai status", "u1", false, platform.GroupRoleUnknown)
 
-	session := p.sm.GetOrCreate("qq:u1:u1", "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleSystem, Content: "sys"})
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
+	sess := p.sm.GetOrCreate("qq:u1:u1", "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleSystem, Content: "sys"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
 
 	if err := p.execSubCommand(ctx, "status"); err != nil {
 		t.Fatalf("execSubCommand(status): %v", err)
@@ -562,7 +569,7 @@ func TestHandleSubCommand_NaturalLanguageNotHijacked(t *testing.T) {
 // --- SessionManager.PeekOrLoad ---
 
 func TestPeekOrLoad_MemoryHit(t *testing.T) {
-	sm := NewSessionManager(10, 20, time.Hour, nil)
+	sm := session.NewSessionManager(10, 20, time.Hour, nil)
 	created := sm.GetOrCreate("qq:g:u", "u", "g")
 
 	got := sm.PeekOrLoad("qq:g:u")
@@ -575,7 +582,7 @@ func TestPeekOrLoad_MemoryHit(t *testing.T) {
 }
 
 func TestPeekOrLoad_MissingReturnsNil(t *testing.T) {
-	sm := NewSessionManager(10, 20, time.Hour, nil)
+	sm := session.NewSessionManager(10, 20, time.Hour, nil)
 	if got := sm.PeekOrLoad("qq:g:absent"); got != nil {
 		t.Fatalf("不存在时应返回 nil，得到 %+v", got)
 	}
@@ -583,9 +590,9 @@ func TestPeekOrLoad_MissingReturnsNil(t *testing.T) {
 
 func TestPeekOrLoad_LoadsFromStorageWithoutCreating(t *testing.T) {
 	store := &fakeSessionStore{}
-	sm := NewSessionManager(10, 20, time.Hour, store)
-	store.saved = map[string]*Session{
-		"qq:g:u": {ID: "qq:g:u", UserID: "u", ChatID: "g", Messages: []Message{{Role: RoleUser, Content: "hi"}}},
+	sm := session.NewSessionManager(10, 20, time.Hour, store)
+	store.saved = map[string]*session.Session{
+		"qq:g:u": {ID: "qq:g:u", UserID: "u", ChatID: "g", Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}},
 	}
 
 	got := sm.PeekOrLoad("qq:g:u")
@@ -603,18 +610,18 @@ func TestPeekOrLoad_LoadsFromStorageWithoutCreating(t *testing.T) {
 
 // fakeSessionStore 内存版 SessionStore，记录写操作次数。
 type fakeSessionStore struct {
-	saved     map[string]*Session
+	saved     map[string]*session.Session
 	saveCalls int
 }
 
-func (f *fakeSessionStore) Load(id string) (*Session, error) { return f.saved[id], nil }
+func (f *fakeSessionStore) Load(id string) (*session.Session, error) { return f.saved[id], nil }
 
-func (f *fakeSessionStore) Save(session *Session) error {
+func (f *fakeSessionStore) Save(sess *session.Session) error {
 	f.saveCalls++
 	if f.saved == nil {
-		f.saved = map[string]*Session{}
+		f.saved = map[string]*session.Session{}
 	}
-	f.saved[session.ID] = session
+	f.saved[sess.ID] = sess
 	return nil
 }
 

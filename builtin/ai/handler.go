@@ -8,9 +8,10 @@
 // 包含函数：
 //   - handleAI: 消息路由总入口
 //   - handleAIChat: AI 对话主流程（会话管理 + 系统提示注入 + LLM 调用）
-//   - isCommandMessage: 命令消息检测
-//   - cleanMessage: 消息清洗（去 @、去命令前缀）
-//   - makeSessionID: 会话 ID 生成
+//   - buildUserMessage: 入站附件归一化（下载、引用图片、多模态拼装）
+//
+// 消息清洗、会话 ID、命令样式识别、附件类型判定等纯形状工具已归位到
+// builtin/ai/runtime（见 runtime/inbound.go）。
 package ai
 
 import (
@@ -18,11 +19,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -57,7 +60,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		if len(parsed.CommandPath) > 1 {
 			return p.execSubCommand(ctx, parsed.CommandPath[1])
 		}
-		content := p.cleanMessage(ctx.GetMessageContent())
+		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 		if content == "" && len(atts) == 0 {
 			return nil
 		}
@@ -73,8 +76,8 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	if content == "" {
 		// 直发合并转发消息：Content 为空（forward 段不进入派生文本），
 		// 按会话类型决定是否触发对话（forwardTriggerContent）。
-		if rec := forwardRecordFromEvent(ctx.GetPlatformEvent()); rec != nil {
-			text, trigger := forwardTriggerContent(ctx.GetChatInfo(), rec)
+		if rec := runtime.ForwardRecordFromEvent(ctx.GetPlatformEvent()); rec != nil {
+			text, trigger := runtime.ForwardTriggerContent(ctx.GetChatInfo(), rec)
 			if !trigger {
 				return nil
 			}
@@ -91,11 +94,11 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	// 前缀开头”本身就意味着用户显式点名 AI。不能依赖 mentionedBot：QQ
 	// GROUP_AT_MESSAGE_CREATE 报文不带 mentions 数组，mentionedBot 恒为
 	// false，@机器人+触发前缀 的 matcher 路径会漏判。
-	explicit = explicit || p.hasTriggerPrefix(content)
+	explicit = explicit || runtime.HasTriggerPrefix(content, p.triggerCmd)
 
 	// per-group @ 触发要求（/ai group set mention on）：群策略显式要求必须 @ 时，
 	// 未 @ 机器人的群消息（全局 GroupAutonomous 模式下会进入此路径）直接跳过。
-	if require, ok := p.groupRequireMention(ctx); ok && require && !mentionedBot(ctx) {
+	if require, ok := p.groupRequireMention(ctx); ok && require && !runtime.BotMentioned(ctx) {
 		return nil
 	}
 
@@ -104,7 +107,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	content = p.cleanMessage(content)
+	content = runtime.CleanMessage(content, p.triggerCmd)
 	if content == "" && len(atts) == 0 {
 		return nil
 	}
@@ -122,7 +125,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	// 主要是 QQ 群 @机器人 这种无法产生 Parsed 的入口：旧行为会把
 	// “@机器人 /ai /tmp 是什么”清洗后的 “/tmp 是什么” 当作外部命令丢弃，
 	// 用户侧只能看到“发了消息没反应”。
-	if !explicit && isCommandMessage(content) {
+	if !explicit && runtime.IsCommandMessage(content) {
 		return nil
 	}
 
@@ -133,69 +136,56 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	return p.handleAIChat(ctx, content)
 }
 
-// mentionedBot 判断当前群消息是否 @ 了机器人自身。
-//
-// 判定委托 platform.MentionedBot：结构化 @ 列表（IsSelf）优先，平台级
-// "事件本身即 @机器人" 标记兜底。仅扫 @ 列表会让 QQ 群 @机器人 消息
-// （GROUP_AT_MESSAGE_CREATE 不带 mentions 数组）被判为"未 @ 机器人"，
-// 群策略要求 @ 时也把用户 @机器人 的消息直接丢掉。
-func mentionedBot(ctx *eventctx.Context) bool {
-	if ctx == nil || ctx.GetPlatformEvent() == nil {
-		return false
-	}
-	return platform.MentionedBot(ctx.GetPlatformEvent())
-}
-
 // handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息（含附件）、调用 LLM。
 func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 
-	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
-	session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-	if session == nil {
+	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
+	sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+	if sess == nil {
 		ctx.ReplyError("创建会话失败")
 		return nil
 	}
 
 	// 用户抢占：若上一回合仍在执行（长任务/慢工具），请求中断让其尽快收尾，
 	// 避免新消息被长时间阻塞（用户侧永远优先）。
-	if session.TurnActive() {
-		session.RequestInterrupt()
+	if sess.TurnActive() {
+		sess.RequestInterrupt()
 	}
-	session.LockTurn()
-	defer session.UnlockTurn()
+	sess.LockTurn()
+	defer sess.UnlockTurn()
 
 	// 用户发消息重置计划后台推进预算（自动推进让位于用户）。
-	session.ResetPlanAuto()
+	sess.ResetPlanAuto()
 
 	// 标记回合活跃（中断信号生命周期：BeginTurn → 检查点 → EndTurn）。
-	if !session.BeginTurn() {
+	if !sess.BeginTurn() {
 		ctx.ReplyError("对话正在处理中，请稍后再试")
 		return nil
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
 	// 稳定系统提示词（框架+自定义指令）：每轮重建同一内容，作为前缀缓存
 	// 的可复用起点；逐轮变化的上下文由 processWithTools 挂到本轮用户消息上。
-	setSystemMessage(session, p.buildStaticSystemPrompt(ctx))
+	runtime.SetSystemMessage(sess, p.buildStaticSystemPrompt(ctx))
 
 	// 构建用户消息：前置回复上下文 → 追加 @ 提及的结构化信息 → 提取入站附件转为多模态 ContentParts
 	if p.cfg.IncludeReplyContext {
-		content = p.prependReplyContext(ctx, content)
+		content = promptctx.PrependReplyContext(p.history, ctx, content)
 	}
 	if p.cfg.IncludeMentionInfo {
-		content = appendMentionInfo(content, platform.GetMentions(ctx.GetPlatformEvent()))
+		content = runtime.AppendMentionInfo(content, platform.GetMentions(ctx.GetPlatformEvent()))
 	}
-	userMsg := p.buildUserMessage(ctx, content, session)
+	userMsg := p.buildUserMessage(ctx, content, sess)
 	userMsg.Timestamp = time.Now()
 
 	// 合并窗口：消费未消费图片并入本条（引用/回复消息优先级更高，跳过合并，
 	// 避免双图语义混乱）。消费即清除 pending，防止跨回合误合并。
-	if pendingRefs, pendingExtra := session.consumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingRefs) > 0 || pendingExtra > 0 {
+	if pendingRefs, pendingExtra := sess.ConsumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingRefs) > 0 || pendingExtra > 0 {
 		// 窗口被热重载关闭（<=0）时同样消费 pending，但不合并。
 		if p.cfg.ImageMergeWindow > 0 && platform.GetReplyToID(ctx.GetPlatformEvent()) == "" {
-			if total := len(pendingRefs) + pendingExtra + countImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
+			if total := len(pendingRefs) + pendingExtra + runtime.CountImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
 				logger.Warnf("[AI] Rejected merged message with %d images (max_images_per_message=%d)",
 					total, p.cfg.MaxImagesPerMessage)
 				ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
@@ -203,14 +193,14 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 			}
 			// 引用 → 多模态 ContentPart（messagelog 存储优先，URL 兜底）；
 			// 解析失败（存储未启用/URL 过期）的图片跳过，不影响本条文字。
-			if parts := p.hydratePendingImageRefs(ctx, session, pendingRefs); len(parts) > 0 {
-				userMsg = mergePendingImageParts(userMsg, parts)
+			if parts := p.hydratePendingImageRefs(ctx, sess, pendingRefs); len(parts) > 0 {
+				userMsg = runtime.MergePendingImageParts(userMsg, parts)
 			}
 		}
 	}
 
 	// 单条消息图片数上限：超限拒绝本次请求，不调用 LLM（合并累加后同样生效）。
-	if imgCount := countImageParts(userMsg.ContentParts); imgCount > p.cfg.MaxImagesPerMessage {
+	if imgCount := runtime.CountImageParts(userMsg.ContentParts); imgCount > p.cfg.MaxImagesPerMessage {
 		logger.Warnf("[AI] Rejected message with %d images (max_images_per_message=%d)",
 			imgCount, p.cfg.MaxImagesPerMessage)
 		ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
@@ -222,16 +212,16 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		return nil
 	}
 
-	p.sm.AppendMessage(session, userMsg)
+	p.sm.AppendMessage(sess, userMsg)
 
 	// LLM 处理前发送"正在输入"状态（平台支持时），给用户即时反馈。
 	// 平台不支持（如 QQ 群聊）时 TrySendTyping 静默 no-op。
 	_ = ctx.TrySendTyping()
 
 	// 生成回答并（开启 verify_enabled 时）经校验器校验，失败按反馈重新生成。
-	result, err := p.generateVerified(ctx, session)
+	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
-		ctx.ReplyError(formatAIError(err))
+		ctx.ReplyError(runtime.FormatAIError(err))
 		return nil
 	}
 
@@ -253,11 +243,11 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 
 	// 对话回复完成后异步抽取长期记忆（memory_enabled 开启时）。
 	// 不阻塞回复发送；节流与失败均由 maybeExtractMemory 内部处理。
-	p.maybeExtractMemory(ctx, session)
+	p.maybeExtractMemory(ctx, sess)
 
 	// 计划后台自动推进（plan_auto_continue 开启时）：计划未完成且
 	// 用户无新消息时，按间隔自动继续执行并主动汇报。
-	p.maybeContinuePlan(ctx, session)
+	p.maybeContinuePlan(ctx, sess)
 
 	return nil
 }
@@ -272,30 +262,30 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 // Extra（raw_quote / parallel_message）提取被引用图片作为视觉输入注入，
 // 使模型能看到被回复的图。本条消息自带图片附件时不注入，避免重复上传与
 // 语义混淆。
-func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session *Session) Message {
-	msg := Message{Role: RoleUser, Content: content}
+func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, sess *session.Session) protocol.Message {
+	msg := protocol.Message{Role: protocol.RoleUser, Content: content}
 
 	atts := platform.Attachments(ctx.GetPlatformEvent())
 
-	if p.cfg.VisionEnabled && !hasImageAttachment(atts) {
+	if p.cfg.VisionEnabled && !runtime.HasImageAttachment(atts) {
 		// 直发合并转发记录内的图片：作为本条消息的视觉输入注入
 		// （上限 max_images_per_message，超出截断；截断部分仍以 [图片]
 		// 占位符出现在渲染文本中）。
-		atts = append(atts, forwardRecordImageAtts(ctx.GetPlatformEvent(), p.cfg.MaxImagesPerMessage)...)
+		atts = append(atts, runtime.ForwardRecordImageAtts(ctx.GetPlatformEvent(), p.cfg.MaxImagesPerMessage)...)
 	}
 
-	var quotedImg *ContentPart
-	if p.cfg.VisionEnabled && !hasImageAttachment(atts) {
-		quotedImg = p.quotedImagePart(ctx, session)
+	var quotedImg *protocol.ContentPart
+	if p.cfg.VisionEnabled && !runtime.HasImageAttachment(atts) {
+		quotedImg = p.quotedImagePart(ctx, sess)
 	}
 
 	if len(atts) == 0 && quotedImg == nil {
 		return msg
 	}
 
-	parts := make([]ContentPart, 0, 1+len(atts)+2)
+	parts := make([]protocol.ContentPart, 0, 1+len(atts)+2)
 	if content != "" {
-		parts = append(parts, ContentPart{Type: ContentPartText, Text: content})
+		parts = append(parts, protocol.ContentPart{Type: protocol.ContentPartText, Text: content})
 	}
 
 	for _, att := range atts {
@@ -306,25 +296,25 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 		// 平台已提供语音转写文本（如 QQ 官方 ASR asr_refer_text）时，
 		// 直接注入转写文本，无需下载音频二进制再送 STT。
 		// 这比把音频直传给多模态模型更通用：任何模型都能理解文本。
-		if isAudioAttachment(att) {
+		if runtime.IsAudioAttachment(att) {
 			if asr := platform.AttachmentTranscript(att); asr != "" {
-				parts = append(parts, ContentPart{Type: ContentPartText, Text: "[语音转写] " + asr})
+				parts = append(parts, protocol.ContentPart{Type: protocol.ContentPartText, Text: "[语音转写] " + asr})
 				continue
 			}
 		}
 
-		var cp *ContentPart
+		var cp *protocol.ContentPart
 		switch {
-		case isImageAttachment(att):
+		case runtime.IsImageAttachment(att):
 			if !p.cfg.VisionEnabled {
 				continue
 			}
-			cp = p.downloadAttachment(att, session)
-		case isAudioAttachment(att):
+			cp = p.downloadAttachment(att, sess)
+		case runtime.IsAudioAttachment(att):
 			if !p.cfg.AudioEnabled {
 				continue
 			}
-			cp = p.downloadAttachment(att, session)
+			cp = p.downloadAttachment(att, sess)
 		}
 
 		if cp != nil {
@@ -334,7 +324,7 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 
 	if quotedImg != nil {
 		parts = append(parts,
-			ContentPart{Type: ContentPartText, Text: "[你回复（引用）的消息中包含这张图片]"},
+			protocol.ContentPart{Type: protocol.ContentPartText, Text: "[你回复（引用）的消息中包含这张图片]"},
 			*quotedImg)
 	}
 
@@ -343,19 +333,6 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 		msg.ContentParts = parts
 	}
 	return msg
-}
-
-// hasImageAttachment 判断附件列表中是否包含图片附件。
-//
-// Kind 与 MimeType 双通道：部分平台（OneBot）只填 Kind、MimeType 为空，
-// 另一些平台（QQ）只填 MimeType、Kind 为空，两者都缺失才算无图片。
-func hasImageAttachment(atts []platform.Attachment) bool {
-	for _, att := range atts {
-		if att.Kind == platform.AttachmentKindImage || strings.HasPrefix(att.MimeType, "image/") {
-			return true
-		}
-	}
-	return false
 }
 
 // maybeRecordPendingImage 处理"纯图片消息"（无实质文本）在群聊中的合并窗口记录。
@@ -370,17 +347,17 @@ func (p *Plugin) maybeRecordPendingImage(ctx *eventctx.Context, content string, 
 	if p.cfg.ImageMergeWindow <= 0 || !p.cfg.VisionEnabled {
 		return false
 	}
-	if !hasImageAttachment(atts) {
+	if !runtime.HasImageAttachment(atts) {
 		return false
 	}
-	if hasSubstantiveText(content) {
+	if runtime.HasSubstantiveText(content) {
 		return false
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup {
 		return false
 	}
-	if mentionedBot(ctx) {
+	if runtime.BotMentioned(ctx) {
 		return false
 	}
 	if platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
@@ -388,57 +365,36 @@ func (p *Plugin) maybeRecordPendingImage(ctx *eventctx.Context, content string, 
 	}
 
 	sender := ctx.GetSenderInfo()
-	session := p.sm.GetOrCreate(makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
-	if session == nil {
+	sess := p.sm.GetOrCreate(runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
+	if sess == nil {
 		return false
 	}
-	session.LockTurn()
-	defer session.UnlockTurn()
+	sess.LockTurn()
+	defer sess.UnlockTurn()
 
 	// 记录引用而非二进制：不下载表情包，等待窗口内文字消息合并时才水合
 	// （messagelog 存储优先，URL 直链兜底）。SSRF/大小校验在水合阶段执行。
 	evt := ctx.GetPlatformEvent()
-	refs := pendingImageRefsFromAttachments(chat.ID, evt.ID(), atts)
+	refs := runtime.PendingImageRefsFromAttachments(chat.ID, evt.ID(), atts)
 	if len(refs) == 0 {
 		// 判定为纯图片场景但无可用附件引用：仍静默消费，避免表情包走旧路径
 		// 用 "[图片]" 占位内容回复。
 		return true
 	}
-	session.extendPendingImage(refs, time.Now(), p.cfg.ImageMergeWindow, p.cfg.MaxImagesPerMessage)
+	sess.ExtendPendingImage(refs, time.Now(), p.cfg.ImageMergeWindow, p.cfg.MaxImagesPerMessage)
 	// 立即持久化引用：重启后窗口内 follow-up 仍可合并（二进制由
 	// messagelog 附件存储兜底，不依赖会话内存）。
-	p.sm.SaveSession(session)
+	p.sm.SaveSession(sess)
 	logger.Debugf("[AI] Recorded pending image refs for merge (chat=%s, refs=%d)", chat.ID, len(refs))
 	return true
 }
 
-// pendingImageRefsFromAttachments 提取事件中的图片附件为待合并引用。
-// 判定与 hasImageAttachment 一致（Kind/MimeType 双通道）；跳过无 URL 项。
-func pendingImageRefsFromAttachments(chatID, platformMsgID string, atts []platform.Attachment) []pendingImageRef {
-	var refs []pendingImageRef
-	for _, att := range atts {
-		if att.URL == "" {
-			continue
-		}
-		if !isImageAttachment(att) {
-			continue
-		}
-		refs = append(refs, pendingImageRef{
-			ChatID:        chatID,
-			PlatformMsgID: platformMsgID,
-			URL:           att.URL,
-			MimeType:      att.MimeType,
-		})
-	}
-	return refs
-}
-
 // hydratePendingImageRefs 把未消费图片引用解析为多模态 ContentPart。
 // 每个引用按"messagelog 存储 → URL 直链"顺序解析；解析失败跳过该图。
-func (p *Plugin) hydratePendingImageRefs(ctx *eventctx.Context, session *Session, refs []pendingImageRef) []ContentPart {
-	parts := make([]ContentPart, 0, len(refs))
+func (p *Plugin) hydratePendingImageRefs(ctx *eventctx.Context, sess *session.Session, refs []session.PendingImageRef) []protocol.ContentPart {
+	parts := make([]protocol.ContentPart, 0, len(refs))
 	for _, ref := range refs {
-		if cp := p.resolvePendingImageRef(ctx, session, ref); cp != nil {
+		if cp := p.resolvePendingImageRef(ctx, sess, ref); cp != nil {
 			parts = append(parts, *cp)
 		}
 	}
@@ -448,17 +404,17 @@ func (p *Plugin) hydratePendingImageRefs(ctx *eventctx.Context, session *Session
 // resolvePendingImageRef 解析单个图片引用。
 //   - 存储路径：PlatformMsgID → messagelog event → 附件行（URL 匹配优先）→ Fetch；
 //   - 未命中回退 URL 直链下载（合并窗口内直链通常仍有效）。
-func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, session *Session, ref pendingImageRef) *ContentPart {
+func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, sess *session.Session, ref session.PendingImageRef) *protocol.ContentPart {
 	if p.history != nil && ref.PlatformMsgID != "" {
 		if entry, ok := p.history.QueryByEventID(ref.ChatID, ref.PlatformMsgID); ok && entry.EventID != "" {
 			if rows, err := p.history.AttachmentsByEventID(entry.EventID); err == nil {
 				var fallback *messagelog.AttachmentMeta
 				for i := range rows {
-					if !isImageAttachmentMeta(&rows[i]) {
+					if !runtime.IsImageAttachmentMeta(&rows[i]) {
 						continue
 					}
 					if ref.URL != "" && rows[i].URL == ref.URL {
-						if cp := p.fetchStoredAttachment(ctx.Context(), &rows[i], session); cp != nil {
+						if cp := p.fetchStoredAttachment(ctx.Context(), &rows[i], sess); cp != nil {
 							return cp
 						}
 					} else if fallback == nil {
@@ -466,7 +422,7 @@ func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, session *Session,
 					}
 				}
 				if fallback != nil {
-					if cp := p.fetchStoredAttachment(ctx.Context(), fallback, session); cp != nil {
+					if cp := p.fetchStoredAttachment(ctx.Context(), fallback, sess); cp != nil {
 						return cp
 					}
 				}
@@ -474,58 +430,16 @@ func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, session *Session,
 		}
 	}
 	if ref.URL != "" {
-		return p.downloadAttachment(platform.Attachment{URL: ref.URL, MimeType: ref.MimeType}, session)
+		return p.downloadAttachment(platform.Attachment{URL: ref.URL, MimeType: ref.MimeType}, sess)
 	}
 	return nil
-}
-
-// mergePendingImageParts 将未消费图片前置到当前 user 消息（图片在前，文字在后），
-// 与文字合成一条多模态消息，保证模型强关联"图+文"。
-func mergePendingImageParts(userMsg Message, pending []ContentPart) Message {
-	parts := make([]ContentPart, 0, len(pending)+len(userMsg.ContentParts)+1)
-	parts = append(parts, pending...)
-	if len(userMsg.ContentParts) == 0 && userMsg.Content != "" {
-		// 纯文本消息：把文字转为 text part，图片前置
-		parts = append(parts, ContentPart{Type: ContentPartText, Text: userMsg.Content})
-	} else {
-		parts = append(parts, userMsg.ContentParts...)
-	}
-	userMsg.ContentParts = parts
-	userMsg.Content = ""
-	return userMsg
-}
-
-// mediaPlaceholderTokens 各平台无实质语义的媒体占位符文本。
-// QQ 纯图片消息正文为 "[图片]"；Satori 渲染 HTML 时也会插入 "[图片]"/"[语音]" 等。
-var mediaPlaceholderTokens = []string{"[图片]", "[表情]", "[动画表情]", "[语音]", "[视频]", "[文件]"}
-
-// hasSubstantiveText 判断消息是否含实质文本（剔除媒体占位符后仍有内容）。
-func hasSubstantiveText(content string) bool {
-	s := strings.TrimSpace(content)
-	if s == "" {
-		return false
-	}
-	for _, t := range mediaPlaceholderTokens {
-		s = strings.ReplaceAll(s, t, "")
-	}
-	return strings.TrimSpace(s) != ""
-}
-
-// isImageAttachment 判断附件是否为图片（Kind 优先，MimeType 兜底）。
-func isImageAttachment(att platform.Attachment) bool {
-	return att.Kind == platform.AttachmentKindImage || strings.HasPrefix(att.MimeType, "image/")
-}
-
-// isAudioAttachment 判断附件是否为音频（Kind 优先，MimeType 兜底）。
-func isAudioAttachment(att platform.Attachment) bool {
-	return att.Kind == platform.AttachmentKindAudio || strings.HasPrefix(att.MimeType, "audio/")
 }
 
 // quotedImagePart 提取引用消息中的被引用图片并下载；不可用时返回 nil。
 //
 // 下载复用 downloadAttachment 的缓存 / SSRF 防护 / 大小限制逻辑；
 // 下载结果经内容嗅探校验为图片后才注入。
-func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *ContentPart {
+func (p *Plugin) quotedImagePart(ctx *eventctx.Context, sess *session.Session) *protocol.ContentPart {
 	evt := ctx.GetPlatformEvent()
 	if evt == nil {
 		return nil
@@ -536,18 +450,18 @@ func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *Conte
 	if replyID := platform.GetReplyToID(evt); replyID != "" && p.history != nil {
 		chat := ctx.GetChatInfo()
 		if entry, ok := p.history.QueryByEventID(chat.ID, replyID); ok && entry.EventID != "" {
-			if cp := p.storedImagePart(ctx.Context(), entry.EventID, session); cp != nil {
+			if cp := p.storedImagePart(ctx.Context(), entry.EventID, sess); cp != nil {
 				return cp
 			}
 		}
 	}
 	// 兜底：从 reply 段 Extra 提取被引用图片 URL（存储未启用/未落库时）。
-	url, mime := quotedImageFromSegments(evt.Segments())
+	url, mime := runtime.QuotedImageFromSegments(evt.Segments())
 	if url == "" {
 		return nil
 	}
-	cp := p.downloadAttachment(platform.Attachment{URL: url, MimeType: mime}, session)
-	if cp == nil || cp.Type != ContentPartImage {
+	cp := p.downloadAttachment(platform.Attachment{URL: url, MimeType: mime}, sess)
+	if cp == nil || cp.Type != protocol.ContentPartImage {
 		return nil
 	}
 	return cp
@@ -555,35 +469,29 @@ func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *Conte
 
 // storedImagePart 从 messagelog 附件存储读取指定消息的第一张图片（含同步下载）。
 // 存储不可用 / 无图片行 / 下载失败返回 nil（调用方回退 URL 直链）。
-func (p *Plugin) storedImagePart(ctx context.Context, eventID string, session *Session) *ContentPart {
+func (p *Plugin) storedImagePart(ctx context.Context, eventID string, sess *session.Session) *protocol.ContentPart {
 	rows, err := p.history.AttachmentsByEventID(eventID)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
 	for i := range rows {
-		if !isImageAttachmentMeta(&rows[i]) {
+		if !runtime.IsImageAttachmentMeta(&rows[i]) {
 			continue
 		}
-		if cp := p.fetchStoredAttachment(ctx, &rows[i], session); cp != nil {
+		if cp := p.fetchStoredAttachment(ctx, &rows[i], sess); cp != nil {
 			return cp
 		}
 	}
 	return nil
 }
 
-// isImageAttachmentMeta 判断附件元数据是否为图片（Type/MimeType 双通道，
-// 与 hasImageAttachment 的平台附件判定语义一致）。
-func isImageAttachmentMeta(a *messagelog.AttachmentMeta) bool {
-	return a.Type == string(platform.AttachmentKindImage) || strings.HasPrefix(a.MimeType, "image/")
-}
-
 // fetchStoredAttachment 经 messagelog 附件存储读取单个附件二进制并构造 ContentPart。
 // 未 ready 的行由 FetchContext 同步触发下载（带 30s 超时）；失败返回 nil。
 // 结果写入会话缓存（按 URL key，与 URL 下载路径共用，避免同一附件重复读盘）。
-func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.AttachmentMeta, session *Session) *ContentPart {
-	if cached := session.getCachedContent(a.URL); cached != nil {
-		return &ContentPart{
-			Type:        inferPartType(cached.MimeType),
+func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.AttachmentMeta, sess *session.Session) *protocol.ContentPart {
+	if cached := sess.CachedContent(a.URL); cached != nil {
+		return &protocol.ContentPart{
+			Type:        runtime.InferPartType(cached.MimeType),
 			SourceURL:   a.URL,
 			Data:        cached.Data,
 			MimeType:    cached.MimeType,
@@ -619,8 +527,8 @@ func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.Attach
 	if mimeType == "" {
 		mimeType = http.DetectContentType(data)
 	}
-	cp := &ContentPart{
-		Type:      inferPartType(mimeType),
+	cp := &protocol.ContentPart{
+		Type:      runtime.InferPartType(mimeType),
 		SourceURL: a.URL,
 		Data:      data,
 		MimeType:  mimeType,
@@ -628,22 +536,22 @@ func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.Attach
 	if cp.Type == "" {
 		return nil
 	}
-	if cp.Type == ContentPartAudio {
-		cp.AudioFormat = inferAudioFormat(mimeType)
+	if cp.Type == protocol.ContentPartAudio {
+		cp.AudioFormat = runtime.InferAudioFormat(mimeType)
 		if cp.AudioFormat == "" {
 			return nil
 		}
 	}
-	session.setCachedContent(a.URL, data, mimeType, cp.AudioFormat)
+	sess.SetCachedContent(a.URL, data, mimeType, cp.AudioFormat)
 	return cp
 }
 
 // downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
-func (p *Plugin) downloadAttachment(att platform.Attachment, session *Session) *ContentPart {
+func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Session) *protocol.ContentPart {
 	// 先检查缓存
-	if cached := session.getCachedContent(att.URL); cached != nil {
-		return &ContentPart{
-			Type:        inferPartType(cached.MimeType),
+	if cached := sess.CachedContent(att.URL); cached != nil {
+		return &protocol.ContentPart{
+			Type:        runtime.InferPartType(cached.MimeType),
 			SourceURL:   att.URL,
 			Data:        cached.Data,
 			MimeType:    cached.MimeType,
@@ -695,8 +603,8 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, session *Session) *
 		mimeType = http.DetectContentType(data)
 	}
 
-	cp := &ContentPart{
-		Type:      inferPartType(mimeType),
+	cp := &protocol.ContentPart{
+		Type:      runtime.InferPartType(mimeType),
 		SourceURL: att.URL,
 		Data:      data,
 		MimeType:  mimeType,
@@ -708,119 +616,17 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, session *Session) *
 	}
 
 	// 推理音频格式
-	if cp.Type == ContentPartAudio {
-		cp.AudioFormat = inferAudioFormat(mimeType)
+	if cp.Type == protocol.ContentPartAudio {
+		cp.AudioFormat = runtime.InferAudioFormat(mimeType)
 		if cp.AudioFormat == "" {
 			return nil // 不支持的音频格式
 		}
 	}
 
 	// 写入缓存
-	session.setCachedContent(att.URL, data, mimeType, cp.AudioFormat)
+	sess.SetCachedContent(att.URL, data, mimeType, cp.AudioFormat)
 
 	return cp
-}
-
-// inferPartType 根据 MIME 类型推断 ContentPartType。
-func inferPartType(mimeType string) ContentPartType {
-	switch {
-	case strings.HasPrefix(mimeType, "image/"):
-		return ContentPartImage
-	case strings.HasPrefix(mimeType, "audio/"):
-		return ContentPartAudio
-	default:
-		return ""
-	}
-}
-
-// inferAudioFormat 从 MIME 类型推断 OpenAI input_audio format。
-func inferAudioFormat(mimeType string) string {
-	switch mimeType {
-	case "audio/wav", "audio/wave", "audio/x-wav":
-		return "wav"
-	case "audio/mpeg", "audio/mp3":
-		return "mp3"
-	case "audio/L16", "audio/l16":
-		return "pcm"
-	default:
-		return ""
-	}
-}
-
-// hasTriggerPrefix 判断原始正文（未清洗）是否以触发命令开头。
-//
-// 匹配语义与命令路由一致：忽略前导空白后按前缀比较（见 [eventctx.OnCommand]
-// 与 cleanMessage 的剥离逻辑），因此对 /ai 与“帮助”这类非前缀触发词都成立。
-func (p *Plugin) hasTriggerPrefix(content string) bool {
-	if p.triggerCmd == "" {
-		return false
-	}
-	return strings.HasPrefix(strings.TrimLeftFunc(content, unicode.IsSpace), p.triggerCmd)
-}
-
-// isCommandMessage 判断消息是否为命令消息。
-//
-// 使用 [context.SplitCommandPattern] 检测消息的首个单词是否带有
-// 非字母数字前缀（如 "/"、"!"、"!!"、"$#" 等），有则视为命令消息。
-//
-// 这覆盖了所有自定义命令前缀场景，与框架的命令路由逻辑保持一致。
-func isCommandMessage(msg string) bool {
-	trimmed := strings.TrimSpace(msg)
-	if trimmed == "" {
-		return false
-	}
-	firstWord := trimmed
-	if idx := strings.IndexFunc(trimmed, unicode.IsSpace); idx != -1 {
-		firstWord = trimmed[:idx]
-	}
-	prefix, _ := eventctx.SplitCommandPattern(firstWord)
-	return prefix != ""
-}
-
-// cleanMessage 清洗消息内容，去除 @ 提及标记和触发命令前缀。
-func (p *Plugin) cleanMessage(content string) string {
-	content = strings.TrimSpace(content)
-	content = stripMentionMarkup(content)
-	content = strings.TrimSpace(content)
-	content = strings.TrimLeft(content, "@")
-	content = strings.TrimSpace(content)
-	if p.triggerCmd != "" {
-		content = strings.TrimPrefix(content, p.triggerCmd)
-	}
-	content = strings.TrimSpace(content)
-	return content
-}
-
-// mentionMarkupRegex 匹配各平台的 @ 提及标记：
-//   - Discord: <@123> / <@!123> / <@&123>(角色) / <#123>(频道) / @everyone / @here
-//   - onebot/QQ: @QQ号 / @all / @全体成员 / @所有人
-//
-// 不匹配 Telegram 的 @username（字母），避免误伤正文。
-var mentionMarkupRegex = regexp.MustCompile(`<@!?&?\d+>|<#\d+>|@\d+|@everyone|@here|@all|@全体成员|@所有人`)
-
-// stripMentionMarkup 从消息文本中去除所有平台的 @ 提及标记。
-func stripMentionMarkup(content string) string {
-	return mentionMarkupRegex.ReplaceAllString(content, "")
-}
-
-// appendMentionInfo 在用户消息末尾追加结构化提及信息（排除机器人自身），
-// 让 LLM 知道本条消息 @ 了哪些人，而非面对一串无意义的 ID 标记。
-func appendMentionInfo(content string, mentions []platform.UserInfo) string {
-	var others []string
-	for _, m := range mentions {
-		if m.IsSelf || m.ID == "" {
-			continue
-		}
-		name := m.DisplayName
-		if name == "" {
-			name = m.ID
-		}
-		others = append(others, name)
-	}
-	if len(others) == 0 {
-		return content
-	}
-	return content + "\n\n[本条消息 @ 提及了: " + strings.Join(others, ", ") + "]"
 }
 
 // buildStaticSystemPrompt 构建 Stable System Prompt —— 唯一的 System 消息。
@@ -847,239 +653,6 @@ func (p *Plugin) buildStaticSystemPrompt(ctx *eventctx.Context) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// setSystemMessage 把稳定系统提示词写入会话的 System 消息（不存在时插在最前）。
-//
-// 会话始终只有这一条 System 消息（位置固定为消息数组第一个），且每轮重建的
-// 内容逐字节一致——这是历史消息能被前缀缓存复用的前提。请求期才需要的
-// 动态内容不得写进会话，见 injectDynamicContext。
-func setSystemMessage(session *Session, prompt string) {
-	session.Lock()
-	defer session.Unlock()
-	if session.Messages == nil {
-		session.Messages = make([]Message, 0)
-	}
-	for i, m := range session.Messages {
-		if m.Role == RoleSystem {
-			session.Messages[i].Content = prompt
-			return
-		}
-	}
-	session.Messages = append([]Message{{Role: RoleSystem, Content: prompt}}, session.Messages...)
-}
-
-// buildDynamicContext 构建 Dynamic Context —— 逐轮变化的上下文。
-//
-// 依次包含（各自独立配置控制）：
-//
-//	运行时上下文（include_runtime_context）→ 群聊最近消息（context_group_messages）
-//	→ 长期记忆（memory_enabled）→ 相关历史消息（context_rag_messages）
-//
-// context_window > 0 时按预算编排，动态各节按上述优先级依次装入、装不下
-// 则缩减或丢弃（见 buildDynamicContextBudgeted）。
-//
-// 返回空串表示当前无动态上下文。调用方负责把它注入到请求尾部
-// （processWithTools 挂在本轮用户消息上），不要写进 System 消息。
-//
-// session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含机器人
-// 回复（context_group_include_bot）时去重；nil 时不去重。同时用于长期
-// 记忆/相关历史的检索查询词，因此调用时应保证本轮用户消息已写入会话。
-func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, session *Session) string {
-	if p.cfg.ContextWindow > 0 {
-		if budgeted := p.buildDynamicContextBudgeted(ctx, session); budgeted != "" {
-			return budgeted
-		}
-	}
-
-	var parts []string
-
-	// 运行时上下文（可通过 include_runtime_context / context_fields 控制，
-	// 避免用户 ID、群 ID 等隐私信息随请求发送给第三方 LLM）
-	if p.cfg.IncludeRuntimeContext {
-		parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
-	}
-
-	// 群聊最近消息窗口（context_group_messages > 0 时开启，默认 10，
-	// 独立于 include_runtime_context，由自身配置控制）
-	if p.cfg.ContextGroupMessages > 0 {
-		if groupCtx := p.buildGroupContext(ctx, p.botReplyContents(session)); groupCtx != "" {
-			parts = append(parts, "===== 群聊最近消息 =====\n"+groupCtx)
-		}
-	}
-
-	// 长期记忆（memory_enabled 开启时，按用户消息关键词检索注入）
-	if p.memory != nil && p.memory.Enabled() {
-		if memCtx := p.buildMemoryContext(ctx, session); memCtx != "" {
-			parts = append(parts, "===== 长期记忆 =====\n"+memCtx)
-		}
-	}
-
-	// 相关历史消息（context_rag_messages > 0 时开启，消息级 RAG）
-	if p.cfg.ContextRAGMessages > 0 {
-		if ragCtx := p.buildRAGContext(ctx, session); ragCtx != "" {
-			parts = append(parts, "===== 相关历史消息 =====\n"+ragCtx)
-		}
-	}
-
-	return strings.Join(parts, "\n\n")
-}
-
-// botReplyContents 收集会话中 AI 已回复的内容集合。
-// 开启 context_group_include_bot 时用于群聊窗口去重：机器人在会话历史中
-// 已说过的内容不再重复注入窗口（两侧存的是同一文本）。session 为 nil 时返回 nil。
-func (p *Plugin) botReplyContents(session *Session) map[string]bool {
-	if !p.cfg.ContextGroupIncludeBot || session == nil {
-		return nil
-	}
-	skip := make(map[string]bool)
-	for _, m := range session.SnapshotMessages() {
-		if m.Role == RoleAssistant && m.Content != "" {
-			skip[m.Content] = true
-		}
-	}
-	return skip
-}
-
-// buildMemoryContext 检索并格式化长期记忆注入系统提示。
-// 群聊注入"用户相关记忆 + 群相关记忆"，私聊仅用户记忆；
-// 按用户最近消息关键词对事实打分取 Top-N。
-func (p *Plugin) buildMemoryContext(ctx *eventctx.Context, session *Session) string {
-	return p.buildMemoryContextN(ctx, session, p.cfg.MemoryInjectMax)
-}
-
-// buildMemoryContextN 同上，注入条数由调用方给定（预算编排时可动态缩减）。
-func (p *Plugin) buildMemoryContextN(ctx *eventctx.Context, session *Session, limit int) string {
-	sender := ctx.GetSenderInfo()
-	if sender.ID == "" {
-		return ""
-	}
-	query := getLastUserMessage(session)
-	if query == "" {
-		return ""
-	}
-	if limit <= 0 {
-		limit = 8
-	}
-
-	var facts []string
-	if hits := p.memory.Retrieve(ctx.Context(), userScope(sender.ID), query, limit); len(hits) > 0 {
-		facts = append(facts, "【用户相关记忆】")
-		for _, f := range hits {
-			facts = append(facts, "- "+f.Text)
-		}
-	}
-	if chat := ctx.GetChatInfo(); chat.IsGroup && chat.ID != "" {
-		if hits := p.memory.Retrieve(ctx.Context(), groupScope(chat.ID), query, limit); len(hits) > 0 {
-			facts = append(facts, "【群相关记忆】")
-			for _, f := range hits {
-				facts = append(facts, "- "+f.Text)
-			}
-		}
-	}
-	if len(facts) == 0 {
-		return ""
-	}
-	return "以下为长期对话中记住的关于用户/本群的事实，可据此提供个性化服务（如有冲突以用户当前说法为准）：\n" +
-		strings.Join(facts, "\n")
-}
-
-// buildRuntimeContext 组装当前事件的运行时上下文信息。
-//
-// 注入的字段由配置 context_fields 白名单控制：
-// 为空表示注入全部字段；非空时仅注入列出的字段。
-func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
-	sender := ctx.GetSenderInfo()
-	chat := ctx.GetChatInfo()
-
-	allow := make(map[string]bool, len(p.cfg.ContextFields))
-	for _, f := range p.cfg.ContextFields {
-		allow[f] = true
-	}
-	in := func(key string) bool {
-		if len(p.cfg.ContextFields) == 0 {
-			return true
-		}
-		return allow[key]
-	}
-
-	var b strings.Builder
-	if in("time") {
-		fmt.Fprintf(&b, "当前时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-	}
-	if in("platform") {
-		fmt.Fprintf(&b, "平台: %s\n", ctx.GetEventPlatform())
-	}
-	if in("bot_id") {
-		if botID := ctx.GetBotID(); botID != "" {
-			fmt.Fprintf(&b, "机器人 ID: %s\n", botID)
-		}
-	}
-	if in("bot_name") {
-		if botName := ctx.GetBotName(); botName != "" {
-			fmt.Fprintf(&b, "机器人名称: %s\n", botName)
-		}
-	}
-	if in("user_name") {
-		fmt.Fprintf(&b, "用户昵称: %s\n", sender.DisplayName)
-	}
-	if in("user_id") {
-		fmt.Fprintf(&b, "用户 ID: %s\n", sender.ID)
-	}
-	if in("user_is_bot") {
-		isBot := "否"
-		if sender.IsBot {
-			isBot = "是"
-		}
-		fmt.Fprintf(&b, "发送者是否为机器人: %s\n", isBot)
-	}
-	if in("chat_type") {
-		switch {
-		case chat.IsGroup:
-			fmt.Fprintf(&b, "聊天类型: 群聊\n")
-		case chat.IsDM:
-			fmt.Fprintf(&b, "聊天类型: 频道私信\n")
-		default:
-			fmt.Fprintf(&b, "聊天类型: 私聊\n")
-		}
-	}
-	if chat.IsGroup {
-		if in("chat_id") && chat.ID != "" {
-			fmt.Fprintf(&b, "群 ID: %s\n", chat.ID)
-		}
-		if in("chat_name") && chat.Name != "" {
-			fmt.Fprintf(&b, "群名称: %s\n", chat.Name)
-		}
-		if in("parent_id") && chat.ParentID != "" {
-			fmt.Fprintf(&b, "所属服务器 ID: %s\n", chat.ParentID)
-		}
-		if in("group_role") {
-			fmt.Fprintf(&b, "发送者群角色: %s\n", groupRoleName(sender.GroupRole))
-		}
-	} else {
-		if in("chat_id") && chat.ID != "" {
-			fmt.Fprintf(&b, "会话 ID: %s\n", chat.ID)
-		}
-		if in("chat_name") && chat.Name != "" {
-			fmt.Fprintf(&b, "会话名称: %s\n", chat.Name)
-		}
-	}
-
-	return strings.TrimRight(b.String(), "\n")
-}
-
-// groupRoleName 将平台群角色转换为可读文本。
-func groupRoleName(role platform.GroupRole) string {
-	switch role {
-	case platform.GroupRoleOwner:
-		return "群主/所有者"
-	case platform.GroupRoleAdmin:
-		return "管理员"
-	case platform.GroupRoleMember:
-		return "普通成员"
-	default:
-		return "未知"
-	}
-}
-
 // attachmentHTTPClient 是受 SSRF 防护的附件下载客户端（见 infra/netguard）：
 // 连接目标须为公网 IP，重定向目标逐跳校验。
 var attachmentHTTPClient = &http.Client{
@@ -1089,20 +662,13 @@ var attachmentHTTPClient = &http.Client{
 	CheckRedirect: netguard.RedirectPolicy(10),
 }
 
-// makeSessionID 生成会话唯一标识。
-// 格式: "{platform}:{chatID}:{userID}"
-// 不同平台、不同群组、不同用户的会话相互隔离。
-func makeSessionID(platform, chatID, userID string) string {
-	return fmt.Sprintf("%s:%s:%s", platform, chatID, userID)
-}
-
 // handleFSMTransition 检查 FSM 引擎是否有当前用户的活跃会话。
 // 有活跃会话时尝试迁移（处理技能添加等两步流程），返回 true 表示消息已被 FSM 消费。
 func (p *Plugin) handleFSMTransition(ctx *eventctx.Context) bool {
 	if p.fsmEngine == nil {
 		return false
 	}
-	sessionID := makeSkillAddSessionID(ctx)
+	sessionID := p.skillAddSessionID(ctx)
 	_, ok, err := p.fsmEngine.TryTransition(ctx, sessionID)
 	if err != nil {
 		logger.Errorf("[AI] FSM transition error: %v", err)

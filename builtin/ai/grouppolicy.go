@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -307,20 +308,20 @@ func (p *GroupPolicy) EffectiveRequireMention() (bool, bool) {
 	return *p.RequireMention, true
 }
 
-// filterToolsByGroupPolicy 按群策略过滤工具列表。
-// 返回过滤后的工具副本（不影响原列表）。
-func filterToolsByGroupPolicy(tools []Tool, policy *GroupPolicy) []Tool {
-	if policy == nil {
-		return tools
+// FilterTools 按群策略过滤动作列表。
+// 策略为 nil 或未限制工具时原样返回；否则返回过滤后的动作副本（不影响原列表）。
+func (p *GroupPolicy) FilterTools(actions []toolkit.Action) []toolkit.Action {
+	if p == nil {
+		return actions
 	}
-	allowSet, filter := policy.effectiveTools()
+	allowSet, filter := p.effectiveTools()
 	if !filter {
-		return tools
+		return actions
 	}
-	out := make([]Tool, 0, len(tools))
-	for _, t := range tools {
-		if _, ok := allowSet[t.Name]; ok {
-			out = append(out, t)
+	out := make([]toolkit.Action, 0, len(actions))
+	for _, a := range actions {
+		if _, ok := allowSet[a.Spec.Name]; ok {
+			out = append(out, a)
 		}
 	}
 	return out
@@ -341,14 +342,14 @@ func (p *Plugin) isGroupAdmin(ctx *eventctx.Context) bool {
 
 // groupRequireMention 返回当前群策略的 @ 触发要求。
 // ok=false 表示群策略未配置 mention 字段（交给全局 matcher 决定）。
-func (p *Plugin) groupRequireMention(ctx *eventctx.Context) (require bool, ok bool) {
-	if p.groupPolicies == nil {
+func (a *adminState) groupRequireMention(ctx *eventctx.Context) (require bool, ok bool) {
+	if a.groupPolicies == nil {
 		return false, false
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup || chat.ID == "" {
 		return false, false
 	}
-	gp := p.groupPolicies.Effective(chat.ID)
+	gp := a.groupPolicies.Effective(chat.ID)
 	return gp.EffectiveRequireMention()
 }

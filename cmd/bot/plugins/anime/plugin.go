@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 var _ health.CheckProvider = (*Plugin)(nil)
@@ -169,16 +169,16 @@ func (p *Plugin) handleAnime(ctx *eventctx.Context) error {
 	}
 }
 
-// ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回可供 AI 调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "search_anime",
 			Categories:  []string{"anime"},
 			Description: "搜索番剧信息，通过关键词查找动漫番剧",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"keyword": {Type: "string", Description: "搜索关键词，如 间谍过家家、鬼灭之刃"},
 				},
 				Required: []string{"keyword"},
@@ -205,9 +205,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "get_anime_info",
 			Categories:  []string{"anime"},
 			Description: "获取指定番剧的详细信息，包含评分、集数、放送日期、简介等",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"id": {Type: "string", Description: "番剧的 Bangumi ID，如 123456"},
 				},
 				Required: []string{"id"},
@@ -234,9 +234,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回可供 AI 使用的技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回可供 AI 使用的技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "anime_query",
 			Description: "查询番剧信息、当季放送表",

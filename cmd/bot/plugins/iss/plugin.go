@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
@@ -17,7 +19,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/satutil"
 )
 
@@ -208,16 +209,16 @@ func (p *Plugin) handleIss(ctx *eventctx.Context) error {
 }
 
 // ListTools 返回可供 AI 调用的工具列表。
-// 实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// 实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "get_iss_location",
 			Categories:  []string{"space"},
 			Description: "获取国际空间站(ISS)的实时位置、高度、速度以及当前在轨航天员信息",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type:       "object",
-				Properties: map[string]ai.ToolParamSchema{},
+				Properties: map[string]protocol.ToolParamSchema{},
 			},
 			Execute: func(gctx context.Context, args map[string]any) (string, error) {
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
@@ -238,9 +239,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 }
 
 // ListSkills 返回可供 AI 使用的技能列表。
-// 实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// 实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "iss_query",
 			Description: "查询国际空间站实时信息",

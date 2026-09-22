@@ -1,35 +1,48 @@
-// Package ai 提供 AI 对话能力，支持多 LLM 提供商、工具调用与技能（Skill）系统。
+// Package ai 提供 AI 对话能力：多 LLM 提供商、工具调用、技能（Skill）、
+// 长期记忆与计划推进。
 //
-// # 架构概览
+// # 包结构
 //
-// 本包是 Remilia Bot 的 AI 插件核心，围绕三个层次构建：
+// 本包是 AI 插件的装配根。可脱离 Plugin 独立存在的部分按职责成子包，
+// 依赖单向向下：
 //
-//  1. 消息层（handler.go, subcommand.go）
-//     处理用户消息的路由与分发。
-//     支持命令触发（/ai）、@机器人、私聊三种入口。
+//		config  →  protocol  →  toolkit  →  retrieval
+//		                            ↓
+//		                         session
+//		                            ↓
+//		      catalog / decision / execution / promptctx
+//		                            ↓
+//		       runtime / textutil（叶子工具包）
+//		                            ↓
+//		                          ai
 //
-//  2. 编排层（process.go, execute.go, discovery.go）
-//     processWithTools 是主循环：调用 LLM → 解析工具请求 → 执行工具 → 回填结果 → 下一轮。
-//     executeTool 分派到具体工具或 Skill，executeSkill 启动子代理循环。
-//     discovery.go 负责自动发现框架中的安全命令并包装为 LLM 工具。
+//	  - config：配置结构与加载
+//	  - protocol：LLM 线格式（消息、工具声明、流事件）与提供商实现
+//	  - toolkit：工具/动作/技能契约与注册表
+//	  - retrieval：关键词与向量检索骨架（工具选择、记忆检索共用）
+//	  - session：会话、计划、工具集稳定状态与持久化
+//	  - catalog：内置动作目录与能力端口
+//	  - decision：候选打分、Top-K 选择与工具集稳定策略
+//	  - execution：动作执行、真实命令通道与审批闸门
+//	  - promptctx：上下文供给（运行时、群窗口、长期记忆、相关历史）
+//	  - runtime：单轮 LLM 调用、回答校验、事实抽取、消息与请求形状工具
+//	  - textutil：跨 owner 复用的纯文本工具
 //
-//  3. 提供商层（provider.go, provider_openai.go, provider_anthropic.go）
-//     Provider 接口抽象了不同 LLM API 的差异。
-//     当前内置 OpenAI 兼容 API 和 Anthropic Messages API 两种实现。
+// 本包保留装配与编排，并按"谁负责这项能力"把 Plugin 的字段分区到五个
+// owner 结构体（见 pluginparts.go）：
 //
-// # 核心数据结构
+//   - catalogState：工具/技能目录（发现、注册、权限过滤）
+//   - contextState：上下文供给（历史、向量缓存、长期记忆）
+//   - executionState：动作执行（真实命令通道、审批闸门）
+//   - runtimeState：回合运行时（会话、触发命令、生命周期）
+//   - adminState：管理与命令（子命令、群策略、用量、按钮、提醒、待办）
 //
-//   - Plugin: 插件主结构体，持有配置、会话管理器、工具注册表、技能注册表等
-//   - Config: 配置项，通过 config.yaml 的 plugins.ai 节读取
-//   - Session / SessionManager: 会话管理，LRU 缓存 + 可选 GORM 持久化
-//   - Tool / ToolRegistry: LLM 可调用的工具注册表
-//   - Skill / SkillRegistry: 子代理（Skill）注册表，每个 Skill 拥有独立的 Prompt 和工具集
-//   - Provider: LLM 提供商接口，支持 Chat（非流式）和 ChatStream（流式）
+// # 核心流程
 //
-// # 安全设计
-//
-// 自动发现工具时仅暴露不需要权限的命令（Permissions 为空），
-// 防止通过 AI 绕过权限检查。需要权限的命令应通过 RegisterToolProvider 显式注册。
+//  1. 入口 handleAI 分派三种触发路径，handleAIChat 执行对话回合（handler.go）
+//  2. processWithTools 是主循环：调用 LLM → 执行工具 → 回填结果 → 下一轮（process.go）
+//  3. decideTurnActions 决定本轮把哪些动作交给模型（decision.go）
+//  4. executeToolResult 分派到函数动作、真实命令或 Skill 子代理循环（execute.go）
 //
 // # 触发方式
 //
@@ -40,43 +53,13 @@
 //
 // # 会话管理
 //
-// 会话按 platform:chatID:userID 维度隔离，不同群组/用户互不干扰。
-// 支持 LRU 缓存淘汰（默认最大 1000 个会话）和 TTL 过期清理（默认 24 小时）。
-// 可选 storage 插件实现 GORM 持久化。
+// 会话按 platform:chatID:userID 维度隔离，不同群组/用户互不干扰；
+// LRU 缓存淘汰 + TTL 过期清理，可选 storage 插件持久化。见 builtin/ai/session。
 //
-// # 工具调用流程
+// # 安全设计
 //
-//  1. processWithTools 发送消息 + 工具列表到 LLM（流式）
-//  2. LLM 返回文本和/或工具调用请求
-//  3. executeTool 分派：先检查是否为 Skill，再尝试真实命令，最后回退到占位 Execute 回调
-//  4. 工具结果以 tool 角色消息回填对话，进入下一轮
-//  5. 达到 MaxDepth（默认 5）或无工具调用时停止
+// 自动发现工具时仅暴露不需要权限的命令（Permissions 为空），
+// 防止通过 AI 绕过权限检查。需要权限的命令应通过 RegisterToolProvider 显式注册。
 //
-// # 技能（Skill）系统
-//
-// Skill 是一个可嵌套的子代理：拥有独立的 System Prompt 和工具集。
-//   - Skill 自动注册为 Tool 供 LLM 调用
-//   - 每个 Skill 内部工具列表 = 自有工具 + 其他 Skill（作为可调用工具注入）
-//   - Skill 使用非流式 LLM 调用（runSingleRound），支持 SkillMaxDepth 轮工具循环
-//   - 其他插件通过实现 SkillProvider 接口注册 Skill（自动发现模式）
-//
-// # 配置参考
-//
-// plugins:
-//
-//	ai:
-//	  provider: "openai"              # openai / anthropic
-//	  model: "gpt-4o-mini"            # 模型名称
-//	  base_url: "https://api.openai.com/v1"
-//	  api_key: "${AI_API_KEY}"        # 环境变量引用
-//	  system_prompt: "你是一个有用的AI助手"
-//	  at_bot: true
-//	  private_chat: true
-//	  markdown: true
-//	  max_depth: 5                    # 最大工具调用轮数
-//	  skill_max_depth: 3              # Skill 内最大调用深度
-//	  api_timeout: 60s
-//	  tool_timeout: 30s
-//	  skill_timeout: 60s
-//	  session_ttl: 24h
+// 配置项、默认值与取值说明见 builtin/ai/config。
 package ai

@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 // Plugin 天气查询插件实例。
@@ -157,16 +157,16 @@ func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
 }
 
 // ListTools 返回可供 AI 调用的工具列表。
-// 实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// 实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "get_weather",
 			Categories:  []string{"weather"},
 			Description: "获取指定城市的当前天气信息，包含温度、湿度、风速等",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"city": {Type: "string", Description: "城市名称，如 北京、Tokyo、London"},
 				},
 				Required: []string{"city"},
@@ -208,9 +208,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 }
 
 // ListSkills 返回可供 AI 使用的技能列表。
-// 实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// 实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "weather_query",
 			Description: "查询天气信息并进行分析",

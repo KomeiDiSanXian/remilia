@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -140,30 +143,32 @@ func TestEffectiveTools(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestFilterToolsByGroupPolicy(t *testing.T) {
-	tools := []Tool{
+func TestGroupPolicyFilterTools(t *testing.T) {
+	tools := []toolkit.Tool{
 		{Name: "pic"},
 		{Name: "sauce"},
 		{Name: "bilibili"},
 	}
+	actions := toolkit.ActionsOf(tools)
 
 	// nil 策略 → 原样返回
-	assert.Len(t, filterToolsByGroupPolicy(tools, nil), 3)
+	var nilPolicy *GroupPolicy
+	assert.Len(t, nilPolicy.FilterTools(actions), 3)
 
 	// all → 原样
 	all := "all"
-	assert.Len(t, filterToolsByGroupPolicy(tools, &GroupPolicy{ToolPolicy: &all}), 3)
+	assert.Len(t, (&GroupPolicy{ToolPolicy: &all}).FilterTools(actions), 3)
 
 	// none → 空
 	none := "none"
-	assert.Empty(t, filterToolsByGroupPolicy(tools, &GroupPolicy{ToolPolicy: &none}))
+	assert.Empty(t, (&GroupPolicy{ToolPolicy: &none}).FilterTools(actions))
 
 	// 白名单 → 仅保留命中工具
 	list := "pic,bilibili"
-	out := filterToolsByGroupPolicy(tools, &GroupPolicy{ToolPolicy: &list})
+	out := (&GroupPolicy{ToolPolicy: &list}).FilterTools(actions)
 	assert.Len(t, out, 2)
-	assert.Equal(t, "pic", out[0].Name)
-	assert.Equal(t, "bilibili", out[1].Name)
+	assert.Equal(t, "pic", out[0].Spec.Name)
+	assert.Equal(t, "bilibili", out[1].Spec.Name)
 }
 
 func TestGroupPolicyJSONRoundTrip(t *testing.T) {
@@ -219,7 +224,7 @@ func TestHandleGroupSetAndStatus(t *testing.T) {
 	sender := &approvalCtxSender{}
 	ctx := eventctx.NewContextFromEvent(evt, sender)
 	p := &Plugin{
-		cfg:           &Config{TriggerCmd: "/ai", ToolApproval: "off"},
+		cfg:           &config.Config{TriggerCmd: "/ai", ToolApproval: "off"},
 		groupPolicies: newGroupPolicyManager(nil, ""),
 	}
 
@@ -262,10 +267,10 @@ func TestMentionedBot(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}),
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	assert.False(t, mentionedBot(ctx))
+	assert.False(t, runtime.BotMentioned(ctx))
 
 	// nil 事件
-	assert.False(t, mentionedBot(nil))
+	assert.False(t, runtime.BotMentioned(nil))
 }
 
 // TestGroupRequireMention 验证 per-group mention 判定。

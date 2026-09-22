@@ -6,6 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -27,7 +32,7 @@ func TestParseVerdict(t *testing.T) {
 		{`无法判断的乱输出`, true, false},
 	}
 	for _, tt := range cases {
-		v := parseVerdict(tt.in)
+		v := runtime.ParseVerdict(tt.in)
 		if v.Pass != tt.wantPass {
 			t.Errorf("parseVerdict(%q).Pass = %v, want %v", tt.in, v.Pass, tt.wantPass)
 		}
@@ -39,14 +44,14 @@ func TestParseVerdict(t *testing.T) {
 
 func TestVerifyAnswer(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{APITimeout: 5 * time.Second},
+		cfg: &config.Config{APITimeout: 5 * time.Second},
 		prov: &mockProvider{
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-				return &ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
+				return &protocol.ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
 			},
 		},
 	}
-	v, err := p.verifyAnswer(context.Background(), "今天天气怎么样", "今天晴转多云")
+	v, err := p.verifier().Verify(context.Background(), "今天天气怎么样", "今天晴转多云")
 	if err != nil {
 		t.Fatalf("verifyAnswer failed: %v", err)
 	}
@@ -57,20 +62,20 @@ func TestVerifyAnswer(t *testing.T) {
 
 func TestVerifyAnswerLLMError(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{APITimeout: 5 * time.Second},
+		cfg: &config.Config{APITimeout: 5 * time.Second},
 		prov: &mockProvider{
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 				return nil, context.DeadlineExceeded
 			},
 		},
 	}
-	if _, err := p.verifyAnswer(context.Background(), "q", "a"); err == nil {
+	if _, err := p.verifier().Verify(context.Background(), "q", "a"); err == nil {
 		t.Error("expected error from verifyAnswer on LLM failure")
 	}
 }
 
 func TestBuildVerifyRetryMessage(t *testing.T) {
-	msg := buildVerifyRetryMessage("回答与问题无关")
+	msg := runtime.BuildVerifyRetryMessage("回答与问题无关")
 	if !strings.Contains(msg, "回答与问题无关") || !strings.Contains(msg, "修正") {
 		t.Errorf("retry message mismatch: %q", msg)
 	}
@@ -80,32 +85,32 @@ func TestBuildVerifyRetryMessage(t *testing.T) {
 func TestGenerateVerifiedPass(t *testing.T) {
 	var chatCalls, streamCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 1},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 1},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 2)
-				ch <- StreamEvent{Type: StreamEventText, Content: "这是回答"}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch := make(chan protocol.StreamEvent, 2)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "这是回答"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 				chatCalls++
-				return &ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
+				return &protocol.ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
 			},
 		},
 	}
-	session := p.sm.GetOrCreate("test:v1", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "问题"})
+	sess := p.sm.GetOrCreate("test:v1", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "问题"})
 
 	evt := platform.NewSyntheticEvent("c2c", "问题")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.generateVerified(ctx, session)
+	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
 		t.Fatalf("generateVerified failed: %v", err)
 	}
@@ -122,39 +127,39 @@ func TestGenerateVerifiedRetryOnce(t *testing.T) {
 	var chatCalls int
 	var streamCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 1},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 1},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 2)
+				ch := make(chan protocol.StreamEvent, 2)
 				if streamCalls == 1 {
-					ch <- StreamEvent{Type: StreamEventText, Content: "第一次回答"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "第一次回答"}
 				} else {
-					ch <- StreamEvent{Type: StreamEventText, Content: "修正后的回答"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "修正后的回答"}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 				chatCalls++
 				if chatCalls == 1 {
-					return &ChatResponse{Content: `{"verdict":"fail","reason":"没有回答用户问题"}`}, nil
+					return &protocol.ChatResponse{Content: `{"verdict":"fail","reason":"没有回答用户问题"}`}, nil
 				}
-				return &ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
+				return &protocol.ChatResponse{Content: `{"verdict":"pass","reason":""}`}, nil
 			},
 		},
 	}
-	session := p.sm.GetOrCreate("test:v2", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "问题"})
+	sess := p.sm.GetOrCreate("test:v2", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "问题"})
 
 	evt := platform.NewSyntheticEvent("c2c", "问题")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.generateVerified(ctx, session)
+	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
 		t.Fatalf("generateVerified failed: %v", err)
 	}
@@ -166,8 +171,8 @@ func TestGenerateVerifiedRetryOnce(t *testing.T) {
 	}
 	// 会话中留有修正指令
 	hasRetry := false
-	for _, m := range session.SnapshotMessages() {
-		if m.Role == RoleUser && strings.Contains(m.Content, "质量校验未通过") {
+	for _, m := range sess.SnapshotMessages() {
+		if m.Role == protocol.RoleUser && strings.Contains(m.Content, "质量校验未通过") {
 			hasRetry = true
 		}
 	}
@@ -180,31 +185,31 @@ func TestGenerateVerifiedRetryOnce(t *testing.T) {
 func TestGenerateVerifiedRetryLimit(t *testing.T) {
 	var streamCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 2},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: true, VerifyMaxRetries: 2},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 2)
-				ch <- StreamEvent{Type: StreamEventText, Content: "回答N"}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch := make(chan protocol.StreamEvent, 2)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "回答N"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-				return &ChatResponse{Content: `{"verdict":"fail","reason":"仍不达标"}`}, nil
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
+				return &protocol.ChatResponse{Content: `{"verdict":"fail","reason":"仍不达标"}`}, nil
 			},
 		},
 	}
-	session := p.sm.GetOrCreate("test:v3", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "问题"})
+	sess := p.sm.GetOrCreate("test:v3", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "问题"})
 
 	evt := platform.NewSyntheticEvent("c2c", "问题")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.generateVerified(ctx, session)
+	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
 		t.Fatalf("generateVerified failed: %v", err)
 	}
@@ -221,31 +226,31 @@ func TestGenerateVerifiedRetryLimit(t *testing.T) {
 func TestGenerateVerifiedDisabled(t *testing.T) {
 	var chatCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: false},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, VerifyEnabled: false},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-				ch := make(chan StreamEvent, 2)
-				ch <- StreamEvent{Type: StreamEventText, Content: "回答"}
-				ch <- StreamEvent{Type: StreamEventDone}
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+				ch := make(chan protocol.StreamEvent, 2)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "回答"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 				chatCalls++
-				return &ChatResponse{Content: `{"verdict":"pass"}`}, nil
+				return &protocol.ChatResponse{Content: `{"verdict":"pass"}`}, nil
 			},
 		},
 	}
-	session := p.sm.GetOrCreate("test:v4", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "问题"})
+	sess := p.sm.GetOrCreate("test:v4", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "问题"})
 
 	evt := platform.NewSyntheticEvent("c2c", "问题")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	if _, err := p.generateVerified(ctx, session); err != nil {
+	if _, err := p.generateVerified(ctx, sess); err != nil {
 		t.Fatalf("generateVerified failed: %v", err)
 	}
 	if chatCalls != 0 {

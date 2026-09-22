@@ -5,22 +5,23 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
-// ListTools 返回可供 AI 调用的知识库工具。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
+// ListTools 返回可供 AI 调用的知识库工具。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
 	if !p.cfg.Enabled {
 		return nil // 未启用时不注册 AI 工具，避免 LLM 看到两个永远查不到的工具
 	}
-	return []ai.Tool{
+	return []toolkit.Tool{
 		{
 			Name:        "kb_search",
 			Categories:  []string{"general"},
 			Description: p.toolDescription(),
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"query": {Type: "string", Description: "检索问题或关键词，如 如何实现一个定时任务插件"},
 					"limit": {Type: "integer", Description: "返回片段条数上限（默认 3，最大 5）"},
 				},
@@ -50,9 +51,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "kb_stats",
 			Categories:  []string{"general"},
 			Description: "查看本地知识库索引状态：已索引文档数、分块数、嵌入模型、最近构建时间。在回答涉及「知识库是否包含某内容」「检索是否可用」时使用",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type:       "object",
-				Properties: map[string]ai.ToolParamSchema{},
+				Properties: map[string]protocol.ToolParamSchema{},
 			},
 			Execute: func(_ context.Context, _ map[string]any) (string, error) {
 				return p.statsText(), nil

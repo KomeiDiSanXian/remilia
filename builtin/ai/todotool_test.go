@@ -4,6 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,13 +31,13 @@ func TestTodoManager(t *testing.T) {
 
 func TestTodoTools(t *testing.T) {
 	p := &Plugin{todos: newTodoManager()}
-	toolCtx := withToolSource(context.Background(), toolSource{chatID: "c1", p: p})
+	toolCtx := toolCtxForTest(p, toolkit.ToolSource{ChatID: "c1"})
 
-	tools := p.buildTodoTools()
-	add := findTestTool(t, tools, todoAddToolName)
-	list := findTestTool(t, tools, todoListToolName)
-	done := findTestTool(t, tools, todoDoneToolName)
-	remove := findTestTool(t, tools, todoRemoveToolName)
+	tools := catalog.BuildTodoTools()
+	add := findTestTool(t, tools, catalog.TodoAddToolName)
+	list := findTestTool(t, tools, catalog.TodoListToolName)
+	done := findTestTool(t, tools, catalog.TodoDoneToolName)
+	remove := findTestTool(t, tools, catalog.TodoRemoveToolName)
 
 	out, err := add.Execute(toolCtx, map[string]any{"item": "买牛奶"})
 	require.NoError(t, err)

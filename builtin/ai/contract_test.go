@@ -12,6 +12,11 @@ import (
 	"os"
 	"sort"
 	"testing"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/decision"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
 // retrievalFixture 检索契约数据集（testdata/retrieval_cases.json）。
@@ -95,7 +100,7 @@ func rankToolsByWeight(fx *retrievalFixture, toolTexts []string, toolVecs [][]fl
 		nameIdx[t.Name] = i
 	}
 	for qi, tc := range fx.ToolCases {
-		qt := tokenizeText(tc.Query)
+		qt := retrieval.TokenizeText(tc.Query)
 		scored := make([]struct {
 			id   int
 			name string
@@ -103,9 +108,9 @@ func rankToolsByWeight(fx *retrievalFixture, toolTexts []string, toolVecs [][]fl
 			cos  float64
 		}, 0, len(fx.Tools))
 		for ti, t := range fx.Tools {
-			kw, cos, _ := scoreToolParts(tc.Query, qt, Tool{
+			kw, cos, _ := decision.ScoreToolParts(tc.Query, qt, toolkit.ActionOf(toolkit.Tool{
 				Name: t.Name, Description: t.Description, Categories: []string{t.Category},
-			}, false, queryVecs[qi], toolVecs[ti])
+			}), false, queryVecs[qi], toolVecs[ti])
 			scored = append(scored, struct {
 				id   int
 				name string
@@ -141,7 +146,7 @@ func TestRetrievalContractLive(t *testing.T) {
 		model = "Qwen3-Embedding-0.6B-Q8_0.gguf"
 	}
 	fx := loadRetrievalFixture(t)
-	emb := newOpenAIEmbedder(baseURL, "", model)
+	emb := retrieval.NewOpenAIEmbedder(baseURL, "", model)
 	if emb == nil {
 		t.Fatalf("invalid embedding base url %q", baseURL)
 	}
@@ -150,9 +155,9 @@ func TestRetrievalContractLive(t *testing.T) {
 	// ---- 工具选择 ----
 	toolTexts := make([]string, len(fx.Tools))
 	for i, t := range fx.Tools {
-		toolTexts[i] = toolEmbeddingText(Tool{
+		toolTexts[i] = decision.ToolEmbeddingText(toolkit.ActionOf(toolkit.Tool{
 			Name: t.Name, Description: t.Description, Categories: []string{t.Category},
-		})
+		}))
 	}
 	toolVecs, err := emb.Embed(ctx, toolTexts)
 	if err != nil {
@@ -196,10 +201,10 @@ func TestRetrievalContractLive(t *testing.T) {
 	}
 	prefilterKept, droppedRecovered, droppedTotal := 0, 0, 0
 	for qi, rc := range fx.RAGCases {
-		qt := tokenizeText(rc.Query)
+		qt := retrieval.TokenizeText(rc.Query)
 		kept := false
 		for _, m := range fx.RAGCorpus {
-			if tokenOverlap(qt, tokenizeText(m)) >= ragKeywordMinScore && m == rc.Expected[0] {
+			if retrieval.TokenOverlap(qt, retrieval.TokenizeText(m)) >= promptctx.KeywordMinScore && m == rc.Expected[0] {
 				kept = true
 			}
 		}
@@ -215,7 +220,7 @@ func TestRetrievalContractLive(t *testing.T) {
 		}
 		all := make([]cand, 0, len(fx.RAGCorpus))
 		for mi, m := range fx.RAGCorpus {
-			all = append(all, cand{m, tokenOverlap(qt, tokenizeText(m)) + 2*float64(cosineSimilarity(ragQueryVecs[qi], ragVecs[mi]))})
+			all = append(all, cand{m, retrieval.TokenOverlap(qt, retrieval.TokenizeText(m)) + 2*float64(retrieval.CosineSimilarity(ragQueryVecs[qi], ragVecs[mi]))})
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].score > all[j].score })
 		for i := 0; i < len(all) && i < 3; i++ {
@@ -240,7 +245,7 @@ func TestRetrievalContractLive(t *testing.T) {
 	}
 	memKwHit, memEmbHit := 0, 0
 	for qi, mc := range fx.MemoryCases {
-		qt := tokenizeText(mc.Query)
+		qt := retrieval.TokenizeText(mc.Query)
 		found := func(useEmbed bool) bool {
 			type cand struct {
 				text  string
@@ -248,9 +253,9 @@ func TestRetrievalContractLive(t *testing.T) {
 			}
 			all := make([]cand, 0, len(fx.MemoryFacts))
 			for fi, f := range fx.MemoryFacts {
-				sig := tokenOverlap(qt, tokenizeText(f))
+				sig := retrieval.TokenOverlap(qt, retrieval.TokenizeText(f))
 				if useEmbed {
-					sig += 2 * float64(cosineSimilarity(memQueryVecs[qi], memVecs[fi]))
+					sig += 2 * float64(retrieval.CosineSimilarity(memQueryVecs[qi], memVecs[fi]))
 				}
 				if sig <= 0 {
 					continue

@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
@@ -57,7 +61,7 @@ func TestMaybeAttachQQButtons(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, fixedIDSender{})
 
 	// 双开（默认）：同一行两个按钮——重新生成（primary）+ 清空会话（默认样式）。
-	p := &Plugin{cfg: &Config{QQRegenButton: true, QQClearButton: true}}
+	p := &Plugin{cfg: &config.Config{QQRegenButton: true, QQClearButton: true}}
 	got := p.maybeAttachQQButtons(ctx, platform.OutboundMessage{Markdown: "回答"})
 	if len(got.Buttons) != 2 {
 		t.Fatalf("双开时应附加 2 个按钮，got %d", len(got.Buttons))
@@ -84,14 +88,14 @@ func TestMaybeAttachQQButtons(t *testing.T) {
 	}
 
 	// 仅开重新生成。
-	pRegen := &Plugin{cfg: &Config{QQRegenButton: true}}
+	pRegen := &Plugin{cfg: &config.Config{QQRegenButton: true}}
 	gotRegen := pRegen.maybeAttachQQButtons(ctx, platform.OutboundMessage{Markdown: "回答"})
 	if len(gotRegen.Buttons) != 1 || gotRegen.Buttons[0].ID != regenButtonData {
 		t.Errorf("仅开 qq_regen_button 时应只附加重新生成：%+v", gotRegen.Buttons)
 	}
 
 	// 仅开清空会话。
-	pClear := &Plugin{cfg: &Config{QQClearButton: true}}
+	pClear := &Plugin{cfg: &config.Config{QQClearButton: true}}
 	gotClear := pClear.maybeAttachQQButtons(ctx, platform.OutboundMessage{Markdown: "回答"})
 	if len(gotClear.Buttons) != 1 || gotClear.Buttons[0].ID != clearButtonData {
 		t.Errorf("仅开 qq_clear_button 时应只附加清空会话：%+v", gotClear.Buttons)
@@ -120,7 +124,7 @@ func TestMaybeAttachQQButtons(t *testing.T) {
 	}
 
 	// 配置全部关闭 → 不附加。
-	pOff := &Plugin{cfg: &Config{}}
+	pOff := &Plugin{cfg: &config.Config{}}
 	gotOff := pOff.maybeAttachQQButtons(ctx, platform.OutboundMessage{Markdown: "回答"})
 	if len(gotOff.Buttons) != 0 {
 		t.Error("qq_regen_button/qq_clear_button 均关闭时不应附加操作按钮")
@@ -134,7 +138,7 @@ func TestMaybeAttachQQPlanButtons(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(qqC2C, fixedIDSender{})
 
 	// 默认开 + QQ 单聊 Markdown + 回合进行中 → 查看计划 + 停止生成。
-	p := &Plugin{cfg: &Config{QQPlanButton: true}}
+	p := &Plugin{cfg: &config.Config{QQPlanButton: true}}
 	got := p.maybeAttachQQPlanButtons(ctx, platform.OutboundMessage{Markdown: "计划已创建"}, true)
 	if len(got.Buttons) != 2 {
 		t.Fatalf("进行中时应附加 查看计划+停止生成 两个按钮，got %d", len(got.Buttons))
@@ -178,15 +182,15 @@ func TestMaybeAttachQQPlanButtons(t *testing.T) {
 
 	cases := []struct {
 		name string
-		cfg  *Config
+		cfg  *config.Config
 		plat string
 		chat platform.ChatInfo
 		msg  platform.OutboundMessage
 	}{
-		{"配置关闭", &Config{}, "qq", platform.ChatInfo{ID: "u1"}, platform.OutboundMessage{Markdown: "x"}},
-		{"非 QQ", &Config{QQPlanButton: true}, "telegram", platform.ChatInfo{ID: "u1"}, platform.OutboundMessage{Markdown: "x"}},
-		{"频道", &Config{QQPlanButton: true}, "qq", platform.ChatInfo{ID: "c1", ParentID: "guild1", IsGroup: true}, platform.OutboundMessage{Markdown: "x"}},
-		{"纯文本非 Markdown", &Config{QQPlanButton: true}, "qq", platform.ChatInfo{ID: "u1"}, platform.TextMessage("x")},
+		{"配置关闭", &config.Config{}, "qq", platform.ChatInfo{ID: "u1"}, platform.OutboundMessage{Markdown: "x"}},
+		{"非 QQ", &config.Config{QQPlanButton: true}, "telegram", platform.ChatInfo{ID: "u1"}, platform.OutboundMessage{Markdown: "x"}},
+		{"频道", &config.Config{QQPlanButton: true}, "qq", platform.ChatInfo{ID: "c1", ParentID: "guild1", IsGroup: true}, platform.OutboundMessage{Markdown: "x"}},
+		{"纯文本非 Markdown", &config.Config{QQPlanButton: true}, "qq", platform.ChatInfo{ID: "u1"}, platform.TextMessage("x")},
 	}
 	for _, tc := range cases {
 		evt := platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "x",
@@ -203,19 +207,19 @@ func TestHandlePlanCommandStatusAttachesQQPlanButtons(t *testing.T) {
 	// /ai plan 状态回复：计划进行中（回合活跃）时附加 查看计划+停止生成。
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{Markdown: true, QQPlanButton: true, TriggerCmd: "/ai"},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{Markdown: true, QQPlanButton: true, TriggerCmd: "/ai"},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	session.setPlan(&Plan{
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	sess.SetPlan(&session.Plan{
 		Task:   "查天气",
 		Active: true,
-		Steps:  []PlanStep{{ID: "step_1", Description: "查询城市天气", Status: PlanInProgress}},
+		Steps:  []session.PlanStep{{ID: "step_1", Description: "查询城市天气", Status: session.PlanInProgress}},
 	})
-	if !session.BeginTurn() {
+	if !sess.BeginTurn() {
 		t.Fatal("BeginTurn 应成功（模拟计划仍在长回合中执行）")
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
 	ctx, sender := newQQPrivateContext("/ai plan")
 	if err := p.handlePlanCommand(ctx, ""); err != nil {
@@ -342,23 +346,23 @@ func TestHandleRegenActionBusyDoesNotQueue(t *testing.T) {
 	const sid = "qq:u1:u1"
 	chatCalled := false
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				chatCalled = true
 				return nil, nil
 			},
 		},
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	if !session.BeginTurn() {
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	if !sess.BeginTurn() {
 		t.Fatal("BeginTurn 应成功（模拟生成中）")
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
 	ctx, sender := newQQInteractionContext(regenButtonData)
 	if err := p.handleRegenAction(ctx); err != nil {
@@ -380,7 +384,7 @@ func TestHandleRegenActionBusyDoesNotQueue(t *testing.T) {
 	if got := senderReplyCount(sender); got != 1 {
 		t.Errorf("忙时提示应被节流，回复数 = %d，want 1", got)
 	}
-	if msgs := session.SnapshotMessages(); len(msgs) != 1 {
+	if msgs := sess.SnapshotMessages(); len(msgs) != 1 {
 		t.Errorf("忙时点击不应改动会话历史，len = %d", len(msgs))
 	}
 }
@@ -388,15 +392,15 @@ func TestHandleRegenActionBusyDoesNotQueue(t *testing.T) {
 func TestHandleRegenActionIdleRegenerates(t *testing.T) {
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, Markdown: false},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, Markdown: false},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov:     &mockProvider{}, // 默认流返回 "mock stream"
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "旧回复"})
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "旧回复"})
 
 	ctx, sender := newQQInteractionContext(regenButtonData)
 	if err := p.handleRegenAction(ctx); err != nil {
@@ -404,11 +408,11 @@ func TestHandleRegenActionIdleRegenerates(t *testing.T) {
 	}
 	waitReplies(t, sender, 1)
 
-	msgs := session.SnapshotMessages()
+	msgs := sess.SnapshotMessages()
 	if len(msgs) != 2 {
 		t.Fatalf("重新生成后会话应保留 user + 新 assistant，len = %d", len(msgs))
 	}
-	if msgs[0].Role != RoleUser || msgs[1].Role != RoleAssistant {
+	if msgs[0].Role != protocol.RoleUser || msgs[1].Role != protocol.RoleAssistant {
 		t.Errorf("会话角色异常：%v", msgs)
 	}
 	if msgs[1].Content == "旧回复" {
@@ -417,7 +421,7 @@ func TestHandleRegenActionIdleRegenerates(t *testing.T) {
 	if !strings.Contains(msgs[1].Content, "mock") {
 		t.Errorf("新回复内容不符：%q", msgs[1].Content)
 	}
-	if session.TurnActive() {
+	if sess.TurnActive() {
 		t.Error("重新生成结束后回合应已结束（TurnActive=false）")
 	}
 }
@@ -425,16 +429,16 @@ func TestHandleRegenActionIdleRegenerates(t *testing.T) {
 func TestHandleClearActionBusyDoesNotClear(t *testing.T) {
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "回答"})
-	if !session.BeginTurn() {
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "回答"})
+	if !sess.BeginTurn() {
 		t.Fatal("BeginTurn 应成功（模拟生成中）")
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
 	ctx, sender := newQQInteractionContext(clearButtonData)
 	if err := p.handleClearAction(ctx); err != nil {
@@ -464,12 +468,12 @@ func TestHandleClearActionBusyDoesNotClear(t *testing.T) {
 func TestHandleClearActionIdleClears(t *testing.T) {
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "回答"})
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "回答"})
 
 	ctx, sender := newQQInteractionContext(clearButtonData)
 	if err := p.handleClearAction(ctx); err != nil {
@@ -498,11 +502,11 @@ func TestHandleInteractionNativeClearSession(t *testing.T) {
 	// handleInteraction 应将其分派到清空会话处理。
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
 
 	ctx, sender := newQQInteractionContext(clearSessionNativeContent)
 	if err := p.handleInteraction(ctx); err != nil {
@@ -522,15 +526,15 @@ func TestExecSubCommandRetryCooldownDropsRapidDuplicate(t *testing.T) {
 	// 会话级冷却应静默吸收短时间内的重复触发，避免多次重新生成刷屏。
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, Markdown: false},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, Markdown: false},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov:     &mockProvider{}, // 默认流返回 "mock stream"
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "旧回复"})
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "旧回复"})
 
 	ctx, sender := newQQPrivateContext("/ai retry")
 	if err := p.execSubCommand(ctx, "retry"); err != nil {
@@ -545,7 +549,7 @@ func TestExecSubCommandRetryCooldownDropsRapidDuplicate(t *testing.T) {
 	if got := senderReplyCount(sender); got != 1 {
 		t.Errorf("冷却窗口内重复 /ai retry 应被静默忽略，回复数 = %d，want 1", got)
 	}
-	if msgs := session.SnapshotMessages(); len(msgs) != 2 {
+	if msgs := sess.SnapshotMessages(); len(msgs) != 2 {
 		t.Errorf("重复触发不应再次改动会话历史，len = %d", len(msgs))
 	}
 }
@@ -555,16 +559,16 @@ func TestExecSubCommandResetWhileBusyRefuses(t *testing.T) {
 	//（进行中回合持有会话指针），并给出节流提示。
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "回答"})
-	if !session.BeginTurn() {
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "回答"})
+	if !sess.BeginTurn() {
 		t.Fatal("BeginTurn 应成功（模拟生成中）")
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
 	ctx, sender := newQQPrivateContext("/ai reset")
 	if err := p.execSubCommand(ctx, "reset"); err != nil {
@@ -583,12 +587,12 @@ func TestExecSubCommandResetIdleClears(t *testing.T) {
 	// 空闲时 /ai reset 与"清空会话"按钮语义一致：删除会话历史并确认。
 	const sid = "qq:u1:u1"
 	p := &Plugin{
-		cfg: &Config{},
-		sm:  NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{},
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
 	}
-	session := p.sm.GetOrCreate(sid, "u1", "u1")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hi"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "回答"})
+	sess := p.sm.GetOrCreate(sid, "u1", "u1")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "回答"})
 
 	ctx, sender := newQQPrivateContext("/ai reset")
 	if err := p.execSubCommand(ctx, "reset"); err != nil {

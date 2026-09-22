@@ -1,10 +1,11 @@
-// Package ai process.go — LLM 调用循环与错误格式化。
+// Package ai process.go — 回合 LLM 调用循环与工具回填。
 //
 // 本文件包含：
 //   - processWithTools: 主工具调用循环（流式 LLM 调用 + 工具执行 + 回填）
-//   - runSingleRound: 单轮非流式 LLM 调用（供 Skill 内部使用）
-//   - singleRoundResult: 单轮调用结果
-//   - formatAIError: LLM 错误码到用户友好提示的映射
+//   - execOneTool: 单个工具调用的策略评估与执行装配
+//
+// 单轮调用、消息载荷规整、错误文案、并行编排与运行预算的实现见 builtin/ai/runtime；
+// 本文件只保留依赖会话、配置与执行路径的编排。
 //
 // processWithTools 是整个 AI 插件的核心编排逻辑，
 // 在工具调用循环中交替调用 LLM 和执行工具，直至达到最大深度或无工具调用。
@@ -14,11 +15,15 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -30,45 +35,9 @@ type ChatResult struct {
 	Attachments []platform.Attachment
 }
 
-// singleRoundResult 单轮非流式 LLM 调用的结果。
-type singleRoundResult struct {
-	Text      string
-	ToolCalls []ToolCall
-}
-
-// runSingleRound 使用主模型执行单轮非流式 LLM 调用，返回文本回复和工具调用。
-// 不涉及 session 管理，纯函数式，供 executeSkill 内部循环使用。
-func (p *Plugin) runSingleRound(ctx context.Context, messages []Message, tools []Tool) (*singleRoundResult, error) {
-	return p.runSingleRoundModel(ctx, p.cfg.Model, messages, tools)
-}
-
-// runSingleRoundModel 使用指定模型执行单轮非流式 LLM 调用。
-// 模型为空时回退主模型；供校验/抽取等任务使用独立模型（多模型分层）。
-func (p *Plugin) runSingleRoundModel(ctx context.Context, model string, messages []Message, tools []Tool) (*singleRoundResult, error) {
-	req := &ChatRequest{
-		Model:       model,
-		Messages:    messages,
-		Tools:       tools,
-		Temperature: p.cfg.Temperature,
-		TopP:        p.cfg.TopP,
-		MaxTokens:   p.cfg.MaxTokens,
-	}
-
-	resp, err := p.prov.Chat(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range resp.ToolCalls {
-		if resp.ToolCalls[i].ID == "" {
-			resp.ToolCalls[i].ID = fmt.Sprintf("call_%s_%d", resp.ToolCalls[i].Name, i)
-		}
-	}
-
-	return &singleRoundResult{
-		Text:      resp.Content,
-		ToolCalls: resp.ToolCalls,
-	}, nil
+// runtimeClient 组装单轮非流式 LLM 调用客户端（请求形状与调用见 builtin/ai/runtime）。
+func (p *Plugin) runtimeClient() runtime.Client {
+	return runtime.Client{Cfg: p.cfg, Prov: p.prov}
 }
 
 // processWithTools 执行 AI 对话的工具调用循环。
@@ -86,11 +55,11 @@ func (p *Plugin) runSingleRoundModel(ctx context.Context, model string, messages
 //  5. 无工具调用时返回最终文本（含捕获的附件）
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
-func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*ChatResult, error) {
+func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Session) (*ChatResult, error) {
 	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
 
-	cs := &captureSender{}
+	cs := &execution.CaptureSender{}
 	// 模型直接输出的附件（原生图像输出等多模态响应）跨轮次累积，
 	// 最终与工具捕获的附件合并后随回复发送。
 	provAttachments := make([]platform.Attachment, 0, 4)
@@ -102,7 +71,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	// deadline，多轮工具循环（每轮 LLM 调用 + 工具执行）共享同一 deadline
 	// 时，长任务会在中途被整段切断（如 send_message 分步任务第二轮超时）。
 	// 这里以插件独立预算替换（turn_timeout，见 effectiveTurnTimeout）。
-	restoreDeadline := p.liftEventDeadline(ctx)
+	restoreDeadline := runtime.LiftEventDeadline(ctx, runtime.EffectiveTurnTimeout(p.cfg))
 	defer restoreDeadline()
 
 	// 回合中断感知上下文：RequestInterrupt（/ai stop 命令、用户新消息抢占）
@@ -111,27 +80,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	turnCtx, cancelTurnCtx := session.TurnCtx(ctx.Context())
 	defer cancelTurnCtx()
 
-	// 工具选择 — 工具较多时按当前用户消息本地检索 Top-K，
-	// 替代旧的 LLM 单分类路由（零额外 LLM 调用，跨域任务自然覆盖多个分类）。
-	activeTools := p.reg.List()
-	activeTools = append(activeTools, p.buildUserSkillTools(session.UserID)...)
-	// per-group 工具白名单过滤（/ai group set tools）
-	if gp := p.groupPolicyFor(ctx); gp != nil {
-		before := len(activeTools)
-		activeTools = filterToolsByGroupPolicy(activeTools, gp)
-		if len(activeTools) != before {
-			logger.Debugf("[AI] Group policy filtered tools: %d→%d", before, len(activeTools))
-		}
-	}
-	// RBAC 按角色注入：声明了 Permissions 但当前调用者无权的工具
-	// 不进入模型视野（避免占名额与"调用了才被告知无权"）。执行路径
-	// 的权限校验（execOneTool/executeTool）保留为纵深防御。
-	beforePerm := len(activeTools)
-	activeTools = p.filterToolsByPermission(ctx, activeTools)
-	if len(activeTools) != beforePerm {
-		logger.Debugf("[AI] Permission filtered tools: %d→%d", beforePerm, len(activeTools))
-	}
-	activeTools = p.selectToolsForTurn(ctx, session, activeTools)
+	// 动作决策：候选发现（注册表 + 用户 Skill，经群策略与 RBAC）→ 选择
+	// （工具较多时按当前用户消息本地检索 Top-K，替代旧的 LLM 单分类路由）
+	// → 稳定策略。见 decision.go。
+	activeTools := p.decideTurnActions(ctx, session, p.needAction())
 
 	// 动态上下文（运行时/群聊窗口/长期记忆/相关历史）逐轮变化，统一挂到本轮
 	// 用户消息尾部发送，不写进 System 消息（见 buildDynamicContext）。
@@ -144,20 +96,24 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 
 		// 中断检查点：用户新消息抢占时，未开始的轮次直接收尾。
 		if session.Interrupted() {
-			return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, nil
+			return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
 		}
 
 		session.Lock()
 		session.CallCount++
-		msgs := make([]Message, len(session.Messages))
+		msgs := make([]protocol.Message, len(session.Messages))
 		copy(msgs, session.Messages)
 		session.Unlock()
 
 		// 附件保留策略：当前轮附件始终保留；历史图片在保留窗口（最近 N 条
 		// user 消息 + 时间窗）内随请求发送，支持"继续追问图片细节"；
 		// 更早/更老的图片降级为文本占位，避免无限上传（内存与 token 浪费）。
-		msgs, budgetDropped, _ := prepareRequestMessages(msgs, p.imageRetentionConfig())
-		if budgetDropped > 0 && session.markImageOverflowNotified() {
+		msgs, budgetDropped, _ := runtime.PrepareRequestMessages(msgs, runtime.Retention{
+			MaxTurns:      p.cfg.ImageContextTurns,
+			Window:        p.cfg.ImageContextWindow,
+			MaxPerRequest: p.cfg.MaxImagesPerRequest,
+		})
+		if budgetDropped > 0 && session.MarkImageOverflowNotified() {
 			logger.Warnf("[AI] %d historical image(s) dropped over budget (max_images_per_request=%d)",
 				budgetDropped, p.cfg.MaxImagesPerRequest)
 			ctx.ReplyText(fmt.Sprintf("本次对话图片较多，已保留最近 %d 张，更早的图片不再显示",
@@ -167,21 +123,21 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		// 兜底修复工具调用序列：中断跳过的工具、进程异常退出或持久化损坏
 		// 都可能让 assistant(tool_calls) 缺少对应 tool 消息（OpenAI/Anthropic
 		// API 硬性约束，缺失即 400）。按需补占位 tool 消息，自愈会话历史。
-		msgs = repairToolCallSequence(msgs)
-		msgs = injectDynamicContext(msgs, dynamicContext)
+		msgs = runtime.RepairToolCallSequence(msgs)
+		msgs = runtime.InjectDynamicContext(msgs, dynamicContext)
 
 		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"作为 system 消息
 		// 附在消息序列末尾（而不是插到系统提示词之后），让模型有状态可依地
 		// 推进多步任务，同时不使已完成的历史（含本回合的工具结果）失去缓存
 		// 复用能力。
-		if planText := session.planText(); planText != "" {
-			msgs = append(msgs, Message{Role: RoleSystem, Content: "===== 当前执行计划 =====\n" + planText})
+		if text := session.PlanText(); text != "" {
+			msgs = append(msgs, protocol.Message{Role: protocol.RoleSystem, Content: "===== 当前执行计划 =====\n" + text})
 		}
 
-		req := &ChatRequest{
+		req := &protocol.ChatRequest{
 			Model:       p.cfg.Model,
 			Messages:    msgs,
-			Tools:       activeTools,
+			Tools:       wireSpecs(activeTools),
 			Temperature: p.cfg.Temperature,
 			TopP:        p.cfg.TopP,
 			MaxTokens:   p.cfg.MaxTokens,
@@ -193,33 +149,33 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			cancel()
 			if session.Interrupted() {
 				// 主动停止：流尚未产生任何内容，按已捕获内容收尾，不报错。
-				return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, nil
+				return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
 			}
-			return &ChatResult{Text: cs.capturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
+			return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
 		}
 
 		var fullResponse strings.Builder
-		var toolCalls []ToolCall
+		var toolCalls []protocol.ToolCall
 		var streamErr error
 		doneReceived := false
 
 		for event := range streamCh {
 			switch event.Type {
-			case StreamEventText:
+			case protocol.StreamEventText:
 				fullResponse.WriteString(event.Content)
-			case StreamEventToolCall:
+			case protocol.StreamEventToolCall:
 				if event.ToolCall != nil && event.ToolCall.Name != "" {
 					toolCalls = append(toolCalls, *event.ToolCall)
 				}
-			case StreamEventAttachment:
+			case protocol.StreamEventAttachment:
 				if event.Attachment != nil {
 					provAttachments = append(provAttachments, *event.Attachment)
 				}
-			case StreamEventError:
+			case protocol.StreamEventError:
 				// 部分 provider（如 Anthropic）在流被取消时会以错误事件收尾：
 				// 是否主动停止在收尾处按 Interrupted 判定，此处仅记录。
 				streamErr = event.Err
-			case StreamEventDone:
+			case protocol.StreamEventDone:
 				doneReceived = true
 			}
 		}
@@ -232,16 +188,16 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		// 由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
 		if session.Interrupted() && (!doneReceived || streamErr != nil) {
 			if responseText != "" {
-				p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText})
+				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
 			}
 			text := responseText
 			if text == "" {
-				text = cs.capturedText
+				text = cs.CapturedText
 			}
-			return &ChatResult{Text: text, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)}, nil
+			return &ChatResult{Text: text, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
 		}
 		if streamErr != nil {
-			return &ChatResult{Text: cs.capturedText}, streamErr
+			return &ChatResult{Text: cs.CapturedText}, streamErr
 		}
 
 		for i := range toolCalls {
@@ -253,49 +209,52 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		// 重规划闭环：前序步骤全部终态、自身失败的前沿步骤 → 自动追加
 		// 重规划指令（要求模型调整计划而非按旧计划继续），替代"软计划"
 		// 依赖模型自觉的现状。同一条指令不重复追加。
-		var replanMsg *Message
-		if plan := session.planSnapshot(); plan != nil && plan.Active {
-			if f := plan.firstFailedFrontier(); f != nil && !lastUserIsReplan(session) {
-				m := buildReplanMessage(f)
+		var replanMsg *protocol.Message
+		if plan := session.PlanSnapshot(); plan != nil && plan.Active {
+			if f := plan.FirstFailedFrontier(); f != nil && !runtime.LastUserIsReplan(session) {
+				m := runtime.BuildReplanMessage(f)
 				replanMsg = &m
 			}
 		}
 
 		if len(toolCalls) == 0 {
 			if responseText != "" {
-				p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText})
+				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
 			}
 			if replanMsg != nil {
 				p.sm.AppendMessage(session, *replanMsg)
 			}
 			return &ChatResult{
 				Text:        responseText,
-				Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments),
+				Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments),
 			}, nil
 		}
 
-		p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText, ToolCalls: toolCalls})
+		p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText, ToolCalls: toolCalls})
 
 		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；
 		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
-		results := p.executeToolCallsParallel(ctx, session, cs, budget, toolCalls)
+		results := runtime.ExecuteToolCallsParallel(toolCalls, p.cfg.ToolParallel, session.Interrupted,
+			func(_ int, tc protocol.ToolCall) runtime.ToolExecResult {
+				return p.execOneTool(ctx, session, cs, budget, tc)
+			})
 
 		for i, tc := range toolCalls {
 			// 中断抢占后未启动的工具调用：补占位 tool 消息，保证 assistant
 			// 的每个 tool_call_id 都有对应 tool 响应（API 硬性约束，
 			// 缺失会导致下次请求被 400 拒绝）。
-			if results[i].skipped {
-				p.sm.AppendMessage(session, Message{
-					Role:       RoleTool,
+			if results[i].Skipped {
+				p.sm.AppendMessage(session, protocol.Message{
+					Role:       protocol.RoleTool,
 					Content:    "（工具未执行：对话被新消息打断）",
 					ToolCallID: tc.ID,
 				})
 				continue
 			}
-			toolResult := results[i].result
-			p.sm.AppendMessage(session, Message{
-				Role:       RoleTool,
-				Content:    truncateToolResult(toolResult),
+			toolResult := results[i].Result
+			p.sm.AppendMessage(session, protocol.Message{
+				Role:       protocol.RoleTool,
+				Content:    runtime.TruncateToolResult(toolResult),
 				ToolCallID: tc.ID,
 			})
 
@@ -303,7 +262,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			// 发生在进行中的回合：QQ 单聊/群聊（频道除外）Markdown 场景附带
 			// "查看计划/停止生成"指令按钮（见 maybeAttachQQPlanButtons），长任务
 			// 期间可一键刷新进度或中断。
-			if tc.Name == planCreateToolName && !isToolErrorResult(toolResult) {
+			if tc.Name == catalog.PlanCreateToolName && results[i].Err == nil {
 				msg := p.formatReplyMessage(toolResult)
 				p.replyAndRecord(ctx, p.maybeAttachQQPlanButtons(ctx, msg, true))
 			}
@@ -314,18 +273,18 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			//     强制模型先分析原因再采用不同策略（显式反思轮）
 			//   - 连续失败达到 tool_retry_limit+1 次时优雅中止本轮，
 			//     替代撞 max_depth 的裸错误
-			if !isToolErrorResult(toolResult) {
-				session.resetToolFailure(tc.Name)
+			if results[i].Err == nil {
+				session.ResetToolFailure(tc.Name)
 				continue
 			}
-			fails := session.incrToolFailure(tc.Name)
-			if fails > p.effectiveToolRetryLimit() {
-				msg := buildRetryAbortMessage(tc.Name, fails, toolResult)
-				p.sm.AppendMessage(session, Message{Role: RoleUser, Content: msg})
-				return &ChatResult{Text: msg, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)}, nil
+			fails := session.IncrToolFailure(tc.Name)
+			if fails > runtime.EffectiveToolRetryLimit(p.cfg) {
+				msg := execution.BuildRetryAbortMessage(tc.Name, fails, toolResult)
+				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleUser, Content: msg})
+				return &ChatResult{Text: msg, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
 			}
 			if fails >= 2 {
-				p.sm.AppendMessage(session, buildReflectionMessage(tc.Name, fails, toolResult))
+				p.sm.AppendMessage(session, execution.BuildReflectionMessage(tc.Name, fails, toolResult))
 			}
 		}
 
@@ -336,132 +295,42 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		}
 	}
 
-	return &ChatResult{Text: cs.capturedText, Attachments: mergeChatAttachments(cs.capturedAttachments, provAttachments)},
+	return &ChatResult{Text: cs.CapturedText, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)},
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
-// mergeChatAttachments 合并工具捕获附件与模型直接输出的附件（保持顺序）。
-func mergeChatAttachments(groups ...[]platform.Attachment) []platform.Attachment {
-	var out []platform.Attachment
-	for _, g := range groups {
-		out = append(out, g...)
-	}
-	return out
-}
-
-// recordToolTrace 记录一次工具调用的追踪信息（耗时、参数摘要、失败标记）。
-func (p *Plugin) recordToolTrace(session *Session, tc ToolCall, start time.Time, result string) {
-	entry := ToolTraceEntry{
-		Time:     start,
-		ToolName: tc.Name,
-		Args:     truncateRunes(summarizeArgs(tc.Arguments), 80),
-		Duration: time.Since(start),
-	}
-	if isToolErrorResult(result) {
-		entry.Err = truncateRunes(result, 120)
-	}
-	session.appendToolTrace(entry)
-}
-
-// toolExecResult 单个工具调用的并行执行结果。
-type toolExecResult struct {
-	// result 工具执行结果文本。
-	result string
-	// skipped 中断抢占后未启动的工具调用（不入历史、不计数）。
-	skipped bool
-}
-
-// executeToolCallsParallel 并行执行一轮的全部工具调用（tool_parallel 并发度）。
-// 结果按原始顺序返回；审批/执行/追踪相互独立；真实命令执行经 realCmdMu 串行化
-// （syncer 非线程安全）。并发度 1 时退化为顺序执行（行为与旧版一致）。
-func (p *Plugin) executeToolCallsParallel(ctx *eventctx.Context, session *Session, cs *captureSender, budget *sendBudget, calls []ToolCall) []toolExecResult {
-	results := make([]toolExecResult, len(calls))
-	parallel := p.cfg.ToolParallel
-	if parallel <= 1 || len(calls) <= 1 {
-		for i := range calls {
-			results[i] = p.execOneTool(ctx, session, cs, budget, calls[i])
-		}
-		return results
-	}
-	if parallel > len(calls) {
-		parallel = len(calls)
-	}
-
-	sem := make(chan struct{}, parallel)
-	var wg sync.WaitGroup
-	for i := range calls {
-		if session.Interrupted() {
-			// 抢占信号到达：未启动的工具调用直接跳过。
-			results[i] = toolExecResult{skipped: true}
-			continue
-		}
-		wg.Add(1)
-		go func(i int, tc ToolCall) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			results[i] = p.execOneTool(ctx, session, cs, budget, tc)
-		}(i, calls[i])
-	}
-	wg.Wait()
-	return results
-}
-
 // execOneTool 执行单个工具调用（计数 + 权限 + 审批 + 执行 + 追踪）。
-func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captureSender, budget *sendBudget, tc ToolCall) toolExecResult {
+func (p *Plugin) execOneTool(ctx *eventctx.Context, session *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
 	session.Lock()
 	session.ToolCount++
 	session.Unlock()
 
-	// 审批前先做 RBAC 权限校验（工具声明 Permissions 时），避免
-	// "先请求审批后告知无权"的坏体验；executeTool 内的校验保留为
-	// 纵深防御（双保险）。
-	if tool, ok := p.reg.Get(tc.Name); ok && len(tool.Permissions) > 0 && !p.hasToolPermission(ctx, tool.Permissions) {
-		return toolExecResult{result: fmt.Sprintf("错误: 工具 %q 需要权限（%s），当前用户无权调用",
-			tc.Name, strings.Join(tool.Permissions, ", "))}
-	}
-
-	// 命令执行审批：根据生效的审批模式（全局 tool_approval 或群策略
-	// approval）决定是否需要用户批准后才执行工具。
-	// 拒绝或超时时返回工具级结果（不中断整个对话）。
-	needApproval := p.approvalModeFor(ctx, tc.Name)
-	if needApproval {
-		approved := p.requestApproval(ctx, tc.Name, p.approvalSummaryForTool(ctx, tc), p.effectiveApprovalTimeout())
-		if !approved {
-			return toolExecResult{result: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}
-		}
+	// 策略评估（RBAC 权限 + 审批）由决策层给出结论：放行、拒绝文案与 SendTo 授权。
+	// 拒绝按工具级结果返回（不中断整个对话）。
+	verdict := p.decideToolInvocation(ctx, tc)
+	if !verdict.allowed {
+		return runtime.ToolExecResult{Result: verdict.rejectText, Err: verdict.err}
 	}
 
 	toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
 	defer cancel()
-	toolCtx = WithPlanSession(toolCtx, session)
+	toolCtx = runtime.WithPlanSession(toolCtx, session)
 	// SendTo 能力仅在本次调用通过审批门后注入（sendToAllowed）；
 	// 嵌套 Skill 工具调用继承同一 context，无法绕过审批。
-	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: needApproval, budget: budget}
+	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: verdict.sendToGranted, budget: budget}
 	traceStart := time.Now()
-	toolResult := p.executeTool(ctx, tc, toolCtx, cs, sender)
-	p.recordToolTrace(session, tc, traceStart, toolResult)
-	return toolExecResult{result: toolResult}
-}
-
-// lastUserIsReplan 判断会话最后一条用户消息是否已是重规划指令（防重复追加）。
-func lastUserIsReplan(session *Session) bool {
-	msgs := session.SnapshotMessages()
-	for _, msg := range slices.Backward(msgs) {
-		if msg.Role == RoleUser {
-			return strings.HasPrefix(msg.Content, "计划步骤")
-		}
-	}
-	return false
+	res := p.executeToolResult(ctx, tc, toolCtx, cs, sender)
+	runtime.RecordToolTrace(session, tc, traceStart, res.Text, res.Err)
+	return runtime.ToolExecResult{Result: res.Text, Err: res.Err}
 }
 
 // approvalSummaryForTool 生成工具审批展示用的参数摘要。
 // send_to 在审批前预解析目标，审批消息中显示解析后的目标
 // （如 张三（12345）），让批准者明确知道消息将发送给谁；
 // 解析失败时回退原始参数摘要。
-func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc ToolCall) string {
-	summary := summarizeArgs(tc.Arguments)
-	if tc.Name != sendToToolName {
+func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc protocol.ToolCall) string {
+	summary := runtime.SummarizeArgs(tc.Arguments)
+	if tc.Name != catalog.SendToToolName {
 		return summary
 	}
 	raw, _ := tc.Arguments["target"].(string)
@@ -480,51 +349,9 @@ func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc ToolCall) stri
 		args := make(map[string]any, len(tc.Arguments))
 		maps.Copy(args, tc.Arguments)
 		args["target"] = display
-		return summarizeArgs(args)
+		return runtime.SummarizeArgs(args)
 	}
 	return summary
-}
-
-// summarizeArgs 生成工具参数摘要（按键排序、截断，用于审批展示，避免敏感信息泄漏）。
-func summarizeArgs(args map[string]any) string {
-	if len(args) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		if k == "arguments" {
-			continue // 真实命令的原始参数串单独展示
-		}
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		s := fmt.Sprintf("%v", args[k])
-		if len(s) > 40 {
-			s = s[:40] + "..."
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", k, s))
-	}
-	return strings.Join(parts, ", ")
-}
-
-// approvalModeFor 判断指定工具是否需要审批（按生效的审批模式）。
-func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
-	mode := p.effectiveApprovalMode(ctx)
-	if mode == "" || mode == string(ApprovalOff) {
-		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
-		if tool, ok := p.reg.Get(toolName); ok && tool.AlwaysRequireApproval {
-			return true
-		}
-		return false
-	}
-	tool, ok := p.reg.Get(toolName)
-	if !ok {
-		// 工具不存在（如 Skill）时：always 模式审批，restricted 不审批
-		return mode == string(ApprovalAlways)
-	}
-	return p.needsApproval(tool, mode)
 }
 
 // effectiveApprovalMode 返回生效的审批模式：群策略 > 全局配置 > 默认 off。
@@ -540,408 +367,50 @@ func (p *Plugin) effectiveApprovalMode(ctx *eventctx.Context) string {
 	return string(ApprovalOff)
 }
 
-// effectiveApprovalTimeout 返回生效的审批超时（群策略未配置时用全局）。
-func (p *Plugin) effectiveApprovalTimeout() time.Duration {
-	t := p.cfg.ApprovalTimeout
-	if t <= 0 {
-		t = 60 * time.Second
-	}
-	return t
-}
-
-// effectiveToolRetryLimit 返回工具失败重试预算（<=0 时用默认值 2）。
-func (p *Plugin) effectiveToolRetryLimit() int {
-	if p.cfg.ToolRetryLimit <= 0 {
-		return 2
-	}
-	return p.cfg.ToolRetryLimit
-}
-
-// effectiveTurnTimeout 返回一次 AI 处理的独立时间预算。
-// turn_timeout 未配置时自动推导：api_timeout × max(2, min(max_depth, 5))，
-// 既为多轮工具任务留足余量，又避免 max_depth 过大时预算失控。
-func (p *Plugin) effectiveTurnTimeout() time.Duration {
-	if p.cfg.TurnTimeout > 0 {
-		return p.cfg.TurnTimeout
-	}
-	api := p.cfg.APITimeout
-	if api <= 0 {
-		api = 60 * time.Second
-	}
-	depth := p.cfg.MaxDepth
-	if depth <= 0 {
-		depth = 5
-	}
-	return api * time.Duration(max(2, min(depth, 5)))
-}
-
-// liftEventDeadline 以插件独立预算替换事件上下文的 deadline。
-// context.WithoutCancel 去掉全局 Timeout 中间件注入的 deadline 与取消信号
-// （保留 values/tracing），再套上 effectiveTurnTimeout 的新预算。
-// 返回恢复函数（恢复原 stdCtx）。
-func (p *Plugin) liftEventDeadline(ctx *eventctx.Context) func() {
-	orig := ctx.Context()
-	turnCtx, cancel := context.WithTimeout(context.WithoutCancel(orig), p.effectiveTurnTimeout())
-	ctx.SetStdContext(turnCtx)
-	return func() {
-		cancel()
-		ctx.SetStdContext(orig)
-	}
-}
-
 // groupPolicyFor 返回当前会话生效的群策略（仅群聊；私聊返回 nil 表示不受群策略约束）。
-func (p *Plugin) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
-	if p.groupPolicies == nil {
+func (a *adminState) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
+	if a.groupPolicies == nil {
 		return nil
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup || chat.ID == "" {
 		return nil
 	}
-	return p.groupPolicies.Effective(chat.ID)
+	return a.groupPolicies.Effective(chat.ID)
 }
 
-// buildUserSkillTools 构建当前会话用户的已启用 Skill 列表，包装为 Tool。
-func (p *Plugin) buildUserSkillTools(userID string) []Tool {
-	skills := p.skillReg.ListByOwner(userID)
+// userSkillActions 构建当前会话用户的已启用 Skill 动作（模型可见视图）。
+//
+// 只产出描述与策略：Skill 的执行载荷由 skillReg 在调用时按名称解析
+// （见 executeToolResult 的 skillInvoker 分支），因此这里不带 Execute。
+func (c *catalogState) userSkillActions(userID string) []toolkit.Action {
+	skills := c.skillReg.ListByOwner(userID)
 	if len(skills) == 0 {
 		return nil
 	}
-	tools := make([]Tool, 0, len(skills))
+	actions := make([]toolkit.Action, 0, len(skills))
 	for _, s := range skills {
 		if !s.Enabled {
 			continue
 		}
-		skill := s
-		tools = append(tools, Tool{
-			Name:        skill.Name,
-			Description: skill.Description,
-			Parameters:  skill.Parameters,
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				p.skillReg.IncrementUsage(skill.OwnerID, skill.Name)
-				return p.executeSkill(ctx, skill, args)
-			},
+		actions = append(actions, toolkit.ActionOf(toolkit.Tool{
+			Name:        s.Name,
+			Description: s.Description,
+			Parameters:  s.Parameters,
+		}))
+	}
+	return actions
+}
+
+// wireSpecs 把动作收敛为协议层工具声明：只保留模型需要知道的字段。
+func wireSpecs(actions []toolkit.Action) []protocol.ToolSpec {
+	out := make([]protocol.ToolSpec, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, protocol.ToolSpec{
+			Name:        a.Spec.Name,
+			Description: a.Spec.Description,
+			Parameters:  a.Spec.Parameters,
 		})
 	}
-	return tools
-}
-
-// getLastUserMessage 从 session 中提取最后一条用户消息的文本内容。
-// 多模态消息（ContentParts 模式）时从 text part 提取，保证工具选择/RAG/
-// 记忆查询拿到的是文字而非空串或媒体占位符。
-func getLastUserMessage(session *Session) string {
-	session.Lock()
-	defer session.Unlock()
-	for _, v := range slices.Backward(session.Messages) {
-		if v.Role != RoleUser {
-			continue
-		}
-		if text := messageText(v); text != "" {
-			return text
-		}
-		return ""
-	}
-	return ""
-}
-
-// messageText 提取消息的文本内容：优先 Content，其次 ContentParts 中的 text part。
-func messageText(m Message) string {
-	if m.Content != "" {
-		return m.Content
-	}
-	var b strings.Builder
-	for _, p := range m.ContentParts {
-		if p.Type == ContentPartText && p.Text != "" {
-			if b.Len() > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(p.Text)
-		}
-	}
-	return b.String()
-}
-
-// countImageParts 统计消息中图片 ContentPart 的数量。
-func countImageParts(parts []ContentPart) int {
-	n := 0
-	for _, p := range parts {
-		if p.Type == ContentPartImage {
-			n++
-		}
-	}
-	return n
-}
-
-// toolResultMissing 工具结果缺失时的占位回填文本（用于修复消息序列）。
-const toolResultMissing = "（工具结果缺失，消息序列已修复）"
-
-// repairToolCallSequence 修复消息序列中的工具调用完整性：
-// 每条含 tool_calls 的 assistant 消息之后，必须为其中每个 tool_call_id
-// 提供对应的 tool 消息（OpenAI/Anthropic API 硬性约束，缺失即 400）。
-//
-// 中断抢占跳过的工具、进程异常退出、持久化损坏或上下文裁剪
-// 都可能导致序列残缺，这里双向自愈：
-//   - 缺失的 tool 响应：插入占位 tool 消息（tool 消息必须紧跟在
-//     assistant 之后，因此在遇到下一条非 tool 消息或序列末尾时补位）
-//   - 孤儿的 tool 消息：前置 assistant(tool_calls) 被裁掉后残留的
-//     tool 消息没有可响应的 tool_call_id，API 同样会以 400 拒绝，直接丢弃
-//
-// 返回新的消息切片，不修改原切片。
-func repairToolCallSequence(msgs []Message) []Message {
-	out := make([]Message, 0, len(msgs)+4)
-	var pending []string // 尚未响应的 tool_call_id
-	for _, m := range msgs {
-		if m.Role == RoleTool {
-			// 只保留响应当前 assistant(tool_calls) 组的 tool 消息；
-			// 找不到对应 tool_call_id 即为孤儿消息（如上下文裁剪切掉了
-			// 前置 assistant），丢弃以免整个请求被 API 以 400 拒绝。
-			idx := -1
-			for i, id := range pending {
-				if id == m.ToolCallID {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				continue
-			}
-			pending = append(pending[:idx], pending[idx+1:]...)
-			out = append(out, m)
-			continue
-		}
-
-		if len(pending) > 0 {
-			// 非 tool 消息出现：先把前面 assistant 缺失的工具响应补位插回
-			// （插在本消息之前，确保 tool 消息紧随 assistant）。
-			for _, id := range pending {
-				out = append(out, Message{Role: RoleTool, Content: toolResultMissing, ToolCallID: id})
-			}
-			pending = nil
-		}
-		out = append(out, m)
-
-		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
-			pending = nil
-			seen := make(map[string]bool, len(m.ToolCalls))
-			for _, tc := range m.ToolCalls {
-				if tc.ID == "" || seen[tc.ID] {
-					continue
-				}
-				seen[tc.ID] = true
-				pending = append(pending, tc.ID)
-			}
-		}
-	}
-	// 序列末尾仍未响应的 tool_call_id 补位
-	for _, id := range pending {
-		out = append(out, Message{Role: RoleTool, Content: toolResultMissing, ToolCallID: id})
-	}
 	return out
-}
-
-// imageRetention 历史图片保留策略参数（来自 Config）。
-type imageRetention struct {
-	maxTurns      int           // ImageContextTurns：最近 N 条 user 消息
-	window        time.Duration // ImageContextWindow：时间窗（0 = 仅按条数）
-	maxPerRequest int           // MaxImagesPerRequest：单请求图片总数上限
-}
-
-// injectDynamicContext 把动态上下文挂到消息序列中最后一条 user 消息上。
-//
-// 为什么挂在这里，而不是写进 System 消息：
-//
-//	LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI/Anthropic prompt cache）按
-//	请求前缀逐块比对。System 消息位于请求最前面，一旦它逐轮变化，其后的
-//	全部历史消息都会变成缓存未命中。动态内容（运行时上下文/群聊窗口/长期
-//	记忆/相关历史）每轮都不同，因此必须排在稳定前缀（System + 历史）之后。
-//
-// 为什么附着在最后一条 user 消息上，而不是追加一条新消息：
-//
-//	各提供商对消息序列的约束不同（Anthropic 只接受顶级 system 字段，
-//	消息数组内要求 user/assistant 交替，且非首条 system 消息会被丢弃），
-//	附着在既有 user 消息里对所有提供商都成立。
-//
-// 只作用于本次请求的消息副本，不写回会话历史：否则上一轮的运行时上下文
-// （旧时间、旧群状态）会被持久化进历史，既污染后续请求的前缀，又让过期
-// 信息长期留在上下文里。
-//
-// 无 user 消息或 dynamic 为空时原样返回。
-func injectDynamicContext(msgs []Message, dynamic string) []Message {
-	if dynamic == "" {
-		return msgs
-	}
-	lastUser := -1
-	for i := range msgs {
-		if msgs[i].Role == RoleUser {
-			lastUser = i
-		}
-	}
-	if lastUser < 0 {
-		return msgs
-	}
-
-	block := "===== 动态上下文 =====\n" + dynamic
-
-	if len(msgs[lastUser].ContentParts) == 0 {
-		if msgs[lastUser].Content == "" {
-			msgs[lastUser].Content = block
-		} else {
-			msgs[lastUser].Content = block + "\n\n" + msgs[lastUser].Content
-		}
-		return msgs
-	}
-
-	// 多模态消息：上下文作为首个 text part 前置（新建切片，不修改原消息的 parts）
-	parts := make([]ContentPart, 0, len(msgs[lastUser].ContentParts)+1)
-	parts = append(parts, ContentPart{Type: ContentPartText, Text: block})
-	parts = append(parts, msgs[lastUser].ContentParts...)
-	msgs[lastUser].ContentParts = parts
-	return msgs
-}
-
-// imageRetentionConfig 返回当前配置下的历史图片保留策略参数。
-func (p *Plugin) imageRetentionConfig() imageRetention {
-	return imageRetention{
-		maxTurns:      p.cfg.ImageContextTurns,
-		window:        p.cfg.ImageContextWindow,
-		maxPerRequest: p.cfg.MaxImagesPerRequest,
-	}
-}
-
-// prepareRequestMessages 返回用于 LLM 请求的消息副本。
-//
-// 附件保留策略：
-//   - 最后一条 user 消息（当前轮）的附件二进制始终保留；
-//   - 历史 user 消息中的图片仅在"最近 maxTurns 条内且时间窗内"时保留，
-//     支持"继续追问图片细节"；更早/更老的图片降级为文本占位；
-//   - 单次请求图片总数不超过 maxPerRequest（从最近开始保留，超出降级）。
-//
-// 返回 (请求消息副本, 预算超限丢弃数, 时间/条数过期丢弃数)。
-// 只有预算超限（max_images_per_request）需要提醒用户；过期丢弃是正常衰减。
-func prepareRequestMessages(msgs []Message, retention imageRetention) ([]Message, int, int) {
-	lastUserIdx := -1
-	for i := range msgs {
-		if msgs[i].Role == RoleUser {
-			lastUserIdx = i
-		}
-	}
-
-	var refTime time.Time
-	if lastUserIdx >= 0 {
-		refTime = msgs[lastUserIdx].Timestamp
-	}
-
-	// user 消息序号（从最近的算起）：1 = 最后一条（当前轮，始终保留）。
-	ordinal := make([]int, len(msgs))
-	cnt := 0
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == RoleUser {
-			cnt++
-			ordinal[i] = cnt
-		}
-	}
-
-	out := make([]Message, len(msgs))
-	imgBudget := retention.maxPerRequest
-	budgetDropped := 0
-	staleDropped := 0
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		if m.Role != RoleUser {
-			out[i] = m
-			continue
-		}
-		if ordinal[i] == 1 {
-			// 当前轮：附件始终保留（图片计数计入请求预算）
-			out[i] = m
-			imgBudget -= countImageParts(m.ContentParts)
-			continue
-		}
-
-		// maxTurns <= 0 表示仅保留当前轮（旧行为）
-		withinCount := retention.maxTurns > 0 && ordinal[i] <= retention.maxTurns
-		withinTime := retention.window <= 0 ||
-			refTime.IsZero() || m.Timestamp.IsZero() ||
-			refTime.Sub(m.Timestamp) <= retention.window
-		if withinCount && withinTime {
-			n := countImageParts(m.ContentParts)
-			if retention.maxPerRequest <= 0 || imgBudget >= n {
-				imgBudget -= n
-				out[i] = m
-				continue
-			}
-			budgetDropped += n
-		} else {
-			staleDropped += countImageParts(m.ContentParts)
-		}
-		out[i] = stripBinaryParts(m)
-	}
-	return out, budgetDropped, staleDropped
-}
-
-// stripBinaryParts 将消息中的多模态附件二进制内容替换为文本占位。
-// 无 ContentParts 时原样返回。
-func stripBinaryParts(m Message) Message {
-	if len(m.ContentParts) == 0 {
-		return m
-	}
-	parts := make([]string, 0, len(m.ContentParts))
-	for _, p := range m.ContentParts {
-		switch p.Type {
-		case ContentPartText:
-			if p.Text != "" {
-				parts = append(parts, p.Text)
-			}
-		case ContentPartImage:
-			parts = append(parts, "[历史图片未随本次请求发送]")
-		case ContentPartAudio:
-			parts = append(parts, "[历史音频未随本次请求发送]")
-		}
-	}
-	m.ContentParts = nil
-	m.Content = strings.Join(parts, "\n")
-	return m
-}
-
-// maxToolResultLen 单条工具结果回填给 LLM 的最大字符数。
-// 防止一条命令输出巨型结果撑爆上下文窗口。
-const maxToolResultLen = 8000
-
-// truncateToolResult 截断过长的工具结果，按 rune 截断避免劈开多字节字符。
-func truncateToolResult(result string) string {
-	runes := []rune(result)
-	if len(runes) <= maxToolResultLen {
-		return result
-	}
-	return string(runes[:maxToolResultLen]) + "\n…(工具结果过长已截断)"
-}
-
-// formatAIError 将 provider 返回的错误转换为用户友好的提示。
-//
-// 常见错误映射：
-//   - 401: API Key 无效或未配置
-//   - 404: 模型名称错误或 API 地址不对
-//   - 429: 速率限制
-//   - timeout / context deadline: 请求超时（可检查网络或增大 timeout）
-//     其他: 记录详细日志后返回通用提示，避免向用户暴露可能包含
-//     组织/计费信息的原始 API 错误体。
-func formatAIError(err error) string {
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "401"):
-		return "API 认证失败，请检查 api_key 配置"
-	case strings.Contains(msg, "404"):
-		return "API 地址或模型名称错误，请检查 base_url 和 model 配置"
-	case strings.Contains(msg, "429"):
-		return "请求过于频繁，请稍后再试"
-	case strings.Contains(msg, "context deadline exceeded"):
-		return "请求超时，请检查网络连接或增大超时配置"
-	case strings.Contains(msg, "connection refused"):
-		return "无法连接 API 服务器，请检查 base_url 配置"
-	case strings.Contains(msg, "no such host"):
-		return "API 域名解析失败，请检查 base_url 配置"
-	default:
-		logger.Warnf("[AI] Unhandled LLM error: %v", err)
-		return "AI 处理出错，请稍后再试"
-	}
 }

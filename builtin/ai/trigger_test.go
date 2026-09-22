@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 )
 
@@ -42,8 +44,8 @@ func TestTriggerRuleAcceptsNaturalLanguageWithApostrophe(t *testing.T) {
 	}
 
 	// 清洗后应得到完整正文（命令前缀与 @ 标记被移除），并交由 handleAIChat 处理。
-	p := &Plugin{cfg: &Config{TriggerCmd: "/ai"}, triggerCmd: "/ai"}
-	cleaned := p.cleanMessage(content)
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}, triggerCmd: "/ai"}
+	cleaned := runtime.CleanMessage(content, p.triggerCmd)
 	if !strings.HasPrefix(cleaned, "Generate a self-contained, valid SVG") {
 		t.Errorf("清洗后正文异常：%q", cleaned)
 	}

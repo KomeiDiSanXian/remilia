@@ -25,13 +25,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/hashicorp/golang-lru/v2"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -403,14 +404,14 @@ func (p *Plugin) IsBanned(userID string) bool {
 }
 
 // ListSkills 返回可供 AI 调用的技能集。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "antispam_investigator",
 			Description: "反垃圾调查：检查用户封禁状态、查询反垃圾系统统计信息",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"user_id": {Type: "string", Description: "要调查的用户 ID（可选，留空则只查统计）"},
 				},
 			},
@@ -421,16 +422,16 @@ func (p *Plugin) ListSkills() []ai.Skill {
 }
 
 // ListTools 返回可供 AI 调用的工具集。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "antispam_check_ban",
 			Categories:  []string{"admin"},
 			Permissions: []string{"antispam.view"},
 			Description: "检查用户是否被反垃圾系统封禁。返回封禁状态和统计概览。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"user_id": {Type: "string", Description: "用户 ID"},
 				},
 				Required: []string{"user_id"},
@@ -453,9 +454,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Categories:  []string{"admin"},
 			Permissions: []string{"antispam.view"},
 			Description: "查询反垃圾系统统计信息：封禁数、用户限流器数、群组限流器数。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type:       "object",
-				Properties: map[string]ai.ToolParamSchema{},
+				Properties: map[string]protocol.ToolParamSchema{},
 			},
 			Execute: func(_ context.Context, args map[string]any) (string, error) {
 				stats := p.Stats()

@@ -1,6 +1,6 @@
 // Package aimage ai_tool.go — 向 AI 插件暴露文生图工具。
 //
-// Plugin 实现 ai.ToolProvider 接口，AI 插件在容器冻结后通过
+// Plugin 实现 toolkit.ToolProvider 接口，AI 插件在容器冻结后通过
 // DiscoverToolProviders 自动发现注册。工具标记 RequiresApproval：
 // tool_approval=restricted 模式下生成需人工审批。
 package aimage
@@ -11,22 +11,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// ListTools 实现 ai.ToolProvider。未启用或未配置 base_url 时不注册工具。
-func (p *Plugin) ListTools() []ai.Tool {
+// ListTools 实现 toolkit.ToolProvider。未启用或未配置 base_url 时不注册工具。
+func (p *Plugin) ListTools() []toolkit.Tool {
 	if p.client == nil {
 		return nil
 	}
-	return []ai.Tool{{
+	return []toolkit.Tool{{
 		Name:        "generate_image",
-		Categories:  []string{ai.CategoryGeneral},
+		Categories:  []string{toolkit.CategoryGeneral},
 		Description: "根据文字描述生成图片（文生图）。生成成功后图片会自动发送到当前会话，工具只返回简短结果文本。当用户要求「画/生成一张图」、需要配图或插画时使用；prompt 应详细描述主体、风格、构图、光线等",
-		Parameters: ai.ToolParamSchema{
+		Parameters: protocol.ToolParamSchema{
 			Type: "object",
-			Properties: map[string]ai.ToolParamSchema{
+			Properties: map[string]protocol.ToolParamSchema{
 				"prompt": {
 					Type:        "string",
 					Description: "图片描述（必填），应包含主体、风格、构图、光线等细节",
@@ -82,7 +83,7 @@ func (p *Plugin) executeGenerateImage(ctx context.Context, args map[string]any) 
 	}
 
 	// 有发送能力时直传图片到会话；无发送能力（异常上下文）时回退为提示文本
-	if sender, ok := ai.ToolSenderFromContext(ctx); ok {
+	if sender, ok := toolkit.ToolSenderFromContext(ctx); ok {
 		atts := make([]platform.Attachment, 0, len(images))
 		for _, img := range images {
 			atts = append(atts, p.attachmentFor(img))

@@ -17,30 +17,26 @@ package ai
 import (
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // effectivePlanAutoRounds 返回计划后台推进轮次上限（<=0 用默认 3）。
-func (p *Plugin) effectivePlanAutoRounds() int {
-	if p.cfg.PlanAutoRounds <= 0 {
-		return 3
-	}
-	return p.cfg.PlanAutoRounds
-}
-
 // maybeContinuePlan 在对话回合结束后检查是否需要安排计划后台推进：
 // 计划存在、仍有未完成步骤、未达轮次上限、未被无进度停止。
-func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *Session) {
+func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Session) {
 	if !p.cfg.PlanAutoContinue || session == nil || p.lifecycleCtx == nil {
 		return
 	}
-	plan := session.planSnapshot()
-	if plan == nil || !plan.Active || !plan.hasPending() {
+	plan := session.PlanSnapshot()
+	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= p.effectivePlanAutoRounds() {
+	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(p.cfg) {
 		return
 	}
 	evt := ctx.GetPlatformEvent()
@@ -52,8 +48,8 @@ func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *Session) {
 }
 
 // schedulePlanContinue 递增轮次并调度一次后台推进（间隔后执行）。
-func (p *Plugin) schedulePlanContinue(session *Session, evt platform.Event, sender platform.Sender) {
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= p.effectivePlanAutoRounds() {
+func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Event, sender platform.Sender) {
+	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(p.cfg) {
 		return
 	}
 	session.BumpPlanAutoRounds()
@@ -75,18 +71,18 @@ func (p *Plugin) schedulePlanContinue(session *Session, evt platform.Event, send
 // continuePlan 执行一轮后台计划推进：
 // 用户回合进行中跳过；无进度（计划签名不变）则停止自动推进；
 // 完成后仍有未完成步骤则继续调度下一轮。
-func (p *Plugin) continuePlan(session *Session, evt platform.Event, sender platform.Sender) {
+func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, sender platform.Sender) {
 	if !session.TryLockTurn() {
 		// 用户回合进行中：跳过本轮（不消耗后续推进资格）。
 		return
 	}
 	defer session.UnlockTurn()
 
-	plan := session.planSnapshot()
-	if plan == nil || !plan.Active || !plan.hasPending() {
+	plan := session.PlanSnapshot()
+	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
-	before := planSignature(plan)
+	before := runtime.PlanSignature(plan)
 
 	newCtx := eventctx.NewContextFromEvent(evt, sender)
 	result, err := p.generateVerified(newCtx, session)
@@ -95,8 +91,8 @@ func (p *Plugin) continuePlan(session *Session, evt platform.Event, sender platf
 		return
 	}
 
-	after := session.planSnapshot()
-	if planSignature(after) == before {
+	after := session.PlanSnapshot()
+	if runtime.PlanSignature(after) == before {
 		// 本轮无进度（模型未推进计划也未产出内容）→ 停止自动推进。
 		session.StopPlanAuto()
 		logger.Debugf("[AI] Plan auto-continue stopped: no progress")
@@ -116,7 +112,7 @@ func (p *Plugin) continuePlan(session *Session, evt platform.Event, sender platf
 		p.replyAndRecord(newCtx, msg)
 	}
 
-	if after != nil && after.Active && after.hasPending() && !session.PlanAutoStopped() {
+	if after != nil && after.Active && after.HasPending() && !session.PlanAutoStopped() {
 		p.schedulePlanContinue(session, evt, sender)
 	}
 }

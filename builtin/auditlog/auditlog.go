@@ -12,7 +12,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -340,14 +341,14 @@ func (p *Plugin) Count() int {
 }
 
 // ListSkills 返回可供 AI 调用的技能集。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "audit_reviewer",
 			Description: "审计审查：查询最近操作记录、按用户搜索审计日志",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"query": {Type: "string", Description: "要审计的具体问题，如'谁最近执行了管理操作'或'查看用户 xxx 的操作'"},
 				},
 				Required: []string{"query"},
@@ -359,16 +360,16 @@ func (p *Plugin) ListSkills() []ai.Skill {
 }
 
 // ListTools 返回可供 AI 调用的工具集。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "audit_log_recent",
 			Categories:  []string{"admin"},
 			Permissions: []string{"audit.view"},
 			Description: "查询最近的审计日志条目。返回最近 N 条操作记录的用户、操作类型和内容。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"count": {Type: "string", Description: "返回条数，默认 10，最大 50"},
 				},
 			},
@@ -401,9 +402,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Categories:  []string{"admin"},
 			Permissions: []string{"audit.view"},
 			Description: "搜索审计日志中指定用户的操作记录。返回最近 N 条该用户的操作。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"user_id": {Type: "string", Description: "用户 ID"},
 					"count":   {Type: "string", Description: "返回条数，默认 10，最大 50"},
 				},

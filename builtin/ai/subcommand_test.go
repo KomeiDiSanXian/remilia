@@ -6,6 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -18,10 +22,10 @@ func makeContext(content string) *eventctx.Context {
 
 func TestExecSubCommandReset(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 	// Create a session first
 	_ = p.sm.GetOrCreate("discord:chat:user", "user", "chat")
@@ -35,10 +39,10 @@ func TestExecSubCommandReset(t *testing.T) {
 
 func TestExecSubCommandUndoEmpty(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai undo")
@@ -50,14 +54,14 @@ func TestExecSubCommandUndoEmpty(t *testing.T) {
 
 func TestExecSubCommandUndo(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
-	session := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "hi"})
+	sess := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "hi"})
 
 	ctx := makeContext("/ai undo")
 	err := p.execSubCommand(ctx, "undo")
@@ -68,10 +72,10 @@ func TestExecSubCommandUndo(t *testing.T) {
 
 func TestExecSubCommandRetryEmpty(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai retry")
@@ -83,10 +87,10 @@ func TestExecSubCommandRetryEmpty(t *testing.T) {
 
 func TestExecSubCommandStatusEmpty(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai status")
@@ -98,14 +102,14 @@ func TestExecSubCommandStatusEmpty(t *testing.T) {
 
 func TestExecSubCommandStatusWithSession(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{Provider: "openai", Model: "gpt-4o-mini"},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{Provider: "openai", Model: "gpt-4o-mini"},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
-	session := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "hi"})
+	sess := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "hi"})
 
 	ctx := makeContext("/ai status")
 	err := p.execSubCommand(ctx, "status")
@@ -116,10 +120,10 @@ func TestExecSubCommandStatusWithSession(t *testing.T) {
 
 func TestExecSubCommandStatsEmpty(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai stats")
@@ -131,13 +135,13 @@ func TestExecSubCommandStatsEmpty(t *testing.T) {
 
 func TestExecSubCommandTools(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{TriggerCmd: "/ai"},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{TriggerCmd: "/ai"},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.reg.Register(Tool{Name: "ping", Description: "Ping tool"})
+	p.reg.Register(toolkit.Tool{Name: "ping", Description: "Ping tool"})
 
 	ctx := makeContext("/ai tools")
 	err := p.execSubCommand(ctx, "tools")
@@ -148,10 +152,10 @@ func TestExecSubCommandTools(t *testing.T) {
 
 func TestExecSubCommandSkill(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{TriggerCmd: "/ai", MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{TriggerCmd: "/ai", MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai skill")
@@ -163,10 +167,10 @@ func TestExecSubCommandSkill(t *testing.T) {
 
 func TestHandleSubCommandReset(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{TriggerCmd: "/ai"},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{TriggerCmd: "/ai"},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ok := p.handleSubCommand(makeContext("reset"), "reset")
@@ -177,10 +181,10 @@ func TestHandleSubCommandReset(t *testing.T) {
 
 func TestHandleSubCommandUnknown(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ok := p.handleSubCommand(makeContext("unknown"), "unknown")
@@ -191,10 +195,10 @@ func TestHandleSubCommandUnknown(t *testing.T) {
 
 func TestHandleSubCommandChinese(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ok := p.handleSubCommand(makeContext("重置"), "重置")
@@ -215,10 +219,10 @@ func TestHandleSubCommandChinese(t *testing.T) {
 
 func TestHandleSkillListEmpty(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{TriggerCmd: "/ai"},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{TriggerCmd: "/ai"},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai skill list")
@@ -229,13 +233,13 @@ func TestHandleSkillListEmpty(t *testing.T) {
 }
 
 func TestHandleSkillAddAndList(t *testing.T) {
-	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	cfg := &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:         NewSessionManager(100, 20, time.Hour, nil),
+		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
 		cfg:        cfg,
 		triggerCmd: "/ai",
-		reg:        NewToolRegistry(),
-		skillReg:   NewSkillRegistry(),
+		reg:        toolkit.NewToolRegistry(),
+		skillReg:   toolkit.NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai skill add my_skill You are a test skill for testing")
@@ -260,15 +264,15 @@ func TestHandleSkillAddAndList(t *testing.T) {
 }
 
 func TestHandleSkillToggle(t *testing.T) {
-	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	cfg := &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
 		cfg:      cfg,
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.skillReg.Add(Skill{
+	p.skillReg.Add(toolkit.Skill{
 		Name:    "u_test_skill",
 		OwnerID: "user",
 		Prompt:  "test",
@@ -289,15 +293,15 @@ func TestHandleSkillToggle(t *testing.T) {
 }
 
 func TestHandleSkillRemove(t *testing.T) {
-	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	cfg := &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
 		cfg:      cfg,
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.skillReg.Add(Skill{
+	p.skillReg.Add(toolkit.Skill{
 		Name:    "u_removable",
 		OwnerID: "user",
 		Prompt:  "test",
@@ -311,15 +315,15 @@ func TestHandleSkillRemove(t *testing.T) {
 }
 
 func TestHandleSkillInfo(t *testing.T) {
-	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	cfg := &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
 		cfg:      cfg,
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.skillReg.Add(Skill{
+	p.skillReg.Add(toolkit.Skill{
 		Name:    "u_info_test",
 		OwnerID: "user",
 		Prompt:  "test info skill",
@@ -334,16 +338,16 @@ func TestHandleSkillInfo(t *testing.T) {
 }
 
 func TestHandleSkillPromoteWithPrefixedName(t *testing.T) {
-	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	cfg := &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:         NewSessionManager(100, 20, time.Hour, nil),
+		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
 		cfg:        cfg,
 		triggerCmd: "/ai",
-		reg:        NewToolRegistry(),
-		skillReg:   NewSkillRegistry(),
+		reg:        toolkit.NewToolRegistry(),
+		skillReg:   toolkit.NewSkillRegistry(),
 	}
 
-	if err := p.skillReg.Add(Skill{
+	if err := p.skillReg.Add(toolkit.Skill{
 		Name:        "u_my_skill",
 		OwnerID:     "user",
 		Prompt:      "test prompt",
@@ -386,33 +390,33 @@ type blockingProvider struct {
 	release chan struct{}
 }
 
-func (b *blockingProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+func (b *blockingProvider) Chat(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 	close(b.started)
 	select {
 	case <-b.release:
-		return &ChatResponse{Content: "summary done"}, nil
+		return &protocol.ChatResponse{Content: "summary done"}, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (b *blockingProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+func (b *blockingProvider) ChatStream(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 	return nil, fmt.Errorf("not used in summary test")
 }
 
 func TestExecSubCommandSummarySingleFlight(t *testing.T) {
 	prov := &blockingProvider{started: make(chan struct{}), release: make(chan struct{})}
 	p := &Plugin{
-		sm:           NewSessionManager(100, 20, time.Hour, nil),
-		cfg:          &Config{TriggerCmd: "/ai", APITimeout: time.Second},
+		sm:           session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:          &config.Config{TriggerCmd: "/ai", APITimeout: time.Second},
 		prov:         prov,
 		summaries:    make(map[string]bool),
 		lifecycleCtx: context.Background(),
 	}
 	sessionID := "synthetic::user"
-	session := p.sm.GetOrCreate(sessionID, "user", "")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
-	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "hi"})
+	sess := p.sm.GetOrCreate(sessionID, "user", "")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleAssistant, Content: "hi"})
 
 	ctx := makeContext("/ai summary")
 	if err := p.execSubCommand(ctx, "summary"); err != nil {

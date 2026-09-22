@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 const cardWidthHSR = 600
@@ -232,16 +232,16 @@ func renderHSRShowcase(s *HSRShowcase) ([]byte, error) {
 	return canvas.ResultPNG()
 }
 
-// ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。
-func (p *hsrPlugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回 AI 可调用的工具列表。实现 toolkit.ToolProvider。
+func (p *hsrPlugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "query_hsr_showcase",
 			Categories:  []string{"starrail", "hsr"},
 			Description: "查询星穹铁道玩家的角色展柜，输入 UID 获取角色信息",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"uid": {
 						Type:        "string",
 						Description: "玩家的 UID（9 位数字）",
@@ -264,9 +264,9 @@ func (p *hsrPlugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回 AI 技能列表。实现 ai.SkillProvider。
-func (p *hsrPlugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回 AI 技能列表。实现 toolkit.SkillProvider。
+func (p *hsrPlugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "hsr_query",
 			Description: "星穹铁道角色展柜查询",

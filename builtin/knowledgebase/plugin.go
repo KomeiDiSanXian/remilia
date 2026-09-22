@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -70,12 +70,12 @@ func defaultConfig() Config {
 	}
 }
 
-// Plugin 知识库插件实例（Setup 返回值，同时作为 ai.ToolProvider 注册给 AI 插件）。
+// Plugin 知识库插件实例（Setup 返回值，同时作为 toolkit.ToolProvider 注册给 AI 插件）。
 type Plugin struct {
 	cfg      Config
 	log      plugin.Logger
 	store    *Store
-	embedder ai.Embedder
+	embedder retrieval.Embedder
 
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
@@ -143,7 +143,7 @@ AI 工具：
 
 			// 嵌入客户端：复用 ai 包实现（熔断器 + 维度校验 + 30s 超时）。
 			if cfg.EmbeddingBaseURL != "" {
-				if e := ai.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel); e != nil {
+				if e := retrieval.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel); e != nil {
 					p.embedder = e
 					p.model = e.Model()
 					ctx.Log.Infof("knowledgebase semantic search enabled (model %s)", e.Model())

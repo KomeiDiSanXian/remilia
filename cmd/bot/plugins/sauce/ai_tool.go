@@ -1,6 +1,6 @@
 // Package sauce ai_tool.go — 以图搜图能力向 AI 插件暴露为工具。
 //
-// Plugin 实现 ai.ToolProvider 接口，AI 插件在容器冻结后通过
+// Plugin 实现 toolkit.ToolProvider 接口，AI 插件在容器冻结后通过
 // DiscoverToolProviders 自动扫描并注册本插件提供的工具，无需手动注册。
 // 工具名 "sauce" 与 /sauce 命令同名，显式注册会覆盖 AI 对命令的自动发现
 // （自动发现的命令工具无法携带图片，对搜图场景无意义）。
@@ -12,26 +12,27 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
 // aiToolName 提供给 AI 的工具名，与 /sauce 命令同名以便 LLM 理解。
 const aiToolName = "sauce"
 
-// ListTools 实现 ai.ToolProvider，由 AI 插件的 DiscoverToolProviders
+// ListTools 实现 toolkit.ToolProvider，由 AI 插件的 DiscoverToolProviders
 // 自动发现注册（无需手动调用 RegisterToolProvider）。
 //
 // 工具接受 image_url（必填）以及可选的 db / max_results 参数，
 // 执行时下载图片并走与 /sauce 命令完全相同的多引擎检索流程。
 // 不暴露权限敏感能力：仅返回来源检索结果文本。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{{
 		Name:        aiToolName,
 		Description: "以图搜图，聚合 SauceNAO / IQDB / TraceMoe / AnimeTrace 查找图片出处（画作、插画、动画截图等）。提供图片 URL 作为 image_url 参数即可检索",
-		Categories:  []string{ai.CategoryGeneral},
-		Parameters: ai.ToolParamSchema{
+		Categories:  []string{toolkit.CategoryGeneral},
+		Parameters: protocol.ToolParamSchema{
 			Type: "object",
-			Properties: map[string]ai.ToolParamSchema{
+			Properties: map[string]protocol.ToolParamSchema{
 				"image_url": {
 					Type:        "string",
 					Description: "要搜索来源的图片的公开可访问 URL（必填）",

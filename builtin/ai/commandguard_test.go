@@ -6,6 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -19,19 +24,19 @@ func newGuardTestPlugin(t *testing.T, trigger string) (*Plugin, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
 	p := &Plugin{
-		cfg: &Config{
+		cfg: &config.Config{
 			TriggerCmd: trigger, MaxDepth: 2, APITimeout: 5 * time.Second,
 			ToolTimeout: 3 * time.Second, MaxHistory: 20,
 		},
-		sm:         NewSessionManager(100, 20, time.Hour, nil),
-		reg:        NewToolRegistry(),
-		skillReg:   NewSkillRegistry(),
+		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:        toolkit.NewToolRegistry(),
+		skillReg:   toolkit.NewSkillRegistry(),
 		triggerCmd: trigger,
-		prov: &mockProvider{chatStreamFn: func(context.Context, *ChatRequest) (<-chan StreamEvent, error) {
+		prov: &mockProvider{chatStreamFn: func(context.Context, *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 			calls.Add(1)
-			ch := make(chan StreamEvent, 2)
-			ch <- StreamEvent{Type: StreamEventText, Content: "ok"}
-			ch <- StreamEvent{Type: StreamEventDone}
+			ch := make(chan protocol.StreamEvent, 2)
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "ok"}
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 			close(ch)
 			return ch, nil
 		}},
@@ -145,7 +150,7 @@ func TestHasTriggerPrefix(t *testing.T) {
 		{"帮助", "需要帮助 吗", false},
 	} {
 		p := &Plugin{triggerCmd: tt.trigger}
-		if got := p.hasTriggerPrefix(tt.content); got != tt.want {
+		if got := runtime.HasTriggerPrefix(tt.content, p.triggerCmd); got != tt.want {
 			t.Errorf("hasTriggerPrefix(%q) 触发词=%q = %v, 期望 %v",
 				tt.content, tt.trigger, got, tt.want)
 		}

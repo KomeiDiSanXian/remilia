@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 )
 
@@ -424,16 +425,16 @@ func (p *Plugin) handleSC(ctx *eventctx.Context) error {
 	return nil
 }
 
-// ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回 AI 可调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "coc_skill_check",
 			Categories:  []string{"coc", "rpg"},
 			Description: "进行 COC 7th 技能检定。返回 D100 结果和成功等级（大成功/极难成功/困难成功/成功/失败/大失败）。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 					"skill_name":     {Type: "string", Description: "技能名或属性名（如 侦查、STR、图书馆）"},
 				},
@@ -464,9 +465,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "coc_sanity_check",
 			Categories:  []string{"coc", "rpg"},
 			Description: "进行 COC 7th 理智(SAN)检定。成功和失败时损失的 SAN 值可选，默认为 0/1d6。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 					"loss_success":   {Type: "integer", Description: "成功时 SAN 损失（可选，默认0）"},
 					"loss_failure":   {Type: "integer", Description: "失败时 SAN 损失（可选，默认1）"},
@@ -502,9 +503,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "coc_luck_check",
 			Categories:  []string{"coc", "rpg"},
 			Description: "进行 COC 7th 幸运检定。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 				},
 				Required: []string{"character_name"},
@@ -529,9 +530,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "view_coc_character",
 			Categories:  []string{"coc", "rpg"},
 			Description: "查看 COC 角色卡的完整信息。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 				},
 				Required: []string{"character_name"},
@@ -551,9 +552,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回 AI 技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回 AI 技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "coc_referee",
 			Description: "COC 守秘人助手 — 技能检定、SAN 检定、幸运检定、角色查询",

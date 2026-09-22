@@ -7,21 +7,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func TestFormatPlan(t *testing.T) {
-	plan := &Plan{
+	plan := &session.Plan{
 		Task:   "查询B站UP主并整理报告",
 		Active: true,
-		Steps: []PlanStep{
-			{ID: "step_1", Description: "搜索UP主", Status: PlanInProgress},
-			{ID: "step_2", Description: "获取视频数据", Status: PlanPending},
-			{ID: "step_3", Description: "整理报告", Status: PlanDone, Result: "完成"},
+		Steps: []session.PlanStep{
+			{ID: "step_1", Description: "搜索UP主", Status: session.PlanInProgress},
+			{ID: "step_2", Description: "获取视频数据", Status: session.PlanPending},
+			{ID: "step_3", Description: "整理报告", Status: session.PlanDone, Result: "完成"},
 		},
 	}
-	text := formatPlan(plan)
+	text := session.FormatPlan(plan)
 	if !strings.Contains(text, "查询B站UP主并整理报告") {
 		t.Errorf("plan text should include task: %q", text)
 	}
@@ -34,66 +40,66 @@ func TestFormatPlan(t *testing.T) {
 }
 
 func TestPlanCompleted(t *testing.T) {
-	pending := &Plan{Steps: []PlanStep{{Status: PlanPending}}}
-	if pending.completed() {
-		t.Error("pending step should not be completed")
+	pending := &session.Plan{Steps: []session.PlanStep{{Status: session.PlanPending}}}
+	if pending.Completed() {
+		t.Error("pending step should not be Completed")
 	}
-	done := &Plan{Steps: []PlanStep{{Status: PlanDone}, {Status: PlanFailed}}}
-	if !done.completed() {
-		t.Error("done+failed should be completed")
+	done := &session.Plan{Steps: []session.PlanStep{{Status: session.PlanDone}, {Status: session.PlanFailed}}}
+	if !done.Completed() {
+		t.Error("done+failed should be Completed")
 	}
-	if (&Plan{}).completed() {
-		t.Error("empty plan should not be completed")
+	if (&session.Plan{}).Completed() {
+		t.Error("empty plan should not be Completed")
 	}
 }
 
 func TestSessionPlanAccessors(t *testing.T) {
-	s := &Session{}
-	if s.planText() != "" {
+	s := &session.Session{}
+	if s.PlanText() != "" {
 		t.Error("empty session should have no plan text")
 	}
-	plan := &Plan{Task: "t", Active: true, Steps: []PlanStep{{ID: "step_1", Description: "s", Status: PlanPending}}}
-	s.setPlan(plan)
-	if s.planSnapshot() == nil {
-		t.Fatal("planSnapshot should return plan")
+	plan := &session.Plan{Task: "t", Active: true, Steps: []session.PlanStep{{ID: "step_1", Description: "s", Status: session.PlanPending}}}
+	s.SetPlan(plan)
+	if s.PlanSnapshot() == nil {
+		t.Fatal("PlanSnapshot should return plan")
 	}
-	if !strings.Contains(s.planText(), "t") {
-		t.Errorf("planText should include task: %q", s.planText())
+	if !strings.Contains(s.PlanText(), "t") {
+		t.Errorf("PlanText should include task: %q", s.PlanText())
 	}
 	// 修改快照不应污染会话
-	snap := s.planSnapshot()
+	snap := s.PlanSnapshot()
 	snap.Task = "changed"
-	if strings.Contains(s.planText(), "changed") {
+	if strings.Contains(s.PlanText(), "changed") {
 		t.Error("mutating snapshot should not affect session plan")
 	}
 	// 完成后的计划不再注入
-	snap2 := s.planSnapshot()
-	snap2.Steps[0].Status = PlanDone
+	snap2 := s.PlanSnapshot()
+	snap2.Steps[0].Status = session.PlanDone
 	snap2.Active = false
-	s.setPlan(snap2)
-	if s.planText() != "" {
+	s.SetPlan(snap2)
+	if s.PlanText() != "" {
 		t.Error("inactive plan should not be injected")
 	}
 }
 
 func TestCreatePlanTool(t *testing.T) {
-	p := &Plugin{cfg: &Config{PlanMaxSteps: 8}}
-	tools := buildPlanTools(p.cfg.PlanMaxSteps)
-	var create *Tool
+	p := &Plugin{cfg: &config.Config{PlanMaxSteps: 8}}
+	tools := catalog.BuildPlanTools(p.cfg.PlanMaxSteps)
+	var create *toolkit.Tool
 	for i := range tools {
-		if tools[i].Name == planCreateToolName {
+		if tools[i].Name == catalog.PlanCreateToolName {
 			create = &tools[i]
 		}
 	}
 	if create == nil {
 		t.Fatal("create_plan tool not built")
 	}
-	if !containsCategoryStr(create.Categories, CategoryGeneral) {
+	if !containsCategoryStr(create.Categories, toolkit.CategoryGeneral) {
 		t.Error("create_plan should be general category")
 	}
 
-	session := &Session{}
-	ctx := WithPlanSession(context.Background(), session)
+	sess := &session.Session{}
+	ctx := runtime.WithPlanSession(context.Background(), sess)
 
 	// 正常创建
 	result, err := create.Execute(ctx, map[string]any{
@@ -106,7 +112,7 @@ func TestCreatePlanTool(t *testing.T) {
 	if !strings.Contains(result, "计划已创建") || !strings.Contains(result, "step_2") {
 		t.Errorf("unexpected create result: %q", result)
 	}
-	plan := session.planSnapshot()
+	plan := sess.PlanSnapshot()
 	if plan == nil || !plan.Active || len(plan.Steps) != 2 {
 		t.Fatalf("plan not stored correctly: %+v", plan)
 	}
@@ -119,7 +125,7 @@ func TestCreatePlanTool(t *testing.T) {
 
 	// 超过上限
 	p.cfg.PlanMaxSteps = 2
-	tools2 := buildPlanTools(p.cfg.PlanMaxSteps)
+	tools2 := catalog.BuildPlanTools(p.cfg.PlanMaxSteps)
 	create2 := &tools2[0]
 	result, _ = create2.Execute(ctx, map[string]any{"task": "t", "steps": []any{"a", "b", "c"}})
 	if !strings.Contains(result, "错误") {
@@ -132,14 +138,14 @@ func containsCategoryStr(cats []string, target string) bool {
 }
 
 func TestUpdatePlanStepTool(t *testing.T) {
-	p := &Plugin{cfg: &Config{PlanMaxSteps: 8}}
-	tools := buildPlanTools(p.cfg.PlanMaxSteps)
-	var create, update *Tool
+	p := &Plugin{cfg: &config.Config{PlanMaxSteps: 8}}
+	tools := catalog.BuildPlanTools(p.cfg.PlanMaxSteps)
+	var create, update *toolkit.Tool
 	for i := range tools {
 		switch tools[i].Name {
-		case planCreateToolName:
+		case catalog.PlanCreateToolName:
 			create = &tools[i]
-		case planUpdateToolName:
+		case catalog.PlanUpdateToolName:
 			update = &tools[i]
 		}
 	}
@@ -147,8 +153,8 @@ func TestUpdatePlanStepTool(t *testing.T) {
 		t.Fatal("update_plan_step tool not built")
 	}
 
-	session := &Session{}
-	ctx := WithPlanSession(context.Background(), session)
+	sess := &session.Session{}
+	ctx := runtime.WithPlanSession(context.Background(), sess)
 
 	// 无计划时更新报错
 	result, _ := update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "done"})
@@ -181,49 +187,49 @@ func TestUpdatePlanStepTool(t *testing.T) {
 
 	// 全部完成 → 计划结束，不再注入
 	update.Execute(ctx, map[string]any{"step_id": "step_2", "status": "done"})
-	if session.planText() != "" {
-		t.Errorf("completed plan should not be injected, got %q", session.planText())
+	if sess.PlanText() != "" {
+		t.Errorf("Completed plan should not be injected, got %q", sess.PlanText())
 	}
 }
 
 func TestPlanInjectionInProcessWithTools(t *testing.T) {
 	var seenPlan bool
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, PlanMaxSteps: 8, ToolSelectMax: 20},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, PlanMaxSteps: 8, ToolSelectMax: 20},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				for _, m := range req.Messages {
-					if m.Role == RoleSystem && strings.Contains(m.Content, "当前执行计划") {
+					if m.Role == protocol.RoleSystem && strings.Contains(m.Content, "当前执行计划") {
 						seenPlan = true
 					}
 				}
-				ch := make(chan StreamEvent, 2)
-				ch <- StreamEvent{Type: StreamEventText, Content: "done"}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch := make(chan protocol.StreamEvent, 2)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "done"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
-	for _, t := range buildPlanTools(p.cfg.PlanMaxSteps) {
+	for _, t := range catalog.BuildPlanTools(p.cfg.PlanMaxSteps) {
 		p.reg.Register(t)
 	}
 
-	session := p.sm.GetOrCreate("test:plan", "user", "chat")
-	session.setPlan(&Plan{
+	sess := p.sm.GetOrCreate("test:plan", "user", "chat")
+	sess.SetPlan(&session.Plan{
 		Task:   "复杂任务",
 		Active: true,
-		Steps:  []PlanStep{{ID: "step_1", Description: "做某事", Status: PlanPending}},
+		Steps:  []session.PlanStep{{ID: "step_1", Description: "做某事", Status: session.PlanPending}},
 	})
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "开始"})
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "开始"})
 
 	evt := platform.NewSyntheticEvent("c2c", "开始")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	if _, err := p.processWithTools(ctx, session); err != nil {
+	if _, err := p.processWithTools(ctx, sess); err != nil {
 		t.Fatalf("processWithTools failed: %v", err)
 	}
 	if !seenPlan {
@@ -235,53 +241,53 @@ func TestPlanInjectionInProcessWithTools(t *testing.T) {
 func TestPlanFullFlow(t *testing.T) {
 	call := 0
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, PlanMaxSteps: 8, ToolSelectMax: 20},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 10, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, PlanMaxSteps: 8, ToolSelectMax: 20},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				call++
-				ch := make(chan StreamEvent, 3)
+				ch := make(chan protocol.StreamEvent, 3)
 				switch call {
 				case 1:
 					// 第一轮：创建计划
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
-						ID: "call_1", Name: planCreateToolName,
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{
+						ID: "call_1", Name: catalog.PlanCreateToolName,
 						Arguments: map[string]any{"task": "查天气", "steps": []any{"查温度", "推荐穿衣"}},
 					}}
 				case 2:
 					// 第二轮：开始并完成第一步
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
-						ID: "call_2", Name: planUpdateToolName,
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{
+						ID: "call_2", Name: catalog.PlanUpdateToolName,
 						Arguments: map[string]any{"step_id": "step_1", "status": "done"},
 					}}
 				case 3:
 					// 第三轮：完成第二步 → 计划结束
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
-						ID: "call_3", Name: planUpdateToolName,
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{
+						ID: "call_3", Name: catalog.PlanUpdateToolName,
 						Arguments: map[string]any{"step_id": "step_2", "status": "done"},
 					}}
 				default:
-					ch <- StreamEvent{Type: StreamEventText, Content: "全部完成"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "全部完成"}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
-	for _, t := range buildPlanTools(p.cfg.PlanMaxSteps) {
+	for _, t := range catalog.BuildPlanTools(p.cfg.PlanMaxSteps) {
 		p.reg.Register(t)
 	}
 
-	session := p.sm.GetOrCreate("test:planflow", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "帮我查天气并推荐穿衣"})
+	sess := p.sm.GetOrCreate("test:planflow", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "帮我查天气并推荐穿衣"})
 
 	evt := platform.NewSyntheticEvent("c2c", "帮我查天气并推荐穿衣")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
 		t.Fatalf("processWithTools failed: %v", err)
 	}
@@ -291,11 +297,11 @@ func TestPlanFullFlow(t *testing.T) {
 	if call != 4 {
 		t.Errorf("expected 4 LLM calls, got %d", call)
 	}
-	plan := session.planSnapshot()
+	plan := sess.PlanSnapshot()
 	if plan == nil || plan.Active {
-		t.Errorf("plan should exist and be completed, got %+v", plan)
+		t.Errorf("plan should exist and be Completed, got %+v", plan)
 	}
-	if plan.Steps[0].Status != PlanDone || plan.Steps[1].Status != PlanDone {
+	if plan.Steps[0].Status != session.PlanDone || plan.Steps[1].Status != session.PlanDone {
 		t.Errorf("all steps should be done: %+v", plan.Steps)
 	}
 }

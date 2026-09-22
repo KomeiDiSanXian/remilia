@@ -1,223 +1,43 @@
 package ai
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-func TestToOpenAIMessages(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleSystem, Content: "You are a helpful assistant"},
-		{Role: RoleUser, Content: "Hello"},
-		{Role: RoleAssistant, Content: "Hi there!", ToolCalls: []ToolCall{
-			{ID: "call_1", Name: "test_tool", Arguments: map[string]any{"arg1": "val1"}},
-		}},
-		{Role: RoleTool, Content: "Tool result", ToolCallID: "call_1"},
-	}
-
-	openaiMsgs := toOpenAIMessages(msgs)
-	if len(openaiMsgs) != 4 {
-		t.Fatalf("expected 4 messages, got %d", len(openaiMsgs))
-	}
-	if openaiMsgs[0].Role != "system" {
-		t.Errorf("expected role system, got %q", openaiMsgs[0].Role)
-	}
-	if openaiMsgs[3].Role != "tool" {
-		t.Errorf("expected role tool, got %q", openaiMsgs[3].Role)
-	}
-	if openaiMsgs[3].ToolCallID != "call_1" {
-		t.Errorf("expected ToolCallID call_1, got %q", openaiMsgs[3].ToolCallID)
-	}
-}
-
-func TestToOpenAIMessagesWithContentParts(t *testing.T) {
-	msgs := []Message{
-		{
-			Role: RoleUser,
-			ContentParts: []ContentPart{
-				{Type: ContentPartText, Text: "describe this image"},
-				{Type: ContentPartImage, Data: []byte("fake-image-data"), MimeType: "image/jpeg"},
-			},
-		},
-	}
-
-	openaiMsgs := toOpenAIMessages(msgs)
-	if len(openaiMsgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(openaiMsgs))
-	}
-	data, err := json.Marshal(openaiMsgs[0].Content)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-	if !json.Valid(data) {
-		t.Error("invalid JSON for Content with parts")
-	}
-}
-
-func TestToOpenAIMessagesEmptyToolCallID(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleTool, Content: "result", ToolCallID: ""},
-	}
-	openaiMsgs := toOpenAIMessages(msgs)
-	if len(openaiMsgs) != 0 {
-		t.Errorf("expected 0 messages for tool with empty ToolCallID, got %d", len(openaiMsgs))
-	}
-}
-
-func TestToOpenAIMessagesEmptyToolCallName(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleAssistant, ToolCalls: []ToolCall{
-			{ID: "call_1", Name: ""},
-		}},
-	}
-	openaiMsgs := toOpenAIMessages(msgs)
-	if len(openaiMsgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(openaiMsgs))
-	}
-	if len(openaiMsgs[0].ToolCalls) != 0 {
-		t.Errorf("expected 0 tool calls after filtering empty name, got %d", len(openaiMsgs[0].ToolCalls))
-	}
-}
-
-func TestBuildOpenAIContentParts(t *testing.T) {
-	parts := []ContentPart{
-		{Type: ContentPartText, Text: "hello"},
-		{Type: ContentPartImage, Data: []byte("img"), MimeType: "image/png"},
-		{Type: ContentPartAudio, Data: []byte("au"), MimeType: "audio/wav", AudioFormat: "wav"},
-		{Type: ContentPartImage, Data: nil},
-		{Type: ContentPartAudio, Data: []byte("au"), AudioFormat: ""},
-	}
-
-	out := buildOpenAIContentParts(parts)
-	if len(out) != 3 {
-		t.Errorf("expected 3 parts, got %d", len(out))
-	}
-	if out[0].Type != "text" || out[0].Text != "hello" {
-		t.Errorf("expected text part 'hello', got %+v", out[0])
-	}
-}
-
-func TestToAnthropicMessages(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleSystem, Content: "You are Claude"},
-		{Role: RoleUser, Content: "Hello"},
-		{Role: RoleAssistant, Content: "Hi!", ToolCalls: []ToolCall{
-			{ID: "toolu_1", Name: "get_weather", Arguments: map[string]any{"city": "Beijing"}},
-		}},
-		{Role: RoleTool, Content: "Sunny", ToolCallID: "toolu_1"},
-	}
-
-	anthropicMsgs := toAnthropicMessages(msgs)
-	if len(anthropicMsgs) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(anthropicMsgs))
-	}
-	if anthropicMsgs[0].Role != "user" {
-		t.Errorf("expected role user, got %q", anthropicMsgs[0].Role)
-	}
-	if len(anthropicMsgs[1].Content) != 2 {
-		t.Errorf("expected 2 content blocks, got %d", len(anthropicMsgs[1].Content))
-	}
-}
-
-func TestToAnthropicMessagesWithContentParts(t *testing.T) {
-	msgs := []Message{
-		{
-			Role: RoleUser,
-			ContentParts: []ContentPart{
-				{Type: ContentPartText, Text: "what's in this image"},
-				{Type: ContentPartImage, Data: []byte("img-data"), MimeType: "image/png"},
-				{Type: ContentPartAudio, Data: []byte("audio-data"), MimeType: "audio/wav"},
-			},
-		},
-	}
-
-	anthropicMsgs := toAnthropicMessages(msgs)
-	if len(anthropicMsgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(anthropicMsgs))
-	}
-	if len(anthropicMsgs[0].Content) != 2 {
-		t.Errorf("expected 2 content blocks (audio skipped), got %d", len(anthropicMsgs[0].Content))
-	}
-}
-
-func TestToAnthropicUserBlocks(t *testing.T) {
-	m := Message{Content: "just text"}
-	blocks := toAnthropicUserBlocks(m)
-	if len(blocks) != 1 || blocks[0].Type != "text" {
-		t.Errorf("expected 1 text block, got %+v", blocks)
-	}
-
-	m2 := Message{}
-	blocks2 := toAnthropicUserBlocks(m2)
-	if blocks2 != nil {
-		t.Errorf("expected nil for empty message, got %+v", blocks2)
-	}
-}
-
-func TestExtractAnthropicSystem(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleUser, Content: "hello"},
-		{Role: RoleSystem, Content: "system prompt"},
-		{Role: RoleAssistant, Content: "ok"},
-	}
-	sys := extractAnthropicSystem(msgs)
-	if sys != "system prompt" {
-		t.Errorf("expected %q, got %q", "system prompt", sys)
-	}
-}
-
-func TestExtractAnthropicSystemNone(t *testing.T) {
-	msgs := []Message{
-		{Role: RoleUser, Content: "hello"},
-	}
-	sys := extractAnthropicSystem(msgs)
-	if sys != "" {
-		t.Errorf("expected empty, got %q", sys)
-	}
-}
-
-func TestToOpenAIToolsEmpty(t *testing.T) {
-	tools := toOpenAITools(nil)
-	if len(tools) != 0 {
-		t.Errorf("expected 0 tools, got %d", len(tools))
-	}
-}
-
-func TestToAnthropicToolsEmpty(t *testing.T) {
-	tools := toAnthropicTools(nil)
-	if len(tools) != 0 {
-		t.Errorf("expected 0 tools, got %d", len(tools))
-	}
-}
-
 func TestGetLastUserMessage(t *testing.T) {
-	session := &Session{
-		Messages: []Message{
-			{Role: RoleSystem, Content: "sys"},
-			{Role: RoleUser, Content: "first"},
-			{Role: RoleAssistant, Content: "resp"},
-			{Role: RoleUser, Content: "second"},
+	sess := &session.Session{
+		Messages: []protocol.Message{
+			{Role: protocol.RoleSystem, Content: "sys"},
+			{Role: protocol.RoleUser, Content: "first"},
+			{Role: protocol.RoleAssistant, Content: "resp"},
+			{Role: protocol.RoleUser, Content: "second"},
 		},
 	}
-	last := getLastUserMessage(session)
+	last := runtime.LastUserMessage(sess)
 	if last != "second" {
 		t.Errorf("expected %q, got %q", "second", last)
 	}
 }
 
 func TestGetLastUserMessageNone(t *testing.T) {
-	session := &Session{
-		Messages: []Message{
-			{Role: RoleSystem, Content: "sys"},
+	sess := &session.Session{
+		Messages: []protocol.Message{
+			{Role: protocol.RoleSystem, Content: "sys"},
 		},
 	}
-	last := getLastUserMessage(session)
+	last := runtime.LastUserMessage(sess)
 	if last != "" {
 		t.Errorf("expected empty, got %q", last)
 	}
@@ -255,7 +75,7 @@ func TestCleanMessage(t *testing.T) {
 		{"", ""},
 	}
 	for _, tt := range tests {
-		got := p.cleanMessage(tt.input)
+		got := runtime.CleanMessage(tt.input, p.triggerCmd)
 		if got != tt.want {
 			t.Errorf("cleanMessage(%q) = %q, want %q", tt.input, got, tt.want)
 		}
@@ -264,7 +84,7 @@ func TestCleanMessage(t *testing.T) {
 
 func TestCleanMessageWithAt(t *testing.T) {
 	p := &Plugin{triggerCmd: "/ai"}
-	got := p.cleanMessage("@hello")
+	got := runtime.CleanMessage("@hello", p.triggerCmd)
 	if got != "hello" {
 		t.Errorf("cleanMessage(%q) = %q, want %q", "@hello", got, "hello")
 	}
@@ -287,8 +107,8 @@ func TestStripMentionMarkup(t *testing.T) {
 		{"联系我 abc@qq.com", "联系我 abc@qq.com"}, // 邮箱不被误伤
 	}
 	for _, c := range cases {
-		if got := stripMentionMarkup(c.in); got != c.want {
-			t.Errorf("stripMentionMarkup(%q) = %q, want %q", c.in, got, c.want)
+		if got := textutil.StripMentionMarkup(c.in); got != c.want {
+			t.Errorf("textutil.StripMentionMarkup(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
@@ -296,7 +116,7 @@ func TestStripMentionMarkup(t *testing.T) {
 func TestCleanMessageStripsMentions(t *testing.T) {
 	p := &Plugin{triggerCmd: "/ai"}
 	// onebot 场景：@机器人QQ号 + @他人，触发前缀 /ai
-	got := p.cleanMessage("/ai @10001 帮我 @123 查天气")
+	got := runtime.CleanMessage("/ai @10001 帮我 @123 查天气", p.triggerCmd)
 	if strings.Contains(got, "@") {
 		t.Errorf("cleanMessage should strip all mention markup, got %q", got)
 	}
@@ -304,14 +124,14 @@ func TestCleanMessageStripsMentions(t *testing.T) {
 		t.Errorf("cleanMessage should keep the real content, got %q", got)
 	}
 	// 纯 @ 提及的消息应被清空
-	if got := p.cleanMessage("@10001 @123"); got != "" {
+	if got := runtime.CleanMessage("@10001 @123", p.triggerCmd); got != "" {
 		t.Errorf("expected empty content after stripping mentions, got %q", got)
 	}
 }
 
 func TestAppendMentionInfo(t *testing.T) {
 	// 仅 @ 机器人自身：不追加提及信息
-	content := appendMentionInfo("你好", []platform.UserInfo{
+	content := runtime.AppendMentionInfo("你好", []platform.UserInfo{
 		{ID: "bot1", DisplayName: "Bot", IsSelf: true},
 	})
 	if content != "你好" {
@@ -319,7 +139,7 @@ func TestAppendMentionInfo(t *testing.T) {
 	}
 
 	// @ 了其他人：追加结构化信息，昵称优先
-	content = appendMentionInfo("帮我问问他们", []platform.UserInfo{
+	content = runtime.AppendMentionInfo("帮我问问他们", []platform.UserInfo{
 		{ID: "bot1", DisplayName: "Bot", IsSelf: true},
 		{ID: "u1", DisplayName: "小明"},
 		{ID: "u2"}, // 无昵称，回退 ID
@@ -341,12 +161,12 @@ func TestBuildRuntimeContext(t *testing.T) {
 		"/test",
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	p := &Plugin{cfg: &Config{}}
-	runtime := p.buildRuntimeContext(ctx)
-	if runtime == "" {
+	p := &Plugin{cfg: &config.Config{}}
+	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	if runtimeCtx == "" {
 		t.Error("runtime context should not be empty")
 	}
-	if !strings.Contains(runtime, "当前时间") {
+	if !strings.Contains(runtimeCtx, "当前时间") {
 		t.Error("runtime context should contain time info")
 	}
 }
@@ -363,8 +183,8 @@ func TestBuildRuntimeContextGroupInfo(t *testing.T) {
 		}),
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	p := &Plugin{cfg: &Config{}}
-	runtime := p.buildRuntimeContext(ctx)
+	p := &Plugin{cfg: &config.Config{}}
+	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
 
 	for _, want := range []string{
 		"聊天类型: 群聊",
@@ -373,26 +193,8 @@ func TestBuildRuntimeContextGroupInfo(t *testing.T) {
 		"所属服务器 ID: server1",
 		"发送者群角色: 管理员",
 	} {
-		if !strings.Contains(runtime, want) {
-			t.Errorf("runtime context should contain %q, got:\n%s", want, runtime)
-		}
-	}
-}
-
-func TestGroupRoleName(t *testing.T) {
-	cases := []struct {
-		role platform.GroupRole
-		want string
-	}{
-		{platform.GroupRoleOwner, "群主/所有者"},
-		{platform.GroupRoleAdmin, "管理员"},
-		{platform.GroupRoleMember, "普通成员"},
-		{platform.GroupRoleUnknown, "未知"},
-		{platform.GroupRole(99), "未知"},
-	}
-	for _, c := range cases {
-		if got := groupRoleName(c.role); got != c.want {
-			t.Errorf("groupRoleName(%v) = %q, want %q", c.role, got, c.want)
+		if !strings.Contains(runtimeCtx, want) {
+			t.Errorf("runtime context should contain %q, got:\n%s", want, runtimeCtx)
 		}
 	}
 }
@@ -407,18 +209,18 @@ func TestBuildRuntimeContextFieldFilter(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	// 只注入用户昵称 + 群名称
-	p := &Plugin{cfg: &Config{ContextFields: []string{"user_name", "chat_name"}}}
-	runtime := p.buildRuntimeContext(ctx)
-	if !strings.Contains(runtime, "用户昵称: 小明") {
-		t.Errorf("expected user_name injected, got:\n%s", runtime)
+	p := &Plugin{cfg: &config.Config{ContextFields: []string{"user_name", "chat_name"}}}
+	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	if !strings.Contains(runtimeCtx, "用户昵称: 小明") {
+		t.Errorf("expected user_name injected, got:\n%s", runtimeCtx)
 	}
-	if !strings.Contains(runtime, "群名称: 测试群") {
-		t.Errorf("expected chat_name injected, got:\n%s", runtime)
+	if !strings.Contains(runtimeCtx, "群名称: 测试群") {
+		t.Errorf("expected chat_name injected, got:\n%s", runtimeCtx)
 	}
 	// 未列出的字段不应出现
 	for _, forbidden := range []string{"用户 ID", "群 ID", "平台", "当前时间", "发送者群角色", "所属服务器 ID", "聊天类型"} {
-		if strings.Contains(runtime, forbidden) {
-			t.Errorf("field %q should be filtered out, got:\n%s", forbidden, runtime)
+		if strings.Contains(runtimeCtx, forbidden) {
+			t.Errorf("field %q should be filtered out, got:\n%s", forbidden, runtimeCtx)
 		}
 	}
 }
@@ -433,11 +235,11 @@ func TestBuildRuntimeContextAllFieldsDefault(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	// ContextFields 为空 = 注入全部字段（默认行为）
-	p := &Plugin{cfg: &Config{}}
-	runtime := p.buildRuntimeContext(ctx)
+	p := &Plugin{cfg: &config.Config{}}
+	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
 	for _, want := range []string{"用户 ID: user1", "群 ID: g1", "发送者群角色: 群主/所有者", "所属服务器 ID: server1"} {
-		if !strings.Contains(runtime, want) {
-			t.Errorf("expected %q in runtime context, got:\n%s", want, runtime)
+		if !strings.Contains(runtimeCtx, want) {
+			t.Errorf("expected %q in runtime context, got:\n%s", want, runtimeCtx)
 		}
 	}
 }
@@ -447,14 +249,14 @@ func TestBuildSystemPromptGatesRuntimeContext(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	// 开启（默认）：动态上下文包含运行时上下文
-	p := &Plugin{cfg: &Config{IncludeRuntimeContext: true}}
+	p := &Plugin{cfg: &config.Config{IncludeRuntimeContext: true}}
 	dyn := p.buildDynamicContext(ctx, nil)
 	if !strings.Contains(dyn, "运行时上下文") {
 		t.Error("expected runtime context section when enabled")
 	}
 
 	// 关闭：动态上下文不含运行时上下文，稳定提示词仍保留框架与自定义提示
-	p2 := &Plugin{cfg: &Config{IncludeRuntimeContext: false, SystemPrompt: "自定义"}}
+	p2 := &Plugin{cfg: &config.Config{IncludeRuntimeContext: false, SystemPrompt: "自定义"}}
 	dyn2 := p2.buildDynamicContext(ctx, nil)
 	if strings.Contains(dyn2, "运行时上下文") {
 		t.Error("expected runtime context section omitted when disabled")
@@ -489,10 +291,10 @@ func TestBuildUserMessageNoAttachments(t *testing.T) {
 		"hello",
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	p := &Plugin{cfg: &Config{}}
-	session := &Session{}
-	msg := p.buildUserMessage(ctx, "hello", session)
-	if msg.Role != RoleUser {
+	p := &Plugin{cfg: &config.Config{}}
+	sess := &session.Session{}
+	msg := p.buildUserMessage(ctx, "hello", sess)
+	if msg.Role != protocol.RoleUser {
 		t.Errorf("expected RoleUser, got %v", msg.Role)
 	}
 	if msg.Content != "hello" {
@@ -522,9 +324,9 @@ func TestBuildUserMessage_ASRTranscriptPreferred(t *testing.T) {
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	// AudioEnabled=false：ASR 文本路径不应受开关限制（文本无需音频能力）
-	p := &Plugin{cfg: &Config{AudioEnabled: false}}
-	session := &Session{}
-	msg := p.buildUserMessage(ctx, "", session)
+	p := &Plugin{cfg: &config.Config{AudioEnabled: false}}
+	sess := &session.Session{}
+	msg := p.buildUserMessage(ctx, "", sess)
 
 	if msg.Content != "" {
 		t.Errorf("expected empty Content in ContentParts mode, got %q", msg.Content)
@@ -533,7 +335,7 @@ func TestBuildUserMessage_ASRTranscriptPreferred(t *testing.T) {
 		t.Fatalf("expected 1 content part (ASR text), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
 	}
 	part := msg.ContentParts[0]
-	if part.Type != ContentPartText {
+	if part.Type != protocol.ContentPartText {
 		t.Errorf("expected text part, got %v", part.Type)
 	}
 	if part.Text != "[语音转写] 今天天气怎么样" {
@@ -556,32 +358,24 @@ func TestBuildUserMessage_ASRMissingFallsBackToAudio(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	// 无 ASR 文本：AudioEnabled=true 时尝试下载为音频部件
-	p := &Plugin{cfg: &Config{AudioEnabled: true}}
-	session := &Session{}
-	msg := p.buildUserMessage(ctx, "", session)
+	p := &Plugin{cfg: &config.Config{AudioEnabled: true}}
+	sess := &session.Session{}
+	msg := p.buildUserMessage(ctx, "", sess)
 	// 下载会被 SSRF 防护拦截（ex.com 可能解析失败），ContentParts 可能为空——
 	// 这里只验证不 panic 且未注入 ASR 文本
 	if len(msg.ContentParts) > 0 {
 		for _, part := range msg.ContentParts {
-			if part.Type == ContentPartText && strings.Contains(part.Text, "语音转写") {
+			if part.Type == protocol.ContentPartText && strings.Contains(part.Text, "语音转写") {
 				t.Error("should not inject ASR text when attachment has no transcript meta")
 			}
 		}
 	}
 
 	// AudioEnabled=false：无 ASR 时音频被忽略
-	p2 := &Plugin{cfg: &Config{AudioEnabled: false}}
-	msg2 := p2.buildUserMessage(ctx, "", session)
+	p2 := &Plugin{cfg: &config.Config{AudioEnabled: false}}
+	msg2 := p2.buildUserMessage(ctx, "", sess)
 	if len(msg2.ContentParts) != 0 {
 		t.Errorf("expected no content parts when audio disabled and no ASR, got %+v", msg2.ContentParts)
-	}
-}
-
-func TestSkillKey(t *testing.T) {
-	key := skillKey("owner1", "skill1")
-	expected := "owner1\x00skill1"
-	if key != expected {
-		t.Errorf("expected %q, got %q", expected, key)
 	}
 }
 
@@ -599,65 +393,65 @@ func TestHasSubstantiveText(t *testing.T) {
 		{"分析这张图", true},
 	}
 	for _, c := range cases {
-		if got := hasSubstantiveText(c.in); got != c.want {
-			t.Errorf("hasSubstantiveText(%q) = %v, want %v", c.in, got, c.want)
+		if got := runtime.HasSubstantiveText(c.in); got != c.want {
+			t.Errorf("runtime.HasSubstantiveText(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
 
 func TestMergePendingImageParts(t *testing.T) {
-	pending := []ContentPart{{Type: ContentPartImage, Data: []byte("img"), MimeType: "image/png"}}
+	pending := []protocol.ContentPart{{Type: protocol.ContentPartImage, Data: []byte("img"), MimeType: "image/png"}}
 
 	// 纯文本消息 + pending：图片前置 + 文字转 text part，Content 清空
-	userMsg := mergePendingImageParts(Message{Role: RoleUser, Content: "看看细节"}, pending)
+	userMsg := runtime.MergePendingImageParts(protocol.Message{Role: protocol.RoleUser, Content: "看看细节"}, pending)
 	if userMsg.Content != "" {
 		t.Errorf("expected Content cleared after merge, got %q", userMsg.Content)
 	}
 	if len(userMsg.ContentParts) != 2 {
 		t.Fatalf("expected 2 parts (image+text), got %d", len(userMsg.ContentParts))
 	}
-	if userMsg.ContentParts[0].Type != ContentPartImage {
+	if userMsg.ContentParts[0].Type != protocol.ContentPartImage {
 		t.Errorf("expected image part first, got %v", userMsg.ContentParts[0].Type)
 	}
-	if userMsg.ContentParts[1].Type != ContentPartText || userMsg.ContentParts[1].Text != "看看细节" {
+	if userMsg.ContentParts[1].Type != protocol.ContentPartText || userMsg.ContentParts[1].Text != "看看细节" {
 		t.Errorf("expected text part second with original text, got %+v", userMsg.ContentParts[1])
 	}
 
 	// 已有 ContentParts 的消息：pending 前置，原 parts 保留
-	userMsg2 := mergePendingImageParts(Message{Role: RoleUser, ContentParts: []ContentPart{
-		{Type: ContentPartText, Text: "hi"},
-		{Type: ContentPartImage, Data: []byte("own")},
+	userMsg2 := runtime.MergePendingImageParts(protocol.Message{Role: protocol.RoleUser, ContentParts: []protocol.ContentPart{
+		{Type: protocol.ContentPartText, Text: "hi"},
+		{Type: protocol.ContentPartImage, Data: []byte("own")},
 	}}, pending)
 	if len(userMsg2.ContentParts) != 3 {
 		t.Fatalf("expected 3 parts, got %d", len(userMsg2.ContentParts))
 	}
-	if userMsg2.ContentParts[0].Type != ContentPartImage || userMsg2.ContentParts[2].Type != ContentPartImage {
+	if userMsg2.ContentParts[0].Type != protocol.ContentPartImage || userMsg2.ContentParts[2].Type != protocol.ContentPartImage {
 		t.Errorf("expected pending image first and own image last, got %+v", userMsg2.ContentParts)
 	}
 }
 
 func TestCountImageParts(t *testing.T) {
-	parts := []ContentPart{
-		{Type: ContentPartText, Text: "x"},
-		{Type: ContentPartImage, Data: []byte("1")},
-		{Type: ContentPartImage, Data: []byte("2")},
+	parts := []protocol.ContentPart{
+		{Type: protocol.ContentPartText, Text: "x"},
+		{Type: protocol.ContentPartImage, Data: []byte("1")},
+		{Type: protocol.ContentPartImage, Data: []byte("2")},
 	}
-	if got := countImageParts(parts); got != 2 {
+	if got := runtime.CountImageParts(parts); got != 2 {
 		t.Errorf("expected 2 image parts, got %d", got)
 	}
-	if got := countImageParts(nil); got != 0 {
+	if got := runtime.CountImageParts(nil); got != 0 {
 		t.Errorf("expected 0 image parts for nil, got %d", got)
 	}
 }
 
 func TestGetLastUserMessageExtractsContentPartsText(t *testing.T) {
-	s := &Session{Messages: []Message{
-		{Role: RoleUser, Content: "", ContentParts: []ContentPart{
-			{Type: ContentPartImage, Data: []byte("img")},
-			{Type: ContentPartText, Text: "这张图里有什么？"},
+	s := &session.Session{Messages: []protocol.Message{
+		{Role: protocol.RoleUser, Content: "", ContentParts: []protocol.ContentPart{
+			{Type: protocol.ContentPartImage, Data: []byte("img")},
+			{Type: protocol.ContentPartText, Text: "这张图里有什么？"},
 		}},
 	}}
-	if got := getLastUserMessage(s); got != "这张图里有什么？" {
+	if got := runtime.LastUserMessage(s); got != "这张图里有什么？" {
 		t.Errorf("expected text from content parts, got %q", got)
 	}
 }
@@ -675,12 +469,12 @@ func TestMaybeRecordPendingImageGate(t *testing.T) {
 	priv := platform.ChatInfo{ID: "u1", IsGroup: false}
 
 	// 合并窗口关闭 → 不挂起
-	p := &Plugin{cfg: &Config{ImageMergeWindow: 0, VisionEnabled: true}}
+	p := &Plugin{cfg: &config.Config{ImageMergeWindow: 0, VisionEnabled: true}}
 	if p.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "[图片]", group, img), "[图片]", []platform.Attachment{img}) {
 		t.Error("expected false when merge window disabled")
 	}
 
-	p = &Plugin{cfg: &Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: true}}
+	p = &Plugin{cfg: &config.Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: true}}
 	// 无图片附件 → 不挂起
 	if p.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "hi", group), "hi", nil) {
 		t.Error("expected false without image attachments")
@@ -694,7 +488,7 @@ func TestMaybeRecordPendingImageGate(t *testing.T) {
 		t.Error("expected false in private chat")
 	}
 	// vision 关闭 → 不挂起
-	p2 := &Plugin{cfg: &Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: false}}
+	p2 := &Plugin{cfg: &config.Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: false}}
 	if p2.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "[图片]", group, img), "[图片]", []platform.Attachment{img}) {
 		t.Error("expected false when vision disabled")
 	}

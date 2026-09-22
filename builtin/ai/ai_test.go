@@ -5,10 +5,13 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 )
 
 func TestDefaultConfig(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	if cfg.Provider != "openai" {
 		t.Errorf("expected provider %q, got %q", "openai", cfg.Provider)
 	}
@@ -33,8 +36,8 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestNewOpenAIProvider(t *testing.T) {
-	cfg := ai.DefaultConfig
-	prov, err := ai.NewOpenAIProvider(&cfg)
+	cfg := config.DefaultConfig
+	prov, err := protocol.NewOpenAIProvider(&cfg)
 	if err != nil {
 		t.Fatalf("NewOpenAIProvider failed: %v", err)
 	}
@@ -44,9 +47,9 @@ func TestNewOpenAIProvider(t *testing.T) {
 }
 
 func TestNewOpenAIProviderCustomBaseURL(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.BaseURL = "https://api.deepseek.com"
-	prov, err := ai.NewOpenAIProvider(&cfg)
+	prov, err := protocol.NewOpenAIProvider(&cfg)
 	if err != nil {
 		t.Fatalf("NewOpenAIProvider failed: %v", err)
 	}
@@ -56,9 +59,9 @@ func TestNewOpenAIProviderCustomBaseURL(t *testing.T) {
 }
 
 func TestNewAnthropicProvider(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.Provider = "anthropic"
-	prov, err := ai.NewAnthropicProvider(&cfg)
+	prov, err := protocol.NewAnthropicProvider(&cfg)
 	if err != nil {
 		t.Fatalf("NewAnthropicProvider failed: %v", err)
 	}
@@ -68,7 +71,7 @@ func TestNewAnthropicProvider(t *testing.T) {
 }
 
 func TestNewProviderOpenAI(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.Provider = "openai"
 	prov, err := ai.NewProvider(&cfg)
 	if err != nil {
@@ -80,7 +83,7 @@ func TestNewProviderOpenAI(t *testing.T) {
 }
 
 func TestNewProviderAnthropic(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.Provider = "anthropic"
 	prov, err := ai.NewProvider(&cfg)
 	if err != nil {
@@ -92,7 +95,7 @@ func TestNewProviderAnthropic(t *testing.T) {
 }
 
 func TestNewProviderDefault(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.Provider = ""
 	prov, err := ai.NewProvider(&cfg)
 	if err != nil {
@@ -104,7 +107,7 @@ func TestNewProviderDefault(t *testing.T) {
 }
 
 func TestNewProviderUnknown(t *testing.T) {
-	cfg := ai.DefaultConfig
+	cfg := config.DefaultConfig
 	cfg.Provider = "unknown_provider"
 	_, err := ai.NewProvider(&cfg)
 	if err == nil {
@@ -141,5 +144,5 @@ func TestNewGormSessionStorePanicsWithNil(t *testing.T) {
 			t.Error("expected panic for nil client")
 		}
 	}()
-	ai.NewGormSessionStore(nil)
+	session.NewGormSessionStore(nil)
 }

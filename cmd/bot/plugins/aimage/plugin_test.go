@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -81,14 +81,14 @@ func (f *fakeSender) ReplyToChat(_ context.Context, msg platform.OutboundMessage
 	f.sent = append(f.sent, msg)
 	return platform.SendResult{}, nil
 }
-func (f *fakeSender) SendTo(_ context.Context, _ ai.ChatTarget, _ platform.OutboundMessage) (platform.SendResult, error) {
+func (f *fakeSender) SendTo(_ context.Context, _ toolkit.ChatTarget, _ platform.OutboundMessage) (platform.SendResult, error) {
 	return platform.SendResult{}, nil
 }
-func (f *fakeSender) ResolveTarget(_ context.Context, _ string, _ bool) (ai.ChatTarget, string, error) {
-	return ai.ChatTarget{}, "", nil
+func (f *fakeSender) ResolveTarget(_ context.Context, _ string, _ bool) (toolkit.ChatTarget, string, error) {
+	return toolkit.ChatTarget{}, "", nil
 }
 
-var _ ai.ToolSender = (*fakeSender)(nil)
+var _ toolkit.ToolSender = (*fakeSender)(nil)
 
 func testPluginWithServer(t *testing.T, handler http.HandlerFunc) (*Plugin, *httptest.Server) {
 	t.Helper()
@@ -130,7 +130,7 @@ func TestListToolsEnabled(t *testing.T) {
 	if !tool.RequiresApproval {
 		t.Error("expected RequiresApproval=true")
 	}
-	if len(tool.Categories) != 1 || tool.Categories[0] != ai.CategoryGeneral {
+	if len(tool.Categories) != 1 || tool.Categories[0] != toolkit.CategoryGeneral {
 		t.Errorf("unexpected categories %v", tool.Categories)
 	}
 	if len(tool.Parameters.Required) != 1 || tool.Parameters.Required[0] != "prompt" {
@@ -147,7 +147,7 @@ func TestExecuteGenerateImageSends(t *testing.T) {
 	defer srv.Close()
 
 	sender := &fakeSender{}
-	ctx := ai.WithToolSender(context.Background(), sender)
+	ctx := toolkit.WithToolSender(context.Background(), sender)
 	out, err := p.executeGenerateImage(ctx, map[string]any{"prompt": "一只猫"})
 	if err != nil {
 		t.Fatalf("executeGenerateImage: %v", err)
@@ -190,7 +190,7 @@ func TestExecuteGenerateImageClampsN(t *testing.T) {
 	p.cfg = &fakeConfig{vals: map[string]any{"enabled": true, "base_url": srv.URL, "max_n": 2}}
 
 	sender := &fakeSender{}
-	ctx := ai.WithToolSender(context.Background(), sender)
+	ctx := toolkit.WithToolSender(context.Background(), sender)
 	out, err := p.executeGenerateImage(ctx, map[string]any{"prompt": "一只猫", "n": float64(10)})
 	if err != nil {
 		t.Fatalf("executeGenerateImage: %v", err)

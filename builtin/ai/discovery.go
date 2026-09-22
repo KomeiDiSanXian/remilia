@@ -12,212 +12,49 @@ package ai
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strings"
 
-	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
-
-// discoverTools 自动扫描已注册的**无权限**命令并包装为 LLM 工具。
-//
-// # 安全设计
-//
-// ⚠️ 仅自动发现不需要任何权限的命令（Permissions 为空）。
-// 需要权限的命令不会被 AI 自动发现，防止通过 AI 绕过权限检查。
-//
-// # 去重
-//
-// 显式实现了 ToolProvider / SkillProvider 的插件（已向 AI 暴露结构化工具）
-// 会通过 excludeSet 排除其命令的自动发现，避免"结构化工具 + 粗糙命令工具"
-// 双份占用选择名额、稀释检索精度。若配置了 tool_allowlist 且命令被显式
-// 列入，则以 allowlist 为准（用户显式意图优先）。
-//
-// 对于需要 AI 调用的权限命令，插件应在自己的 Setup 中调用
-// [Plugin.RegisterToolProvider] 显式注册工具，并在 Execute 中自行校验身份。
-//
-// # 工作原理
-//
-//  1. 通过 engine.Reader.GetAllCommands() 获取所有命令列表
-//  2. 跳过 AI 自身命令、隐藏命令、需要权限的命令
-//  3. 每个安全命令生成一个 Tool 供 LLM 调用
-//
-// 应在所有插件完成注册后调用，确保不会遗漏后注册的命令。
-func (p *Plugin) discoverTools(excludeSet map[string]struct{}) {
-	if p.coord == nil {
-		return
-	}
-
-	hasAllowlist := len(p.cfg.ToolAllowlist) > 0
-	allowSet := make(map[string]struct{}, len(p.cfg.ToolAllowlist))
-	for _, name := range p.cfg.ToolAllowlist {
-		allowSet[name] = struct{}{}
-	}
-
-	// AI 自身的触发命令（默认 /ai）不应被自动发现为工具，避免 AI 自我递归调用。
-	// 若用户将 trigger_cmd 改为 /chat 等，也要一并排除。
-	triggerName := ""
-	if p.cfg.TriggerCmd != "" {
-		triggerName = strings.TrimLeft(p.cfg.TriggerCmd, "/!$#")
-	}
-
-	allCmds := p.coord.GetAllCommands()
-	for _, cmd := range allCmds {
-		if cmd.Definition != nil && cmd.Definition.Hidden {
-			continue
-		}
-		if !isCommandSafeForAI(cmd) {
-			continue
-		}
-		// 已提供显式 AI 工具的插件，其命令默认不再自动发现（allowlist 例外）。
-		if cmd.Plugin != "" {
-			if _, excluded := excludeSet[cmd.Plugin]; excluded {
-				if !hasAllowlist {
-					continue
-				}
-				name := strings.TrimLeft(cmd.Command, "/!$#")
-				name = strings.ReplaceAll(name, " ", "_")
-				if _, allowed := allowSet[name]; !allowed {
-					continue
-				}
-			}
-		}
-		name := strings.TrimLeft(cmd.Command, "/!$#")
-		name = strings.ReplaceAll(name, " ", "_")
-		if triggerName != "" && name == triggerName {
-			continue
-		}
-		if hasAllowlist {
-			if _, ok := allowSet[name]; !ok {
-				continue
-			}
-		}
-		// 已被显式注册（RegisterToolProvider / RegisterSkill）占用的名称
-		// 不再自动发现为命令工具，避免覆盖或污染 cmdPatterns。
-		if _, exists := p.reg.Get(name); exists {
-			continue
-		}
-		tool := buildToolFromCommand(cmd)
-		if tool != nil {
-			p.cmdMu.Lock()
-			p.cmdPatterns[tool.Name] = cmd.Command
-			p.cmdMu.Unlock()
-			p.reg.Register(*tool)
-		}
-	}
-}
-
-// validToolNameRegex 用于校验工具名称是否符合 AI API 的要求（仅含字母、数字、下划线、连字符）。
-var validToolNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
-// isCommandSafeForAI 判断命令是否能安全地暴露给 AI。
-//
-// 安全条件（全部满足）：
-//  1. 命令无权限要求（Permissions 为空）
-//  2. 命令定义中也无权限要求（Definition.Permissions 为空）
-//  3. 不是 AI 自身命令
-//  4. 命令名称能构成合法的工具名（仅含 a-zA-Z0-9_-）
-//
-// 不满足任一条件 → AI 不可调用该命令。
-func isCommandSafeForAI(cmd engine.CommandInfo) bool {
-	name := strings.TrimLeft(cmd.Command, "/!$#")
-	name = strings.ReplaceAll(name, " ", "_")
-	if name == "" || name == "ai" {
-		return false
-	}
-	if !validToolNameRegex.MatchString(name) {
-		return false
-	}
-	if len(cmd.Permissions) > 0 {
-		return false
-	}
-	if cmd.Definition != nil && len(cmd.Definition.Permissions) > 0 {
-		return false
-	}
-	return true
-}
-
-// sanitizeToolName 确保工具名称只包含 [a-zA-Z0-9_-]。
-// 不符合的字符会被替换为下划线，连续多个下划线合并为一个。
-func sanitizeToolName(name string) string {
-	// 先替换所有非法字符为下划线
-	result := invalidToolNameChars.ReplaceAllString(name, "_")
-	// 合并连续下划线
-	result = multiUnderscore.ReplaceAllString(result, "_")
-	// 去掉首尾下划线
-	result = strings.Trim(result, "_")
-	if result == "" {
-		result = "unknown_tool"
-	}
-	return result
-}
-
-var invalidToolNameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-var multiUnderscore = regexp.MustCompile(`_+`)
-
-// deriveToolCategory 从命令信息中推断工具的分类。
-// 优先使用命令定义中的 Category，其次使用插件名，兜底为 "general"。
-func deriveToolCategory(cmd engine.CommandInfo) string {
-	if cmd.Category != "" {
-		return cmd.Category
-	}
-	if cmd.Plugin != "" && cmd.Plugin != "global" {
-		return cmd.Plugin
-	}
-	if cmd.Definition != nil && cmd.Definition.Category != "" {
-		return cmd.Definition.Category
-	}
-	return CategoryGeneral
-}
-
-// buildToolFromCommand 将命令信息转换为 LLM 工具。
-//
-// 注意：调用方应确保已通过 isCommandSafeForAI 前置检查。
-func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
-	name := strings.TrimLeft(cmd.Command, "/!$#")
-	if name == "" {
-		return nil
-	}
-	name = strings.ReplaceAll(name, " ", "_")
-	name = sanitizeToolName(name)
-
-	desc := cmd.Description
-	if desc == "" {
-		desc = fmt.Sprintf("执行命令 %s", cmd.Command)
-	}
-
-	category := deriveToolCategory(cmd)
-	return &Tool{
-		Name:        name,
-		Categories:  []string{category},
-		Description: desc,
-		Parameters: ToolParamSchema{
-			Type: "object",
-			Properties: map[string]ToolParamSchema{
-				"arguments": {
-					Type:        "string",
-					Description: "传递给命令的原始参数；无参数命令可省略",
-				},
-			},
-		},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return fmt.Sprintf("[命令 %s 已触发]", cmd.Command), nil
-		},
-	}
-}
 
 // DiscoverCommands 扫描当前所有已注册的无权限命令。
 // excludePlugins 为已提供显式 AI 工具（ToolProvider/SkillProvider）的插件名，
 // 这些插件的命令不再自动发现为工具（避免与结构化工具重复）。
 // 应在插件容器冻结后、开始处理平台事件前调用。
 func (p *Plugin) DiscoverCommands(excludePlugins ...string) {
+	if p.coord == nil {
+		return
+	}
 	excludeSet := make(map[string]struct{}, len(excludePlugins))
 	for _, name := range excludePlugins {
 		if name != "" {
 			excludeSet[name] = struct{}{}
 		}
 	}
-	p.discoverTools(excludeSet)
+	catalog.Discover(p.coord, catalog.Options{
+		Allowlist:      p.cfg.ToolAllowlist,
+		TriggerCmd:     p.cfg.TriggerCmd,
+		ExcludePlugins: excludeSet,
+	}, pluginCatalogSink{p: p})
+}
+
+// pluginCatalogSink 把自动发现的结果写回插件目录：动作进注册表，
+// 命令模式进执行期映射（发现与执行可能并行，故加锁）。
+type pluginCatalogSink struct{ p *Plugin }
+
+// Has 报告动作名是否已存在（显式注册优先于自动发现）。
+func (s pluginCatalogSink) Has(name string) bool {
+	_, exists := s.p.reg.Get(name)
+	return exists
+}
+
+// Add 登记自动发现的命令动作，并记下它对应的命令模式。
+func (s pluginCatalogSink) Add(tool toolkit.Tool, commandPattern string) {
+	s.p.cmdMu.Lock()
+	s.p.cmdPatterns[tool.Name] = commandPattern
+	s.p.cmdMu.Unlock()
+	s.p.reg.Register(tool)
 }
 
 // RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。
@@ -234,33 +71,33 @@ func (p *Plugin) DiscoverCommands(excludePlugins ...string) {
 //	if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //	    aiSvc.RegisterToolProvider(myToolProvider)
 //	}
-func (p *Plugin) RegisterToolProvider(tp ToolProvider) {
+func (c *catalogState) RegisterToolProvider(tp toolkit.ToolProvider) {
 	for _, t := range tp.ListTools() {
 		if t.Name == "" {
 			continue
 		}
-		p.reg.Remove(t.Name)
-		p.cmdMu.Lock()
-		delete(p.cmdPatterns, t.Name)
-		p.cmdMu.Unlock()
-		p.reg.Register(t)
+		c.reg.Remove(t.Name)
+		c.cmdMu.Lock()
+		delete(c.cmdPatterns, t.Name)
+		c.cmdMu.Unlock()
+		c.reg.Register(t)
 	}
 }
 
 // DiscoverToolProviders 扫描插件管理器中所有已注册的插件服务，
 // 自动发现实现了 [ToolProvider] 接口的插件并注册其工具。
 // 应在 [plugin.Manager.FreezeContainer] 之后调用。
-func (p *Plugin) DiscoverToolProviders(mgr *plugin.Manager) {
+func (c *catalogState) DiscoverToolProviders(mgr *plugin.Manager) {
 	for _, name := range mgr.List() {
 		svc, ok := mgr.GetContainer().Get(name)
 		if !ok || svc == nil {
 			continue
 		}
-		tp, ok := svc.(ToolProvider)
+		tp, ok := svc.(toolkit.ToolProvider)
 		if !ok {
 			continue
 		}
-		p.RegisterToolProvider(tp)
+		c.RegisterToolProvider(tp)
 	}
 }
 
@@ -268,11 +105,8 @@ func (p *Plugin) DiscoverToolProviders(mgr *plugin.Manager) {
 // OwnerID 为空时自动设为 OwnerSystem。
 // Skill 会自动包装为 Tool 供 LLM 发现和调用。
 // 如果 Parameters 为空，自动使用 {"query": string} 作为默认参数。
-func (p *Plugin) RegisterSkill(s Skill) {
-	if s.OwnerID == "" {
-		s.OwnerID = OwnerSystem
-	}
-	p.applyDefaultParamSchema(&s)
+func (p *Plugin) RegisterSkill(s toolkit.Skill) {
+	s = catalog.SystemSkill(s)
 	p.skillReg.Register(s)
 	p.registerSkillAsTool(s)
 }
@@ -280,16 +114,10 @@ func (p *Plugin) RegisterSkill(s Skill) {
 // RegisterUserSkill 注册一个用户自定义 Skill。
 // name 会自动添加 u_ 前缀，OwnerID 设为 ownerID。
 // 注册到 skillReg 但不注册到全局 ToolRegistry（由 processWithTools 按会话注入）。
-func (p *Plugin) RegisterUserSkill(s Skill, ownerID string) error {
-	name := strings.TrimPrefix(strings.TrimSpace(s.Name), UserSkillPrefix)
-	if !userSkillNamePattern.MatchString(name) {
-		return fmt.Errorf("技能名称只能使用字母、数字、下划线或连字符，长度为 1–62")
-	}
-	s.OwnerID = ownerID
-	s.Name = UserSkillPrefix + name
-	p.applyDefaultParamSchema(&s)
-	if !s.Enabled {
-		s.Enabled = true
+func (p *Plugin) RegisterUserSkill(s toolkit.Skill, ownerID string) error {
+	s, err := catalog.UserSkill(s, ownerID)
+	if err != nil {
+		return err
 	}
 
 	userSkills := p.skillReg.ListByOwner(ownerID)
@@ -304,34 +132,15 @@ func (p *Plugin) RegisterUserSkill(s Skill, ownerID string) error {
 	return p.skillReg.Add(s)
 }
 
-var userSkillNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,62}$`)
-
-func (p *Plugin) applyDefaultParamSchema(s *Skill) {
-	if len(s.Parameters.Properties) == 0 {
-		s.Parameters = ToolParamSchema{
-			Type: "object",
-			Properties: map[string]ToolParamSchema{
-				"query": {Type: "string", Description: "需要该技能处理的问题"},
-			},
-			Required: []string{"query"},
-		}
-	}
-}
-
-func (p *Plugin) registerSkillAsTool(s Skill) {
+func (p *Plugin) registerSkillAsTool(s toolkit.Skill) {
 	skill := s
-	p.reg.Register(Tool{
-		Name:        skill.Name,
-		Description: skill.Description,
-		Parameters:  skill.Parameters,
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return p.executeSkill(ctx, skill, args)
-		},
-	})
+	p.reg.Register(catalog.ToolFromSkill(skill, func(ctx context.Context, args map[string]any) (string, error) {
+		return p.executeSkill(ctx, skill, args)
+	}))
 }
 
 // RegisterSkillProvider 注册一个实现了 SkillProvider 接口的插件所提供的技能集。
-func (p *Plugin) RegisterSkillProvider(sp SkillProvider) {
+func (p *Plugin) RegisterSkillProvider(sp toolkit.SkillProvider) {
 	for _, s := range sp.ListSkills() {
 		p.RegisterSkill(s)
 	}
@@ -346,7 +155,7 @@ func (p *Plugin) DiscoverSkillProviders(mgr *plugin.Manager) {
 		if !ok || svc == nil {
 			continue
 		}
-		if sp, ok := svc.(SkillProvider); ok {
+		if sp, ok := svc.(toolkit.SkillProvider); ok {
 			p.RegisterSkillProvider(sp)
 		}
 	}

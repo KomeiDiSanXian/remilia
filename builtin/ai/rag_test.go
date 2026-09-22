@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -55,8 +59,8 @@ func insertMessage(t *testing.T, db *gorm.DB, chatID, userID, content string, ag
 }
 
 // ragBaseCfg 返回启用了 RAG 的默认配置（测试用）。
-func ragBaseCfg() Config {
-	return Config{
+func ragBaseCfg() config.Config {
+	return config.Config{
 		ContextRAGMessages:   3,
 		ContextRAGDays:       7,
 		ContextRAGCandidates: 500,
@@ -65,7 +69,7 @@ func ragBaseCfg() Config {
 }
 
 // newRAGPlugin 构造测试插件（RAG 启用与否由 cfg 决定，不强制覆盖）。
-func newRAGPlugin(t *testing.T, history *messagelog.Logger, cfg Config) *Plugin {
+func newRAGPlugin(t *testing.T, history *messagelog.Logger, cfg config.Config) *Plugin {
 	if cfg.ContextRAGDays <= 0 {
 		cfg.ContextRAGDays = 7
 	}
@@ -85,10 +89,10 @@ func TestFormatRAGHitsKeywordPrefilter(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案是什么"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案是什么"}}
 
-	text := p.buildRAGContext(ctx, session)
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	if !strings.Contains(text, "服务器方案选型") {
 		t.Errorf("expected matching historical message, got %q", text)
 	}
@@ -112,10 +116,10 @@ func TestBuildRAGContextPrivateChat(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "u1"}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "u1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "想换显卡"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "u1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "想换显卡"}}
 
-	text := p.buildRAGContext(ctx, session)
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	if !strings.Contains(text, "我上次说想换显卡") {
 		t.Errorf("expected private chat history in RAG, got %q", text)
 	}
@@ -128,15 +132,15 @@ func TestBuildRAGContextDisabled(t *testing.T) {
 	l, db := newRAGTestLogger(t)
 	insertMessage(t, db, "g1", "张三", "服务器方案选型讨论", time.Hour, "")
 
-	p := newRAGPlugin(t, l, Config{ContextRAGMessages: 0})
+	p := newRAGPlugin(t, l, config.Config{ContextRAGMessages: 0})
 	evt := platform.NewSyntheticEvent("c2c", "服务器方案是什么",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案是什么"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案是什么"}}
 
-	if text := p.buildRAGContext(ctx, session); text != "" {
+	if text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages); text != "" {
 		t.Errorf("disabled RAG should return empty, got %q", text)
 	}
 }
@@ -150,10 +154,10 @@ func TestBuildRAGContextNoKeywordHit(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案是什么"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案是什么"}}
 
-	if text := p.buildRAGContext(ctx, session); text != "" {
+	if text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages); text != "" {
 		t.Errorf("no keyword hit should return empty, got %q", text)
 	}
 }
@@ -172,15 +176,15 @@ func TestBuildRAGContextDedupRecentWindow(t *testing.T) {
 		Timestamp: time.Now().Add(-30 * time.Minute), EventID: "in_window",
 	})
 
-	p := newRAGPlugin(t, l, Config{ContextRAGMessages: 3, ContextGroupMessages: 3})
+	p := newRAGPlugin(t, l, config.Config{ContextRAGMessages: 3, ContextGroupMessages: 3})
 	evt := platform.NewSyntheticEvent("c2c", "服务器方案",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案"}}
 
-	text := p.buildRAGContext(ctx, session)
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	// 窗口内的"运维手册"被去重（窗口已注入）
 	if strings.Contains(text, "运维手册") {
 		t.Errorf("entry in recent window should be deduped, got %q", text)
@@ -228,16 +232,16 @@ func TestBuildRAGContextEmbeddingRerank(t *testing.T) {
 		"服务器这边最后怎么定的": {1, 0}, // 关键词分低但语义相关
 	}}
 	p := newRAGPlugin(t, l, ragBaseCfg())
-	p.emb = newTextVectorCache(emb)
+	p.emb = retrieval.NewTextVectorCache(emb)
 
 	evt := platform.NewSyntheticEvent("c2c", query,
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: query}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: query}}
 
-	text := p.buildRAGContext(ctx, session)
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	// 语义精排后：关键词分相同但语义相关的"最后怎么定的"应排在前面
 	idxFinal := strings.Index(text, "最后怎么定的")
 	idxMemo := strings.Index(text, "选型讨论会纪要")
@@ -258,24 +262,24 @@ func TestBuildRAGContextCacheHit(t *testing.T) {
 
 	emb := &mapEmbedder{vecs: map[string][]float32{}}
 	p := newRAGPlugin(t, l, ragBaseCfg())
-	p.emb = newTextVectorCache(emb)
+	p.emb = retrieval.NewTextVectorCache(emb)
 
 	evt := platform.NewSyntheticEvent("c2c", "服务器方案",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案"}}
 
-	first := p.buildRAGContext(ctx, session)
+	first := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	if first == "" {
 		t.Fatal("expected first retrieval hit")
 	}
 	callsAfterFirst := emb.calls
 
 	// 相似查询（Jaccard 命中）：复用缓存，零 embedding 调用
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案是啥"}}
-	second := p.buildRAGContext(ctx, session)
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案是啥"}}
+	second := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	if second != first {
 		t.Errorf("cache hit should return same text: %q vs %q", first, second)
 	}
@@ -290,17 +294,17 @@ func TestBuildRAGContextEmbeddingFailureFallback(t *testing.T) {
 
 	emb := &mapEmbedder{vecs: map[string][]float32{}, err: context.DeadlineExceeded}
 	p := newRAGPlugin(t, l, ragBaseCfg())
-	p.emb = newTextVectorCache(emb)
+	p.emb = retrieval.NewTextVectorCache(emb)
 
 	evt := platform.NewSyntheticEvent("c2c", "服务器方案",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案"}}
 
 	// embedding 失败不阻塞检索，关键词排序仍返回结果
-	if text := p.buildRAGContext(ctx, session); !strings.Contains(text, "选型讨论") {
+	if text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages); !strings.Contains(text, "选型讨论") {
 		t.Errorf("expected keyword fallback result, got %q", text)
 	}
 }
@@ -310,16 +314,42 @@ func TestBuildRAGContextLimitInjection(t *testing.T) {
 	for i := range 5 {
 		insertMessage(t, db, "g1", "张三", "服务器方案备选"+string(rune('0'+i)), time.Duration(i+1)*time.Hour, "")
 	}
-	p := newRAGPlugin(t, l, Config{ContextRAGMessages: 3, ContextRAGInjectMax: 2})
+	p := newRAGPlugin(t, l, config.Config{ContextRAGMessages: 3, ContextRAGInjectMax: 2})
 	evt := platform.NewSyntheticEvent("c2c", "服务器方案",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "服务器方案"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案"}}
 
-	text := p.buildRAGContext(ctx, session)
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
 	if strings.Count(text, "\n[") < 2 {
 		t.Errorf("expected at most 2 injected messages, got %q", text)
+	}
+}
+
+// TestBuildRAGContextTieBreakNewerFirst 通过完整检索路径验证同分次序：
+// 关键词分相同的两条历史，较新的排在前。
+func TestBuildRAGContextTieBreakNewerFirst(t *testing.T) {
+	l, db := newRAGTestLogger(t)
+	insertMessage(t, db, "g1", "张三", "服务器方案甲", 6*time.Hour, "older")
+	insertMessage(t, db, "g1", "李四", "服务器方案乙", time.Hour, "newer")
+
+	p := newRAGPlugin(t, l, ragBaseCfg())
+	evt := platform.NewSyntheticEvent("c2c", "服务器方案",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "服务器方案"}}
+
+	text := p.buildRAGContextN(ctx, sess, p.cfg.ContextRAGMessages)
+	idxNew := strings.Index(text, "服务器方案乙")
+	idxOld := strings.Index(text, "服务器方案甲")
+	if idxNew < 0 || idxOld < 0 {
+		t.Fatalf("expected both messages in output, got %q", text)
+	}
+	if idxNew > idxOld {
+		t.Errorf("同分时较新的消息应排在前面, got %q", text)
 	}
 }

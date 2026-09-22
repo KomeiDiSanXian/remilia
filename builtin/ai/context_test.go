@@ -7,6 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -42,7 +47,7 @@ func TestReplyAndRecordRecordsOutbound(t *testing.T) {
 	ctx.SetDispatcher(runTaskDispatcher{})
 
 	p := &Plugin{
-		cfg:          &Config{IncludeReplyContext: true},
+		cfg:          &config.Config{IncludeReplyContext: true},
 		history:      messagelog.New(10),
 		lifecycleCtx: stdctx.Background(),
 	}
@@ -77,7 +82,7 @@ func TestReplyAndRecordNotGatedByIncludeReplyContext(t *testing.T) {
 	ctx.SetDispatcher(runTaskDispatcher{})
 
 	p := &Plugin{
-		cfg:          &Config{IncludeReplyContext: false},
+		cfg:          &config.Config{IncludeReplyContext: false},
 		history:      messagelog.New(10),
 		lifecycleCtx: stdctx.Background(),
 	}
@@ -103,7 +108,7 @@ func TestPrependReplyContextInbound(t *testing.T) {
 		ChatID: "g1", UserID: "u1", UserName: "小明",
 		Content: "今天天气怎么样？", EventID: "in-1", Timestamp: time.Now(),
 	})
-	p := &Plugin{cfg: &Config{}, history: l}
+	p := &Plugin{cfg: &config.Config{}, history: l}
 
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "帮我看看",
@@ -113,7 +118,7 @@ func TestPrependReplyContextInbound(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.prependReplyContext(ctx, "帮我看看")
+	got := promptctx.PrependReplyContext(p.history, ctx, "帮我看看")
 	if !strings.Contains(got, "小明") || !strings.Contains(got, "今天天气怎么样？") {
 		t.Errorf("expected reply context with user message, got %q", got)
 	}
@@ -125,7 +130,7 @@ func TestPrependReplyContextInbound(t *testing.T) {
 func TestPrependReplyContextBotMessage(t *testing.T) {
 	l := messagelog.New(10)
 	l.RecordOutboundSent("g1", "out-1", "这是机器人的回复", time.Now())
-	p := &Plugin{cfg: &Config{}, history: l}
+	p := &Plugin{cfg: &config.Config{}, history: l}
 
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "这个不太明白",
@@ -134,7 +139,7 @@ func TestPrependReplyContextBotMessage(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.prependReplyContext(ctx, "这个不太明白")
+	got := promptctx.PrependReplyContext(p.history, ctx, "这个不太明白")
 	if !strings.Contains(got, "机器人") || !strings.Contains(got, "这是机器人的回复") {
 		t.Errorf("expected reply context with bot message, got %q", got)
 	}
@@ -153,7 +158,7 @@ func TestPrependReplyContextReplyChain(t *testing.T) {
 		ChatID: "g1", UserID: "u2", UserName: "小红", Content: "我觉得不行",
 		EventID: "e2", Timestamp: now.Add(-time.Second),
 	})
-	p := &Plugin{cfg: &Config{}, history: l}
+	p := &Plugin{cfg: &config.Config{}, history: l}
 
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "详细说说",
@@ -163,7 +168,7 @@ func TestPrependReplyContextReplyChain(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.prependReplyContext(ctx, "详细说说")
+	got := promptctx.PrependReplyContext(p.history, ctx, "详细说说")
 	if !strings.Contains(got, "[你正在回复 小明 的消息]") {
 		t.Errorf("expected first-level marker, got %q", got)
 	}
@@ -179,7 +184,7 @@ func TestPrependReplyContextReplyChain(t *testing.T) {
 }
 
 func TestPrependReplyContextMiss(t *testing.T) {
-	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
+	p := &Plugin{cfg: &config.Config{}, history: messagelog.New(10)}
 
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hello",
@@ -188,7 +193,7 @@ func TestPrependReplyContextMiss(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	if got := p.prependReplyContext(ctx, "原内容"); got != "原内容" {
+	if got := promptctx.PrependReplyContext(p.history, ctx, "原内容"); got != "原内容" {
 		t.Errorf("expected content unchanged on miss, got %q", got)
 	}
 
@@ -196,7 +201,7 @@ func TestPrependReplyContextMiss(t *testing.T) {
 	ctx2 := eventctx.NewContextFromEvent(
 		platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hello",
 			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true})), nil)
-	if got := p.prependReplyContext(ctx2, "原内容"); got != "原内容" {
+	if got := promptctx.PrependReplyContext(p.history, ctx2, "原内容"); got != "原内容" {
 		t.Errorf("expected content unchanged without reply, got %q", got)
 	}
 }
@@ -205,7 +210,7 @@ func TestPrependReplyContextMiss(t *testing.T) {
 // 回复标识是 ref_msg_idx（与 messagelog 事件 ID 不对应，查不到），
 // 从 reply 段 Extra["parallel_message"] 提取被引用内容。
 func TestPrependReplyContextQQQuoteFallback(t *testing.T) {
-	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
+	p := &Plugin{cfg: &config.Config{}, history: messagelog.New(10)}
 
 	// SyntheticEvent 无段注入接口：用 segmentsReplyEvent 包装注入 reply 段
 	// （QQ 引用消息：回复标识 ref_msg_idx 与 messagelog 事件 ID 不对应，
@@ -223,7 +228,7 @@ func TestPrependReplyContextQQQuoteFallback(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	got := p.prependReplyContext(ctx, "789")
+	got := promptctx.PrependReplyContext(p.history, ctx, "789")
 	if !strings.Contains(got, "该命令仅支持群聊") {
 		t.Errorf("expected QQ quote context from parallel_message fallback, got %q", got)
 	}
@@ -244,7 +249,7 @@ func (e *segmentsReplyEvent) Segments() []platform.Segment { return e.segs }
 // parallel_message 只有 "[聊天记录]" 占位符，被引用记录经 reply 段 Extra 的
 // 结构化载荷渲染为可读文本注入回复上下文（优先于占位符兜底）。
 func TestPrependReplyContextQuotedForward(t *testing.T) {
-	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
+	p := &Plugin{cfg: &config.Config{}, history: messagelog.New(10)}
 
 	rec := &platform.ForwardRecord{
 		Title: "月莫法师和蕾米莉亚的聊天记录",
@@ -273,7 +278,7 @@ func TestPrependReplyContextQuotedForward(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	got := p.prependReplyContext(ctx, "能读到这个聊天记录吗？")
+	got := promptctx.PrependReplyContext(p.history, ctx, "能读到这个聊天记录吗？")
 	if !strings.Contains(got, "[你正在回复 对方 的消息]") {
 		t.Errorf("expected reply context marker, got %q", got)
 	}
@@ -300,14 +305,14 @@ func TestForwardRecordFromEvent(t *testing.T) {
 			Extra: map[string]any{platform.SegmentExtraForwardNodes: rec},
 		}},
 	}
-	if got := forwardRecordFromEvent(hit); got != rec {
+	if got := runtime.ForwardRecordFromEvent(hit); got != rec {
 		t.Errorf("expected record from forward segment, got %v", got)
 	}
 
-	if got := forwardRecordFromEvent(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hello")); got != nil {
+	if got := runtime.ForwardRecordFromEvent(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hello")); got != nil {
 		t.Errorf("expected nil without forward segment, got %v", got)
 	}
-	if got := forwardRecordFromEvent(nil); got != nil {
+	if got := runtime.ForwardRecordFromEvent(nil); got != nil {
 		t.Errorf("expected nil for nil event, got %v", got)
 	}
 }
@@ -320,12 +325,12 @@ func TestForwardTriggerContent(t *testing.T) {
 			Segments: []platform.Segment{{Type: platform.SegmentText, Text: "hi"}}},
 	}}
 
-	text, trigger := forwardTriggerContent(platform.ChatInfo{ID: "u1", IsGroup: false}, rec)
+	text, trigger := runtime.ForwardTriggerContent(platform.ChatInfo{ID: "u1", IsGroup: false}, rec)
 	if !trigger || !strings.Contains(text, "【合并转发聊天记录】T") || !strings.Contains(text, "1. A: hi") {
 		t.Errorf("private chat should trigger with rendered record, got trigger=%v text=%q", trigger, text)
 	}
 
-	if text, trigger = forwardTriggerContent(platform.ChatInfo{ID: "g1", IsGroup: true}, rec); trigger || text != "" {
+	if text, trigger = runtime.ForwardTriggerContent(platform.ChatInfo{ID: "g1", IsGroup: true}, rec); trigger || text != "" {
 		t.Errorf("group chat should not trigger, got trigger=%v text=%q", trigger, text)
 	}
 }
@@ -352,17 +357,17 @@ func TestForwardRecordImageAtts(t *testing.T) {
 		}},
 	}
 
-	atts := forwardRecordImageAtts(evt, 0)
+	atts := runtime.ForwardRecordImageAtts(evt, 0)
 	if len(atts) != 3 || atts[0].URL != "https://ex/1.png" || atts[1].URL != "https://ex/2.png" || atts[2].URL != "https://ex/3.png" {
 		t.Errorf("expected 3 images in order (nested included), got %+v", atts)
 	}
 
-	atts = forwardRecordImageAtts(evt, 2)
+	atts = runtime.ForwardRecordImageAtts(evt, 2)
 	if len(atts) != 2 || atts[1].URL != "https://ex/2.png" {
 		t.Errorf("expected capped to first 2, got %+v", atts)
 	}
 
-	if got := forwardRecordImageAtts(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "text"), 0); got != nil {
+	if got := runtime.ForwardRecordImageAtts(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "text"), 0); got != nil {
 		t.Errorf("expected nil without forward record, got %+v", got)
 	}
 }
@@ -391,23 +396,23 @@ func TestBuildUserMessageInjectsForwardRecordImages(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{}
-	session.setCachedContent(img1, []byte("fake-png-1"), "image/png", "")
-	session.setCachedContent(img2, []byte("fake-png-2"), "image/png", "")
+	sess := &session.Session{}
+	sess.SetCachedContent(img1, []byte("fake-png-1"), "image/png", "")
+	sess.SetCachedContent(img2, []byte("fake-png-2"), "image/png", "")
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true, MaxImagesPerMessage: 4}}
-	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】T\n1. A: [图片]\n2. B: [图片]", session)
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true, MaxImagesPerMessage: 4}}
+	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】T\n1. A: [图片]\n2. B: [图片]", sess)
 
 	if len(msg.ContentParts) != 3 {
 		t.Fatalf("expected 3 content parts (text+2 images), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
 	}
-	if msg.ContentParts[0].Type != ContentPartText {
+	if msg.ContentParts[0].Type != protocol.ContentPartText {
 		t.Errorf("expected text part first, got %+v", msg.ContentParts[0])
 	}
-	if msg.ContentParts[1].Type != ContentPartImage || msg.ContentParts[1].MimeType != "image/png" || len(msg.ContentParts[1].Data) == 0 {
+	if msg.ContentParts[1].Type != protocol.ContentPartImage || msg.ContentParts[1].MimeType != "image/png" || len(msg.ContentParts[1].Data) == 0 {
 		t.Errorf("expected first record image part, got %+v", msg.ContentParts[1])
 	}
-	if msg.ContentParts[2].Type != ContentPartImage {
+	if msg.ContentParts[2].Type != protocol.ContentPartImage {
 		t.Errorf("expected second record image part, got %+v", msg.ContentParts[2])
 	}
 }
@@ -430,12 +435,12 @@ func TestBuildUserMessageForwardRecordImageCap(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	session := &Session{}
-	session.setCachedContent("https://ex/1.png", []byte("fake-png-1"), "image/png", "")
-	session.setCachedContent("https://ex/2.png", []byte("fake-png-2"), "image/png", "")
+	sess := &session.Session{}
+	sess.SetCachedContent("https://ex/1.png", []byte("fake-png-1"), "image/png", "")
+	sess.SetCachedContent("https://ex/2.png", []byte("fake-png-2"), "image/png", "")
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true, MaxImagesPerMessage: 1}}
-	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】\n1. A: [图片]\n2. B: [图片]", session)
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true, MaxImagesPerMessage: 1}}
+	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】\n1. A: [图片]\n2. B: [图片]", sess)
 
 	if len(msg.ContentParts) != 2 {
 		t.Fatalf("expected 2 content parts (text+1 capped image), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
@@ -454,17 +459,17 @@ func TestReplyQuoteFromSegments(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"message_type":0,"content":"@蕾米莉亚 123456"}]}`,
 		},
 	}}
-	if got := replyQuoteFromSegments(segs); got != "@蕾米莉亚 123456" {
+	if got := promptctx.QuoteFromSegments(segs); got != "@蕾米莉亚 123456" {
 		t.Errorf("expected quoted content, got %q", got)
 	}
 
 	// 无 parallel_message（其他平台）→ 空
-	if got := replyQuoteFromSegments([]platform.Segment{{Type: platform.SegmentReply, ReplyToID: "m1"}}); got != "" {
+	if got := promptctx.QuoteFromSegments([]platform.Segment{{Type: platform.SegmentReply, ReplyToID: "m1"}}); got != "" {
 		t.Errorf("expected empty without parallel_message, got %q", got)
 	}
 
 	// 非 reply 段 → 空
-	if got := replyQuoteFromSegments([]platform.Segment{{Type: platform.SegmentText, Text: "x"}}); got != "" {
+	if got := promptctx.QuoteFromSegments([]platform.Segment{{Type: platform.SegmentText, Text: "x"}}); got != "" {
 		t.Errorf("expected empty without reply segment, got %q", got)
 	}
 
@@ -475,7 +480,7 @@ func TestReplyQuoteFromSegments(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"message_type":7,"content":"[图片] "}]}`,
 		},
 	}}
-	if got := replyQuoteFromSegments(media); got != "[图片] " {
+	if got := promptctx.QuoteFromSegments(media); got != "[图片] " {
 		t.Errorf("expected placeholder content for media quote, got %q", got)
 	}
 }
@@ -493,12 +498,12 @@ func TestBuildGroupContext(t *testing.T) {
 	// 出站消息不在 QueryGroup 中，天然排除
 	l.RecordOutboundSent("g1", "out-1", "bot", now.Add(3*time.Second))
 
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.buildGroupContext(ctx, nil)
+	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 在吗") {
 		t.Errorf("expected user message in group context, got %q", got)
 	}
@@ -524,14 +529,14 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 	// 其他插件（如 /pic）的回复也应进入窗口
 	l.RecordOutboundSent("g1", "out-2", "图片结果", now.Add(2*time.Second))
 
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	// 注入机器人名称：出站消息应以机器人自身名称标注
 	ctx.SetBotName("蕾米莉亚")
 
-	got := p.buildGroupContext(ctx, nil)
+	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "蕾米莉亚: AI 的回复") {
 		t.Errorf("expected bot outbound labeled with bot name, got %q", got)
 	}
@@ -548,7 +553,7 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 
 	// 会话历史已含 "AI 的回复"（assistant 轮次）：开启去重后该条目被跳过
 	skip := map[string]bool{"AI 的回复": true}
-	got = p.buildGroupContext(ctx, skip)
+	got = promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, skip, p.cfg.ContextGroupMessages)
 	if strings.Contains(got, "AI 的回复") {
 		t.Errorf("expected dedup against session history, got %q", got)
 	}
@@ -558,7 +563,7 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 
 	// 未注入机器人名称时兜底"机器人"
 	ctx2 := eventctx.NewContextFromEvent(evt, nil)
-	got2 := p.buildGroupContext(ctx2, nil)
+	got2 := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx2, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got2, "机器人: AI 的回复") {
 		t.Errorf("expected fallback label, got %q", got2)
 	}
@@ -585,13 +590,13 @@ func TestBuildGroupContextSkipsUnsentOutbound(t *testing.T) {
 		Timestamp: now.Add(4 * time.Second), SendStatus: messagelog.SendStatusPending,
 	})
 
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	ctx.SetBotName("蕾米莉亚")
 
-	got := p.buildGroupContext(ctx, nil)
+	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "成功回复") {
 		t.Errorf("expected confirmed reply in window, got %q", got)
 	}
@@ -618,12 +623,12 @@ func TestBuildGroupContextReplyInline(t *testing.T) {
 		EventID: "e1", Timestamp: now, ReplyToMessageID: "e2",
 	})
 
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.buildGroupContext(ctx, nil)
+	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 你说得对（回复 小红: 我觉得不行）") {
 		t.Errorf("expected reply inline suffix, got %q", got)
 	}
@@ -648,12 +653,12 @@ func TestBuildGroupContextMentions(t *testing.T) {
 		Timestamp: now.Add(time.Second),
 	})
 
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.buildGroupContext(ctx, nil)
+	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 在吗（@小红、@小刚）") {
 		t.Errorf("expected mention annotation, got %q", got)
 	}
@@ -666,25 +671,25 @@ func TestBuildGroupContextMentions(t *testing.T) {
 }
 
 func TestBuildGroupContextDisabled(t *testing.T) {
-	p := &Plugin{cfg: &Config{ContextGroupMessages: 0}, history: messagelog.New(10)}
+	p := &Plugin{cfg: &config.Config{ContextGroupMessages: 0}, history: messagelog.New(10)}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	if got := p.buildGroupContext(ctx, nil); got != "" {
+	if got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty when context_group_messages=0, got %q", got)
 	}
 
 	// 非群聊
 	evt2 := platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "u1"}))
-	p2 := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: messagelog.New(10)}
-	if got := p2.buildGroupContext(eventctx.NewContextFromEvent(evt2, nil), nil); got != "" {
+	p2 := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: messagelog.New(10)}
+	if got := promptctx.BuildGroupWindowN(p2.history, p2.cfg, eventctx.NewContextFromEvent(evt2, nil), nil, p2.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty for private chat, got %q", got)
 	}
 
 	// history 为 nil
-	p3 := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: nil}
-	if got := p3.buildGroupContext(ctx, nil); got != "" {
+	p3 := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: nil}
+	if got := promptctx.BuildGroupWindowN(p3.history, p3.cfg, ctx, nil, p3.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty when history unavailable, got %q", got)
 	}
 }
@@ -693,17 +698,17 @@ func TestBuildRuntimeContextUserIsBot(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "/test",
 		platform.WithSyntheticSender(platform.UserInfo{ID: "u1", IsBot: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	p := &Plugin{cfg: &Config{ContextFields: []string{"user_is_bot"}}}
-	runtime := p.buildRuntimeContext(ctx)
-	if !strings.Contains(runtime, "发送者是否为机器人: 是") {
-		t.Errorf("expected bot flag in runtime context, got %q", runtime)
+	p := &Plugin{cfg: &config.Config{ContextFields: []string{"user_is_bot"}}}
+	got := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	if !strings.Contains(got, "发送者是否为机器人: 是") {
+		t.Errorf("expected bot flag in runtime context, got %q", got)
 	}
 
 	evt2 := platform.NewSyntheticEvent("c2c", "/test",
 		platform.WithSyntheticSender(platform.UserInfo{ID: "u2", IsBot: false}))
-	p2 := &Plugin{cfg: &Config{ContextFields: []string{"user_is_bot"}}}
-	if runtime := p2.buildRuntimeContext(eventctx.NewContextFromEvent(evt2, nil)); !strings.Contains(runtime, "发送者是否为机器人: 否") {
-		t.Errorf("expected non-bot flag in runtime context, got %q", runtime)
+	p2 := &Plugin{cfg: &config.Config{ContextFields: []string{"user_is_bot"}}}
+	if got := promptctx.BuildRuntimeContext(p2.cfg, eventctx.NewContextFromEvent(evt2, nil)); !strings.Contains(got, "发送者是否为机器人: 否") {
+		t.Errorf("expected non-bot flag in runtime context, got %q", got)
 	}
 }
 
@@ -720,7 +725,7 @@ func TestQuotedImageFromRawQuote(t *testing.T) {
 				`{"url":"https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0","content_type":"image/jpeg","width":1070,"height":473,"size":49276}]}]`,
 		},
 	}}
-	url, mime := quotedImageFromSegments(segs)
+	url, mime := runtime.QuotedImageFromSegments(segs)
 	if url != "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0" || mime != "image/jpeg" {
 		t.Errorf("expected quoted image url+mime, got (%q, %q)", url, mime)
 	}
@@ -735,7 +740,7 @@ func TestQuotedImageParallelFallback(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"message_type":7,"content":"[图片] ","attachments":[{"url":"https://ex.com/b.png","content_type":"image/png"}]}]}`,
 		},
 	}}
-	url, mime := quotedImageFromSegments(segs)
+	url, mime := runtime.QuotedImageFromSegments(segs)
 	if url != "https://ex.com/b.png" || mime != "image/png" {
 		t.Errorf("expected parallel fallback image, got (%q, %q)", url, mime)
 	}
@@ -747,7 +752,7 @@ func TestQuotedImageParallelFallback(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"attachments":[{"url":"https://ex.com/c.gif","content_type":"image/gif"}]}]}`,
 		},
 	}}
-	if url, _ := quotedImageFromSegments(segs2); url != "https://ex.com/c.gif" {
+	if url, _ := runtime.QuotedImageFromSegments(segs2); url != "https://ex.com/c.gif" {
 		t.Errorf("expected image from parallel only, got %q", url)
 	}
 }
@@ -760,7 +765,7 @@ func TestQuotedImageSkipsNonImage(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://ex.com/v.mp4","content_type":"video/mp4"},{"url":"https://ex.com/a.jpg","content_type":"image/jpeg"}]}]`,
 		},
 	}}
-	url, mime := quotedImageFromSegments(segs)
+	url, mime := runtime.QuotedImageFromSegments(segs)
 	if url != "https://ex.com/a.jpg" || mime != "image/jpeg" {
 		t.Errorf("expected image attachment picked over video, got (%q, %q)", url, mime)
 	}
@@ -774,7 +779,7 @@ func TestQuotedImageUntypedFallback(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://ex.com/no-type"}]}]`,
 		},
 	}}
-	url, mime := quotedImageFromSegments(segs)
+	url, mime := runtime.QuotedImageFromSegments(segs)
 	if url != "https://ex.com/no-type" || mime != "" {
 		t.Errorf("expected fallback to untyped attachment, got (%q, %q)", url, mime)
 	}
@@ -792,7 +797,7 @@ func TestQuotedImageNone(t *testing.T) {
 		}}},
 	}
 	for i, segs := range cases {
-		if url, _ := quotedImageFromSegments(segs); url != "" {
+		if url, _ := runtime.QuotedImageFromSegments(segs); url != "" {
 			t.Errorf("case %d: expected empty, got %q", i, url)
 		}
 	}
@@ -812,7 +817,7 @@ func TestQuotedImagePrefersTypedExtra(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://raw.example/b.jpg","content_type":"image/jpeg"}]}]`,
 		},
 	}}
-	url, mime := quotedImageFromSegments(segs)
+	url, mime := runtime.QuotedImageFromSegments(segs)
 	if url != "https://typed.example/a.png" || mime != "image/png" {
 		t.Errorf("expected typed Extra to win, got (%q, %q)", url, mime)
 	}
@@ -877,23 +882,23 @@ func TestBuildUserMessageInjectsQuotedImage(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	session := &Session{}
-	session.setCachedContent(imgURL, []byte("fake-jpeg-bytes"), "image/jpeg", "")
+	sess := &session.Session{}
+	sess.SetCachedContent(imgURL, []byte("fake-jpeg-bytes"), "image/jpeg", "")
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true}}
-	msg := p.buildUserMessage(ctx, "这是什么", session)
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "这是什么", sess)
 
 	if len(msg.ContentParts) != 3 {
 		t.Fatalf("expected 3 content parts (text+note+image), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
 	}
-	if msg.ContentParts[0].Type != ContentPartText || msg.ContentParts[0].Text != "这是什么" {
+	if msg.ContentParts[0].Type != protocol.ContentPartText || msg.ContentParts[0].Text != "这是什么" {
 		t.Errorf("expected user text part first, got %+v", msg.ContentParts[0])
 	}
-	if msg.ContentParts[1].Type != ContentPartText || !strings.Contains(msg.ContentParts[1].Text, "引用") {
+	if msg.ContentParts[1].Type != protocol.ContentPartText || !strings.Contains(msg.ContentParts[1].Text, "引用") {
 		t.Errorf("expected quote note text part, got %+v", msg.ContentParts[1])
 	}
 	img := msg.ContentParts[2]
-	if img.Type != ContentPartImage || img.MimeType != "image/jpeg" || len(img.Data) == 0 {
+	if img.Type != protocol.ContentPartImage || img.MimeType != "image/jpeg" || len(img.Data) == 0 {
 		t.Errorf("expected downloaded image part, got %+v", img)
 	}
 	if msg.Content != "" {
@@ -915,8 +920,8 @@ func TestBuildUserMessageQuotedImageDisabled(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	p := &Plugin{cfg: &Config{VisionEnabled: false}}
-	msg := p.buildUserMessage(ctx, "这是什么", &Session{})
+	p := &Plugin{cfg: &config.Config{VisionEnabled: false}}
+	msg := p.buildUserMessage(ctx, "这是什么", &session.Session{})
 
 	if msg.Content != "这是什么" || msg.ContentParts != nil {
 		t.Errorf("expected plain text message unchanged, got content=%q parts=%+v", msg.Content, msg.ContentParts)
@@ -937,8 +942,8 @@ func TestBuildUserMessageQuotedImageDownloadFail(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true}}
-	msg := p.buildUserMessage(ctx, "这是什么", &Session{})
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "这是什么", &session.Session{})
 
 	if msg.Content != "这是什么" || msg.ContentParts != nil {
 		t.Errorf("expected graceful fallback to plain text, got content=%q parts=%+v", msg.Content, msg.ContentParts)
@@ -961,7 +966,7 @@ func TestHasImageAttachment(t *testing.T) {
 		{"empty", nil, false},
 	}
 	for _, tc := range cases {
-		if got := hasImageAttachment(tc.atts); got != tc.want {
+		if got := runtime.HasImageAttachment(tc.atts); got != tc.want {
 			t.Errorf("%s: hasImageAttachment=%v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -994,14 +999,14 @@ func TestBuildUserMessageOwnImageSkipsQuotedImage(t *testing.T) {
 	}
 	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
 
-	session := &Session{}
-	session.setCachedContent(quotedURL, []byte("fake-jpeg"), "image/jpeg", "")
+	sess := &session.Session{}
+	sess.SetCachedContent(quotedURL, []byte("fake-jpeg"), "image/jpeg", "")
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true}}
-	msg := p.buildUserMessage(ctx, "看图", session)
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "看图", sess)
 
 	for _, part := range msg.ContentParts {
-		if part.Type == ContentPartText && strings.Contains(part.Text, "引用") {
+		if part.Type == protocol.ContentPartText && strings.Contains(part.Text, "引用") {
 			t.Fatalf("quoted image should not be injected when own image present: %+v", msg.ContentParts)
 		}
 	}

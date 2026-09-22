@@ -1,5 +1,3 @@
-package ai
-
 // metrics.go — AI 插件 Prometheus 指标。
 //
 // 指标族（namespace "ai"）：
@@ -20,11 +18,14 @@ package ai
 //
 // LLM 指标经 metricsProvider（Provider 装饰器，NewProvider 统一包装）采集；
 // 流式调用的耗时覆盖整个流的消费过程，token 用量取自 Done 事件的 Usage。
+// 装饰器留在本包而非协议层：协议层只描述线格式，不承担可观测性依赖。
+package ai
 
 import (
 	"context"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -97,7 +98,7 @@ func recordToolSet(reason string, changed bool, size int) {
 }
 
 // recordLLMCall 记录一次 LLM 调用结果与用量。
-func recordLLMCall(model string, duration time.Duration, usage *TokenUsage, result string) {
+func recordLLMCall(model string, duration time.Duration, usage *protocol.TokenUsage, result string) {
 	llmCalls.WithLabelValues(model, result).Inc()
 	llmLatency.WithLabelValues(model).Observe(duration.Seconds())
 	if usage != nil {
@@ -114,7 +115,7 @@ func recordLLMCall(model string, duration time.Duration, usage *TokenUsage, resu
 	}
 }
 
-// RecordToolCall 记录一次工具调用结果（供 executeTool 调用）。
+// RecordToolCall 记录一次工具调用结果（作为观测回调注入动作调用器）。
 func RecordToolCall(tool string, err error) {
 	result := "ok"
 	if err != nil {
@@ -125,33 +126,31 @@ func RecordToolCall(tool string, err error) {
 
 // metricsProvider 装饰 Provider，采集 LLM 调用指标。
 type metricsProvider struct {
-	next         Provider
+	next         protocol.Provider
 	defaultModel string
 }
 
-// NewProvider 包装：所有 LLM 调用自动计入指标。
-func (m *metricsProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+// Chat 包装：所有 LLM 调用自动计入指标。
+func (m *metricsProvider) Chat(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 	start := time.Now()
-	model := requestModel(m.defaultModel, req.Model)
+	model := protocol.RequestModel(m.defaultModel, req.Model)
 	resp, err := m.next.Chat(ctx, req)
 	result := "ok"
 	if err != nil {
 		result = "error"
 	}
-	recordLLMCall(model, time.Since(start), respUsage(resp), result)
+	var usage *protocol.TokenUsage
+	if resp != nil {
+		usage = resp.Usage
+	}
+	recordLLMCall(model, time.Since(start), usage, result)
 	return resp, err
 }
 
-func respUsage(resp *ChatResponse) *TokenUsage {
-	if resp == nil {
-		return nil
-	}
-	return resp.Usage
-}
-
-func (m *metricsProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+// ChatStream 包装流式调用：耗时覆盖整个流的消费过程。
+func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 	start := time.Now()
-	model := requestModel(m.defaultModel, req.Model)
+	model := protocol.RequestModel(m.defaultModel, req.Model)
 
 	inner, err := m.next.ChatStream(ctx, req)
 	if err != nil {
@@ -159,11 +158,11 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		return nil, err
 	}
 
-	outer := make(chan StreamEvent, 64)
+	outer := make(chan protocol.StreamEvent, 64)
 	go func() {
 		defer close(outer)
 		var (
-			usage *TokenUsage
+			usage *protocol.TokenUsage
 			done  bool
 		)
 		for {
@@ -181,7 +180,7 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					return
 				}
 				switch ev.Type {
-				case StreamEventDone:
+				case protocol.StreamEventDone:
 					done = true
 					usage = ev.Usage
 				}

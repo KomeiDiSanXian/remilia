@@ -19,12 +19,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 )
 
 // handleGroupCommand 处理 /ai group 子命令。
 func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
-	content := p.cleanMessage(ctx.GetMessageContent())
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	// 剥掉 "group"/"群配置" 前缀
 	for _, prefix := range []string{"group", "群配置"} {
@@ -39,7 +40,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 
 	parts := strings.Fields(content)
 	if len(parts) == 0 {
-		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
@@ -51,7 +52,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 	case "reset", "重置", "clear":
 		return p.handleGroupReset(ctx, parts[1:])
 	default:
-		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 }
@@ -73,7 +74,7 @@ func (p *Plugin) handleGroupStatus(ctx *eventctx.Context) error {
 	if prompt == "" {
 		prompt = "（使用全局/默认提示词）"
 	}
-	fmt.Fprintf(&b, "  - **提示词**: %s\n", ellipsize(prompt, 60))
+	fmt.Fprintf(&b, "  - **提示词**: %s\n", p.ellipsize(prompt, 60))
 
 	toolPolicy := "all"
 	if gp.ToolPolicy != nil {
@@ -120,7 +121,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	if len(args) < 2 {
-		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
@@ -161,7 +162,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 			return nil
 		}
 	default:
-		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
@@ -229,7 +230,7 @@ func (p *Plugin) handleGroupGlobal(ctx *eventctx.Context, rest string) error {
 		var b strings.Builder
 		b.WriteString("📋 **全局 AI 策略**\n\n")
 		if prompt := gp.EffectiveSystemPrompt(); prompt != "" {
-			fmt.Fprintf(&b, "  - **提示词**: %s\n", ellipsize(prompt, 60))
+			fmt.Fprintf(&b, "  - **提示词**: %s\n", p.ellipsize(prompt, 60))
 		}
 		if gp.ToolPolicy != nil {
 			fmt.Fprintf(&b, "  - **工具白名单**: `%s`\n", *gp.ToolPolicy)
@@ -264,7 +265,7 @@ func (p *Plugin) isSuperAdmin(ctx *eventctx.Context) bool {
 }
 
 // groupCommandHelp 返回 /ai group 帮助文本。
-func groupCommandHelp(triggerCmd string) string {
+func (a *adminState) groupCommandHelp(triggerCmd string) string {
 	if triggerCmd == "" {
 		triggerCmd = "/ai"
 	}
@@ -282,7 +283,7 @@ func groupCommandHelp(triggerCmd string) string {
 }
 
 // ellipsize 截断长文本用于展示。
-func ellipsize(s string, max int) string {
+func (a *adminState) ellipsize(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
 		return s

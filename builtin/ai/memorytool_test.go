@@ -1,10 +1,17 @@
 package ai
 
 import (
-	"context"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,16 +25,15 @@ func newTestMemoryToolsPlugin(t *testing.T) *Plugin {
 	return &Plugin{memory: m}
 }
 
-func TestMemoryTools_AddQueryForget(t *testing.T) {
+func TestMemoryTools_AddForget(t *testing.T) {
 	p := newTestMemoryToolsPlugin(t)
-	toolCtx := withToolSource(context.Background(), toolSource{
-		userID: "u1", chatID: "g1", isGroup: true, p: p,
+	toolCtx := toolCtxForTest(p, toolkit.ToolSource{
+		UserID: "u1", ChatID: "g1", IsGroup: true,
 	})
 
-	tools := p.buildMemoryTools()
-	add := findTestTool(t, tools, memoryAddToolName)
-	query := findTestTool(t, tools, memoryQueryToolName)
-	forget := findTestTool(t, tools, memoryForgetToolName)
+	tools := catalog.BuildMemoryTools()
+	add := findTestTool(t, tools, catalog.MemoryAddToolName)
+	forget := findTestTool(t, tools, catalog.MemoryForgetToolName)
 
 	// add（默认 user 作用域）
 	out, err := add.Execute(toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
@@ -41,19 +47,9 @@ func TestMemoryTools_AddQueryForget(t *testing.T) {
 	assert.Contains(t, out, "本群记忆")
 
 	// 非群聊用 group 作用域报错
-	dmCtx := withToolSource(context.Background(), toolSource{userID: "u1", chatID: "dm", p: p})
+	dmCtx := toolCtxForTest(p, toolkit.ToolSource{UserID: "u1", ChatID: "dm"})
 	_, err = add.Execute(dmCtx, map[string]any{"text": "x", "scope": "group"})
 	assert.Error(t, err)
-
-	// query 命中 user 记忆（关键词重叠：喜欢）
-	out, err = query.Execute(toolCtx, map[string]any{"query": "喜欢喝什么"})
-	require.NoError(t, err)
-	assert.Contains(t, out, "冰美式")
-
-	// query 命中 group 记忆
-	out, err = query.Execute(toolCtx, map[string]any{"query": "周五团建"})
-	require.NoError(t, err)
-	assert.Contains(t, out, "团建")
 
 	// forget 精确匹配
 	out, err = forget.Execute(toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
@@ -67,16 +63,36 @@ func TestMemoryTools_AddQueryForget(t *testing.T) {
 
 func TestMemoryTools_Disabled(t *testing.T) {
 	p := &Plugin{} // memory == nil
-	toolCtx := withToolSource(context.Background(), toolSource{userID: "u1", chatID: "c", p: p})
-	add := findTestTool(t, p.buildMemoryTools(), memoryAddToolName)
+	toolCtx := toolCtxForTest(p, toolkit.ToolSource{UserID: "u1", ChatID: "c"})
+	add := findTestTool(t, catalog.BuildMemoryTools(), catalog.MemoryAddToolName)
 	_, err := add.Execute(toolCtx, map[string]any{"text": "x"})
 	assert.Error(t, err)
 }
 
-func TestMemoryToolLimit(t *testing.T) {
-	assert.Equal(t, 5, memoryToolLimit(nil))
-	assert.Equal(t, 7, memoryToolLimit(float64(7)))
-	assert.Equal(t, 20, memoryToolLimit(float64(999)))
-	assert.Equal(t, 5, memoryToolLimit("abc"))
-	assert.Equal(t, 3, memoryToolLimit("3"))
+// TestMemoryQueryIsRetrievalNotAction 冻结 memory_query 的降级：记忆检索不再
+// 是模型可见动作（工具集恰为 add/forget），而由上下文管线按本轮用户消息完成——
+// 用户显式问"你还记得…"时，事实仍会经注入进入模型视野。
+func TestMemoryQueryIsRetrievalNotAction(t *testing.T) {
+	p := newTestMemoryToolsPlugin(t)
+
+	names := make([]string, 0, 3)
+	for _, tool := range catalog.BuildMemoryTools() {
+		names = append(names, tool.Name)
+	}
+	assert.ElementsMatch(t, []string{catalog.MemoryAddToolName, catalog.MemoryForgetToolName}, names,
+		"记忆检索不应再作为动作暴露给模型")
+
+	// 显式记忆检索请求：事实经 Context 注入，而不是工具返回值。
+	p.cfg = &config.Config{MemoryInjectMax: 8}
+	p.memory.Add(userScope("u1"), "用户上次说服务器方案选型定在 B 方案")
+
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "你还记得我之前说的服务器方案吗"}}
+	evt := platform.NewSyntheticEvent("c2c", "你还记得我之前说的服务器方案吗",
+		platform.WithSyntheticSender(platform.UserInfo{ID: "u1", DisplayName: "小明"}),
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}),
+	)
+	injected := p.buildMemoryContextN(eventctx.NewContextFromEvent(evt, nil), sess, p.cfg.MemoryInjectMax)
+	assert.Contains(t, injected, "服务器方案选型定在 B 方案",
+		"显式检索请求应由上下文管线注入相关事实")
 }

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
 // TestAIToolResolvesFavorite 验证 AI 工具可通过会话上下文解析收藏名/序号。
@@ -31,7 +31,7 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 		errCache: newTTLCache[error](15*time.Second, 8),
 	}
 	tool := p.ListTools()[0]
-	toolCtx := ai.WithToolSource(context.Background(), ai.ToolSource{Platform: "qq", ChatID: "888"})
+	toolCtx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{Platform: "qq", ChatID: "888"})
 
 	// 收藏名解析
 	out, err := tool.Execute(toolCtx, map[string]any{"server_address": "local"})
@@ -58,7 +58,7 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 	}
 
 	// 其他会话：收藏不可见
-	otherCtx := ai.WithToolSource(context.Background(), ai.ToolSource{Platform: "qq", ChatID: "999"})
+	otherCtx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{Platform: "qq", ChatID: "999"})
 	out, _ = tool.Execute(otherCtx, map[string]any{"server_address": "local"})
 	if !strings.Contains(out, "无法连接") {
 		t.Errorf("其他会话不应看到收藏: %s", out)

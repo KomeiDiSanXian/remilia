@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
 
 var _ health.CheckProvider = (*Plugin)(nil)
@@ -532,16 +532,16 @@ func (p *Plugin) notifyChat(chatID string, msg string) error {
 	return nf(chatID, msg)
 }
 
-// ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回可供 AI 调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "search_bilibili_user",
 			Categories:  []string{"bilibili"},
 			Description: "搜索 Bilibili UP 主，通过用户名关键词查找，返回用户名、UID、粉丝数、等级等",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"keyword": {Type: "string", Description: "搜索关键词，如 泠鸢、老番茄、LexBurner"},
 				},
 				Required: []string{"keyword"},
@@ -568,9 +568,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "get_bilibili_user_info",
 			Categories:  []string{"bilibili"},
 			Description: "获取 Bilibili UP 主信息，包含用户名、等级、粉丝数、签名等。支持 UID 数字或用户名搜索",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"uid": {Type: "string", Description: "UP 主的 UID 数字或用户名，如 282994 或 泠鸢yousa"},
 				},
 				Required: []string{"uid"},
@@ -598,9 +598,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "get_bilibili_live_status",
 			Categories:  []string{"bilibili"},
 			Description: "获取 Bilibili UP 主的直播状态，是否在直播、直播标题、观看人数等。支持 UID 数字、用户名或 room:<房间号> 前缀",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"uid": {Type: "string", Description: "UP 主的 UID 数字、用户名，或 room:<房间号>（如 room:47377）"},
 				},
 				Required: []string{"uid"},
@@ -640,9 +640,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "get_bilibili_video_info",
 			Categories:  []string{"bilibili"},
 			Description: "获取 Bilibili 视频信息，包含标题、UP 主、播放量、弹幕、点赞、硬币、收藏、时长等",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"bvid": {Type: "string", Description: "视频 BV 号，如 BV1GJ411x7h7"},
 				},
 				Required: []string{"bvid"},
@@ -670,9 +670,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "get_bilibili_user_videos",
 			Categories:  []string{"bilibili"},
 			Description: "获取 Bilibili UP 主的最近投稿列表（最新 5 条）",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"uid": {Type: "string", Description: "UP 主的 UID 数字或用户名"},
 				},
 				Required: []string{"uid"},
@@ -703,9 +703,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "search_bilibili_bangumi",
 			Categories:  []string{"bilibili"},
 			Description: "搜索 Bilibili 番剧/影视，返回番名、地区、评分、集数等",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"keyword": {Type: "string", Description: "番剧关键词，如 间谍过家家、进击的巨人"},
 				},
 				Required: []string{"keyword"},
@@ -731,9 +731,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回可供 AI 使用的技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回可供 AI 使用的技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "bilibili_query",
 			Description: "查询 Bilibili UP 主信息、直播状态、视频、番剧",

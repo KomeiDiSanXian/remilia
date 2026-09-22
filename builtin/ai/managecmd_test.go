@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -36,8 +38,8 @@ func newManagePlugin(t *testing.T) *Plugin {
 	}
 	t.Cleanup(mem.Close)
 	return &Plugin{
-		sm:     NewSessionManager(100, 20, time.Hour, nil),
-		cfg:    &Config{TriggerCmd: "/ai", Markdown: true, MemoryMaxFacts: 50},
+		sm:     session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:    &config.Config{TriggerCmd: "/ai", Markdown: true, MemoryMaxFacts: 50},
 		memory: mem,
 		todos:  newTodoManager(),
 	}
@@ -46,7 +48,7 @@ func newManagePlugin(t *testing.T) *Plugin {
 // --- /ai memory ---
 
 func TestMemoryCommandDisabled(t *testing.T) {
-	p := &Plugin{cfg: &Config{}}
+	p := &Plugin{cfg: &config.Config{}}
 	if err := p.handleMemoryCommand(makeManageCtx("/ai memory", false), ""); err != nil {
 		t.Fatalf("handleMemoryCommand: %v", err)
 	}
@@ -237,10 +239,11 @@ func TestMemoryRemoveInvalid(t *testing.T) {
 }
 
 func TestMemoryHelpText(t *testing.T) {
-	if h := memoryHelpText("/ai"); !strings.Contains(h, "/ai memory") {
+	p := &Plugin{}
+	if h := p.memoryHelpText("/ai"); !strings.Contains(h, "/ai memory") {
 		t.Errorf("memoryHelpText missing usage: %q", h)
 	}
-	if h := memoryHelpText("/ai"); !strings.Contains(h, "remove") {
+	if h := p.memoryHelpText("/ai"); !strings.Contains(h, "remove") {
 		t.Errorf("memoryHelpText missing remove usage: %q", h)
 	}
 }
@@ -317,7 +320,7 @@ func TestTodoMissingArgs(t *testing.T) {
 }
 
 func TestTodoHelpText(t *testing.T) {
-	if h := todoHelpText("/ai"); !strings.Contains(h, "/ai todo add") {
+	if h := (&Plugin{}).todoHelpText("/ai"); !strings.Contains(h, "/ai todo add") {
 		t.Errorf("todoHelpText missing usage: %q", h)
 	}
 }
@@ -326,13 +329,13 @@ func TestTodoHelpText(t *testing.T) {
 
 func TestPlanStatusAndCancel(t *testing.T) {
 	p := newManagePlugin(t)
-	session := p.sm.GetOrCreate("synthetic:chat:user", "user", "chat")
-	session.setPlan(&Plan{
+	sess := p.sm.GetOrCreate("synthetic:chat:user", "user", "chat")
+	sess.SetPlan(&session.Plan{
 		Task:   "整理报告",
 		Active: true,
-		Steps: []PlanStep{
-			{ID: "step_1", Description: "收集数据", Status: PlanDone},
-			{ID: "step_2", Description: "撰写报告", Status: PlanInProgress},
+		Steps: []session.PlanStep{
+			{ID: "step_1", Description: "收集数据", Status: session.PlanDone},
+			{ID: "step_2", Description: "撰写报告", Status: session.PlanInProgress},
 		},
 	})
 	ctx := makeManageCtx("/ai plan", false)
@@ -343,7 +346,7 @@ func TestPlanStatusAndCancel(t *testing.T) {
 	if err := p.handlePlanCommand(ctx, "cancel"); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	snap := session.planSnapshot()
+	snap := sess.PlanSnapshot()
 	if snap == nil || snap.Active {
 		t.Fatalf("plan should be inactive after cancel, got %+v", snap)
 	}
@@ -361,7 +364,7 @@ func TestPlanNoPlan(t *testing.T) {
 }
 
 func TestPlanHelpText(t *testing.T) {
-	if h := planHelpText("/ai"); !strings.Contains(h, "/ai plan cancel") {
+	if h := (&Plugin{}).planHelpText("/ai"); !strings.Contains(h, "/ai plan cancel") {
 		t.Errorf("planHelpText missing usage: %q", h)
 	}
 }

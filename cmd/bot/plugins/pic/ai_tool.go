@@ -1,6 +1,6 @@
 // Package pic ai_tool.go — 向 AI 插件暴露随机图片工具。
 //
-// 实现 ai.ToolProvider 接口，由 AI 插件在容器冻结后通过
+// 实现 toolkit.ToolProvider 接口，由 AI 插件在容器冻结后通过
 // DiscoverToolProviders 自动发现注册。工具返回纯文本（图片 URL 与
 // 作品信息），不依赖多模态能力；需要把图片发给用户时 LLM 可使用
 // /pic 命令（自动发现即可触发）。
@@ -12,10 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	aiprotocol "github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
-// ListTools 实现 ai.ToolProvider，提供 get_random_image 工具。
+// ListTools 实现 toolkit.ToolProvider，提供 get_random_image 工具。
 //
 // 参数：
 //   - tags: 标签列表（空格分隔），可为空表示完全随机
@@ -24,14 +25,14 @@ import (
 //   - recent: 近 N 天内上传的图片（可选，默认取配置 recent_days；0 = 不过滤）
 //
 // 返回图片 URL 与作品信息文本，不下载图片字节。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{{
 		Name:        "get_random_image",
 		Categories:  []string{"pic"},
 		Description: "根据标签从图库获取随机图片的 URL 与作品信息（画师、来源、标签）。需要直接发送图片给用户时，提示用户使用 /pic 命令",
-		Parameters: ai.ToolParamSchema{
+		Parameters: aiprotocol.ToolParamSchema{
 			Type: "object",
-			Properties: map[string]ai.ToolParamSchema{
+			Properties: map[string]aiprotocol.ToolParamSchema{
 				"tags": {
 					Type:        "string",
 					Description: "图片标签，多个标签用空格分隔，如 \"touhou hairband\"；为空表示完全随机",

@@ -4,6 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,14 +18,14 @@ func TestReminderTools_SetListCancel(t *testing.T) {
 		reminders:    newReminderManager(),
 	}
 	sender := &fakeNotifierSender{}
-	toolCtx := withToolSource(context.Background(), toolSource{
-		userID: "u1", chatID: "chat_1", isGroup: true, sender: sender, p: p,
-	})
+	toolCtx := toolSessionForTest(p, toolkit.ToolSource{
+		UserID: "u1", ChatID: "chat_1", IsGroup: true,
+	}, sender)
 
-	tools := p.buildReminderTools()
-	set := findTestTool(t, tools, setReminderToolName)
-	list := findTestTool(t, tools, listRemindersToolName)
-	cancel := findTestTool(t, tools, cancelReminderToolName)
+	tools := catalog.BuildReminderTools()
+	set := findTestTool(t, tools, catalog.SetReminderToolName)
+	list := findTestTool(t, tools, catalog.ListRemindersToolName)
+	cancel := findTestTool(t, tools, catalog.CancelReminderToolName)
 
 	// 参数缺失 / 时长非法
 	_, err := set.Execute(toolCtx, map[string]any{"duration": "abc", "content": "x"})
@@ -47,9 +51,9 @@ func TestReminderTools_SetListCancel(t *testing.T) {
 	assert.Contains(t, out, "开会")
 
 	// 不同会话隔离：另一个会话看不到
-	otherCtx := withToolSource(context.Background(), toolSource{
-		userID: "u2", chatID: "chat_2", isGroup: false, sender: sender, p: p,
-	})
+	otherCtx := toolSessionForTest(p, toolkit.ToolSource{
+		UserID: "u2", ChatID: "chat_2", IsGroup: false,
+	}, sender)
 	out, err = list.Execute(otherCtx, map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, out, "没有活跃的提醒")
@@ -69,13 +73,13 @@ func TestReminderTools_SetListCancel(t *testing.T) {
 
 func TestReminderTools_ToolSourceNoSender(t *testing.T) {
 	p := &Plugin{lifecycleCtx: context.Background(), reminders: newReminderManager()}
-	toolCtx := withToolSource(context.Background(), toolSource{chatID: "c", p: p}) // sender nil
-	set := findTestTool(t, p.buildReminderTools(), setReminderToolName)
+	toolCtx := toolCtxForTest(p, toolkit.ToolSource{ChatID: "c"}) // sender nil
+	set := findTestTool(t, catalog.BuildReminderTools(), catalog.SetReminderToolName)
 	_, err := set.Execute(toolCtx, map[string]any{"duration": "5分钟", "content": "x"})
 	assert.Error(t, err)
 }
 
-func findTestTool(t *testing.T, tools []Tool, name string) Tool {
+func findTestTool(t *testing.T, tools []toolkit.Tool, name string) toolkit.Tool {
 	t.Helper()
 	for _, tl := range tools {
 		if tl.Name == name {
@@ -83,5 +87,5 @@ func findTestTool(t *testing.T, tools []Tool, name string) Tool {
 		}
 	}
 	t.Fatalf("tool %q not found", name)
-	return Tool{}
+	return toolkit.Tool{}
 }

@@ -29,7 +29,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 )
@@ -828,16 +829,16 @@ func metricEdition(edition string) string {
 	return edition
 }
 
-// ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。
-func (p *mcPlugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回 AI 可调用的工具列表。实现 toolkit.ToolProvider。
+func (p *mcPlugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "query_minecraft_server",
 			Categories:  []string{"minecraft"},
 			Description: "查询 Minecraft 服务器的状态，包括玩家数、版本、模式、在线玩家列表和延迟等信息",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"server_address": {
 						Type:        "string",
 						Description: "服务器地址（主机名[:端口]）、本会话收藏的服务器名称或序号（见 /mc add、/mc list）。Java 版默认 25565，Bedrock 版默认 19132；留空时使用配置的默认服务器",
@@ -883,16 +884,16 @@ func (p *mcPlugin) ListTools() []ai.Tool {
 // toolScopeFromAI 从工具执行 context 提取收藏 scope（平台:会话），
 // 与 /mc 命令的 favScope 同构。无会话信息（测试等直接调用场景）返回空串。
 func toolScopeFromAI(gctx context.Context) string {
-	src, ok := ai.ToolSourceFromContext(gctx)
+	src, ok := toolkit.ToolSourceFromContext(gctx)
 	if !ok || src.ChatID == "" {
 		return ""
 	}
 	return src.Platform + ":" + src.ChatID
 }
 
-// ListSkills 返回 AI 技能列表。实现 ai.SkillProvider。
-func (p *mcPlugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回 AI 技能列表。实现 toolkit.SkillProvider。
+func (p *mcPlugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "minecraft_query",
 			Description: "Minecraft 服务器状态查询",

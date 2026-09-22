@@ -1,5 +1,9 @@
 package ai
 
+import (
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+)
+
 const DefaultFrameworkPrompt = `你是一个运行在 Remilia Bot 聊天机器人框架中的 AI 助手。
 
 你的核心目标：
@@ -46,3 +50,14 @@ const DefaultFrameworkPrompt = `你是一个运行在 Remilia Bot 聊天机器�
 
 * 遵守适用的安全规则和平台政策。
 * 拒绝或引导可能造成伤害、侵犯隐私、促成非法活动或产生安全风险的请求。`
+
+// effectiveCustomPrompt 返回生效的自定义系统提示词（群策略优先）。
+func (p *Plugin) effectiveCustomPrompt(ctx *eventctx.Context) string {
+	systemPrompt := p.cfg.SystemPrompt
+	if gp := p.groupPolicyFor(ctx); gp != nil {
+		if gpPrompt := gp.EffectiveSystemPrompt(); gpPrompt != "" {
+			systemPrompt = gpPrompt
+		}
+	}
+	return systemPrompt
+}

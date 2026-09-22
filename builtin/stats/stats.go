@@ -42,7 +42,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -298,14 +299,14 @@ func (p *Plugin) TotalMessages() int64 {
 }
 
 // ListSkills 返回可供 AI 调用的技能集。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "stats_analyst",
 			Description: "使用分析：查询命令调用排行、单个命令调用次数、总消息数",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"query": {Type: "string", Description: "统计相关的问题，如'最常用的命令是什么'或'/ping 被调用了多少次'"},
 				},
 				Required: []string{"query"},
@@ -317,16 +318,16 @@ func (p *Plugin) ListSkills() []ai.Skill {
 }
 
 // ListTools 返回可供 AI 调用的工具集。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "stats_top_commands",
 			Categories:  []string{"admin"},
 			Permissions: []string{"stats.view"},
 			Description: "返回调用次数最多的 N 个命令及其调用次数。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"count": {Type: "string", Description: "返回条数，默认 10"},
 				},
 			},
@@ -352,9 +353,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Categories:  []string{"admin"},
 			Permissions: []string{"stats.view"},
 			Description: "查询指定命令的累计调用次数。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"command": {Type: "string", Description: "命令名称，如 /ping"},
 				},
 				Required: []string{"command"},
@@ -373,9 +374,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Categories:  []string{"admin"},
 			Permissions: []string{"stats.view"},
 			Description: "查询 bot 处理的总消息数。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type:       "object",
-				Properties: map[string]ai.ToolParamSchema{},
+				Properties: map[string]protocol.ToolParamSchema{},
 			},
 			Execute: func(_ context.Context, args map[string]any) (string, error) {
 				return fmt.Sprintf("bot 共处理了 %d 条消息", p.TotalMessages()), nil

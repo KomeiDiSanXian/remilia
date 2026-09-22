@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -13,22 +15,22 @@ import (
 
 type testToolProvider struct{}
 
-func (t testToolProvider) ListTools() []Tool {
-	return []Tool{
+func (t testToolProvider) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{Name: "provider_tool", Description: "from provider"},
 	}
 }
 
 type testSkillProvider struct{}
 
-func (t testSkillProvider) ListSkills() []Skill {
-	return []Skill{
-		{Name: "provider_skill", OwnerID: OwnerSystem, Description: "from provider", Prompt: "test"},
+func (t testSkillProvider) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
+		{Name: "provider_skill", OwnerID: toolkit.OwnerSystem, Description: "from provider", Prompt: "test"},
 	}
 }
 
 func TestRegisterToolProvider(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry()}
 	p.RegisterToolProvider(testToolProvider{})
 
 	_, ok := p.reg.Get("provider_tool")
@@ -38,7 +40,7 @@ func TestRegisterToolProvider(t *testing.T) {
 }
 
 func TestRegisterToolProviderMultiple(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry()}
 	p.RegisterToolProvider(testToolProvider{})
 	p.RegisterToolProvider(testToolProvider{})
 
@@ -49,9 +51,9 @@ func TestRegisterToolProviderMultiple(t *testing.T) {
 }
 
 func TestRegisterSkill(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
 
-	p.RegisterSkill(Skill{
+	p.RegisterSkill(toolkit.Skill{
 		Name: "sys_skill", Description: "system skill", Prompt: "You are a system skill",
 	})
 
@@ -66,9 +68,9 @@ func TestRegisterSkill(t *testing.T) {
 }
 
 func TestRegisterSkillWithOwnerID(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
 
-	p.RegisterSkill(Skill{Name: "custom_owner", OwnerID: "my_plugin", Description: "custom", Prompt: "test"})
+	p.RegisterSkill(toolkit.Skill{Name: "custom_owner", OwnerID: "my_plugin", Description: "custom", Prompt: "test"})
 
 	_, ok := p.skillReg.GetByOwner("my_plugin", "custom_owner")
 	if !ok {
@@ -77,9 +79,9 @@ func TestRegisterSkillWithOwnerID(t *testing.T) {
 }
 
 func TestRegisterSkillDefaultOwner(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
 
-	p.RegisterSkill(Skill{Name: "no_owner", Description: "no owner", Prompt: "test"})
+	p.RegisterSkill(toolkit.Skill{Name: "no_owner", Description: "no owner", Prompt: "test"})
 
 	_, ok := p.skillReg.GetSystem("no_owner")
 	if !ok {
@@ -89,11 +91,11 @@ func TestRegisterSkillDefaultOwner(t *testing.T) {
 
 func TestRegisterUserSkill(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
-		reg: NewToolRegistry(), skillReg: NewSkillRegistry(),
+		cfg: &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
+		reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	err := p.RegisterUserSkill(Skill{Name: "my_custom", Description: "my skill", Prompt: "You are custom", Enabled: true}, "user123")
+	err := p.RegisterUserSkill(toolkit.Skill{Name: "my_custom", Description: "my skill", Prompt: "You are custom", Enabled: true}, "user123")
 	if err != nil {
 		t.Fatalf("RegisterUserSkill failed: %v", err)
 	}
@@ -105,12 +107,12 @@ func TestRegisterUserSkill(t *testing.T) {
 
 func TestRegisterUserSkillLimit(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{MaxUserSkills: 1, MaxUserSkillPromptLen: 2000},
-		reg: NewToolRegistry(), skillReg: NewSkillRegistry(),
+		cfg: &config.Config{MaxUserSkills: 1, MaxUserSkillPromptLen: 2000},
+		reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.RegisterUserSkill(Skill{Name: "s1", Prompt: "test", Enabled: true}, "user1")
-	err := p.RegisterUserSkill(Skill{Name: "s2", Prompt: "test", Enabled: true}, "user1")
+	p.RegisterUserSkill(toolkit.Skill{Name: "s1", Prompt: "test", Enabled: true}, "user1")
+	err := p.RegisterUserSkill(toolkit.Skill{Name: "s2", Prompt: "test", Enabled: true}, "user1")
 	if err == nil {
 		t.Error("expected error when exceeding MaxUserSkills")
 	}
@@ -118,11 +120,11 @@ func TestRegisterUserSkillLimit(t *testing.T) {
 
 func TestRegisterUserSkillPromptTooLong(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 5},
-		reg: NewToolRegistry(), skillReg: NewSkillRegistry(),
+		cfg: &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 5},
+		reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	err := p.RegisterUserSkill(Skill{Name: "long_prompt", Prompt: "this prompt is way too long", Enabled: true}, "user1")
+	err := p.RegisterUserSkill(toolkit.Skill{Name: "long_prompt", Prompt: "this prompt is way too long", Enabled: true}, "user1")
 	if err == nil {
 		t.Error("expected error when prompt exceeds MaxUserSkillPromptLen")
 	}
@@ -130,11 +132,11 @@ func TestRegisterUserSkillPromptTooLong(t *testing.T) {
 
 func TestRegisterUserSkillInvalidName(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
-		reg: NewToolRegistry(), skillReg: NewSkillRegistry(),
+		cfg: &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
+		reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	err := p.RegisterUserSkill(Skill{Name: "invalid name with spaces!", Prompt: "test", Enabled: true}, "user1")
+	err := p.RegisterUserSkill(toolkit.Skill{Name: "invalid name with spaces!", Prompt: "test", Enabled: true}, "user1")
 	if err == nil {
 		t.Error("expected error for invalid skill name")
 	}
@@ -142,11 +144,11 @@ func TestRegisterUserSkillInvalidName(t *testing.T) {
 
 func TestRegisterUserSkillDefaultsToEnabled(t *testing.T) {
 	p := &Plugin{
-		cfg: &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
-		reg: NewToolRegistry(), skillReg: NewSkillRegistry(),
+		cfg: &config.Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000},
+		reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry(),
 	}
 
-	p.RegisterUserSkill(Skill{Name: "disabled_test", Prompt: "test", Enabled: false}, "user1")
+	p.RegisterUserSkill(toolkit.Skill{Name: "disabled_test", Prompt: "test", Enabled: false}, "user1")
 	s, ok := p.skillReg.GetByOwner("user1", "u_disabled_test")
 	if !ok {
 		t.Fatal("expected skill to exist")
@@ -157,7 +159,7 @@ func TestRegisterUserSkillDefaultsToEnabled(t *testing.T) {
 }
 
 func TestRegisterSkillProvider(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
 
 	p.RegisterSkillProvider(testSkillProvider{})
 	_, ok := p.skillReg.GetSystem("provider_skill")
@@ -212,27 +214,10 @@ func findSubDef(def *command.Definition, name string) *command.Definition {
 	return nil
 }
 
-func TestNoopSessionStore(t *testing.T) {
-	store := &noopSessionStore{}
-	s, err := store.Load("test")
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-	if s != nil {
-		t.Error("expected nil session from noop store")
-	}
-	if err := store.Save(&Session{ID: "test"}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-	if err := store.Delete("test"); err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
-}
-
 func TestMakeSkillAddSessionID(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	id := makeSkillAddSessionID(ctx)
+	id := (&catalogState{}).skillAddSessionID(ctx)
 	if id == "" {
 		t.Error("expected non-empty session ID")
 	}
@@ -266,9 +251,9 @@ func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:         &Config{TriggerCmd: "/chat"},
+		cfg:         &config.Config{TriggerCmd: "/chat"},
 		coord:       coord,
-		reg:         NewToolRegistry(),
+		reg:         toolkit.NewToolRegistry(),
 		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
@@ -291,15 +276,15 @@ func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
 // sauceProvider 注册与命令同名的工具，用于验证显式注册覆盖自动发现。
 type sauceProvider struct{}
 
-func (sauceProvider) ListTools() []Tool {
-	return []Tool{
+func (sauceProvider) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{Name: "sauce", Description: "explicit sauce tool", Execute: func(context.Context, map[string]any) (string, error) { return "explicit", nil }},
 	}
 }
 
 // TestRegisterToolProviderOverridesAutoDiscovered 验证显式注册的工具
 // 覆盖自动发现的同名命令工具：注册表条目被替换，且命令映射被清除
-// （否则 executeRealCommand 会抢走执行权）。
+// （否则 execution.RunCommand 会抢走执行权）。
 func TestRegisterToolProviderOverridesAutoDiscovered(t *testing.T) {
 	coord := &mockReader{
 		commands: []engine.CommandInfo{
@@ -307,9 +292,9 @@ func TestRegisterToolProviderOverridesAutoDiscovered(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:         &Config{},
+		cfg:         &config.Config{},
 		coord:       coord,
-		reg:         NewToolRegistry(),
+		reg:         toolkit.NewToolRegistry(),
 		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
@@ -345,9 +330,9 @@ func TestDiscoverToolsSkipsExplicitlyRegistered(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:         &Config{},
+		cfg:         &config.Config{},
 		coord:       coord,
-		reg:         NewToolRegistry(),
+		reg:         toolkit.NewToolRegistry(),
 		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
@@ -376,9 +361,9 @@ func TestDiscoverCommandsExcludesToolProviderPlugins(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:         &Config{},
+		cfg:         &config.Config{},
 		coord:       coord,
-		reg:         NewToolRegistry(),
+		reg:         toolkit.NewToolRegistry(),
 		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
@@ -401,9 +386,9 @@ func TestDiscoverCommandsAllowlistOverridesExclusion(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:         &Config{ToolAllowlist: []string{"tarot"}},
+		cfg:         &config.Config{ToolAllowlist: []string{"tarot"}},
 		coord:       coord,
-		reg:         NewToolRegistry(),
+		reg:         toolkit.NewToolRegistry(),
 		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
@@ -415,8 +400,8 @@ func TestDiscoverCommandsAllowlistOverridesExclusion(t *testing.T) {
 }
 
 func TestRegisterSkillAsTool(t *testing.T) {
-	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
-	skill := Skill{Name: "tool_skill", OwnerID: OwnerSystem, Description: "a skill that becomes a tool", Prompt: "test"}
+	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
+	skill := toolkit.Skill{Name: "tool_skill", OwnerID: toolkit.OwnerSystem, Description: "a skill that becomes a tool", Prompt: "test"}
 	p.registerSkillAsTool(skill)
 	_, ok := p.reg.Get("tool_skill")
 	if !ok {
@@ -425,7 +410,7 @@ func TestRegisterSkillAsTool(t *testing.T) {
 }
 
 func TestHealthCheckers(t *testing.T) {
-	p := &Plugin{cfg: &Config{Provider: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "test"}}
+	p := &Plugin{cfg: &config.Config{Provider: "openai", BaseURL: "https://api.openai.com/v1", APIKey: "test"}}
 	checkers := p.HealthCheckers()
 	if len(checkers) != 1 {
 		t.Errorf("expected 1 health checker, got %d", len(checkers))

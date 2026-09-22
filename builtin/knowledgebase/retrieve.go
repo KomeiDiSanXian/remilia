@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 )
 
 // Hit 一条检索命中。
@@ -45,7 +43,7 @@ func (p *Plugin) Search(ctx context.Context, query string, limit int) ([]Hit, er
 				if len(c.Vector) == 0 || len(c.Vector) != len(vecs[0]) {
 					continue
 				}
-				s := ai.CosineSimilarity(vecs[0], c.Vector)
+				s := retrieval.CosineSimilarity(vecs[0], c.Vector)
 				if s <= 0 {
 					continue
 				}
@@ -55,11 +53,11 @@ func (p *Plugin) Search(ctx context.Context, query string, limit int) ([]Hit, er
 		}
 	}
 
-	// 关键词兜底：CJK 二元组 + 英文单词重叠打分。
-	queryTokens := tokenize(query)
+	// 关键词兜底：CJK 二元组 + 英文单词重叠打分（复用 AI 插件导出的分词原语）。
+	queryTokens := retrieval.TokenizeText(query)
 	scored := make([]Hit, 0)
 	for _, c := range idx {
-		s := tokenOverlap(queryTokens, tokenize(c.Heading+"\n"+c.Content))
+		s := retrieval.TokenOverlap(queryTokens, retrieval.TokenizeText(c.Heading+"\n"+c.Content))
 		if s > 0 {
 			scored = append(scored, Hit{Source: c.Source, Heading: c.Heading, Content: c.Content, Score: float32(s)})
 		}
@@ -98,7 +96,7 @@ func dedupNearDuplicates(hits []Hit) []Hit {
 			if kept.Source != h.Source || kept.Heading != h.Heading {
 				continue
 			}
-			if tokenJaccard(kept.Content, h.Content) > 0.6 {
+			if retrieval.TokenJaccard(kept.Content, h.Content) > 0.6 {
 				dup = true
 				break
 			}
@@ -108,81 +106,6 @@ func dedupNearDuplicates(hits []Hit) []Hit {
 		}
 	}
 	return out
-}
-
-// tokenJaccard 两个文本 token 集合的 Jaccard 相似度。
-func tokenJaccard(a, b string) float64 {
-	ta, tb := tokenize(a), tokenize(b)
-	if len(ta) == 0 || len(tb) == 0 {
-		return 0
-	}
-	inter := 0
-	for k := range ta {
-		if _, ok := tb[k]; ok {
-			inter++
-		}
-	}
-	union := len(ta) + len(tb) - inter
-	if union == 0 {
-		return 0
-	}
-	return float64(inter) / float64(union)
-}
-
-// tokenize 分词：英文小写单词 + 连续汉字二元组（与 AI 插件工具选择同思路）。
-func tokenize(text string) map[string]float64 {
-	tokens := make(map[string]float64)
-	lower := strings.ToLower(text)
-	var word []rune
-	flushWord := func() {
-		if len(word) > 0 {
-			tokens[string(word)]++
-			word = word[:0]
-		}
-	}
-	runes := []rune(lower)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		// 仅 ASCII 字母/数字作为词 token；汉字走下方二元组分词，
-		// 避免 unicode.IsLetter 把连续汉字误判为单个英文单词。
-		if r < utf8.RuneSelf && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
-			word = append(word, r)
-			continue
-		}
-		flushWord()
-		if !unicode.Is(unicode.Han, r) {
-			continue
-		}
-		// 连续汉字段：二元组 + 孤立单字。
-		j := i
-		for j < len(runes) && unicode.Is(unicode.Han, runes[j]) {
-			j++
-		}
-		if j-i == 1 {
-			tokens[string(runes[i])]++
-		}
-		for k := i; k < j-1; k++ {
-			tokens[string(runes[k:k+2])]++
-		}
-		i = j - 1
-	}
-	flushWord()
-	return tokens
-}
-
-// tokenOverlap 两个 token 集合的重叠加权（取 min 防长文本偏置）。
-func tokenOverlap(a, b map[string]float64) float64 {
-	var s float64
-	for k, av := range a {
-		if bv, ok := b[k]; ok {
-			if av < bv {
-				s += av
-			} else {
-				s += bv
-			}
-		}
-	}
-	return s
 }
 
 // FormatHits 将检索结果格式化为工具返回文本。

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 )
 
 // TestBuildAndSearchSmoke 端到端冒烟测试：对真实 docs 目录建索引并检索。
@@ -38,7 +38,7 @@ func TestBuildAndSearchSmoke(t *testing.T) {
 	p := &Plugin{
 		cfg:      cfg,
 		store:    store,
-		embedder: ai.NewOpenAIEmbedder(embedURL, "", "Qwen3-Embedding-0.6B-Q8_0.gguf"),
+		embedder: retrieval.NewOpenAIEmbedder(embedURL, "", "Qwen3-Embedding-0.6B-Q8_0.gguf"),
 	}
 	p.model = p.embedder.Model()
 

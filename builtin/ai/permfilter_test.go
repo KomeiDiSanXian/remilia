@@ -3,6 +3,9 @@ package ai
 import (
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	permissionplugin "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
@@ -34,19 +37,20 @@ func TestFilterToolsByPermission_Plugin(t *testing.T) {
 	require.NoError(t, permPlugin.AssignRole("admin1", "admin"))
 
 	p := &Plugin{perms: permPlugin}
-	tools := []Tool{
+	tools := []toolkit.Tool{
 		{Name: "free", Categories: []string{"general"}},
 		{Name: "admin_tool", Categories: []string{"admin"}, Permissions: []string{"acl.view"}},
-		{Name: sendToToolName, Categories: []string{"general"}, Permissions: []string{sendToPermission}},
+		{Name: catalog.SendToToolName, Categories: []string{"general"}, Permissions: []string{catalog.SendToPermission}},
 	}
+	actions := toolkit.ActionsOf(tools)
 
 	// 普通用户：只剩 free
-	out := p.filterToolsByPermission(newPermTestCtx("user1", false), tools)
+	out := p.filterToolsByPermission(newPermTestCtx("user1", false), actions)
 	require.Len(t, out, 1)
-	assert.Equal(t, "free", out[0].Name)
+	assert.Equal(t, "free", out[0].Spec.Name)
 
 	// admin：全部可见
-	out = p.filterToolsByPermission(newPermTestCtx("admin1", false), tools)
+	out = p.filterToolsByPermission(newPermTestCtx("admin1", false), actions)
 	assert.Len(t, out, 3)
 }
 
@@ -60,27 +64,27 @@ func TestFilterToolsByPermission_ContextFallback(t *testing.T) {
 	ctx.SetPermissionManager(pm)
 
 	p := &Plugin{} // perms nil
-	tools := []Tool{
+	tools := []toolkit.Tool{
 		{Name: "free", Categories: []string{"general"}},
-		{Name: sendToToolName, Categories: []string{"general"}, Permissions: []string{sendToPermission}},
+		{Name: catalog.SendToToolName, Categories: []string{"general"}, Permissions: []string{catalog.SendToPermission}},
 		{Name: "admin_tool", Categories: []string{"admin"}, Permissions: []string{"acl.view"}},
 	}
-	out := p.filterToolsByPermission(ctx, tools)
+	out := p.filterToolsByPermission(ctx, toolkit.ActionsOf(tools))
 	require.Len(t, out, 2)
-	names := map[string]bool{out[0].Name: true, out[1].Name: true}
+	names := map[string]bool{out[0].Spec.Name: true, out[1].Spec.Name: true}
 	assert.True(t, names["free"])
-	assert.True(t, names[sendToToolName])
+	assert.True(t, names[catalog.SendToToolName])
 }
 
 // TestFilterToolsByPermission_FailClosed 验证权限插件与上下文管理器皆缺失时
 // 带权限工具全部被过滤（安全默认）。
 func TestFilterToolsByPermission_FailClosed(t *testing.T) {
 	p := &Plugin{}
-	tools := []Tool{
+	tools := []toolkit.Tool{
 		{Name: "free"},
 		{Name: "admin_tool", Permissions: []string{"acl.view"}},
 	}
-	out := p.filterToolsByPermission(newPermTestCtx("user1", false), tools)
+	out := p.filterToolsByPermission(newPermTestCtx("user1", false), toolkit.ActionsOf(tools))
 	require.Len(t, out, 1)
-	assert.Equal(t, "free", out[0].Name)
+	assert.Equal(t, "free", out[0].Spec.Name)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -70,7 +71,7 @@ func (a *app) discoverAll() {
 	logger.Info("[remilia] Plugin discovery complete")
 }
 
-// excludedToolPlugins 返回已实现 ai.ToolProvider 或 ai.SkillProvider 的插件名，
+// excludedToolPlugins 返回已实现 toolkit.ToolProvider 或 toolkit.SkillProvider 的插件名，
 // 用于跳过这些插件命令的自动发现（去重）。
 func excludedToolPlugins(pm *plugin.Manager) []string {
 	var out []string
@@ -79,11 +80,11 @@ func excludedToolPlugins(pm *plugin.Manager) []string {
 		if !ok || svc == nil {
 			continue
 		}
-		if _, ok := svc.(ai.ToolProvider); ok {
+		if _, ok := svc.(toolkit.ToolProvider); ok {
 			out = append(out, name)
 			continue
 		}
-		if _, ok := svc.(ai.SkillProvider); ok {
+		if _, ok := svc.(toolkit.SkillProvider); ok {
 			out = append(out, name)
 		}
 	}

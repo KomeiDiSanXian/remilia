@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog/attachments"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -75,7 +78,7 @@ func TestQuotedImagePartFromStore(t *testing.T) {
 	l, store := newStoreTestLogger(t, storeDir)
 	insertStoredImage(t, l, store, "g1", "in-1")
 
-	p := &Plugin{cfg: &Config{VisionEnabled: true}, history: l}
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true}, history: l}
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "这张图里的猫叫什么",
 			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}),
@@ -83,13 +86,13 @@ func TestQuotedImagePartFromStore(t *testing.T) {
 		replyID: "in-1",
 	}
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	session := &Session{ID: "s1", UserID: "u2", ChatID: "g1"}
+	sess := &session.Session{ID: "s1", UserID: "u2", ChatID: "g1"}
 
-	cp := p.quotedImagePart(ctx, session)
+	cp := p.quotedImagePart(ctx, sess)
 	if cp == nil {
 		t.Fatal("expected quoted image from store, got nil")
 	}
-	if cp.Type != ContentPartImage {
+	if cp.Type != protocol.ContentPartImage {
 		t.Fatalf("expected image part, got type %q", cp.Type)
 	}
 	if string(cp.Data) != "fake-image-bytes-in-1" {
@@ -100,7 +103,7 @@ func TestQuotedImagePartFromStore(t *testing.T) {
 	}
 
 	// 二次读取命中会话缓存（同一 URL），仍返回相同内容
-	cp2 := p.quotedImagePart(ctx, session)
+	cp2 := p.quotedImagePart(ctx, sess)
 	if cp2 == nil || string(cp2.Data) != "fake-image-bytes-in-1" {
 		t.Errorf("expected cached stored image, got %+v", cp2)
 	}
@@ -120,19 +123,19 @@ func TestQuotedImagePartFromStoreFallback(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("insert message: %v", err)
 	}
-	p := &Plugin{cfg: &Config{VisionEnabled: true}, history: l}
+	p := &Plugin{cfg: &config.Config{VisionEnabled: true}, history: l}
 	evt := &replyEvent{
 		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "在吗",
 			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true})),
 		replyID: "in-2",
 	}
-	if cp := p.quotedImagePart(eventctx.NewContextFromEvent(evt, nil), &Session{}); cp != nil {
+	if cp := p.quotedImagePart(eventctx.NewContextFromEvent(evt, nil), &session.Session{}); cp != nil {
 		t.Errorf("expected nil for quoted message without attachments, got %+v", cp)
 	}
 
 	// history 为 nil：不 panic，直接回退段直链路径
-	p2 := &Plugin{cfg: &Config{VisionEnabled: true}, history: nil}
-	if cp := p2.quotedImagePart(eventctx.NewContextFromEvent(evt, nil), &Session{}); cp != nil {
+	p2 := &Plugin{cfg: &config.Config{VisionEnabled: true}, history: nil}
+	if cp := p2.quotedImagePart(eventctx.NewContextFromEvent(evt, nil), &session.Session{}); cp != nil {
 		t.Errorf("expected nil with nil history, got %+v", cp)
 	}
 }

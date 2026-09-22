@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -42,8 +42,8 @@ func TestChunkMarkdownOverlap(t *testing.T) {
 	}
 }
 
-func TestTokenize(t *testing.T) {
-	tokens := tokenize("如何实现定时任务 scheduler plugin")
+func TestTokenizeText(t *testing.T) {
+	tokens := retrieval.TokenizeText("如何实现定时任务 scheduler plugin")
 	if tokens["如何"] != 1 || tokens["定时"] != 1 {
 		t.Errorf("tokens = %v", tokens)
 	}
@@ -74,7 +74,7 @@ func (stubEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error
 
 func (stubEmbedder) Model() string { return "stub" }
 
-func newTestPlugin(t *testing.T, index []indexedChunk, embedder ai.Embedder) *Plugin {
+func newTestPlugin(t *testing.T, index []indexedChunk, embedder retrieval.Embedder) *Plugin {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "kb.db")
 	store, err := OpenStore(dbPath)

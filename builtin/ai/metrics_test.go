@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -48,11 +50,11 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewOpenAIProvider(&Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
+	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	resp, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
@@ -75,17 +77,17 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	}))
 	defer streamServer.Close()
 
-	sprov, err := NewOpenAIProvider(&Config{BaseURL: streamServer.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
+	sprov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: streamServer.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	ch, err := sprov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	ch, err := sprov.ChatStream(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
 	}
-	var gotUsage *TokenUsage
+	var gotUsage *protocol.TokenUsage
 	for ev := range ch {
-		if ev.Type == StreamEventDone {
+		if ev.Type == protocol.StreamEventDone {
 			gotUsage = ev.Usage
 		}
 	}
@@ -107,7 +109,7 @@ func TestMetricsProviderChat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewProvider(&Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "test-model", MaxTokens: 8, IncludeUsage: true})
+	prov, err := NewProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "test-model", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
@@ -115,7 +117,7 @@ func TestMetricsProviderChat(t *testing.T) {
 	promptBefore := counterValue(llmTokens, "test-model", "prompt")
 	completionBefore := counterValue(llmTokens, "test-model", "completion")
 
-	if _, err := prov.Chat(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "x"}}}); err != nil {
+	if _, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "x"}}}); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
@@ -131,14 +133,14 @@ func TestMetricsProviderStreamError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewProvider(&Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "err-model", MaxTokens: 8, IncludeUsage: true})
+	prov, err := NewProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "err-model", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
 	// doStreamRequest 对 5xx 同步返回错误（重试后），装饰器同步计数
 	before := counterValue(llmCalls, "err-model", "error")
 
-	_, err = prov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "x"}}})
+	_, err = prov.ChatStream(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "x"}}})
 	if err == nil {
 		t.Fatal("5xx 流式请求应同步报错")
 	}
@@ -160,17 +162,17 @@ func TestAnthropicStreamUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewAnthropicProvider(&Config{Provider: "anthropic", BaseURL: server.URL, APIKey: "k", Model: "claude-test", MaxTokens: 8})
+	prov, err := protocol.NewAnthropicProvider(&config.Config{Provider: "anthropic", BaseURL: server.URL, APIKey: "k", Model: "claude-test", MaxTokens: 8})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	ch, err := prov.ChatStream(context.Background(), &ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
 	}
-	var gotUsage *TokenUsage
+	var gotUsage *protocol.TokenUsage
 	for ev := range ch {
-		if ev.Type == StreamEventDone {
+		if ev.Type == protocol.StreamEventDone {
 			gotUsage = ev.Usage
 		}
 	}

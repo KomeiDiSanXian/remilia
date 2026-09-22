@@ -23,6 +23,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -38,7 +42,7 @@ const sessionClearedText = "✅ 对话历史已清空，开始全新的对话吧
 func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
-	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
+	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 
 	switch subCmd {
 	case "reset":
@@ -49,22 +53,22 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return p.handleClearAction(ctx)
 
 	case "undo":
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
+		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if sess == nil {
 			ctx.ReplyText("没有可以撤销的对话")
 			return nil
 		}
-		session.LockTurn()
-		defer session.UnlockTurn()
-		session.Lock()
-		defer session.Unlock()
-		if len(session.Messages) <= 1 {
+		sess.LockTurn()
+		defer sess.UnlockTurn()
+		sess.Lock()
+		defer sess.Unlock()
+		if len(sess.Messages) <= 1 {
 			ctx.ReplyText("没有可以撤销的对话")
 			return nil
 		}
 		lastUserIdx := -1
-		for i, v := range slices.Backward(session.Messages) {
-			if v.Role == RoleUser {
+		for i, v := range slices.Backward(sess.Messages) {
+			if v.Role == protocol.RoleUser {
 				lastUserIdx = i
 				break
 			}
@@ -73,8 +77,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			ctx.ReplyText("没有可以撤销的对话")
 			return nil
 		}
-		session.Messages = session.Messages[:lastUserIdx]
-		p.sm.saveNoLock(session)
+		sess.Messages = sess.Messages[:lastUserIdx]
+		p.sm.SaveLocked(sess)
 		ctx.ReplyText("↩️ 已撤销上一条对话")
 		return nil
 
@@ -92,12 +96,12 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return p.handleStopCommand(ctx)
 
 	case "summary":
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
+		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if sess == nil {
 			ctx.ReplyText("还没有任何对话内容可以总结")
 			return nil
 		}
-		msgsSnapshot := session.SnapshotMessages()
+		msgsSnapshot := sess.SnapshotMessages()
 		if len(msgsSnapshot) <= 1 {
 			ctx.ReplyText("还没有任何对话内容可以总结")
 			return nil
@@ -130,31 +134,31 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		if p.handleUsageQuery(ctx, p.usageRest(ctx, "status")) {
 			return nil
 		}
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
+		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if sess == nil {
 			ctx.ReplyText("当前没有活跃的对话")
 			return nil
 		}
-		session.Lock()
-		defer session.Unlock()
-		if len(session.Messages) <= 1 {
+		sess.Lock()
+		defer sess.Unlock()
+		if len(sess.Messages) <= 1 {
 			ctx.ReplyText("当前没有活跃的对话")
 			return nil
 		}
-		msgCount := len(session.Messages)
+		msgCount := len(sess.Messages)
 		sysCount := 0
-		for _, m := range session.Messages {
-			if m.Role == RoleSystem {
+		for _, m := range sess.Messages {
+			if m.Role == protocol.RoleSystem {
 				sysCount++
 			}
 		}
-		duration := time.Since(session.CreatedAt)
+		duration := time.Since(sess.CreatedAt)
 		var b strings.Builder
 		b.WriteString("📊 **对话状态**\n\n")
 		fmt.Fprintf(&b, "  - 提供商：`%s`\n", p.cfg.Provider)
 		fmt.Fprintf(&b, "  - 模型：`%s`\n", p.cfg.Model)
 		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
-		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", formatDuration(duration))
+		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", p.formatDuration(duration))
 		fmt.Fprintf(&b, "  - 会话 ID：`%s`\n", sessionID)
 		p.replyFormatted(ctx, b.String())
 		return nil
@@ -164,20 +168,20 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		if p.handleUsageQuery(ctx, p.usageRest(ctx, "stats")) {
 			return nil
 		}
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
+		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if sess == nil {
 			ctx.ReplyText("当前没有活跃的对话")
 			return nil
 		}
-		session.Lock()
-		if len(session.Messages) <= 1 {
-			session.Unlock()
+		sess.Lock()
+		if len(sess.Messages) <= 1 {
+			sess.Unlock()
 			ctx.ReplyText("当前没有活跃的对话")
 			return nil
 		}
-		callCount := session.CallCount
-		toolCount := session.ToolCount
-		session.Unlock()
+		callCount := sess.CallCount
+		toolCount := sess.ToolCount
+		sess.Unlock()
 		var b strings.Builder
 		b.WriteString("📈 **使用统计**\n\n")
 		fmt.Fprintf(&b, "  - LLM 调用次数：`%d`\n", callCount)
@@ -186,12 +190,12 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return nil
 
 	case "trace":
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
+		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if sess == nil {
 			ctx.ReplyText("当前没有活跃的对话")
 			return nil
 		}
-		entries := session.ToolTrace()
+		entries := sess.ToolTrace()
 		if len(entries) == 0 {
 			ctx.ReplyText("当前会话还没有工具调用记录。")
 			return nil
@@ -203,7 +207,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			if e.Err != "" {
 				mark = "❌"
 			}
-			fmt.Fprintf(&b, "%s `%s` 耗时 %s\n", mark, e.ToolName, formatDuration(e.Duration))
+			fmt.Fprintf(&b, "%s `%s` 耗时 %s\n", mark, e.ToolName, p.formatDuration(e.Duration))
 			if e.Args != "" {
 				fmt.Fprintf(&b, "    参数：`%s`\n", e.Args)
 			}
@@ -218,14 +222,14 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		var b strings.Builder
 		b.WriteString("我可以使用以下工具：\n\n")
 		// 按 RBAC 过滤：声明了 Permissions 且当前用户无权的工具不展示。
-		tools := p.filterToolsByPermission(ctx, p.reg.List())
+		actions := p.filterToolsByPermission(ctx, p.reg.Actions())
 		userSkills := p.skillReg.ListByOwner(sender.ID)
-		totalTools := len(tools) + len(userSkills)
+		totalTools := len(actions) + len(userSkills)
 		if totalTools == 0 {
 			b.WriteString("（当前没有可用工具）")
 		} else {
-			for _, t := range tools {
-				fmt.Fprintf(&b, "  - **%s**：%s\n", t.Name, t.Description)
+			for _, a := range actions {
+				fmt.Fprintf(&b, "  - **%s**：%s\n", a.Spec.Name, a.Spec.Description)
 			}
 			for _, s := range userSkills {
 				if s.Enabled {
@@ -266,7 +270,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "remind", "提醒":
 		// 从消息内容中提取 "remind" 之后的参数（时长 + 内容）
-		content := p.cleanMessage(ctx.GetMessageContent())
+		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 		for _, prefix := range []string{"remind", "提醒"} {
 			content = strings.TrimPrefix(content, prefix)
@@ -301,7 +305,7 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 	// 带目标用户的 status/stats（"status 12345"、"stats @张三"）：整词前缀匹配。
 	// 解析不出可识别目标时 handleUsageQuery 返回 false，本条不计为子命令，
 	// 交回下方精确匹配（查询自己）或 AI 对话，既有行为不变。
-	if sub := matchUsageSubCommand(cmd); sub != "" {
+	if sub := p.matchUsageSubCommand(cmd); sub != "" {
 		if p.handleUsageQuery(ctx, p.usageRest(ctx, sub)) {
 			return true
 		}
@@ -326,7 +330,7 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		err = p.execSubCommand(ctx, "tools")
 	case "remind", "提醒":
 		// 支持 "@机器人 提醒 5分钟 去喝水" 自然语言路径
-		content := p.cleanMessage(ctx.GetMessageContent())
+		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 		for _, prefix := range []string{"remind", "提醒"} {
 			content = strings.TrimPrefix(content, prefix)
@@ -362,15 +366,15 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 // 流请求，见 Session.TurnCtx / process.go，已生成的部分会作为回复保留）时，
 // 若该回合正在按任务计划推进，不取消计划会让后续回合/后台自动推进继续按旧
 // 计划执行；因此回合空闲但仍有进行中计划时同样取消计划，阻止已调度的后台
-// 推进轮继续运行（计划取消见 plan.go cancelPlan / runner.go）。无进行中生成
+// 推进轮继续运行（计划取消见 plan.go CancelPlan / runner.go）。无进行中生成
 // 也无计划时（如仅在等待审批）仅提示无操作。
-func (p *Plugin) handleStopCommand(ctx *eventctx.Context) error {
-	sessionID := makeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)
-	if p.sm == nil {
+func (r *runtimeState) handleStopCommand(ctx *eventctx.Context) error {
+	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)
+	if r.sm == nil {
 		ctx.ReplyText("当前没有正在进行的生成")
 		return nil
 	}
-	s := p.sm.Peek(sessionID)
+	s := r.sm.Peek(sessionID)
 	if s == nil {
 		ctx.ReplyText("当前没有正在进行的生成")
 		return nil
@@ -380,7 +384,7 @@ func (p *Plugin) handleStopCommand(ctx *eventctx.Context) error {
 		s.RequestInterrupt()
 		stopped = true
 	}
-	planCancelled := s.cancelPlan()
+	planCancelled := s.CancelPlan()
 	switch {
 	case stopped && planCancelled:
 		ctx.ReplyText("🛑 已停止当前生成，任务计划一并取消")
@@ -406,57 +410,57 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 	if p.sm == nil {
 		return nil
 	}
-	session := p.sm.GetOrCreate(sessionID, senderID, chatID)
-	if session == nil {
+	sess := p.sm.GetOrCreate(sessionID, senderID, chatID)
+	if sess == nil {
 		ctx.ReplyText("没有可以重试的对话")
 		return nil
 	}
 	if waitTurn {
-		session.LockTurn()
-	} else if !session.TryLockTurn() {
+		sess.LockTurn()
+	} else if !sess.TryLockTurn() {
 		// 按钮回调路径：忙时立即拒绝且不排队；提示按会话节流，
 		// 防止生成期间反复点击造成提示刷屏（见 qqaction.go）。
 		p.notifyQQActionBusy(ctx, "重新生成", sessionID)
 		return nil
 	}
-	defer session.UnlockTurn()
+	defer sess.UnlockTurn()
 
 	// 与 handleAIChat 一致：标记回合活跃（BeginTurn）。这样按钮/命令触发的
 	// 长重新生成也能被用户新消息抢占（RequestInterrupt），并被 qqaction.go
 	// 的忙时预检（TurnActive）识别。turnMu 已串行化同会话回合，BeginTurn
 	// 此处只会成功；失败仅作防御性兜底。
-	if !session.BeginTurn() {
+	if !sess.BeginTurn() {
 		p.notifyQQActionBusy(ctx, "重新生成", sessionID)
 		return nil
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
-	session.Lock()
-	if len(session.Messages) <= 1 {
-		session.Unlock()
+	sess.Lock()
+	if len(sess.Messages) <= 1 {
+		sess.Unlock()
 		ctx.ReplyText("没有可以重试的对话")
 		return nil
 	}
 	lastAssistantIdx := -1
-	for i, v := range slices.Backward(session.Messages) {
-		if v.Role == RoleAssistant {
+	for i, v := range slices.Backward(sess.Messages) {
+		if v.Role == protocol.RoleAssistant {
 			lastAssistantIdx = i
 			break
 		}
 	}
 	if lastAssistantIdx < 0 {
-		session.Unlock()
+		sess.Unlock()
 		ctx.ReplyText("没有可以重试的对话")
 		return nil
 	}
-	session.Messages = session.Messages[:lastAssistantIdx]
-	p.sm.saveNoLock(session)
-	session.Unlock()
+	sess.Messages = sess.Messages[:lastAssistantIdx]
+	p.sm.SaveLocked(sess)
+	sess.Unlock()
 
 	_ = ctx.TrySendTyping()
-	result, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, sess)
 	if err != nil {
-		ctx.ReplyText(formatAIError(err))
+		ctx.ReplyText(runtime.FormatAIError(err))
 		return nil
 	}
 	if result.Text != "" || len(result.Attachments) > 0 {
@@ -475,7 +479,7 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 }
 
 // formatDuration 将 time.Duration 格式化为人类可读的字符串。
-func formatDuration(d time.Duration) string {
+func (a *adminState) formatDuration(d time.Duration) string {
 	d = d.Round(time.Minute)
 	h := d / time.Hour
 	d -= h * time.Hour
@@ -487,24 +491,24 @@ func formatDuration(d time.Duration) string {
 }
 
 // doSummary 在后台调用 LLM 生成对话总结，通过原始 sender 发送结果。
-// msgs 是调用方已复制的消息快照，不会与 session 管理器产生 data race。
+// msgs 是调用方已复制的消息快照，不会与 sess 管理器产生 data race。
 // 使用 p.lifecycleCtx 作为父上下文，确保插件关闭时及时取消。
-func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
-	filtered := make([]Message, 0, len(msgs)+1)
+func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []protocol.Message) {
+	filtered := make([]protocol.Message, 0, len(msgs)+1)
 	for _, m := range msgs {
-		if m.Role != RoleSystem {
+		if m.Role != protocol.RoleSystem {
 			filtered = append(filtered, m)
 		}
 	}
 	// 会话历史可能残留孤儿 tool 消息（上下文裁剪/中断导致），
 	// 先修复工具调用序列再发送，避免后台总结也被 API 以 400 拒绝。
-	filtered = repairToolCallSequence(filtered)
-	filtered = append(filtered, Message{
-		Role:    RoleUser,
+	filtered = runtime.RepairToolCallSequence(filtered)
+	filtered = append(filtered, protocol.Message{
+		Role:    protocol.RoleUser,
 		Content: "请用简短的几句话总结以上对话的要点。",
 	})
 
-	req := &ChatRequest{
+	req := &protocol.ChatRequest{
 		Model:       p.cfg.Model,
 		Messages:    filtered,
 		Temperature: p.cfg.Temperature,
@@ -520,7 +524,7 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 			return
 		}
 		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
-		if e := newCtx.ReplyText("❌ 生成总结失败: " + formatAIError(err)); e != nil {
+		if e := newCtx.ReplyText("❌ 生成总结失败: " + runtime.FormatAIError(err)); e != nil {
 			logger.Errorf("doSummary reply error: %v", e)
 		}
 		return
@@ -541,7 +545,7 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 // handleSkillCommand 处理 /ai skill 子命令的入口。
 // 从消息内容中解析子子命令（add/list/remove/enable/disable/promote/info）并分发。
 func (p *Plugin) handleSkillCommand(ctx *eventctx.Context) error {
-	content := p.cleanMessage(ctx.GetMessageContent())
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	content = strings.TrimPrefix(content, "skill")
 	content = strings.TrimPrefix(content, "技能")
@@ -625,7 +629,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 
 	if prompt == "" {
 		// 两步注册：通过 FSM 等待用户下一条消息
-		sessionID := makeSkillAddSessionID(ctx)
+		sessionID := p.skillAddSessionID(ctx)
 		if err := p.fsmEngine.StartSession(ctx, "skill_add", sessionID); err != nil {
 			if errors.Is(err, fsm.ErrSessionExists) {
 				ctx.ReplyText("❌ 你已有一个待完成的技能注册，请先发送内容或发送 cancel 取消。")
@@ -653,8 +657,8 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 
 // registerSkillAndReply 注册技能并回复用户。
 func (p *Plugin) registerSkillAndReply(ctx *eventctx.Context, name, prompt, ownerID string) error {
-	desc := extractSkillDescription(prompt)
-	skill := Skill{
+	desc := p.extractSkillDescription(prompt)
+	skill := toolkit.Skill{
 		Name:        name,
 		Description: desc,
 		Prompt:      prompt,
@@ -665,7 +669,7 @@ func (p *Plugin) registerSkillAndReply(ctx *eventctx.Context, name, prompt, owne
 		return nil
 	}
 	p.replyFormatted(ctx, fmt.Sprintf("✅ 技能 `%s%s` 已注册！现在可以在对话中指示 AI 调用它。\n> %s",
-		UserSkillPrefix, name, desc))
+		toolkit.UserSkillPrefix, name, desc))
 	return nil
 }
 
@@ -698,12 +702,12 @@ func (p *Plugin) handleSkillRemove(ctx *eventctx.Context, name, ownerID string) 
 	}
 
 	fullName := name
-	if !strings.HasPrefix(fullName, UserSkillPrefix) {
-		fullName = UserSkillPrefix + name
+	if !strings.HasPrefix(fullName, toolkit.UserSkillPrefix) {
+		fullName = toolkit.UserSkillPrefix + name
 	}
 
 	if err := p.skillReg.Remove(fullName, ownerID); err != nil {
-		if !strings.HasPrefix(name, UserSkillPrefix) {
+		if !strings.HasPrefix(name, toolkit.UserSkillPrefix) {
 			if err2 := p.skillReg.Remove(name, ownerID); err2 == nil {
 				p.replyFormatted(ctx, fmt.Sprintf("🗑️ 技能 `%s` 已删除。", name))
 				return nil
@@ -724,8 +728,8 @@ func (p *Plugin) handleSkillToggle(ctx *eventctx.Context, name, ownerID string, 
 	}
 
 	fullName := name
-	if !strings.HasPrefix(fullName, UserSkillPrefix) {
-		fullName = UserSkillPrefix + name
+	if !strings.HasPrefix(fullName, toolkit.UserSkillPrefix) {
+		fullName = toolkit.UserSkillPrefix + name
 	}
 
 	s, err := p.skillReg.SetEnabled(ownerID, fullName, enabled)
@@ -772,8 +776,8 @@ func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string)
 	}
 
 	fullName := name
-	if !strings.HasPrefix(fullName, UserSkillPrefix) {
-		fullName = UserSkillPrefix + name
+	if !strings.HasPrefix(fullName, toolkit.UserSkillPrefix) {
+		fullName = toolkit.UserSkillPrefix + name
 	}
 
 	if err := p.skillReg.Promote(fullName, ownerID); err != nil {
@@ -783,7 +787,7 @@ func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string)
 
 	// Promote 内部已将用户技能重命名为去前缀的系统级名称，
 	// 必须用新名称查询并注册为工具（用户可能以带或不带 u_ 前缀的形式调用）。
-	newName := strings.TrimPrefix(fullName, UserSkillPrefix)
+	newName := strings.TrimPrefix(fullName, toolkit.UserSkillPrefix)
 	if s, ok := p.skillReg.GetSystem(newName); ok {
 		p.registerSkillAsTool(s)
 	}
@@ -801,7 +805,7 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 
 	s, ok := p.skillReg.GetByOwner(ownerID, name)
 	if !ok {
-		s, ok = p.skillReg.GetByOwner(ownerID, UserSkillPrefix+name)
+		s, ok = p.skillReg.GetByOwner(ownerID, toolkit.UserSkillPrefix+name)
 	}
 	if !ok {
 		s, ok = p.skillReg.GetSystem(name)
@@ -810,13 +814,13 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 		p.replyFormatted(ctx, "❌ 未找到技能 `"+name+"`")
 		return nil
 	}
-	if s.OwnerID != OwnerSystem && s.OwnerID != ownerID {
+	if s.OwnerID != toolkit.OwnerSystem && s.OwnerID != ownerID {
 		p.replyFormatted(ctx, "❌ 未找到技能 `"+name+"`")
 		return nil
 	}
 
 	ownerLabel := "系统"
-	if s.OwnerID != OwnerSystem {
+	if s.OwnerID != toolkit.OwnerSystem {
 		ownerLabel = "用户"
 	}
 	statusLabel := "✅ 启用"
@@ -833,7 +837,7 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 	fmt.Fprintf(&b, "  - **调用次数**：%d\n", s.UsageCount)
 	fmt.Fprintf(&b, "  - **Prompt 长度**：%d 字符\n\n", len(s.Prompt))
 
-	preview := truncateRunes(s.Prompt, 500)
+	preview := textutil.TruncateRunes(s.Prompt, 500)
 	b.WriteString("**Prompt 预览：**\n")
 	b.WriteString("```\n" + preview + "\n```")
 
@@ -843,21 +847,8 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 
 // extractSkillDescription 从 Prompt 中提取第一行作为技能描述。
 // 最多保留 200 个字符。
-func extractSkillDescription(prompt string) string {
+func (c *catalogState) extractSkillDescription(prompt string) string {
 	prompt = strings.TrimSpace(prompt)
 	lines := strings.SplitN(prompt, "\n", 2)
-	return truncateRunes(strings.TrimSpace(lines[0]), 200)
-}
-
-// truncateRunes 按 rune 截断字符串，避免劈开多字节 UTF-8 字符。
-// 超过 max 个字符时以省略号结尾。
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "..."
+	return textutil.TruncateRunes(strings.TrimSpace(lines[0]), 200)
 }

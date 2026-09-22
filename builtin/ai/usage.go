@@ -23,6 +23,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -39,7 +42,7 @@ const aiUsageViewPermission = "ai.usage.view"
 //
 // ok=false 表示无法确定目标，调用方应回落原有自身查询逻辑。
 // name 仅在来自 @ 列表时非空（平台提供了显示名）。
-func (p *Plugin) resolveUsageTarget(ctx *eventctx.Context, rest string) (id, name string, ok bool) {
+func (a *adminState) resolveUsageTarget(ctx *eventctx.Context, rest string) (id, name string, ok bool) {
 	for _, u := range platform.GetMentions(ctx.GetPlatformEvent()) {
 		if u.IsSelf || u.ID == "" {
 			continue
@@ -52,7 +55,7 @@ func (p *Plugin) resolveUsageTarget(ctx *eventctx.Context, rest string) (id, nam
 		return "", "", false
 	}
 	token := strings.TrimSpace(strings.TrimLeft(fields[0], "@"))
-	if !looksLikeUserID(token) {
+	if !a.looksLikeUserID(token) {
 		return "", "", false
 	}
 	return token, "", true
@@ -71,7 +74,7 @@ func (p *Plugin) resolveUsageTarget(ctx *eventctx.Context, rest string) (id, nam
 // 纯字母 token（"update"、"detailed"）一律按自然语言处理——各平台真实的
 // 用户 ID 都含数字，收紧到"必须含数字"可以彻底消除英文误判。个别平台若
 // 使用纯字母 ID，仍可通过结构化 @ 列表定位（那是首要交互方式）。
-func looksLikeUserID(token string) bool {
+func (a *adminState) looksLikeUserID(token string) bool {
 	if len(token) < 4 {
 		return false
 	}
@@ -95,26 +98,21 @@ func looksLikeUserID(token string) bool {
 // 优先使用事件上下文里的权限管理器（由 Bot 在事件入口注入，生产路径），
 // 未注入时回退到插件的权限服务（测试或权限插件单独接线的场景）。
 // 两者都不可用时返回 nil（安全默认：查不到任何角色）。
-func (p *Plugin) rolesOf(ctx *eventctx.Context, userID string) []string {
+func (c *catalogState) rolesOf(ctx *eventctx.Context, userID string) []string {
 	if pm := ctx.GetPermissionManager(); pm != nil {
 		return pm.GetUserRoles(userID)
 	}
-	if p.perms != nil {
-		return p.perms.GetUserRoles(userID)
+	if c.perms != nil {
+		return c.perms.GetUserRoles(userID)
 	}
 	return nil
-}
-
-// havePermissionSource 返回是否存在可用的 RBAC 权限来源。
-func (p *Plugin) havePermissionSource(ctx *eventctx.Context) bool {
-	return ctx.GetPermissionManager() != nil || p.perms != nil
 }
 
 // hasAdminRole 判断 userID 是否持有 RBAC admin / superadmin 角色。
 // 与 [Plugin.isAdmin] 的区别：角色来源经 [Plugin.rolesOf] 解析，因此在
 // 权限插件单独接线（未注入事件上下文）的场景下同样可用。
-func (p *Plugin) hasAdminRole(ctx *eventctx.Context, userID string) bool {
-	for _, r := range p.rolesOf(ctx, userID) {
+func (c *catalogState) hasAdminRole(ctx *eventctx.Context, userID string) bool {
+	for _, r := range c.rolesOf(ctx, userID) {
 		if r == "admin" || r == "superadmin" {
 			return true
 		}
@@ -123,12 +121,12 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context, userID string) bool {
 }
 
 // hasSuperAdminRole 判断 userID 是否持有 superadmin 角色。
-func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context, userID string) bool {
-	return slices.Contains(p.rolesOf(ctx, userID), "superadmin")
+func (c *catalogState) hasSuperAdminRole(ctx *eventctx.Context, userID string) bool {
+	return slices.Contains(c.rolesOf(ctx, userID), "superadmin")
 }
 
 // usageSubCommandAliases 返回可与"目标用户"组合使用的 status/stats 别名。
-func usageSubCommandAliases(sub string) []string {
+func (a *adminState) usageSubCommandAliases(sub string) []string {
 	switch sub {
 	case "status":
 		return []string{"status", "状态"}
@@ -144,9 +142,9 @@ func usageSubCommandAliases(sub string) []string {
 // 用于 @机器人 自然语言路径——该路径的子命令分派是整串精确匹配，带参数的
 // "status 12345" 原本会落入 AI 对话。整词匹配（要求后跟空格）避免误命中
 // "statuses" 这类普通正文。返回规范子命令名，不匹配返回 ""。
-func matchUsageSubCommand(cmd string) string {
+func (a *adminState) matchUsageSubCommand(cmd string) string {
 	for _, sub := range []string{"status", "stats"} {
-		for _, alias := range usageSubCommandAliases(sub) {
+		for _, alias := range a.usageSubCommandAliases(sub) {
 			if cmd == alias || strings.HasPrefix(cmd, alias+" ") {
 				return sub
 			}
@@ -166,7 +164,7 @@ func (p *Plugin) usageRest(ctx *eventctx.Context, sub string) string {
 			return v
 		}
 	}
-	return p.subCommandRest(ctx, usageSubCommandAliases(sub)...)
+	return p.subCommandRest(ctx, p.usageSubCommandAliases(sub)...)
 }
 
 // authorizeUsageQuery 判断调用者是否有权查询 targetID 的使用状态。
@@ -183,24 +181,24 @@ func (p *Plugin) usageRest(ctx *eventctx.Context, sub string) string {
 //
 // fail-closed：既无 RBAC 权限来源、又无平台群管理员身份时拒绝。
 // 返回 ok=false 时 reason 为可直接回复给用户的原因文本。
-func (p *Plugin) authorizeUsageQuery(ctx *eventctx.Context, targetID string) (bool, string) {
+func (c *catalogState) authorizeUsageQuery(ctx *eventctx.Context, targetID string) (bool, string) {
 	chat := ctx.GetChatInfo()
 	sender := ctx.GetSenderInfo()
 	groupAdmin := chat.IsGroup && sender.GroupRole >= platform.GroupRoleAdmin
 
-	if !p.havePermissionSource(ctx) && !groupAdmin {
+	if ctx.GetPermissionManager() == nil && c.perms == nil && !groupAdmin {
 		return false, "❌ 权限系统未初始化，无法查询他人使用状态"
 	}
 
 	// 目标保护：非 superadmin 不得窥探 superadmin 的用量。
-	if !p.hasSuperAdminRole(ctx, sender.ID) && p.hasSuperAdminRole(ctx, targetID) {
+	if !c.hasSuperAdminRole(ctx, sender.ID) && c.hasSuperAdminRole(ctx, targetID) {
 		return false, "❌ 只有超级管理员才能查询超级管理员的使用状态"
 	}
 
-	if p.hasAdminRole(ctx, sender.ID) { // admin / superadmin
+	if c.hasAdminRole(ctx, sender.ID) { // admin / superadmin
 		return true, ""
 	}
-	if p.hasToolPermission(ctx, []string{aiUsageViewPermission}) {
+	if c.hasToolPermission(ctx, []string{aiUsageViewPermission}) {
 		return true, ""
 	}
 	if groupAdmin {
@@ -217,15 +215,15 @@ func (p *Plugin) authorizeUsageQuery(ctx *eventctx.Context, targetID string) (bo
 // 群聊：目标在本群的会话（{platform}:{群ID}:{目标}）。
 // 私聊：框架语义中 ChatInfo.ID 私聊即用户 ID，故目标与机器人的私聊会话为
 // {platform}:{目标}:{目标}。
-func usageSessionID(platformName string, chat platform.ChatInfo, targetID string) string {
+func (a *adminState) usageSessionID(platformName string, chat platform.ChatInfo, targetID string) string {
 	if chat.IsGroup {
-		return makeSessionID(platformName, chat.ID, targetID)
+		return runtime.MakeSessionID(platformName, chat.ID, targetID)
 	}
-	return makeSessionID(platformName, targetID, targetID)
+	return runtime.MakeSessionID(platformName, targetID, targetID)
 }
 
 // formatUsageTime 按本地时区格式化时间戳（零值显示为 "-"）。
-func formatUsageTime(t time.Time) string {
+func (a *adminState) formatUsageTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
@@ -251,31 +249,31 @@ func (p *Plugin) usageSummaryText(ctx *eventctx.Context, targetID, targetName st
 		fmt.Fprintf(&b, "  - 用户：`%s`\n", targetID)
 	}
 
-	session := p.peekUsageSession(ctx, targetID)
-	if session == nil {
+	sess := p.peekUsageSession(ctx, targetID)
+	if sess == nil {
 		b.WriteString("  - 会话记录：无（该用户在此会话还没有与 AI 交互过）\n")
 	} else {
-		session.Lock()
-		msgCount := len(session.Messages)
+		sess.Lock()
+		msgCount := len(sess.Messages)
 		sysCount := 0
-		for _, m := range session.Messages {
-			if m.Role == RoleSystem {
+		for _, m := range sess.Messages {
+			if m.Role == protocol.RoleSystem {
 				sysCount++
 			}
 		}
-		callCount := session.CallCount
-		toolCount := session.ToolCount
-		createdAt := session.CreatedAt
-		updatedAt := session.UpdatedAt
-		session.Unlock()
+		callCount := sess.CallCount
+		toolCount := sess.ToolCount
+		createdAt := sess.CreatedAt
+		updatedAt := sess.UpdatedAt
+		sess.Unlock()
 
 		b.WriteString("  - 会话记录：有\n")
 		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
 		fmt.Fprintf(&b, "  - LLM 调用次数：`%d`\n", callCount)
 		fmt.Fprintf(&b, "  - 工具调用次数：`%d`\n", toolCount)
 		fmt.Fprintf(&b, "  - 会话创建：`%s`，最后活跃：`%s`（距今 `%s`）\n",
-			formatUsageTime(createdAt), formatUsageTime(updatedAt),
-			formatDuration(time.Since(updatedAt)))
+			p.formatUsageTime(createdAt), p.formatUsageTime(updatedAt),
+			p.formatDuration(time.Since(updatedAt)))
 	}
 
 	if p.memory != nil {
@@ -288,11 +286,11 @@ func (p *Plugin) usageSummaryText(ctx *eventctx.Context, targetID, targetName st
 
 // peekUsageSession 只读读取目标用户在当前会话的会话对象；不存在时返回 nil。
 // session 管理器未初始化（测试场景）时同样返回 nil，不 panic。
-func (p *Plugin) peekUsageSession(ctx *eventctx.Context, targetID string) *Session {
+func (p *Plugin) peekUsageSession(ctx *eventctx.Context, targetID string) *session.Session {
 	if p.sm == nil {
 		return nil
 	}
-	return p.sm.PeekOrLoad(usageSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo(), targetID))
+	return p.sm.PeekOrLoad(p.usageSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo(), targetID))
 }
 
 // handleUsageQuery 处理"查询指定用户使用状态"。

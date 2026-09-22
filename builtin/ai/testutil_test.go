@@ -1,95 +1,31 @@
 package ai
 
 import (
-	"time"
+	"context"
 
-	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// mockConfig implements plugin.Config for testing.
-// Only needed methods are implemented; unsupported methods return zero values.
-type mockConfig struct {
-	values map[string]any
+// toolCtxForTest 组装工具执行 context：会话源信息 + 插件当前能力端口。
+// 用于直接调用工具 Execute 的测试，等价于 executeToolResult 在生产路径上的注入
+// （不含平台发送器，需要推送的工具另有 toolSessionForTest）。
+func toolCtxForTest(p *Plugin, src toolkit.ToolSource) context.Context {
+	return catalog.WithCapabilities(toolkit.WithToolSource(context.Background(), src), p.toolCapabilities())
 }
 
-func (m *mockConfig) Get(key string) any {
-	if m.values == nil {
-		return nil
-	}
-	return m.values[key]
+// toolSessionForTest 组装带平台发送器的工具执行 context（定时提醒等主动推送工具）。
+func toolSessionForTest(p *Plugin, src toolkit.ToolSource, sender platform.Sender) context.Context {
+	return catalog.WithCapabilities(toolkit.WithToolInvocation(context.Background(), src, sender), p.toolCapabilities())
 }
 
-func (m *mockConfig) GetString(key string, defaultVal string) string {
-	if v := m.Get(key); v != nil {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return defaultVal
+// buildSendToolsForTest 按生产装配方式构建发送类动作（markdown 取自 p.cfg）。
+func buildSendToolsForTest(p *Plugin) []toolkit.Tool {
+	return catalog.BuildSendTools(catalog.SendOptions{Markdown: p.cfg != nil && p.cfg.Markdown})
 }
 
-func (m *mockConfig) GetInt(key string, defaultVal int) int {
-	if v := m.Get(key); v != nil {
-		switch n := v.(type) {
-		case int:
-			return n
-		case float64:
-			return int(n)
-		case int64:
-			return int(n)
-		}
-	}
-	return defaultVal
+// buildOutboundMessageForTest 按生产装配方式组装出站消息（markdown 取自 p.cfg）。
+func buildOutboundMessageForTest(p *Plugin, args map[string]any) (platform.OutboundMessage, error) {
+	return catalog.BuildOutboundMessage(args, p.cfg != nil && p.cfg.Markdown)
 }
-
-func (m *mockConfig) GetBool(key string, defaultVal bool) bool {
-	if v := m.Get(key); v != nil {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return defaultVal
-}
-
-func (m *mockConfig) GetDuration(key string, defaultVal time.Duration) time.Duration {
-	if v := m.Get(key); v != nil {
-		switch d := v.(type) {
-		case time.Duration:
-			return d
-		case string:
-			if dur, err := time.ParseDuration(d); err == nil {
-				return dur
-			}
-		}
-	}
-	return defaultVal
-}
-
-func (m *mockConfig) GetFloat64(key string, defaultVal float64) float64 {
-	if v := m.Get(key); v != nil {
-		if f, ok := v.(float64); ok {
-			return f
-		}
-	}
-	return defaultVal
-}
-
-func (m *mockConfig) GetStringSlice(key string, defaultVal []string) []string {
-	return defaultVal
-}
-
-func (m *mockConfig) GetStringMap(key string, defaultVal map[string]any) map[string]any {
-	return defaultVal
-}
-
-func (m *mockConfig) GetAll() map[string]any {
-	return nil
-}
-
-// ConfigMutator methods - no-op for tests
-func (m *mockConfig) Override(key string, value any) error                  { return nil }
-func (m *mockConfig) Reload() error                                         { return nil }
-func (m *mockConfig) OnChange(handler func(key string, oldVal, newVal any)) {}
-
-// Ensure mockConfig implements plugin.Config.
-var _ plugin.Config = (*mockConfig)(nil)

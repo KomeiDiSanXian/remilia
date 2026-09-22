@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -65,7 +67,7 @@ type memoryStore struct {
 	// emb 文本向量缓存（embedding_base_url 配置时由插件注入）。
 	// 启用后 Retrieve 叠加余弦相似度，无关键词重叠也能语义命中；
 	// 为 nil 或嵌入失败时维持纯关键词打分。
-	emb *textVectorCache
+	emb *retrieval.TextVectorCache
 
 	extractMu   sync.Mutex
 	lastExtract map[string]time.Time // scope → 上次抽取时间（节流）
@@ -92,7 +94,7 @@ func OpenMemoryStore(dataDir string, maxFacts int, minInterval time.Duration) (*
 
 // SetEmbedder 注入共享文本向量缓存（启用记忆语义检索；nil 或未配置时纯关键词）。
 // 与工具选择共用同一实例，相同文本不重复嵌入。
-func (m *memoryStore) SetEmbedder(c *textVectorCache) {
+func (m *memoryStore) SetEmbedder(c *retrieval.TextVectorCache) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emb = c
@@ -224,21 +226,21 @@ func (m *memoryStore) RemoveWhere(scope string, match func(MemoryFact) bool) int
 
 // mergeSimilar 判断两条事实是否应合并（精确相等 / 二元组 Jaccard / 字符包含度）。
 // 相似合并额外要求长度比例 ≥ 0.5：防止长句与短句（仅共享片段）被错误合并。
-func mergeSimilar(a, b string) bool {
+func (m *memoryStore) mergeSimilar(a, b string) bool {
 	if a == b {
 		return true
 	}
-	if !mergeLengthOK(a, b) {
+	if !m.mergeLengthOK(a, b) {
 		return false
 	}
-	if jaccardSimilarity(tokenizeText(a), tokenizeText(b)) >= memoryMergeJaccard {
+	if retrieval.JaccardSimilarity(retrieval.TokenizeText(a), retrieval.TokenizeText(b)) >= memoryMergeJaccard {
 		return true
 	}
-	return charSetContainment(a, b) >= memoryMergeCharRatio
+	return m.charSetContainment(a, b) >= memoryMergeCharRatio
 }
 
 // mergeLengthOK 检查两条事实的长度比例（短/长 ≥ 0.5）。
-func mergeLengthOK(a, b string) bool {
+func (m *memoryStore) mergeLengthOK(a, b string) bool {
 	la, lb := len([]rune(a)), len([]rune(b))
 	if la == 0 || lb == 0 {
 		return true
@@ -249,7 +251,7 @@ func mergeLengthOK(a, b string) bool {
 
 // charSetContainment 计算两个文本去重字符集的包含度：|A∩B| / min(|A|,|B|)。
 // 任一字符集为空返回 0。
-func charSetContainment(a, b string) float64 {
+func (m *memoryStore) charSetContainment(a, b string) float64 {
 	setA := make(map[rune]struct{})
 	for _, r := range a {
 		setA[r] = struct{}{}
@@ -284,7 +286,7 @@ func (m *memoryStore) Add(scope, text string) {
 	merged := false
 	for i := range facts {
 		existing := &facts[i]
-		if mergeSimilar(existing.Text, text) {
+		if m.mergeSimilar(existing.Text, text) {
 			existing.Count++
 			existing.UpdatedAt = time.Now()
 			merged = true
@@ -364,10 +366,16 @@ func (m *memoryStore) save(scope string, facts []MemoryFact) {
 	}
 }
 
+// memoryScored 记忆检索的打分中间结果。
+type memoryScored struct {
+	fact  MemoryFact
+	score float64
+}
+
 // Retrieve 检索与查询相关度最高的至多 limit 条事实。
 //
 // 打分 = 关键词重叠（复用工具选择分词器）+ 出现次数弱加成；
-// 注入共享 embedder 时叠加余弦相似度（权重 scoreEmbedW）——
+// 注入共享 embedder 时叠加余弦相似度（权重 retrieval.ScoreEmbedW）——
 // 无关键词重叠但语义相近的事实（如"今天想喝点东西"→"用户喜欢喝咖啡"）
 // 也能命中；embedder 未配置或嵌入失败自动降级纯关键词。
 // 返回 (事实, 得分) 对，按得分降序。
@@ -379,11 +387,11 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 	if len(facts) == 0 {
 		return nil
 	}
-	qt := tokenizeText(query)
+	qt := retrieval.TokenizeText(query)
 
 	// 语义信号：查询向量 + 事实向量（惰性嵌入，缓存缺失才调用）。
 	var queryVec []float32
-	textVecs := make(map[string][]float32)
+	var textVecs map[string][]float32
 	m.mu.RLock()
 	emb := m.emb
 	m.mu.RUnlock()
@@ -392,36 +400,21 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 		for _, f := range facts {
 			texts = append(texts, f.Text)
 		}
-		embCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if vecs, err := emb.EmbedTexts(embCtx, texts); err == nil {
-			textVecs = vecs
-			if qv, qerr := emb.EmbedQuery(embCtx, query); qerr == nil {
-				queryVec = qv
-			} else {
-				logger.Debugf("[AI] Memory embedding query failed, keyword-only: %v", qerr)
-			}
-		} else {
-			logger.Debugf("[AI] Memory embedding failed, keyword-only: %v", err)
-		}
+		queryVec, textVecs = retrieval.AcquireSemanticVectors(ctx, emb, 10*time.Second, query, texts,
+			retrieval.SemanticFallbackLog{
+				TextsFailed: "[AI] Memory embedding failed, keyword-only: %v",
+				QueryFailed: "[AI] Memory embedding query failed, keyword-only: %v",
+			})
 	}
 
-	scored := make([]struct {
-		fact  MemoryFact
-		score float64
-	}, 0, len(facts))
+	scored := make([]memoryScored, 0, len(facts))
 	// semanticOnly 统计仅靠 embedding 语义信号入选的事实条数
 	// （关键词零重叠），用于监控"embedding 创造候选"的实际价值。
 	semanticOnly := 0
 	for _, f := range facts {
 		// 基础信号：关键词重叠 +（可选）语义余弦。
-		base := tokenOverlap(qt, tokenizeText(f.Text))
-		signal := base
-		if queryVec != nil {
-			if fv, ok := textVecs[f.Text]; ok {
-				signal += float64(cosineSimilarity(queryVec, fv)) * scoreEmbedW
-			}
-		}
+		base := retrieval.TokenOverlap(qt, retrieval.TokenizeText(f.Text))
+		signal := retrieval.RetrievalScore(base, retrieval.SemanticCosine(queryVec, textVecs[f.Text]))
 		// 无任何信号的事实排除（无 embedding 时语义项为 0，维持纯关键词门槛，
 		// 防止零重叠噪声事实入选；计数加成不得单独构成入选理由）。
 		if signal <= 0 {
@@ -432,27 +425,19 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 		}
 		// 出现次数作为弱加成：更常被确认的事实更可靠
 		score := signal + float64(min(f.Count, 5))*0.1
-		scored = append(scored, struct {
-			fact  MemoryFact
-			score float64
-		}{f, score})
+		scored = append(scored, memoryScored{f, score})
 	}
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score > scored[j].score
-		}
-		return scored[i].fact.Text < scored[j].fact.Text
-	})
-	if len(scored) > limit {
-		scored = scored[:limit]
-	}
+	retrieval.RankByScore(scored,
+		func(s memoryScored) float64 { return s.score },
+		func(a, b memoryScored) bool { return a.fact.Text < b.fact.Text })
+	scored = retrieval.TopK(scored, limit)
 	// 可观测性：检索概况（embed 是否参与、纯语义命中数、Top-3）。
 	var sb strings.Builder
 	for i, s := range scored {
 		if i >= 3 {
 			break
 		}
-		fmt.Fprintf(&sb, " %s(%.2f)", truncateRunes(s.fact.Text, 24), s.score)
+		fmt.Fprintf(&sb, " %s(%.2f)", textutil.TruncateRunes(s.fact.Text, 24), s.score)
 	}
 	logger.Debugf("[AI] MemoryRetrieve scope=%s facts=%d embed=%v kept=%d semantic_only=%d top=%s",
 		scope, len(facts), queryVec != nil, len(scored), semanticOnly, sb.String())
@@ -460,6 +445,20 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 	out := make([]MemoryFact, 0, len(scored))
 	for _, s := range scored {
 		out = append(out, s.fact)
+	}
+	return out
+}
+
+// RetrieveTexts 返回与查询相关度最高的至多 limit 条事实文本。
+// 只暴露注入上下文所需的部分，打分与排序仍由 Retrieve 决定。
+func (m *memoryStore) RetrieveTexts(ctx context.Context, scope, query string, limit int) []string {
+	hits := m.Retrieve(ctx, scope, query, limit)
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(hits))
+	for _, f := range hits {
+		out = append(out, f.Text)
 	}
 	return out
 }

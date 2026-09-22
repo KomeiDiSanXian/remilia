@@ -7,6 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/decision"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -155,24 +162,24 @@ func TestParseExtractedFacts(t *testing.T) {
 		{`[{bad json]`, 0},
 	}
 	for _, tt := range cases {
-		if got := len(parseExtractedFacts(tt.in)); got != tt.want {
+		if got := len(runtime.ParseExtractedFacts(tt.in)); got != tt.want {
 			t.Errorf("parseExtractedFacts(%q) = %d, want %d", tt.in, got, tt.want)
 		}
 	}
 }
 
 func TestLastRoundForMemory(t *testing.T) {
-	s := &Session{}
-	s.Messages = []Message{
-		{Role: RoleSystem, Content: "system"},
-		{Role: RoleUser, Content: "我喜欢喝咖啡"},
-		{Role: RoleAssistant, Content: "好的，记住了"},
-		{Role: RoleUser, Content: "["},
+	s := &session.Session{}
+	s.Messages = []protocol.Message{
+		{Role: protocol.RoleSystem, Content: "system"},
+		{Role: protocol.RoleUser, Content: "我喜欢喝咖啡"},
+		{Role: protocol.RoleAssistant, Content: "好的，记住了"},
+		{Role: protocol.RoleUser, Content: "["},
 	}
-	s.Messages[3] = Message{Role: RoleUser, ContentParts: []ContentPart{{Type: ContentPartText, Text: "今天天气怎么样"}}}
-	s.Messages = append(s.Messages, Message{Role: RoleAssistant, Content: "今天晴朗"})
+	s.Messages[3] = protocol.Message{Role: protocol.RoleUser, ContentParts: []protocol.ContentPart{{Type: protocol.ContentPartText, Text: "今天天气怎么样"}}}
+	s.Messages = append(s.Messages, protocol.Message{Role: protocol.RoleAssistant, Content: "今天晴朗"})
 
-	conv := lastRoundForMemory(s)
+	conv := runtime.LastRoundForMemory(s)
 	if !strings.Contains(conv, "今天天气怎么样") || !strings.Contains(conv, "今天晴朗") {
 		t.Errorf("expected last user+assistant round, got %q", conv)
 	}
@@ -184,23 +191,23 @@ func TestLastRoundForMemory(t *testing.T) {
 func TestExtractAndStore(t *testing.T) {
 	m := newTestMemoryStore(t, 50, time.Minute)
 	p := &Plugin{
-		cfg:    &Config{},
+		cfg:    &config.Config{},
 		memory: m,
 		prov: &mockProvider{
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-				return &ChatResponse{Content: `[{"text":"用户喜欢喝咖啡","scope":"user"},{"text":"本群都是FGO玩家","scope":"group"}]`}, nil
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
+				return &protocol.ChatResponse{Content: `[{"text":"用户喜欢喝咖啡","scope":"user"},{"text":"本群都是FGO玩家","scope":"group"}]`}, nil
 			},
 		},
 		lifecycleCtx: context.Background(),
 	}
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{
-		{Role: RoleUser, Content: "我喜欢喝咖啡，群里大家都玩FGO"},
-		{Role: RoleAssistant, Content: "好的"},
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{
+		{Role: protocol.RoleUser, Content: "我喜欢喝咖啡，群里大家都玩FGO"},
+		{Role: protocol.RoleAssistant, Content: "好的"},
 	}
 	chat := platform.ChatInfo{ID: "g1", IsGroup: true}
 
-	if err := p.extractAndStore(userScope("u1"), "u1", chat, session); err != nil {
+	if err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
 		t.Fatalf("extractAndStore failed: %v", err)
 	}
 	if facts := m.Facts(userScope("u1")); len(facts) != 1 {
@@ -213,30 +220,30 @@ func TestExtractAndStore(t *testing.T) {
 
 func TestMaybeExtractMemoryDisabled(t *testing.T) {
 	// memory 为 nil：不抽取、不 panic
-	p := &Plugin{cfg: &Config{}}
+	p := &Plugin{cfg: &config.Config{}}
 	evt := platform.NewSyntheticEvent("c2c", "hello")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	p.maybeExtractMemory(ctx, &Session{})
+	p.maybeExtractMemory(ctx, &session.Session{})
 }
 
 func TestMaybeExtractMemoryPrivateChatForcesUserScope(t *testing.T) {
 	m := newTestMemoryStore(t, 50, time.Minute)
 	p := &Plugin{
-		cfg:    &Config{},
+		cfg:    &config.Config{},
 		memory: m,
 		prov: &mockProvider{
-			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-				return &ChatResponse{Content: `[{"text":"用户喜欢喝茶","scope":"group"}]`}, nil
+			chatFn: func(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
+				return &protocol.ChatResponse{Content: `[{"text":"用户喜欢喝茶","scope":"group"}]`}, nil
 			},
 		},
 		lifecycleCtx: context.Background(),
 	}
 	// 私聊中 group 事实应归入 user 作用域
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "c1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "我喜欢喝茶"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "c1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "我喜欢喝茶"}}
 	chat := platform.ChatInfo{ID: "c1", IsGroup: false}
 
-	if err := p.extractAndStore(userScope("u1"), "u1", chat, session); err != nil {
+	if err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
 		t.Fatalf("extractAndStore failed: %v", err)
 	}
 	if facts := m.Facts(userScope("u1")); len(facts) != 1 {
@@ -247,7 +254,7 @@ func TestMaybeExtractMemoryPrivateChatForcesUserScope(t *testing.T) {
 func TestMemoryRetrieveWithEmbedding(t *testing.T) {
 	m := newTestMemoryStore(t, 50, time.Minute)
 	emb := &mockEmbedder{vec: []float32{1, 0, 0}}
-	m.SetEmbedder(newTextVectorCache(emb))
+	m.SetEmbedder(retrieval.NewTextVectorCache(emb))
 	scope := userScope("u1")
 	m.Add(scope, "用户喜欢喝咖啡")
 	m.Add(scope, "原神游戏很好玩")
@@ -272,7 +279,7 @@ func TestMemoryRetrieveWithEmbedding(t *testing.T) {
 func TestMemoryRetrieveEmbeddingFailureFallback(t *testing.T) {
 	m := newTestMemoryStore(t, 50, time.Minute)
 	emb := &mockEmbedder{vec: []float32{1, 0, 0}, err: context.DeadlineExceeded}
-	m.SetEmbedder(newTextVectorCache(emb))
+	m.SetEmbedder(retrieval.NewTextVectorCache(emb))
 	scope := userScope("u1")
 	m.Add(scope, "用户喜欢喝咖啡")
 	m.Add(scope, "原神游戏很好玩")
@@ -288,10 +295,10 @@ func TestMemoryRetrieveEmbeddingFailureFallback(t *testing.T) {
 
 func TestMemorySharedEmbedCacheWithTools(t *testing.T) {
 	emb := &mockEmbedder{vec: []float32{1, 0, 0}}
-	cache := newTextVectorCache(emb)
+	cache := retrieval.NewTextVectorCache(emb)
 
 	// 工具文本嵌入
-	texts := []string{toolEmbeddingText(Tool{Name: "get_weather", Description: "查询天气"})}
+	texts := []string{decision.ToolEmbeddingText(toolkit.ActionOf(toolkit.Tool{Name: "get_weather", Description: "查询天气"}))}
 	if _, err := cache.EmbedTexts(context.Background(), texts); err != nil {
 		t.Fatalf("EmbedTexts failed: %v", err)
 	}
@@ -321,11 +328,11 @@ func TestBuildMemoryContextInjection(t *testing.T) {
 	m.Add(groupScope("g1"), "本群成员都爱喝咖啡")
 
 	p := &Plugin{
-		cfg:    &Config{MemoryInjectMax: 8},
+		cfg:    &config.Config{MemoryInjectMax: 8},
 		memory: m,
 	}
-	session := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
-	session.Messages = []Message{{Role: RoleUser, Content: "今天喝什么咖啡"}}
+	sess := &session.Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "今天喝什么咖啡"}}
 
 	evt := platform.NewSyntheticEvent("c2c", "今天喝什么咖啡",
 		platform.WithSyntheticSender(platform.UserInfo{ID: "u1", DisplayName: "小明"}),
@@ -333,7 +340,7 @@ func TestBuildMemoryContextInjection(t *testing.T) {
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	memCtx := p.buildMemoryContext(ctx, session)
+	memCtx := p.buildMemoryContextN(ctx, sess, p.cfg.MemoryInjectMax)
 	if !strings.Contains(memCtx, "用户喜欢喝咖啡") {
 		t.Errorf("expected coffee fact injected, got %q", memCtx)
 	}

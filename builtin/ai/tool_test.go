@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func TestNewToolRegistry(t *testing.T) {
-	r := NewToolRegistry()
+	r := toolkit.NewToolRegistry()
 	if r == nil {
 		t.Fatal("NewToolRegistry returned nil")
 	}
@@ -18,11 +20,11 @@ func TestNewToolRegistry(t *testing.T) {
 }
 
 func TestToolRegistryRegisterAndGet(t *testing.T) {
-	r := NewToolRegistry()
-	tool := Tool{
+	r := toolkit.NewToolRegistry()
+	tool := toolkit.Tool{
 		Name:        "test_tool",
 		Description: "a test tool",
-		Categories:  []string{CategoryGeneral},
+		Categories:  []string{toolkit.CategoryGeneral},
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "done", nil
 		},
@@ -42,8 +44,8 @@ func TestToolRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestToolRegistryRegisterDuplicate(t *testing.T) {
-	r := NewToolRegistry()
-	tool := Tool{Name: "dup"}
+	r := toolkit.NewToolRegistry()
+	tool := toolkit.Tool{Name: "dup"}
 	r.Register(tool)
 	r.Register(tool) // should not panic or overwrite
 
@@ -54,7 +56,7 @@ func TestToolRegistryRegisterDuplicate(t *testing.T) {
 }
 
 func TestToolRegistryGetNotFound(t *testing.T) {
-	r := NewToolRegistry()
+	r := toolkit.NewToolRegistry()
 	_, ok := r.Get("nonexistent")
 	if ok {
 		t.Error("expected false for nonexistent tool")
@@ -62,10 +64,10 @@ func TestToolRegistryGetNotFound(t *testing.T) {
 }
 
 func TestToolRegistryList(t *testing.T) {
-	r := NewToolRegistry()
-	r.Register(Tool{Name: "a"})
-	r.Register(Tool{Name: "b"})
-	r.Register(Tool{Name: "c"})
+	r := toolkit.NewToolRegistry()
+	r.Register(toolkit.Tool{Name: "a"})
+	r.Register(toolkit.Tool{Name: "b"})
+	r.Register(toolkit.Tool{Name: "c"})
 
 	tools := r.List()
 	if len(tools) != 3 {
@@ -74,8 +76,8 @@ func TestToolRegistryList(t *testing.T) {
 }
 
 func TestToolRegistryListCopy(t *testing.T) {
-	r := NewToolRegistry()
-	r.Register(Tool{Name: "original"})
+	r := toolkit.NewToolRegistry()
+	r.Register(toolkit.Tool{Name: "original"})
 
 	tools := r.List()
 	tools[0].Name = "modified"
@@ -87,19 +89,19 @@ func TestToolRegistryListCopy(t *testing.T) {
 }
 
 func TestToOpenAITools(t *testing.T) {
-	tools := []Tool{
+	tools := []toolkit.Tool{
 		{
 			Name:        "get_weather",
 			Description: "Get weather",
-			Parameters: ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"city": {Type: "string"},
 				},
 			},
 		},
 	}
-	openaiTools := toOpenAITools(tools)
+	openaiTools := toOpenAITools(toolkit.ActionsOf(tools))
 	if len(openaiTools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(openaiTools))
 	}
@@ -112,13 +114,13 @@ func TestToOpenAITools(t *testing.T) {
 }
 
 func TestToAnthropicTools(t *testing.T) {
-	tools := []Tool{
+	tools := []toolkit.Tool{
 		{
 			Name:        "get_weather",
 			Description: "Get weather",
 		},
 	}
-	anthropicTools := toAnthropicTools(tools)
+	anthropicTools := toAnthropicTools(toolkit.ActionsOf(tools))
 	if len(anthropicTools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(anthropicTools))
 	}
@@ -279,9 +281,9 @@ func TestParseAnthropicToolCallsWithInputConversion(t *testing.T) {
 func TestWithCallerInfo(t *testing.T) {
 	ctx := context.Background()
 	info := platform.UserInfo{ID: "user123", DisplayName: "TestUser"}
-	newCtx := WithCallerInfo(ctx, info)
+	newCtx := toolkit.WithCallerInfo(ctx, info)
 
-	got, ok := CallerInfoFromContext(newCtx)
+	got, ok := toolkit.CallerInfoFromContext(newCtx)
 	if !ok {
 		t.Fatal("expected caller info in context")
 	}
@@ -295,7 +297,7 @@ func TestWithCallerInfo(t *testing.T) {
 
 func TestCallerInfoFromContextNoInfo(t *testing.T) {
 	ctx := context.Background()
-	_, ok := CallerInfoFromContext(ctx)
+	_, ok := toolkit.CallerInfoFromContext(ctx)
 	if ok {
 		t.Error("expected false when no caller info in context")
 	}

@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 )
 
@@ -516,16 +517,16 @@ func isAdvantageToken(tok string) bool {
 	return false
 }
 
-// ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+// ListTools 返回 AI 可调用的工具列表。实现 toolkit.ToolProvider。
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "dnd_ability_check",
 			Categories:  []string{"dnd", "rpg"},
 			Description: "进行 D&D 5e 属性检定。属性: STR/DEX/CON/INT/WIS/CHA。优势: advantage, disadvantage, none。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 					"ability":        {Type: "string", Description: "属性缩写（STR/DEX/CON/INT/WIS/CHA）"},
 					"advantage":      {Type: "string", Description: "优势状态: advantage/disadvantage/none（可选）"},
@@ -558,9 +559,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "dnd_skill_check",
 			Categories:  []string{"dnd", "rpg"},
 			Description: "进行 D&D 5e 技能检定。技能名如: 运动、察觉、隐匿、游说等。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 					"skill":          {Type: "string", Description: "技能名"},
 					"advantage":      {Type: "string", Description: "优势状态: advantage/disadvantage/none（可选）"},
@@ -592,9 +593,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "dnd_saving_throw",
 			Categories:  []string{"dnd", "rpg"},
 			Description: "进行 D&D 5e 豁免检定。属性: STR/DEX/CON/INT/WIS/CHA。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 					"ability":        {Type: "string", Description: "属性缩写（STR/DEX/CON/INT/WIS/CHA）"},
 					"advantage":      {Type: "string", Description: "优势状态: advantage/disadvantage/none（可选）"},
@@ -630,9 +631,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "dnd_initiative",
 			Categories:  []string{"dnd", "rpg"},
 			Description: "进行 D&D 5e 先攻检定。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 				},
 				Required: []string{"character_name"},
@@ -658,9 +659,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Name:        "view_dnd_character",
 			Categories:  []string{"dnd", "rpg"},
 			Description: "查看 D&D 5e 角色卡信息。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"character_name": {Type: "string", Description: "角色名"},
 				},
 				Required: []string{"character_name"},
@@ -680,9 +681,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 	}
 }
 
-// ListSkills 返回 AI 技能列表。实现 ai.SkillProvider。
-func (p *Plugin) ListSkills() []ai.Skill {
-	return []ai.Skill{
+// ListSkills 返回 AI 技能列表。实现 toolkit.SkillProvider。
+func (p *Plugin) ListSkills() []toolkit.Skill {
+	return []toolkit.Skill{
 		{
 			Name:        "dnd_dungeon_master",
 			Description: "D&D 地下城主助手 — 属性检定、技能检定、豁免、先攻、角色查询",

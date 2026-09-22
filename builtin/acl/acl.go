@@ -25,7 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -293,16 +294,16 @@ func (p *Plugin) IsAllowed(userID string) bool {
 }
 
 // ListTools 返回可供 AI 调用的工具集。
-func (p *Plugin) ListTools() []ai.Tool {
-	return []ai.Tool{
+func (p *Plugin) ListTools() []toolkit.Tool {
+	return []toolkit.Tool{
 		{
 			Name:        "acl_check_user",
 			Categories:  []string{"admin"},
 			Permissions: []string{"acl.view"},
 			Description: "检查指定用户是否被 ACL 放行。返回是否允许、当前 ACL 模式和规则数量。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type: "object",
-				Properties: map[string]ai.ToolParamSchema{
+				Properties: map[string]protocol.ToolParamSchema{
 					"user_id": {Type: "string", Description: "用户 ID"},
 				},
 				Required: []string{"user_id"},
@@ -327,9 +328,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 			Categories:  []string{"admin"},
 			Permissions: []string{"acl.view"},
 			Description: "查询 ACL 统计信息：当前模式和规则总数。",
-			Parameters: ai.ToolParamSchema{
+			Parameters: protocol.ToolParamSchema{
 				Type:       "object",
-				Properties: map[string]ai.ToolParamSchema{},
+				Properties: map[string]protocol.ToolParamSchema{},
 			},
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
 				return fmt.Sprintf("当前 ACL 模式：%s，规则总数：%d", modeString(p.GetMode()), p.Count()), nil

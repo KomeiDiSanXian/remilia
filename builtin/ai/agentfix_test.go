@@ -7,37 +7,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-func TestParseToolPermission(t *testing.T) {
-	cases := []struct {
-		in           string
-		wantRes, act string
-	}{
-		{"bilibili.manage", "bilibili", "manage"},
-		{"bilibili:manage", "bilibili", "manage"},
-		{"bilibili", "bilibili", "*"},
-		{"*", "*", "*"},
-	}
-	for _, tt := range cases {
-		res, act := parseToolPermission(tt.in)
-		if res != tt.wantRes || act != tt.act {
-			t.Errorf("parseToolPermission(%q) = (%q,%q), want (%q,%q)", tt.in, res, act, tt.wantRes, tt.act)
-		}
-	}
-}
-
 // execProtectedTool 构造带权限声明的工具执行场景。
 func execProtectedTool(t *testing.T, withPM bool, grant string, perms []string) string {
 	t.Helper()
 	p := &Plugin{
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
-	p.reg.Register(Tool{
+	p.reg.Register(toolkit.Tool{
 		Name:        "protected_tool",
 		Description: "需要权限的工具",
 		Permissions: perms,
@@ -52,13 +39,13 @@ func execProtectedTool(t *testing.T, withPM bool, grant string, perms []string) 
 	if withPM {
 		pm := eventctx.NewPermissionManager()
 		if grant != "" {
-			res, act := parseToolPermission(grant)
+			res, act := execution.ParseToolPermission(grant)
 			pm.GrantPermission("user1", permission.Permission{Resource: res, Action: act})
 		}
 		ctx.SetPermissionManager(pm)
 	}
 
-	return p.executeTool(ctx, ToolCall{Name: "protected_tool"}, context.Background(), &captureSender{}, nil)
+	return p.executeToolResult(ctx, protocol.ToolCall{Name: "protected_tool"}, context.Background(), &execution.CaptureSender{}, nil).Text
 }
 
 func TestExecuteToolPermissionDenied(t *testing.T) {
@@ -92,80 +79,80 @@ func TestExecuteToolPermissionGranted(t *testing.T) {
 }
 
 func TestSessionPlanPersistRoundTrip(t *testing.T) {
-	s := &Session{
+	s := &session.Session{
 		ID:     "p:g:u",
 		UserID: "u",
 		ChatID: "g",
 	}
-	s.setPlan(&Plan{
+	s.SetPlan(&session.Plan{
 		Task:   "跨重启任务",
 		Active: true,
-		Steps: []PlanStep{
-			{ID: "step_1", Description: "第一步", Status: PlanInProgress},
-			{ID: "step_2", Description: "第二步", Status: PlanPending},
+		Steps: []session.PlanStep{
+			{ID: "step_1", Description: "第一步", Status: session.PlanInProgress},
+			{ID: "step_2", Description: "第二步", Status: session.PlanPending},
 		},
 	})
 
-	rec := s.toRecord()
+	rec := s.ToRecord()
 	if rec.Plan == "" {
 		t.Fatal("plan should be persisted in record")
 	}
-	restored := rec.toSession()
-	plan := restored.planSnapshot()
+	restored := rec.ToSession()
+	plan := restored.PlanSnapshot()
 	if plan == nil || plan.Task != "跨重启任务" || !plan.Active {
 		t.Fatalf("plan not restored: %+v", plan)
 	}
-	if len(plan.Steps) != 2 || plan.Steps[0].Status != PlanInProgress {
+	if len(plan.Steps) != 2 || plan.Steps[0].Status != session.PlanInProgress {
 		t.Errorf("steps not restored: %+v", plan.Steps)
 	}
 	// 完成后不持久化 Active=false 的计划的注入文本
-	if restored.planText() == "" {
+	if restored.PlanText() == "" {
 		t.Error("restored active plan should be injectable")
 	}
 }
 
 func TestToolTraceCap(t *testing.T) {
-	s := &Session{}
-	for range maxToolTrace + 10 {
-		s.appendToolTrace(ToolTraceEntry{ToolName: "t", Duration: time.Millisecond})
+	s := &session.Session{}
+	for range session.MaxToolTrace + 10 {
+		s.AppendToolTrace(session.ToolTraceEntry{ToolName: "t", Duration: time.Millisecond})
 	}
 	entries := s.ToolTrace()
-	if len(entries) != maxToolTrace {
-		t.Errorf("expected %d entries, got %d", maxToolTrace, len(entries))
+	if len(entries) != session.MaxToolTrace {
+		t.Errorf("expected %d entries, got %d", session.MaxToolTrace, len(entries))
 	}
 }
 
 func TestProcessWithToolsRecordsTrace(t *testing.T) {
 	var streamCalls int
 	p := &Plugin{
-		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{
-			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				streamCalls++
-				ch := make(chan StreamEvent, 3)
+				ch := make(chan protocol.StreamEvent, 3)
 				switch streamCalls {
 				case 1:
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{
 						ID: "call_1", Name: "flaky_tool", Arguments: map[string]any{"query": "天气"},
 					}}
 				case 2:
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventToolCall, ToolCall: &protocol.ToolCall{
 						ID: "call_2", Name: "flaky_tool", Arguments: map[string]any{"query": "天气"},
 					}}
 				default:
-					ch <- StreamEvent{Type: StreamEventText, Content: "done"}
+					ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "done"}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
 				close(ch)
 				return ch, nil
 			},
 		},
 	}
 	var attempts int
-	p.reg.Register(Tool{
+	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			attempts++
@@ -176,17 +163,17 @@ func TestProcessWithToolsRecordsTrace(t *testing.T) {
 		},
 	})
 
-	session := p.sm.GetOrCreate("test:trace", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "查天气"})
+	sess := p.sm.GetOrCreate("test:trace", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "查天气"})
 
 	evt := platform.NewSyntheticEvent("c2c", "查天气")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	if _, err := p.processWithTools(ctx, session); err != nil {
+	if _, err := p.processWithTools(ctx, sess); err != nil {
 		t.Fatalf("processWithTools failed: %v", err)
 	}
 
-	entries := session.ToolTrace()
+	entries := sess.ToolTrace()
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 trace entries, got %d", len(entries))
 	}
@@ -209,14 +196,14 @@ func TestProcessWithToolsRecordsTrace(t *testing.T) {
 
 func TestExecSubCommandTrace(t *testing.T) {
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
-	session := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
-	session.appendToolTrace(ToolTraceEntry{
+	sess := p.sm.GetOrCreate("discord:chat:user", "user", "chat")
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	sess.AppendToolTrace(session.ToolTraceEntry{
 		Time: time.Now(), ToolName: "get_weather",
 		Args: "city=北京", Duration: 250 * time.Millisecond,
 	})
@@ -228,10 +215,10 @@ func TestExecSubCommandTrace(t *testing.T) {
 
 	// 无记录场景不报错
 	p2 := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      &Config{},
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg:      &config.Config{},
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 	}
 	_ = p2.sm.GetOrCreate("discord:chat:user", "user", "chat")
 	ctx2 := makeContext("/ai trace")

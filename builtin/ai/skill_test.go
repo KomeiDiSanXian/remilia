@@ -2,20 +2,22 @@ package ai
 
 import (
 	"testing"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
 func TestNewSkillRegistry(t *testing.T) {
-	r := NewSkillRegistry()
+	r := toolkit.NewSkillRegistry()
 	if r == nil {
 		t.Fatal("NewSkillRegistry returned nil")
 	}
 }
 
 func TestSkillRegistryAddAndGet(t *testing.T) {
-	r := NewSkillRegistry()
-	skill := Skill{
+	r := toolkit.NewSkillRegistry()
+	skill := toolkit.Skill{
 		Name:        "test_skill",
-		OwnerID:     OwnerSystem,
+		OwnerID:     toolkit.OwnerSystem,
 		Description: "a test skill",
 		Prompt:      "You are a test skill",
 		Enabled:     true,
@@ -39,33 +41,33 @@ func TestSkillRegistryAddAndGet(t *testing.T) {
 }
 
 func TestSkillRegistryAddDuplicate(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "dup", OwnerID: OwnerSystem})
-	err := r.Add(Skill{Name: "dup", OwnerID: OwnerSystem})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "dup", OwnerID: toolkit.OwnerSystem})
+	err := r.Add(toolkit.Skill{Name: "dup", OwnerID: toolkit.OwnerSystem})
 	if err == nil {
 		t.Error("expected error for duplicate skill")
 	}
 }
 
 func TestSkillRegistryAddEmptyName(t *testing.T) {
-	r := NewSkillRegistry()
-	err := r.Add(Skill{Name: "", OwnerID: OwnerSystem})
+	r := toolkit.NewSkillRegistry()
+	err := r.Add(toolkit.Skill{Name: "", OwnerID: toolkit.OwnerSystem})
 	if err == nil {
 		t.Error("expected error for empty name")
 	}
 }
 
 func TestSkillRegistryAddEmptyOwner(t *testing.T) {
-	r := NewSkillRegistry()
-	err := r.Add(Skill{Name: "test", OwnerID: ""})
+	r := toolkit.NewSkillRegistry()
+	err := r.Add(toolkit.Skill{Name: "test", OwnerID: ""})
 	if err == nil {
 		t.Error("expected error for empty owner")
 	}
 }
 
 func TestSkillRegistryGetSystem(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "sys_skill", OwnerID: OwnerSystem})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "sys_skill", OwnerID: toolkit.OwnerSystem})
 
 	_, ok := r.GetSystem("sys_skill")
 	if !ok {
@@ -78,8 +80,8 @@ func TestSkillRegistryGetSystem(t *testing.T) {
 }
 
 func TestSkillRegistryGetByOwner(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "user_skill", OwnerID: "user123"})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "user_skill", OwnerID: "user123"})
 
 	_, ok := r.GetByOwner("user123", "user_skill")
 	if !ok {
@@ -91,18 +93,9 @@ func TestSkillRegistryGetByOwner(t *testing.T) {
 	}
 }
 
-func TestSkillRegistryGetLegacy(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "legacy_skill", OwnerID: OwnerSystem})
-	_, ok := r.Get("legacy_skill")
-	if !ok {
-		t.Error("Get should find system skill")
-	}
-}
-
 func TestSkillRegistrySetEnabled(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "togglable", OwnerID: "user1", Enabled: true})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "togglable", OwnerID: "user1", Enabled: true})
 
 	s, err := r.SetEnabled("user1", "togglable", false)
 	if err != nil {
@@ -117,7 +110,7 @@ func TestSkillRegistrySetEnabled(t *testing.T) {
 }
 
 func TestSkillRegistrySetEnabledNotFound(t *testing.T) {
-	r := NewSkillRegistry()
+	r := toolkit.NewSkillRegistry()
 	_, err := r.SetEnabled("user1", "nonexistent", false)
 	if err == nil {
 		t.Error("expected error for nonexistent skill")
@@ -125,9 +118,9 @@ func TestSkillRegistrySetEnabledNotFound(t *testing.T) {
 }
 
 func TestSkillRegistryList(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "s1", OwnerID: OwnerSystem})
-	r.Add(Skill{Name: "s2", OwnerID: OwnerSystem})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "s1", OwnerID: toolkit.OwnerSystem})
+	r.Add(toolkit.Skill{Name: "s2", OwnerID: toolkit.OwnerSystem})
 
 	skills := r.List()
 	if len(skills) != 2 {
@@ -136,10 +129,10 @@ func TestSkillRegistryList(t *testing.T) {
 }
 
 func TestSkillRegistryListByOwner(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "a", OwnerID: "user1"})
-	r.Add(Skill{Name: "b", OwnerID: "user1"})
-	r.Add(Skill{Name: "c", OwnerID: "user2"})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "a", OwnerID: "user1"})
+	r.Add(toolkit.Skill{Name: "b", OwnerID: "user1"})
+	r.Add(toolkit.Skill{Name: "c", OwnerID: "user2"})
 
 	user1Skills := r.ListByOwner("user1")
 	if len(user1Skills) != 2 {
@@ -156,8 +149,8 @@ func TestSkillRegistryListByOwner(t *testing.T) {
 }
 
 func TestSkillRegistryRemove(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "removable", OwnerID: "user1"})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "removable", OwnerID: "user1"})
 
 	err := r.Remove("removable", "user1")
 	if err != nil {
@@ -171,7 +164,7 @@ func TestSkillRegistryRemove(t *testing.T) {
 }
 
 func TestSkillRegistryRemoveNotFound(t *testing.T) {
-	r := NewSkillRegistry()
+	r := toolkit.NewSkillRegistry()
 	err := r.Remove("nonexistent", "user1")
 	if err == nil {
 		t.Error("expected error for removing nonexistent skill")
@@ -179,8 +172,8 @@ func TestSkillRegistryRemoveNotFound(t *testing.T) {
 }
 
 func TestSkillRegistryRemoveWrongOwner(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "skill_a", OwnerID: "user1"})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "skill_a", OwnerID: "user1"})
 	err := r.Remove("skill_a", "user2")
 	if err == nil {
 		t.Error("expected error when removing someone else's skill")
@@ -188,12 +181,12 @@ func TestSkillRegistryRemoveWrongOwner(t *testing.T) {
 }
 
 func TestSkillRegistryIncrementUsage(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "counter", OwnerID: OwnerSystem, UsageCount: 0})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "counter", OwnerID: toolkit.OwnerSystem, UsageCount: 0})
 
-	r.IncrementUsage(OwnerSystem, "counter")
-	r.IncrementUsage(OwnerSystem, "counter")
-	r.IncrementUsage(OwnerSystem, "counter")
+	r.IncrementUsage(toolkit.OwnerSystem, "counter")
+	r.IncrementUsage(toolkit.OwnerSystem, "counter")
+	r.IncrementUsage(toolkit.OwnerSystem, "counter")
 
 	s, _ := r.GetSystem("counter")
 	if s.UsageCount != 3 {
@@ -202,13 +195,13 @@ func TestSkillRegistryIncrementUsage(t *testing.T) {
 }
 
 func TestSkillRegistryIncrementUsageNotFound(t *testing.T) {
-	r := NewSkillRegistry()
+	r := toolkit.NewSkillRegistry()
 	r.IncrementUsage("nobody", "nothing") // should not panic
 }
 
 func TestSkillRegistryPromote(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "u_user_skill", OwnerID: "user1", Prompt: "test"})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "u_user_skill", OwnerID: "user1", Prompt: "test"})
 
 	err := r.Promote("u_user_skill", "user1")
 	if err != nil {
@@ -224,7 +217,7 @@ func TestSkillRegistryPromote(t *testing.T) {
 	if !sysOk {
 		t.Error("promoted skill should be available as system skill")
 	}
-	if sys.OwnerID != OwnerSystem {
+	if sys.OwnerID != toolkit.OwnerSystem {
 		t.Errorf("expected OwnerSystem, got %q", sys.OwnerID)
 	}
 	if sys.Prompt != "test" {
@@ -233,9 +226,9 @@ func TestSkillRegistryPromote(t *testing.T) {
 }
 
 func TestSkillRegistryPromoteConflict(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Add(Skill{Name: "u_conflict", OwnerID: "user1"})
-	r.Add(Skill{Name: "conflict", OwnerID: OwnerSystem})
+	r := toolkit.NewSkillRegistry()
+	r.Add(toolkit.Skill{Name: "u_conflict", OwnerID: "user1"})
+	r.Add(toolkit.Skill{Name: "conflict", OwnerID: toolkit.OwnerSystem})
 
 	err := r.Promote("u_conflict", "user1")
 	if err == nil {
@@ -244,7 +237,7 @@ func TestSkillRegistryPromoteConflict(t *testing.T) {
 }
 
 func TestSkillRegistryPromoteNotFound(t *testing.T) {
-	r := NewSkillRegistry()
+	r := toolkit.NewSkillRegistry()
 	err := r.Promote("nonexistent", "user1")
 	if err == nil {
 		t.Error("expected error for promoting nonexistent skill")
@@ -252,9 +245,9 @@ func TestSkillRegistryPromoteNotFound(t *testing.T) {
 }
 
 func TestSkillRegistryRegister(t *testing.T) {
-	r := NewSkillRegistry()
-	r.Register(Skill{Name: "reg_skill", OwnerID: OwnerSystem})
-	r.Register(Skill{Name: "reg_skill", OwnerID: OwnerSystem}) // duplicate should not panic
+	r := toolkit.NewSkillRegistry()
+	r.Register(toolkit.Skill{Name: "reg_skill", OwnerID: toolkit.OwnerSystem})
+	r.Register(toolkit.Skill{Name: "reg_skill", OwnerID: toolkit.OwnerSystem}) // duplicate should not panic
 
 	_, ok := r.GetSystem("reg_skill")
 	if !ok {
