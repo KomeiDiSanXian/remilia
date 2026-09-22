@@ -39,6 +39,10 @@
   提供，仓库内 34 处消费者已同步迁移（无外部插件作者）
 - **冻结清单**：`docs/notes/27-ai-freeze-checklist.md` 的 20 条契约（17 契约 +
   3 负向不变量）全部落地为可执行用例
+- **弃用 API 清理**：`cmd/bot` 不再经由根包的弃用别名使用 pprof，改为直接引用
+  `infra/pprof`（`PprofServer` / `PprofConfig` / `DefaultPprofConfig` /
+  `NewPprofServer` 四处 `SA1019` 告警清零）；同时删除无调用方的
+  `rconClient.lastUsedAt` 方法。两者均不改变可观测行为
 - **工具链与回归**：应用 `go fix` 现代化建议并归一化 `gofmt`；
   `golangci-lint` 0 issues；`./builtin/ai/...` 710 通过 / 0 失败，全仓 125 包通过
 
