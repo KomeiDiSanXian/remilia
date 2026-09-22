@@ -172,13 +172,6 @@ func (c *rconClient) closeLocked() error {
 	return err
 }
 
-// lastUsedAt 返回上次成功使用的时刻（供空闲回收判断）。
-func (c *rconClient) lastUsedAt() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.lastUsed
-}
-
 // writePacket 发送一个 RCON 包。
 func (c *rconClient) writePacket(id, typ int32, body string) error {
 	if c.conn == nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/api"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -75,7 +76,7 @@ func applyBuildInfo(bot *remilia.Bot) {
 }
 
 // startPprof 启动 pprof 服务器；未启用或启动失败时返回 nil。
-func (a *app) startPprof() *remilia.PprofServer {
+func (a *app) startPprof() *pprof.Server {
 	pprofCfg := a.cfg.Pprof
 	if !pprofCfg.Enabled {
 		return nil
@@ -84,9 +85,9 @@ func (a *app) startPprof() *remilia.PprofServer {
 	if addr == "" {
 		addr = defaultHealthAddr
 	}
-	def := remilia.DefaultPprofConfig()
+	def := pprof.DefaultConfig()
 
-	srv := remilia.NewPprofServer(remilia.PprofConfig{
+	srv := pprof.NewServer(pprof.Config{
 		Enabled:         true,
 		Addr:            addr,
 		AutoProfile:     pprofCfg.AutoProfile,

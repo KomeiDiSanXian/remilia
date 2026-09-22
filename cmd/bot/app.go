@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
@@ -38,7 +39,7 @@ type app struct {
 	configWatcher *config.Watcher
 
 	healthHandler http.HandlerFunc
-	pprofSrv      *remilia.PprofServer
+	pprofSrv      *pprof.Server
 	healthSrv     *infraserver.HTTPServer
 	apiSrv        *api.Server
 }
