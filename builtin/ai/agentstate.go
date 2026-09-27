@@ -11,10 +11,21 @@
 // 承载字段的 `json:"-"` 标签与 SessionRecord 的序列化共同决定持久化边界，
 // 两者都按"行为变更"对待——改动需先在进度文档裁决，不随重构顺带调整。
 //
-// 清单由 agentstate_test.go 校验：声明为落库的字段必须真实存在于 SessionRecord，
-// 分类与承载形态必须一致；落库字段的并集必须恰为 SessionRecord 的字段集合；
-// 且 Session 上每个业务字段都必须被清单覆盖（新增状态忘记登记会被测试拦下，
-// 纯并发原语除外）。
+// 清单由 agentstate_test.go 校验，覆盖是穷尽且分层的：
+//
+//   - 承载字段必须真实存在，分类（Class）与承载形态必须一致；
+//   - Session 覆盖**穷尽**：Session 上每个字段要么被清单登记，要么落在并发
+//     原语豁免名单（agentstate_test.go 的 agentStateInfrastructure），
+//     新增会话状态漏登记会被拦下；
+//   - Record 覆盖**精确**：落库字段的并集必须恰为 SessionRecord 的字段集合；
+//   - Plugin 覆盖同样**穷尽**：Plugin（含五个 owner 嵌入结构）上的每个字段
+//     要么登记为进程级代理状态，要么落在非代理字段名单
+//     （agentstate_test.go 的 agentStatePluginNonAgent，按用途分组），
+//     新增字段漏分类会被拦下。
+//
+// "非代理字段"不等于无关紧要：服务句柄（如 sm/reg/history）本身就是清单里
+// 会话状态的容器或外部依赖，装配管道（如 def/lifecycleCtx）与静态配置
+// （如 cfg）也不随对话演进——它们不进归属表，是刻意的范围界定而非遗漏。
 package ai
 
 // agentStateClass 代理状态的持久化归属。
@@ -28,6 +39,10 @@ const (
 	// agentStateProcessMemory 存活于插件进程级管理器：重启后重置，
 	// 且按会话/作用域索引（不属于单个 Session 对象）。
 	agentStateProcessMemory
+	// agentStateProcessPersisted 存活于插件进程级管理器，但自带持久化：
+	// 跨重启保留，且不随单个会话记录落库（与 agentStatePersisted 的区别在
+	// 于后者的载体是 SessionRecord）。
+	agentStateProcessPersisted
 )
 
 // agentStateItem 一项代理状态及其归属。
@@ -119,6 +134,21 @@ func agentStateInventory() []agentStateItem {
 			Name: "reminder", Class: agentStateProcessMemory,
 			Plugin: []string{"reminders"},
 			Note:   "提醒：进程级管理器按 chatID 索引，当前不落库（重启即丢）",
+		},
+		{
+			Name: "approval", Class: agentStateProcessMemory,
+			Plugin: []string{"approvals"},
+			Note:   "待用户按钮/文本应答的动作审批请求：按会话索引，超时按拒绝处理，重启即丢",
+		},
+		{
+			Name: "long_term_memory", Class: agentStateProcessPersisted,
+			Plugin: []string{"memory"},
+			Note:   "长期事实记忆：LevelDB（data/ai_memory）自带持久化，不随 SessionRecord 落库",
+		},
+		{
+			Name: "group_policy", Class: agentStateProcessPersisted,
+			Plugin: []string{"groupPolicies"},
+			Note:   "per-group 工具策略/提示词：LevelDB（data/ai）自带持久化，属进程级配置态",
 		},
 	}
 }

@@ -99,3 +99,35 @@ func TestPluginStateFieldNamesDoNotCollide(t *testing.T) {
 		}
 	}
 }
+
+// pluginOwnerTypes owner 结构名的唯一对照表（类型级）。
+func pluginOwnerTypes() map[string]reflect.Type {
+	return map[string]reflect.Type{
+		"catalogState":   reflect.TypeFor[catalogState](),
+		"contextState":   reflect.TypeFor[contextState](),
+		"executionState": reflect.TypeFor[executionState](),
+		"runtimeState":   reflect.TypeFor[runtimeState](),
+		"adminState":     reflect.TypeFor[adminState](),
+	}
+}
+
+// TestPluginOwnerMethodNamesDoNotCollide owner 结构体上的方法经匿名嵌入提升为
+// *Plugin 的方法。两个 owner 定义同名方法会让 p.<方法>() 二义——Go 只在**调用处**
+// 报错，无人调用时静默存在，因此这里主动拦下。字段名由上面两条用例守卫，方法名
+// 同样需要。
+//
+// 注意 NumMethod 只统计导出方法，而提升后能被包外调用、或用于满足接口的恰恰是
+// 这些导出方法，正是需要唯一的集合。
+func TestPluginOwnerMethodNamesDoNotCollide(t *testing.T) {
+	seen := map[string]string{}
+	for owner, typ := range pluginOwnerTypes() {
+		for i := 0; i < typ.NumMethod(); i++ {
+			name := typ.Method(i).Name
+			if prev, ok := seen[name]; ok {
+				t.Errorf("method %q appears on both %q and %q; p.%s() would be ambiguous",
+					name, prev, owner, name)
+			}
+			seen[name] = owner
+		}
+	}
+}

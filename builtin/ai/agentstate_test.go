@@ -86,6 +86,10 @@ func TestAgentStateClassesMatchCarriers(t *testing.T) {
 			assert.NotEmptyf(t, item.Plugin, "process state %q must name Plugin carriers", item.Name)
 			assert.Emptyf(t, item.Session, "process state %q must not live on Session", item.Name)
 			assert.Emptyf(t, item.Record, "process state %q must not be persisted", item.Name)
+		case agentStateProcessPersisted:
+			assert.NotEmptyf(t, item.Plugin, "process-persisted state %q must name Plugin carriers", item.Name)
+			assert.Emptyf(t, item.Session, "process-persisted state %q must not live on Session", item.Name)
+			assert.Emptyf(t, item.Record, "process-persisted state %q must not live on SessionRecord", item.Name)
 		default:
 			t.Errorf("state %q has unknown class %d", item.Name, item.Class)
 		}
@@ -151,6 +155,45 @@ func agentStateInfrastructure() []string {
 	return []string{"mu", "turnMu"}
 }
 
+// agentStatePluginNonAgent Plugin 上明确不属于"代理状态"的字段，按用途分组。
+//
+// 归属表登记的是随对话演进的状态；本名单登记的是装配管道、服务句柄、静态
+// 配置与后台守卫。Plugin 覆盖守卫（TestAgentStateCoversPluginState）要求
+// Plugin 的每个字段二选一落入这两处，因此新增字段时必须显式归类，不会静默溜过。
+//
+// 与 agentStateInfrastructure 一样，它只服务于下面这条守卫用例，因此与用例
+// 同址，不进入生产代码。
+func agentStatePluginNonAgent() map[string]string {
+	return map[string]string{
+		// 静态配置与服务句柄（装配期注入，不随对话演进）。
+		"cfg":       "插件配置（config.yaml）",
+		"prov":      "LLM 提供商实例",
+		"coord":     "命令协调器句柄（engine.Reader）",
+		"reg":       "工具注册表",
+		"skillReg":  "技能注册表",
+		"perms":     "RBAC 权限插件句柄",
+		"history":   "消息历史服务（messagelog）",
+		"emb":       "文本向量缓存（嵌入服务）",
+		"syncer":    "事件处理器（vevent）",
+		"sm":        "会话管理器：清单里的会话状态由它承载",
+		"fsmEngine": "FSM 引擎句柄",
+		// 装配管道与并发原语。
+		"cmdMu":           "cmdPatterns 的读写锁",
+		"cmdPatterns":     "工具名 → 命令模式映射（发现结果）",
+		"realCmdMu":       "真实命令通道的串行化互斥",
+		"defOnce":         "触发命令定义的懒初始化",
+		"def":             "触发命令定义（由 cfg 派生）",
+		"triggerCmd":      "触发命令前缀（由 cfg 派生）",
+		"lifecycleCtx":    "插件生命周期上下文",
+		"lifecycleCancel": "生命周期上下文的取消函数",
+		// 后台任务守卫与限流（去重/节流，不是业务状态）。
+		"summaryMu":  "summaries 的互斥锁",
+		"summaries":  "同一会话摘要任务的在途去重集合",
+		"actionMu":   "actionRate 的互斥锁",
+		"actionRate": "按钮/命令动作的限流状态",
+	}
+}
+
 // TestAgentStateCoversSessionState Session 上每个字段要么被归属表覆盖，要么落
 // 在并发原语豁免名单里；豁免名单只允许出现纯同步原语，避免夹带业务状态。
 func TestAgentStateCoversSessionState(t *testing.T) {
@@ -171,6 +214,48 @@ func TestAgentStateCoversSessionState(t *testing.T) {
 			continue
 		}
 		t.Errorf("Session field %q is neither registered agent state nor a concurrency primitive", name)
+	}
+}
+
+// pluginFieldNames 递归收集 Plugin 上的全部字段名（含匿名嵌入的 owner 结构）。
+// Plugin 直属的 cfg/prov 与五个 owner 结构的字段都会出现，守卫用例据此要求
+// 每个字段要么登记为代理状态，要么落在非代理名单里。
+func pluginFieldNames() []string {
+	var names []string
+	var walk func(t reflect.Type)
+	walk = func(t reflect.Type) {
+		for field := range t.Fields() {
+			if field.Anonymous && field.Type.Kind() == reflect.Struct {
+				walk(field.Type)
+				continue
+			}
+			names = append(names, field.Name)
+		}
+	}
+	walk(reflect.TypeFor[Plugin]())
+	return names
+}
+
+// TestAgentStateCoversPluginState Plugin（含 owner 嵌入结构）上每个字段要么被
+// 归属表登记为进程级代理状态，要么落在 agentStatePluginNonAgent 名单里；
+// 新增字段漏分类会被拦下。名单本身也不得夹带已登记的字段或虚构字段。
+func TestAgentStateCoversPluginState(t *testing.T) {
+	_, _, covered := agentStateCarriers()
+	exempt := agentStatePluginNonAgent()
+
+	pluginType := reflect.TypeFor[Plugin]()
+	for _, name := range pluginFieldNames() {
+		if covered[name] != "" || exempt[name] != "" {
+			continue
+		}
+		t.Errorf("Plugin field %q is neither registered agent state nor a declared non-agent field", name)
+	}
+
+	for name, reason := range exempt {
+		assert.NotEmptyf(t, reason, "non-agent field %q must explain why it is exempt", name)
+		assert.Emptyf(t, covered[name], "field %q is both registered agent state and declared non-agent", name)
+		_, ok := pluginType.FieldByName(name)
+		assert.Truef(t, ok, "non-agent list references missing Plugin field %q", name)
 	}
 }
 
