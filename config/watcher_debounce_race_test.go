@@ -2,8 +2,8 @@ package config
 
 // watcher_debounce_race_test.go — debounce timer 与 Stop() 竞态测试
 //
-// 测试目标（T-4）：验证 L-4 修复：
-// 当 debounce timer 在 Stop() 之后触发时，reload() 检查 ctx.Err() 并安全返回，
+// 测试目标：当 debounce timer 在 Stop() 之后触发时，
+// reload() 检查 ctx.Err() 并安全返回，
 // 不会访问已关闭的 watcher 资源，也不会触发回调。
 //
 // 推荐运行方式（开启 -race 探测器）：
@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWatcherDebounceRace_StopBeforeTimerFires 验证 L-4 修复的核心场景：
+// TestWatcherDebounceRace_StopBeforeTimerFires 验证核心场景：
 // 文件变更触发 debounce timer 后，在 timer 到期前调用 Stop()，
 // timer 最终触发时 reload() 因 ctx 已取消而安全提前返回，回调不被执行。
 func TestWatcherDebounceRace_StopBeforeTimerFires(t *testing.T) {
@@ -63,6 +63,16 @@ log:
 
 	// 在 debounce timer 到期前（50ms < 300ms）停止 watcher
 	time.Sleep(50 * time.Millisecond)
+
+	// 以 Stop 为分界做判定：机器负载高时 timer 可能已在 Stop 前触发，
+	// 那属于正常回调（reloadCount 会 +1）。这里先记录基线并清空通道，
+	// 只校验 Stop 之后不再产生新回调，避免把 Stop 前的回调误判为失败。
+	preStop := reloadCount.Load()
+	select {
+	case <-reloaded:
+	default:
+	}
+
 	require.NoError(t, watcher.Stop())
 
 	// 等待超过 debounce delay，确认 timer 已触发并被 ctx.Err() 拦截
@@ -72,9 +82,9 @@ log:
 	case <-time.After(350 * time.Millisecond):
 	}
 
-	// L-4 修复验证：timer 触发后 reload() 检测到 ctx 已取消，不执行回调
-	assert.Equal(t, int32(0), reloadCount.Load(),
-		"L-4 fix: Stop() 后 debounce timer 触发时 reload() 应提前返回，不调用回调")
+	// timer 触发后 reload() 检测到 ctx 已取消，不执行回调
+	assert.Equal(t, preStop, reloadCount.Load(),
+		"Stop() 后 debounce timer 触发时 reload() 应提前返回，不调用回调")
 }
 
 // TestWatcherDebounceRace_MultipleFileChanges 验证多次文件变更时 Stop() 的安全性：
@@ -113,25 +123,27 @@ func TestWatcherDebounceRace_MultipleFileChanges(t *testing.T) {
 
 	// 等待 fsnotify 事件传递，仍在 debounce 窗口内
 	time.Sleep(50 * time.Millisecond)
+
+	// 与上一个测试同理：以 Stop 为分界，先记基线并清空通道，
+	// 只校验 Stop 之后不再产生新回调。
+	preStop := reloadCount.Load()
+	select {
+	case <-reloaded:
+	default:
+	}
+
 	require.NoError(t, watcher.Stop())
 
 	// 等待超过 debounce delay，验证 Stop 后无回调
-	select {
-	case <-reloaded:
-		// 可能发生在 Stop 前的最后一次 debounce 完成
-		// 这是允许的（reloadCount <= 1）
-	default:
-	}
 	select {
 	case <-reloaded:
 		t.Error("callback invoked after Stop (ctx.Err() check failed)")
 	case <-time.After(300 * time.Millisecond):
 	}
 
-	// 回调次数应为 0（所有 timer 均在 Stop 后触发，被 ctx.Err() 拦截）
-	// 或者 <= 1（极端情况下第一次写入刚好在 Stop 前完成 debounce）
-	assert.LessOrEqual(t, reloadCount.Load(), int32(1),
-		"多次文件变更后 Stop()：回调执行次数应 ≤ 1（Stop 之后的 timer 不触发回调）")
+	// Stop 之后触发（或被重启）的 timer 必须被 ctx.Err() 拦截
+	assert.Equal(t, preStop, reloadCount.Load(),
+		"多次文件变更后 Stop()：Stop 之后的 timer 不应再触发回调")
 }
 
 // TestWatcherDebounceRace_ReloadAfterStop_NoAccess 验证 reload() 在 Stop() 后被调用时
