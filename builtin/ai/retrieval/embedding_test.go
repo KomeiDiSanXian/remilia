@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -85,31 +86,35 @@ func TestOpenAIEmbedderErrorStatus(t *testing.T) {
 }
 
 func TestEmbeddingBreaker(t *testing.T) {
-	b := &embeddingBreaker{threshold: 3, cooldown: 40 * time.Millisecond}
-	if !b.Allow() {
-		t.Fatal("breaker should allow requests initially")
-	}
-	b.RecordFailure()
-	b.RecordFailure()
-	if !b.Allow() {
-		t.Error("breaker should stay closed below failure threshold")
-	}
-	b.RecordFailure()
-	if b.Allow() {
-		t.Error("breaker should open after threshold failures")
-	}
-	if b.Allow() {
-		t.Error("breaker should reject requests during cooldown")
-	}
-	// 冷却结束后放行一次探活。
-	time.Sleep(60 * time.Millisecond)
-	if !b.Allow() {
-		t.Error("breaker should allow a probe request after cooldown")
-	}
-	b.RecordSuccess()
-	if !b.Allow() {
-		t.Error("breaker should reset after a successful probe")
-	}
+	// synctest 气泡内使用虚拟时钟：熔断器直接读 time.Now，冷却期只在
+	// 所有协程阻塞时才推进，因此不会再出现"断言前 40ms 窗口已流逝"的时序抖动。
+	synctest.Test(t, func(t *testing.T) {
+		b := &embeddingBreaker{threshold: 3, cooldown: 40 * time.Millisecond}
+		if !b.Allow() {
+			t.Fatal("breaker should allow requests initially")
+		}
+		b.RecordFailure()
+		b.RecordFailure()
+		if !b.Allow() {
+			t.Error("breaker should stay closed below failure threshold")
+		}
+		b.RecordFailure()
+		if b.Allow() {
+			t.Error("breaker should open after threshold failures")
+		}
+		if b.Allow() {
+			t.Error("breaker should reject requests during cooldown")
+		}
+		// 冷却结束后放行一次探活（虚拟时钟随 Sleep 推进，无需真实等待）。
+		time.Sleep(60 * time.Millisecond)
+		if !b.Allow() {
+			t.Error("breaker should allow a probe request after cooldown")
+		}
+		b.RecordSuccess()
+		if !b.Allow() {
+			t.Error("breaker should reset after a successful probe")
+		}
+	})
 }
 
 func TestOpenAIEmbedderBreakerCooldown(t *testing.T) {
