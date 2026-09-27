@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -90,27 +91,30 @@ func TestAdapterStopWithError(t *testing.T) {
 }
 
 func TestAdapterInjectEvent(t *testing.T) {
-	a := mock.NewAdapter()
-	received := make(chan platform.Event, 1)
+	synctest.Test(t, func(t *testing.T) {
+		a := mock.NewAdapter()
+		received := make(chan platform.Event, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go a.Start(ctx, func(e platform.Event) {
-		received <- e
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go a.Start(ctx, func(e platform.Event) {
+			received <- e
+		})
+		// 用 synctest.Wait 等待 Start 完成初始化并阻塞在 ctx.Done()：
+		// 固定 sleep 在慢机器上可能早于 Start 执行，导致误判"未启动"。
+		synctest.Wait()
+
+		event := platform.NewSyntheticEvent("PRIVATE_MESSAGE", "hello")
+		if !a.InjectEvent(event) {
+			t.Fatal("InjectEvent returned false (adapter not started)")
+		}
+
+		select {
+		case <-received:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for event")
+		}
 	})
-	time.Sleep(5 * time.Millisecond)
-
-	event := platform.NewSyntheticEvent("PRIVATE_MESSAGE", "hello")
-	if !a.InjectEvent(event) {
-		t.Fatal("InjectEvent returned false (adapter not started)")
-	}
-
-	select {
-	case <-received:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for event")
-	}
-
-	cancel()
 }
 
 func TestAdapterInjectEventNotStarted(t *testing.T) {

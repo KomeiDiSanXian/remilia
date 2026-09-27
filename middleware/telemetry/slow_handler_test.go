@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
@@ -31,31 +32,34 @@ func TestSlowHandler(t *testing.T) {
 	})
 
 	t.Run("handler exceeds threshold triggers callback", func(t *testing.T) {
-		callbackCalled := false
-		var capturedDuration time.Duration
-		var capturedName string
+		synctest.Test(t, func(t *testing.T) {
+			callbackCalled := false
+			var capturedDuration time.Duration
+			var capturedName string
 
-		mw := SlowHandler(SlowHandlerConfig{
-			Threshold: 20 * time.Millisecond,
-			OnSlowHandler: func(name string, d time.Duration, ctx *context.Context) {
-				callbackCalled = true
-				capturedName = name
-				capturedDuration = d
-			},
+			mw := SlowHandler(SlowHandlerConfig{
+				Threshold: 20 * time.Millisecond,
+				OnSlowHandler: func(name string, d time.Duration, ctx *context.Context) {
+					callbackCalled = true
+					capturedName = name
+					capturedDuration = d
+				},
+			})
+			handler := mw(testutil.MockHandler(nil, 100*time.Millisecond))
+
+			ctx := testutil.CreateTestContext()
+			err := handler(ctx)
+
+			// SlowHandler 注入的 deadline 会使 handler 提前返回（阈值 20ms 处超时），
+			// 但超时错误会被 SlowHandler 屏蔽，返回 nil。
+			// synctest 虚拟时钟下耗时精确等于阈值，不再受机器负载影响。
+			assert.NoError(t, err)
+			assert.True(t, callbackCalled, "should trigger for slow handler")
+			assert.Equal(t, ctx.GetEventType(), capturedName)
+			// handler 被 deadline 打断，实际耗时等于 threshold 而非完整的 100ms
+			assert.GreaterOrEqual(t, capturedDuration, 15*time.Millisecond)
+			assert.Less(t, capturedDuration, 100*time.Millisecond)
 		})
-		handler := mw(testutil.MockHandler(nil, 100*time.Millisecond))
-
-		ctx := testutil.CreateTestContext()
-		err := handler(ctx)
-
-		// SlowHandler 注入的 deadline 会使 handler 提前返回（约 20ms 后超时），
-		// 但超时错误会被 SlowHandler 屏蔽，返回 nil。
-		assert.NoError(t, err)
-		assert.True(t, callbackCalled, "should trigger for slow handler")
-		assert.Equal(t, ctx.GetEventType(), capturedName)
-		// handler 被 deadline 打断，实际耗时接近 threshold 而非完整的 100ms
-		assert.GreaterOrEqual(t, capturedDuration, 15*time.Millisecond)
-		assert.Less(t, capturedDuration, 100*time.Millisecond)
 	})
 
 	t.Run("zero threshold defaults to 1s and does not trigger for fast handler", func(t *testing.T) {
@@ -129,30 +133,32 @@ func TestSlowHandlerFromConfig(t *testing.T) {
 
 func TestSlowHandlerCustomCallback(t *testing.T) {
 	t.Run("callback receives correct handler name and duration", func(t *testing.T) {
-		var (
-			calledName     string
-			calledDuration time.Duration
-			calledCtx      *context.Context
-		)
+		synctest.Test(t, func(t *testing.T) {
+			var (
+				calledName     string
+				calledDuration time.Duration
+				calledCtx      *context.Context
+			)
 
-		mw := SlowHandler(SlowHandlerConfig{
-			Threshold: 10 * time.Millisecond,
-			OnSlowHandler: func(name string, d time.Duration, ctx *context.Context) {
-				calledName = name
-				calledDuration = d
-				calledCtx = ctx
-			},
+			mw := SlowHandler(SlowHandlerConfig{
+				Threshold: 10 * time.Millisecond,
+				OnSlowHandler: func(name string, d time.Duration, ctx *context.Context) {
+					calledName = name
+					calledDuration = d
+					calledCtx = ctx
+				},
+			})
+			handler := mw(testutil.MockHandler(nil, 80*time.Millisecond))
+
+			ctx := testutil.CreateTestContext()
+			err := handler(ctx)
+
+			// handler 被 deadline 打断（~10ms），duration 接近 threshold 而非 80ms
+			assert.NoError(t, err)
+			assert.Equal(t, ctx.GetEventType(), calledName)
+			assert.GreaterOrEqual(t, calledDuration, 8*time.Millisecond)
+			assert.Less(t, calledDuration, 80*time.Millisecond)
+			assert.Same(t, ctx, calledCtx)
 		})
-		handler := mw(testutil.MockHandler(nil, 80*time.Millisecond))
-
-		ctx := testutil.CreateTestContext()
-		err := handler(ctx)
-
-		// handler 被 deadline 打断（~10ms），duration 接近 threshold 而非 80ms
-		assert.NoError(t, err)
-		assert.Equal(t, ctx.GetEventType(), calledName)
-		assert.GreaterOrEqual(t, calledDuration, 8*time.Millisecond)
-		assert.Less(t, calledDuration, 80*time.Millisecond)
-		assert.Same(t, ctx, calledCtx)
 	})
 }

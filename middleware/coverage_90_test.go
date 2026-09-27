@@ -444,39 +444,44 @@ func TestRetryEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very short backoff", func(t *testing.T) {
-		start := time.Now()
+		// synctest 虚拟时钟：退避耗时精确可测，不受机器负载影响。
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
 
-		mw := resilience.Retry(resilience.RetryConfig{
-			MaxAttempts: 3,
-			BackoffBase: 1 * time.Millisecond,
-			BackoffMax:  5 * time.Millisecond,
+			mw := resilience.Retry(resilience.RetryConfig{
+				MaxAttempts: 3,
+				BackoffBase: 1 * time.Millisecond,
+				BackoffMax:  5 * time.Millisecond,
+			})
+
+			handler := mw(mockHandler(errors.New("error"), 0))
+
+			handler(createTestContext())
+
+			duration := time.Since(start)
+			// Should complete quickly with short backoff
+			assert.Less(t, duration, 100*time.Millisecond)
 		})
-
-		handler := mw(mockHandler(errors.New("error"), 0))
-
-		handler(createTestContext())
-
-		duration := time.Since(start)
-		// Should complete quickly with short backoff
-		assert.Less(t, duration, 100*time.Millisecond)
 	})
 
 	t.Run("backoff max respected", func(t *testing.T) {
-		start := time.Now()
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
 
-		mw := resilience.Retry(resilience.RetryConfig{
-			MaxAttempts: 5,
-			BackoffBase: 100 * time.Millisecond,
-			BackoffMax:  50 * time.Millisecond, // Max is less than base * 2
+			mw := resilience.Retry(resilience.RetryConfig{
+				MaxAttempts: 5,
+				BackoffBase: 100 * time.Millisecond,
+				BackoffMax:  50 * time.Millisecond, // Max is less than base * 2
+			})
+
+			handler := mw(mockHandler(errors.New("error"), 0))
+
+			handler(createTestContext())
+
+			duration := time.Since(start)
+			// With max 50ms * 4 retries = 200ms, should be less than 300ms
+			assert.Less(t, duration, 300*time.Millisecond)
 		})
-
-		handler := mw(mockHandler(errors.New("error"), 0))
-
-		handler(createTestContext())
-
-		duration := time.Since(start)
-		// With max 50ms * 4 retries = 200ms, should be less than 300ms
-		assert.Less(t, duration, 300*time.Millisecond)
 	})
 }
 

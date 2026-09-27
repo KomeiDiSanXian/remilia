@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -207,22 +208,25 @@ func TestCheck_Check_WithMetadata(t *testing.T) {
 
 // TestCheck_Check_WithTimeout 测试超时
 func TestCheck_Check_WithTimeout(t *testing.T) {
-	check := NewCheck().SetTimeout(100 * time.Millisecond)
+	// synctest 虚拟时钟：100ms 超时与 1s 检查器延迟都不再消耗真实时间。
+	synctest.Test(t, func(t *testing.T) {
+		check := NewCheck().SetTimeout(100 * time.Millisecond)
 
-	// 慢检查器（会超时）
-	check.AddChecker(&mockChecker{
-		name:   "slow",
-		delay:  1 * time.Second,
-		result: CheckResult{Status: Healthy},
+		// 慢检查器（会超时）
+		check.AddChecker(&mockChecker{
+			name:   "slow",
+			delay:  1 * time.Second,
+			result: CheckResult{Status: Healthy},
+		})
+
+		ctx := context.Background()
+		response := check.Check(ctx)
+
+		assert.Len(t, flattenTree(response.Root), 2)
+		result := flattenTree(response.Root)["slow"]
+		assert.Equal(t, Unhealthy, result.Status)
+		assert.Contains(t, result.Message, "cancelled")
 	})
-
-	ctx := context.Background()
-	response := check.Check(ctx)
-
-	assert.Len(t, flattenTree(response.Root), 2)
-	result := flattenTree(response.Root)["slow"]
-	assert.Equal(t, Unhealthy, result.Status)
-	assert.Contains(t, result.Message, "cancelled")
 }
 
 // TestCheck_Check_NoCheckers 测试没有检查器
@@ -239,43 +243,49 @@ func TestCheck_Check_NoCheckers(t *testing.T) {
 
 // TestCheck_Check_DurationTracking 测试持续时间跟踪
 func TestCheck_Check_DurationTracking(t *testing.T) {
-	check := NewCheck()
+	// synctest 虚拟时钟：50ms 延迟被精确测得，避免慢机器上越过上界。
+	synctest.Test(t, func(t *testing.T) {
+		check := NewCheck()
 
-	check.AddChecker(&mockChecker{
-		name:   "with_delay",
-		delay:  50 * time.Millisecond,
-		result: CheckResult{Status: Healthy},
+		check.AddChecker(&mockChecker{
+			name:   "with_delay",
+			delay:  50 * time.Millisecond,
+			result: CheckResult{Status: Healthy},
+		})
+
+		ctx := context.Background()
+		response := check.Check(ctx)
+
+		duration := flattenTree(response.Root)["with_delay"].DurationMs
+		assert.GreaterOrEqual(t, duration, int64(50))
+		assert.LessOrEqual(t, duration, int64(200))
 	})
-
-	ctx := context.Background()
-	response := check.Check(ctx)
-
-	duration := flattenTree(response.Root)["with_delay"].DurationMs
-	assert.GreaterOrEqual(t, duration, int64(50))
-	assert.LessOrEqual(t, duration, int64(200))
 }
 
 // TestCheck_Check_ConcurrentExecution 测试并发执行
 func TestCheck_Check_ConcurrentExecution(t *testing.T) {
-	check := NewCheck()
+	// synctest 虚拟时钟：5 个 50ms 检查器并发执行，总耗时应恰好为 50ms。
+	synctest.Test(t, func(t *testing.T) {
+		check := NewCheck()
 
-	// 添加多个检查器，每个都有延迟
-	for i := range 5 {
-		check.AddChecker(&mockChecker{
-			name:   "checker" + string(rune('0'+i)),
-			delay:  50 * time.Millisecond,
-			result: CheckResult{Status: Healthy},
-		})
-	}
+		// 添加多个检查器，每个都有延迟
+		for i := range 5 {
+			check.AddChecker(&mockChecker{
+				name:   "checker" + string(rune('0'+i)),
+				delay:  50 * time.Millisecond,
+				result: CheckResult{Status: Healthy},
+			})
+		}
 
-	start := time.Now()
-	ctx := context.Background()
-	response := check.Check(ctx)
-	elapsed := time.Since(start)
+		start := time.Now()
+		ctx := context.Background()
+		response := check.Check(ctx)
+		elapsed := time.Since(start)
 
-	// 并发执行，总时间应该远小于顺序执行
-	assert.Len(t, flattenTree(response.Root), 6)
-	assert.Less(t, elapsed, 150*time.Millisecond) // 应该在 100ms 左右，不是 250ms
+		// 并发执行，总时间应该远小于顺序执行
+		assert.Len(t, flattenTree(response.Root), 6)
+		assert.Less(t, elapsed, 150*time.Millisecond) // 应该在 100ms 左右，不是 250ms
+	})
 }
 
 // TestCheck_HTTPHandler 测试 HTTP 处理器
