@@ -87,10 +87,10 @@ func withHistory(p *Plugin, groupChat bool, speakers map[string]string) *Plugin 
 // TestProgressReportingGuidance 保证"长任务报进度"的行为规范同时存在于
 // 框架提示词与 send_message 工具描述（防止后续重构删掉其中一侧）。
 func TestProgressReportingGuidance(t *testing.T) {
-	if !strings.Contains(DefaultFrameworkPrompt, "先用 send_message 向用户报告进度") {
+	if !strings.Contains(defaultFrameworkPrompt, "先用 send_message 向用户报告进度") {
 		t.Error("framework prompt should guide progress reporting via send_message")
 	}
-	if !strings.Contains(DefaultFrameworkPrompt, "单轮即可完成的任务不要调用 send_message") {
+	if !strings.Contains(defaultFrameworkPrompt, "单轮即可完成的任务不要调用 send_message") {
 		t.Error("framework prompt should restrict send_message to multi-round tasks")
 	}
 	p := &Plugin{cfg: &config.Config{}}
@@ -514,4 +514,31 @@ func TestExecOneToolSendToApprovalFlow(t *testing.T) {
 	assert.Contains(t, calls[0].Msg.Text, "张三（u1）", "审批消息应显示解析后的目标")
 	assert.Equal(t, "NotifyUser", calls[1].Method)
 	assert.Equal(t, "u1", calls[1].ChatID)
+}
+
+// TestApprovalSummaryDrivenByPolicyNotName 守护审批目标预解析的判定依据：
+// 只看动作的 GrantsSendTo 策略声明，不看动作名字。此前逻辑按名字硬编码
+// send_to，改名/别名动作会漏掉预解析，而冒用 send_to 之名的自定义动作
+// 反而会误触发解析（等于让使用者拿到未经声明的目标解析能力）。
+func TestApprovalSummaryDrivenByPolicyNotName(t *testing.T) {
+	ctx := newGroupSendTestContext(mock.NewSender())
+
+	// 自定义名字 + 声明 GrantsSendTo：应按声明预解析目标。
+	declared := withHistory(&Plugin{reg: toolkit.NewToolRegistry()}, true, map[string]string{"u1": "张三"})
+	declared.reg.Register(toolkit.Tool{Name: "custom_push", GrantsSendTo: true})
+	got := declared.approvalSummaryForTool(ctx, protocol.ToolCall{
+		Name:      "custom_push",
+		Arguments: map[string]any{"target": "张三", "message": "你好"},
+	})
+	assert.Contains(t, got, "张三（u1）", "声明 GrantsSendTo 的动作应预解析目标")
+
+	// 名字叫 send_to 但未声明 GrantsSendTo：不得预解析，原样返回参数摘要。
+	named := withHistory(&Plugin{reg: toolkit.NewToolRegistry()}, true, map[string]string{"u1": "张三"})
+	named.reg.Register(toolkit.Tool{Name: catalog.SendToToolName})
+	got = named.approvalSummaryForTool(ctx, protocol.ToolCall{
+		Name:      catalog.SendToToolName,
+		Arguments: map[string]any{"target": "张三", "message": "你好"},
+	})
+	assert.NotContains(t, got, "（u1）", "未声明 GrantsSendTo 的动作不应预解析目标")
+	assert.Contains(t, got, "target=张三", "未预解析时应回退原始参数摘要")
 }

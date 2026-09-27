@@ -28,8 +28,8 @@ func (c pluginCommandCatalog) Pattern(toolName string) (string, bool) {
 	return pattern, ok
 }
 
-// Run 触发真实命令并返回捕获到的回复文本。
-func (c pluginCommandCatalog) Run(ctx *eventctx.Context, name string, args map[string]any, cs *execution.CaptureSender) string {
+// Run 触发真实命令并返回捕获到的回复文本（错误语义见 execution.RunCommand）。
+func (c pluginCommandCatalog) Run(ctx *eventctx.Context, name string, args map[string]any, cs *execution.CaptureSender) (string, error) {
 	return execution.RunCommand(ctx, name, args, cs, c, c.p.syncer)
 }
 

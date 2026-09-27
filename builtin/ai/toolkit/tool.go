@@ -85,10 +85,15 @@ const CategoryGeneral = "general"
 //   - Description: 工具描述，LLM 据此决定是否调用。应清晰说明工具能力和使用场景
 //   - Categories: 工具所属类别列表。一个工具可属于多个类别（如 ["space","science"]）。
 //     空切片视为 ["general"]。
+//   - Selection: 工具在选择中的保留级别；nil（零值）表示按 Categories 派生
+//     （空或含 general → SelectionBaseline，否则 SelectionOptional）。
+//     用 new(SelectionMandatory) 显式声明可让工具在任何选择策略下都不被淘汰。
 //   - Parameters: JSON Schema 格式的参数描述，LLM 据此生成调用参数
 //   - RequiresApproval: 标记该工具需要人工审批后才执行（配合 tool_approval=restricted
 //     模式使用；always 模式下所有工具都审批）。显式注册的敏感工具（如文件操作、
 //     命令执行）建议标记为 true。
+//   - GrantsSendTo: 审批通过后授予 SendTo（向其他会话推送）能力。仅 send_to
+//     这类动作应声明，避免其他工具借用一次审批获得越会话发送能力。
 //   - Execute: 工具执行回调，接收 context 和参数，返回结果文本或错误
 //
 // Execute 的调用方通常已通过 [WithCallerInfo] 注入了调用者身份，
@@ -97,13 +102,22 @@ type Tool struct {
 	Name        string
 	Description string
 	Categories  []string // "general"、"space"、"weather"、"admin" 等
-	Parameters  protocol.ToolParamSchema
+	// Selection 工具在选择中的保留级别；nil（零值）表示按 Categories 派生
+	// （空或含 general → SelectionBaseline，否则 SelectionOptional）。
+	// 用 new(SelectionMandatory) 显式声明（Go 1.26+ 的 new(表达式) 形式）。
+	Selection  *SelectionClass
+	Parameters protocol.ToolParamSchema
 	// RequiresApproval 工具执行前是否需要用户审批（tool_approval=restricted 时生效）。
 	RequiresApproval bool
 	// AlwaysRequireApproval 无论 tool_approval 模式（含 off）都强制审批。
 	// 适用于 send_to 这类影响其他会话的高风险工具——off 模式下
 	// RequiresApproval 会被豁免，本字段确保审批不可关闭。
 	AlwaysRequireApproval bool
+	// GrantsSendTo 审批通过后是否授予 SendTo（向其他会话推送）能力。
+	// 与 AlwaysRequireApproval 正交：前者决定"何时必须审批"，本字段决定
+	// "审批解锁什么"。只有 send_to 这类动作应声明，避免 always 审批模式下
+	// 任意工具借用一次审批就获得越会话发送能力。
+	GrantsSendTo bool
 	// Permissions 工具执行所需的 RBAC 权限列表（如 "bilibili.manage"）。
 	// 非空时 executeToolResult 在调用前**强制校验**调用者权限（任一命中即放行），
 	// 不依赖插件自觉——权限不足返回可读错误、不执行。
@@ -162,6 +176,10 @@ type ToolRegistry struct {
 type registeredAction struct {
 	action  Action
 	execute func(ctx context.Context, args map[string]any) (string, error)
+	// selection 记录注册时是否显式声明了保留级别（nil = 未声明，按类别派生）。
+	// 动作视图只存解析后的值，无法区分"显式 Optional"与"未声明"，
+	// 因此这里保留一份副本，保证 Get/List 还原的执行视图与注册时逐字段一致。
+	selection *SelectionClass
 }
 
 // tool 把注册记录还原为工具，逐字段与注册时一致。
@@ -170,9 +188,11 @@ func (e registeredAction) tool() Tool {
 		Name:                  e.action.Spec.Name,
 		Description:           e.action.Spec.Description,
 		Categories:            e.action.Spec.Categories,
+		Selection:             e.selection,
 		Parameters:            e.action.Spec.Parameters,
 		RequiresApproval:      e.action.Policy.RequiresApproval,
 		AlwaysRequireApproval: e.action.Policy.AlwaysRequireApproval,
+		GrantsSendTo:          e.action.Policy.GrantsSendTo,
 		Permissions:           e.action.Policy.Permissions,
 		Execute:               e.execute,
 	}
@@ -198,7 +218,13 @@ func (r *ToolRegistry) Register(t Tool) {
 		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
 		return
 	}
-	r.entries[t.Name] = registeredAction{action: ActionOf(t), execute: t.Execute}
+	record := registeredAction{action: ActionOf(t), execute: t.Execute}
+	if t.Selection != nil {
+		// 复制而非共享指针：注册后调用方再改自己的 Selection 不应影响注册表。
+		v := *t.Selection
+		record.selection = &v
+	}
+	r.entries[t.Name] = record
 }
 
 // Get 按名称查找工具（执行视图，含执行载荷）。第二个返回值为 false 表示未找到。

@@ -4,9 +4,21 @@ import (
 	"context"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// openAIProviderForTest / anthropicProviderForTest 用插件配置构造协议层提供商：
+// 与装配侧（providerOptions）走同一映射，用例因此不必各自拼 ProviderOptions。
+func openAIProviderForTest(cfg *config.Config) (protocol.Provider, error) {
+	return protocol.NewOpenAIProvider(providerOptions(cfg))
+}
+
+func anthropicProviderForTest(cfg *config.Config) (protocol.Provider, error) {
+	return protocol.NewAnthropicProvider(providerOptions(cfg))
+}
 
 // toolCtxForTest 组装工具执行 context：会话源信息 + 插件当前能力端口。
 // 用于直接调用工具 Execute 的测试，等价于 executeToolResult 在生产路径上的注入

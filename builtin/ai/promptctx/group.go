@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -21,7 +20,7 @@ import (
 // skipBotContents 为当前会话内 AI 已回复的内容集合——开启
 // ContextGroupIncludeBot 时用于去重：机器人在会话历史中已说过的
 // 内容不再重复注入群聊窗口（会话与窗口两侧存的是同一文本）。
-func BuildGroupWindowN(history *messagelog.Logger, cfg *config.Config, ctx *eventctx.Context, skipBotContents map[string]bool, n int) string {
+func BuildGroupWindowN(history *messagelog.Logger, opts ContextOptions, ctx *eventctx.Context, skipBotContents map[string]bool, n int) string {
 	if history == nil || n <= 0 {
 		return ""
 	}
@@ -33,12 +32,12 @@ func BuildGroupWindowN(history *messagelog.Logger, cfg *config.Config, ctx *even
 	// 统一走新查询 API：热缓存 + SQLite 补齐，方向/出站状态在查询层过滤。
 	// 仅入站消息时 Direction=Inbound；包含机器人回复时 Direction=Both 并
 	// 排除 pending（未确认发送的出站不当作本账号发言）。
-	opts := messagelog.QueryOptions{Direction: messagelog.DirectionInbound}
-	if cfg.ContextGroupIncludeBot {
-		opts.Direction = messagelog.DirectionBoth
-		opts.ExcludePending = true
+	queryOpts := messagelog.QueryOptions{Direction: messagelog.DirectionInbound}
+	if opts.GroupIncludeBot {
+		queryOpts.Direction = messagelog.DirectionBoth
+		queryOpts.ExcludePending = true
 	}
-	entries := history.QueryChat(chat.ID, n, opts)
+	entries := history.QueryChat(chat.ID, n, queryOpts)
 	if len(entries) == 0 {
 		return ""
 	}
@@ -49,7 +48,7 @@ func BuildGroupWindowN(history *messagelog.Logger, cfg *config.Config, ctx *even
 	}
 
 	var b strings.Builder
-	if cfg.ContextGroupIncludeBot {
+	if opts.GroupIncludeBot {
 		// 提示行：标注为机器人自身名称的消息由本账号发出
 		// （AI 对话回复 + 其他插件命令输出），并非群内其他用户发言
 		fmt.Fprintf(&b, "（标注「%s」的消息由本机器人账号发出——AI 对话回复或插件命令输出，均为你自己/本账号的发言，而非其他用户）\n", botName)

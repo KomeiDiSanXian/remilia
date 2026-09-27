@@ -10,6 +10,20 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 )
 
+// providerOptionsForTest 复刻装配侧的"配置 → 协议参数"映射。
+// ai.providerOptions 未导出，外部测试包只能自己构造等价参数。
+func providerOptionsForTest(cfg *config.Config) protocol.ProviderOptions {
+	return protocol.ProviderOptions{
+		BaseURL:      cfg.BaseURL,
+		APIKey:       cfg.APIKey,
+		Model:        cfg.Model,
+		MaxTokens:    cfg.MaxTokens,
+		APITimeout:   cfg.APITimeout,
+		MaxRetries:   cfg.MaxRetries,
+		IncludeUsage: cfg.IncludeUsage,
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := config.DefaultConfig
 	if cfg.Provider != "openai" {
@@ -37,7 +51,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestNewOpenAIProvider(t *testing.T) {
 	cfg := config.DefaultConfig
-	prov, err := protocol.NewOpenAIProvider(&cfg)
+	prov, err := protocol.NewOpenAIProvider(providerOptionsForTest(&cfg))
 	if err != nil {
 		t.Fatalf("NewOpenAIProvider failed: %v", err)
 	}
@@ -49,7 +63,7 @@ func TestNewOpenAIProvider(t *testing.T) {
 func TestNewOpenAIProviderCustomBaseURL(t *testing.T) {
 	cfg := config.DefaultConfig
 	cfg.BaseURL = "https://api.deepseek.com"
-	prov, err := protocol.NewOpenAIProvider(&cfg)
+	prov, err := protocol.NewOpenAIProvider(providerOptionsForTest(&cfg))
 	if err != nil {
 		t.Fatalf("NewOpenAIProvider failed: %v", err)
 	}
@@ -61,57 +75,12 @@ func TestNewOpenAIProviderCustomBaseURL(t *testing.T) {
 func TestNewAnthropicProvider(t *testing.T) {
 	cfg := config.DefaultConfig
 	cfg.Provider = "anthropic"
-	prov, err := protocol.NewAnthropicProvider(&cfg)
+	prov, err := protocol.NewAnthropicProvider(providerOptionsForTest(&cfg))
 	if err != nil {
 		t.Fatalf("NewAnthropicProvider failed: %v", err)
 	}
 	if prov == nil {
 		t.Fatal("NewAnthropicProvider returned nil")
-	}
-}
-
-func TestNewProviderOpenAI(t *testing.T) {
-	cfg := config.DefaultConfig
-	cfg.Provider = "openai"
-	prov, err := ai.NewProvider(&cfg)
-	if err != nil {
-		t.Fatalf("NewProvider failed: %v", err)
-	}
-	if prov == nil {
-		t.Fatal("NewProvider returned nil")
-	}
-}
-
-func TestNewProviderAnthropic(t *testing.T) {
-	cfg := config.DefaultConfig
-	cfg.Provider = "anthropic"
-	prov, err := ai.NewProvider(&cfg)
-	if err != nil {
-		t.Fatalf("NewProvider failed: %v", err)
-	}
-	if prov == nil {
-		t.Fatal("NewProvider returned nil")
-	}
-}
-
-func TestNewProviderDefault(t *testing.T) {
-	cfg := config.DefaultConfig
-	cfg.Provider = ""
-	prov, err := ai.NewProvider(&cfg)
-	if err != nil {
-		t.Fatalf("NewProvider with empty provider failed: %v", err)
-	}
-	if prov == nil {
-		t.Fatal("NewProvider returned nil")
-	}
-}
-
-func TestNewProviderUnknown(t *testing.T) {
-	cfg := config.DefaultConfig
-	cfg.Provider = "unknown_provider"
-	_, err := ai.NewProvider(&cfg)
-	if err == nil {
-		t.Error("expected error for unknown provider")
 	}
 }
 

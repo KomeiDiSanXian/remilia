@@ -232,27 +232,27 @@ func TestProcessWithToolsSkippedToolCallsGetPlaceholderResponses(t *testing.T) {
 func TestEffectiveTurnTimeout(t *testing.T) {
 	// 默认推导：api_timeout × max(2, min(max_depth, 5))
 	p := &Plugin{cfg: &config.Config{APITimeout: 60 * time.Second, MaxDepth: 5}}
-	if got := runtime.EffectiveTurnTimeout(p.cfg); got != 5*time.Minute {
+	if got := runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)); got != 5*time.Minute {
 		t.Errorf("default turn timeout = %v, want 5m", got)
 	}
 	// max_depth 很大时封顶 5 轮
 	p.cfg.MaxDepth = 15
-	if got := runtime.EffectiveTurnTimeout(p.cfg); got != 5*time.Minute {
+	if got := runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)); got != 5*time.Minute {
 		t.Errorf("capped turn timeout = %v, want 5m", got)
 	}
 	// max_depth 很小时至少 2 轮
 	p.cfg.MaxDepth = 1
-	if got := runtime.EffectiveTurnTimeout(p.cfg); got != 2*time.Minute {
+	if got := runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)); got != 2*time.Minute {
 		t.Errorf("min turn timeout = %v, want 2m", got)
 	}
 	// 显式配置优先
 	p.cfg = &config.Config{APITimeout: 60 * time.Second, MaxDepth: 5, TurnTimeout: 90 * time.Second}
-	if got := runtime.EffectiveTurnTimeout(p.cfg); got != 90*time.Second {
+	if got := runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)); got != 90*time.Second {
 		t.Errorf("explicit turn timeout = %v, want 90s", got)
 	}
 	// api_timeout 未配置时回退 60s
 	p.cfg = &config.Config{}
-	if got := runtime.EffectiveTurnTimeout(p.cfg); got != 5*time.Minute {
+	if got := runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)); got != 5*time.Minute {
 		t.Errorf("fallback turn timeout = %v, want 5m", got)
 	}
 }
@@ -266,7 +266,7 @@ func TestLiftEventDeadline(t *testing.T) {
 	ctx.SetStdContext(shortCtx)
 
 	p := &Plugin{cfg: &config.Config{APITimeout: 60 * time.Second, MaxDepth: 5}}
-	restore := runtime.LiftEventDeadline(ctx, runtime.EffectiveTurnTimeout(p.cfg))
+	restore := runtime.LiftEventDeadline(ctx, runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)))
 
 	// 替换后：使用独立预算（默认推导 5m），不再继承 30s 中间件 deadline
 	deadline, ok := ctx.Context().Deadline()

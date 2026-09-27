@@ -10,7 +10,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -99,7 +98,7 @@ func TestCreatePlanTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := runtime.WithPlanSession(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), sess)
 
 	// 正常创建
 	result, err := create.Execute(ctx, map[string]any{
@@ -154,7 +153,7 @@ func TestUpdatePlanStepTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := runtime.WithPlanSession(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), sess)
 
 	// 无计划时更新报错
 	result, _ := update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "done"})
@@ -194,6 +193,7 @@ func TestUpdatePlanStepTool(t *testing.T) {
 
 func TestPlanInjectionInProcessWithTools(t *testing.T) {
 	var seenPlan bool
+	var planWrongRole bool
 	p := &Plugin{
 		cfg:      &config.Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, PlanMaxSteps: 8, ToolSelectMax: 20},
 		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
@@ -202,8 +202,13 @@ func TestPlanInjectionInProcessWithTools(t *testing.T) {
 		prov: &mockProvider{
 			chatStreamFn: func(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 				for _, m := range req.Messages {
-					if m.Role == protocol.RoleSystem && strings.Contains(m.Content, "当前执行计划") {
+					if strings.Contains(m.Content, "当前执行计划") {
 						seenPlan = true
+						// 计划必须是 user 消息：Anthropic 只取数组内第一条 system
+						// 作为顶级 system 字段，中段 system 会被整条丢弃。
+						if m.Role != protocol.RoleUser {
+							planWrongRole = true
+						}
 					}
 				}
 				ch := make(chan protocol.StreamEvent, 2)
@@ -234,6 +239,9 @@ func TestPlanInjectionInProcessWithTools(t *testing.T) {
 	}
 	if !seenPlan {
 		t.Error("expected plan injected into request messages")
+	}
+	if planWrongRole {
+		t.Error("plan must be injected as a user message, not system")
 	}
 }
 

@@ -4,7 +4,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 )
 
-const DefaultFrameworkPrompt = `你是一个运行在 Remilia Bot 聊天机器人框架中的 AI 助手。
+const defaultFrameworkPrompt = `你是一个运行在 Remilia Bot 聊天机器人框架中的 AI 助手。
 
 你的核心目标：
 

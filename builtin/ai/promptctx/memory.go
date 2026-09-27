@@ -9,7 +9,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -29,8 +28,8 @@ type MemoryReader interface {
 //
 // 开启 context_group_include_bot 时用于群聊窗口去重：机器人在会话历史中
 // 已说过的内容不再重复注入窗口（两侧存的是同一文本）。session 为 nil 时返回 nil。
-func BotReplyContents(cfg *config.Config, sess *session.Session) map[string]bool {
-	if !cfg.ContextGroupIncludeBot || sess == nil {
+func BotReplyContents(opts ContextOptions, sess *session.Session) map[string]bool {
+	if !opts.GroupIncludeBot || sess == nil {
 		return nil
 	}
 	skip := make(map[string]bool)

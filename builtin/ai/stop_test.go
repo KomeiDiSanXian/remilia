@@ -162,7 +162,7 @@ func TestProcessWithToolsStopMidStreamSilentClose(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	done := make(chan struct{})
-	var result *ChatResult
+	var result *chatResult
 	var resultErr error
 	go func() {
 		result, resultErr = p.processWithTools(ctx, sess)
@@ -226,7 +226,7 @@ func TestProcessWithToolsStopOnStreamError(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	done := make(chan struct{})
-	var result *ChatResult
+	var result *chatResult
 	var resultErr error
 	go func() {
 		result, resultErr = p.processWithTools(ctx, sess)

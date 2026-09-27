@@ -6,7 +6,7 @@
 //   - ToolCall / Message / ChatRequest / ChatResponse 等核心数据类型
 //   - StreamEvent / StreamEventType：流式事件类型定义
 //
-// 提供商实例的选择与指标包装在装配侧（builtin/ai 的 NewProvider）。
+// 提供商实例的选择与指标包装在装配侧（builtin/ai 的 newProvider）。
 package protocol
 
 import (
@@ -159,6 +159,27 @@ type Provider interface {
 	Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
 	// ChatStream 流式聊天，返回一个接收流式事件的 channel。
 	ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
+}
+
+// ProviderOptions 构造具体提供商所需的线格式参数。
+//
+// 协议层只认这些参数，不认识插件配置（builtin/ai/config）：装配侧做一次字段
+// 映射，协议适配器因此可以脱离插件单独构造与测试，签名也直接暴露真实依赖。
+type ProviderOptions struct {
+	// BaseURL API 地址；空值时由各提供商取自己的默认端点。
+	BaseURL string
+	// APIKey 鉴权密钥。
+	APIKey string
+	// Model 默认模型名。
+	Model string
+	// MaxTokens 请求未指定 max_tokens 时的默认输出上限。
+	MaxTokens int
+	// APITimeout 单次请求超时；<=0 表示不额外设限。
+	APITimeout time.Duration
+	// MaxRetries 传输层重试次数。
+	MaxRetries int
+	// IncludeUsage 是否在 OpenAI 兼容请求里要求返回 usage。
+	IncludeUsage bool
 }
 
 // RequestModel 优先使用请求级模型名，为空时回退到客户端默认模型。

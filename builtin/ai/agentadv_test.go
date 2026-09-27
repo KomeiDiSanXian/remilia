@@ -204,7 +204,7 @@ func TestUpdatePlanStepOrderEnforced(t *testing.T) {
 		}
 	}
 	sess := &session.Session{}
-	ctx := runtime.WithPlanSession(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), sess)
 	create.Execute(ctx, map[string]any{"task": "t", "steps": []any{"第一步", "第二步", "第三步"}})
 
 	// 跳过 step_1 直接完成 step_2 → 拒绝
@@ -348,21 +348,32 @@ func TestBuildDynamicContextBudgeted(t *testing.T) {
 	sess := &session.Session{ID: "s", UserID: "u", ChatID: "g1"}
 	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}
 
+	// 提供可注入内容（群窗口），用来区分"预算丢弃"与"本就无内容"。
+	l, db := newRAGTestLogger(t)
+	insertMessage(t, db, "g1", "张三", "服务器方案选型讨论", time.Hour, "")
+
 	// 稳定系统提示词只含框架 + 自定义指令，不受预算影响（它是唯一的 System 消息）
-	tiny := Plugin{cfg: &config.Config{ContextWindow: 60, SystemPrompt: "自定义指令内容", ContextGroupMessages: 10}}
+	tiny := Plugin{history: l, cfg: &config.Config{
+		ContextWindow:         60,
+		SystemPrompt:          "自定义指令内容",
+		ContextGroupMessages:  10,
+		IncludeRuntimeContext: true,
+	}}
 	static := tiny.buildStaticSystemPrompt(ctx)
-	if !strings.Contains(static, "自定义指令内容") || !strings.Contains(static, DefaultFrameworkPrompt) {
+	if !strings.Contains(static, "自定义指令内容") || !strings.Contains(static, defaultFrameworkPrompt) {
 		t.Errorf("static prompt should carry framework and custom instructions, got %q", static)
 	}
+	// 预算扣除的是会话里实际会发送的那条 System 消息（生产路径由
+	// handler 在回合开始时写入），因此用例先把它写进会话再验证预算。
+	runtime.SetSystemMessage(sess, static)
 
-	// 极小预算：动态各节全部丢弃
+	// 极小预算：动态各节全部丢弃——即便运行时上下文/群窗口本可产出内容，
+	// 预算路径也是权威的，绝不回退到非预算路径（否则恰在预算最紧时突破窗口）。
 	if dyn := tiny.buildDynamicContext(ctx, sess); dyn != "" {
-		t.Errorf("tiny budget should drop all dynamic sections, got %q", dyn)
+		t.Errorf("tiny budget must be authoritative and drop all dynamic sections, got %q", dyn)
 	}
 
 	// 大预算：运行时上下文 + 群窗口纳入（提供 history 才能构建群窗口）
-	l, db := newRAGTestLogger(t)
-	insertMessage(t, db, "g1", "张三", "服务器方案选型讨论", time.Hour, "")
 	big := Plugin{history: l, cfg: &config.Config{ContextWindow: 100000, SystemPrompt: "自定义指令内容", ContextGroupMessages: 10, IncludeRuntimeContext: true}}
 	dyn := big.buildDynamicContext(ctx, sess)
 	if !strings.Contains(dyn, "群聊最近消息") || !strings.Contains(dyn, "运行时上下文") {

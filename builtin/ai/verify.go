@@ -15,7 +15,13 @@ import (
 
 // verifier 组装回答校验器。
 func (p *Plugin) verifier() runtime.Verifier {
-	return runtime.Verifier{Client: p.runtimeClient(), Cfg: p.cfg}
+	return runtime.Verifier{
+		Client:      p.runtimeClient(),
+		Model:       p.cfg.Model,
+		VerifyModel: p.cfg.VerifyModel,
+		APITimeout:  p.cfg.APITimeout,
+		MaxRetry:    p.cfg.VerifyMaxRetries,
+	}
 }
 
 // generateVerified 生成回答并通过校验器校验：
@@ -24,7 +30,7 @@ func (p *Plugin) verifier() runtime.Verifier {
 //   - 校验通过 → 返回；不通过且未达 verify_max_retries → 追加"修正指令"
 //     用户消息后重新生成；达到上限仍不通过 → 返回最后一份回答（不无限重试）
 //   - 校验器自身报错时不重试、直接返回原回答
-func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Session) (*ChatResult, error) {
+func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
 	originalQuery := runtime.LastUserMessage(session)
 	verifier := p.verifier()
 

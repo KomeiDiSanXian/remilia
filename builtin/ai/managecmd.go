@@ -172,7 +172,7 @@ func (p *Plugin) handleMemoryRemove(ctx *eventctx.Context, rest string) error {
 			return nil
 		}
 		text := facts[n-1].Text
-		if removed := p.memory.RemoveWhere(scopeKey, func(f MemoryFact) bool { return f.Text == text }); removed > 0 {
+		if removed := p.memory.RemoveWhere(scopeKey, func(f memoryFact) bool { return f.Text == text }); removed > 0 {
 			p.replyFormatted(ctx, fmt.Sprintf("🧹 已从%s删除：%s", label, text))
 		} else {
 			p.replyFormatted(ctx, "❌ 删除失败，请重试")
@@ -182,7 +182,7 @@ func (p *Plugin) handleMemoryRemove(ctx *eventctx.Context, rest string) error {
 
 	// 按文本片段删除（忽略大小写，删除所有包含该片段的记忆）。
 	frag := strings.ToLower(target)
-	removed := p.memory.RemoveWhere(scopeKey, func(f MemoryFact) bool {
+	removed := p.memory.RemoveWhere(scopeKey, func(f memoryFact) bool {
 		return strings.Contains(strings.ToLower(f.Text), frag)
 	})
 	if removed == 0 {

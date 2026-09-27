@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -41,36 +40,13 @@ import (
 // 为 nil 时只做决策、不上报。
 type ToolSetObserver func(reason string, changed bool, size int)
 
-// 工具集稳定策略默认值（配置值非法时生效）。
-const (
-	// defaultToolSetStickyMax 稳定集合中补充工具的数量上限。
-	defaultToolSetStickyMax = 8
-)
-
-// effectiveToolSetStickyMax 返回补充工具数量上限（非法值回退默认）。
-func effectiveToolSetStickyMax(cfg *config.Config) int {
-	if cfg.ToolSetStickyMax <= 0 {
-		return defaultToolSetStickyMax
-	}
-	return cfg.ToolSetStickyMax
-}
-
-// effectiveToolSetTTL 返回补充工具空闲存活时长（<=0 表示不衰减）。
-// 生产默认值来自 config.DefaultConfig（20 分钟）；配置负值（如 -1s）可关闭衰减。
-func effectiveToolSetTTL(cfg *config.Config) time.Duration {
-	if cfg.ToolSetTTL <= 0 {
-		return 0
-	}
-	return cfg.ToolSetTTL
-}
-
 // StabilizeToolSet 在检索候选之上应用会话级稳定策略，返回本轮实际发送的工具。
 //
 // available 是本轮过滤后的全部可用工具（群策略 + RBAC 已生效），
 // candidate 是选择路径的打分结果（含通用/已用必保集）。
 // 策略关闭（tool_set_sticky=false）或 session 为空时原样返回 candidate。
-func StabilizeToolSet(cfg *config.Config, sess *session.Session, available, candidate []toolkit.Action, observe ToolSetObserver) []toolkit.Action {
-	if !cfg.ToolSetSticky || sess == nil {
+func StabilizeToolSet(opts SelectionOptions, sess *session.Session, available, candidate []toolkit.Action, observe ToolSetObserver) []toolkit.Action {
+	if !opts.Sticky || sess == nil {
 		return candidate
 	}
 
@@ -117,14 +93,14 @@ func StabilizeToolSet(cfg *config.Config, sess *session.Session, available, cand
 		// 或话题往复不产生新的缓存失效。
 		next = prev
 	default:
-		next = mergeToolSet(cfg, candNames, prev, avail, lastSeen)
+		next = mergeToolSet(opts, candNames, prev, avail, lastSeen)
 	}
 
 	// 空闲衰减：补充项（不在本轮候选里）超过 TTL 未被候选命中即批量移除。
 	// 放在决策之后，避免与本轮的增长判定互相干扰；到期项一次移除，
 	// 不会逐轮零敲碎打地改动集合。
 	decayed := false
-	if ttl := effectiveToolSetTTL(cfg); ttl > 0 && len(next) > 0 {
+	if ttl := opts.stickyTTL(); ttl > 0 && len(next) > 0 {
 		candSet := nameSet(candNames)
 		kept := make([]string, 0, len(next))
 		for _, n := range next {
@@ -140,15 +116,23 @@ func StabilizeToolSet(cfg *config.Config, sess *session.Session, available, cand
 	}
 
 	// 变更归因：供观测用（"变更次数 / 请求次数"即抖动率）。
-	changed := !slices.Equal(next, prev)
+	//
+	// 比对基准是"上一轮实际持有的集合"（st.Names），而不是已与可用集求交后的
+	// prev：RBAC / 群策略 / 插件注销导致的可用集收缩必须被如实计为 shrink，
+	// 否则生成代数不增、观测指标漏报权限收缩（曾把收缩误记为 keep）。
+	prevNames := []string(nil)
+	if st != nil {
+		prevNames = st.Names
+	}
+	changed := !slices.Equal(next, prevNames)
 	if changed {
 		gen++
 		switch {
-		case len(prev) == 0:
+		case len(prevNames) == 0:
 			reason = "init"
 		case decayed:
 			reason = "decay"
-		case len(next) > len(prev):
+		case len(next) > len(prevNames):
 			reason = "grow"
 		default:
 			reason = "shrink"
@@ -185,7 +169,7 @@ func StabilizeToolSet(cfg *config.Config, sess *session.Session, available, cand
 //
 // 候选本身不受这里的 token 预算回收（通用工具与会话已用工具属必保集，
 // 原有行为即允许其略微超出预算），预算只用于限制补充项。
-func mergeToolSet(cfg *config.Config, cand, prev []string, avail map[string]toolkit.Action, lastSeen map[string]time.Time) []string {
+func mergeToolSet(opts SelectionOptions, cand, prev []string, avail map[string]toolkit.Action, lastSeen map[string]time.Time) []string {
 	inCand := nameSet(cand)
 	out := append([]string(nil), cand...)
 
@@ -193,11 +177,8 @@ func mergeToolSet(cfg *config.Config, cand, prev []string, avail map[string]tool
 	for _, n := range out {
 		tokens += EstimateToolTokens(avail[n])
 	}
-	budget := cfg.ToolBudget
-	if budget <= 0 {
-		budget = 8000
-	}
-	limit := len(cand) + effectiveToolSetStickyMax(cfg)
+	budget := opts.toolBudget()
+	limit := len(cand) + opts.stickyMax()
 
 	fillers := make([]string, 0, len(prev))
 	for _, n := range prev {
@@ -258,9 +239,29 @@ func toolsByName(avail map[string]toolkit.Action, names []string) []toolkit.Acti
 	return out
 }
 
+// cachedTools 按缓存记录的动作名解析子集；动作集内容变化（同名缺失）时回退全量。
+// 选择缓存只保存"上一轮选中了哪些名字"，动作集本身可能已变（插件注销、
+// 白名单调整），一旦有名字对不上就认为缓存整体不可信，回退到全量候选。
+func cachedTools(actions []toolkit.Action, names []string) []toolkit.Action {
+	byName := make(map[string]toolkit.Action, len(actions))
+	for _, a := range actions {
+		byName[a.Spec.Name] = a
+	}
+	out := make([]toolkit.Action, 0, len(names))
+	for _, n := range names {
+		if a, ok := byName[n]; ok {
+			out = append(out, a)
+		}
+	}
+	if len(out) == len(names) {
+		return out
+	}
+	return actions
+}
+
 // resolveToolsByName 按名称列表从 actions 中解析子集（缺失的名字被剪掉）。
-// 与 SelectionCache.Tools 的区别：不因个别名字缺失而回退全量——工具集
-// 稳定策略下"少几个工具"是正常收缩，回退全量会让稳定集合瞬间失效。
+// 与 cachedTools 的区别：不因个别名字缺失而回退全量——工具集稳定策略下
+// "少几个工具"是正常收缩，回退全量会让稳定集合瞬间失效。
 func resolveToolsByName(actions []toolkit.Action, names []string) []toolkit.Action {
 	avail := make(map[string]toolkit.Action, len(actions))
 	for _, a := range actions {

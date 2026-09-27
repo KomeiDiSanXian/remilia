@@ -63,6 +63,10 @@ type ScopeKeys interface {
 type Extractor struct {
 	// Client 单轮非流式 LLM 调用。
 	Client Client
+	// Model 主模型名（ExtractModel 为空时回退到它）。
+	Model string
+	// ExtractModel 抽取专用模型（空 = 跟随主模型）。
+	ExtractModel string
 	// Memory 长期记忆写入端口。
 	Memory MemoryWriter
 	// Scopes 作用域键构造。
@@ -86,9 +90,9 @@ func (e Extractor) Extract(scope, userID string, chat platform.ChatInfo, sess *s
 	extractCtx, cancel := context.WithTimeout(base, 30*time.Second)
 	defer cancel()
 
-	model := e.Client.Cfg.ExtractModel
+	model := e.ExtractModel
 	if model == "" {
-		model = e.Client.Cfg.Model
+		model = e.Model
 	}
 	result, err := e.Client.SingleRound(extractCtx, model, []protocol.Message{
 		{Role: protocol.RoleSystem, Content: MemoryExtractPrompt},

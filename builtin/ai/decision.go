@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/decision"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
@@ -65,6 +66,9 @@ func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Sessio
 // 可选动作，也不读写选择缓存（避免把收敛后的集合缓存成后续回合的复用结果）。
 // 这保证闸门不会让工具集在"有/无动作"之间来回抖动（前缀缓存的稳定性前提）。
 //
+// needAction 必须来自 [(*Plugin).needAction]（策略见 need_action_gate）：生产
+// 调用点不得绕过闸门自行判定；直接传 false 只用于锁定上述保留集语义的测试。
+//
 // 选择与稳定策略的实现见 builtin/ai/decision，本方法只交出插件持有的会话。
 func (p *Plugin) decideTurnActions(ctx *eventctx.Context, session *session.Session, needAction bool) []toolkit.Action {
 	candidates := p.actionCandidates(ctx, session)
@@ -79,13 +83,13 @@ func (p *Plugin) decideTurnActions(ctx *eventctx.Context, session *session.Sessi
 // 打分、会话缓存与稳定策略见 builtin/ai/decision；本方法只交出插件持有的配置、
 // 嵌入器、会话与本轮查询（最后一条用户消息）。
 func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *session.Session, actions []toolkit.Action) []toolkit.Action {
-	return decision.SelectToolsForTurn(p.cfg, p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
+	return decision.SelectToolsForTurn(selectionOptions(p.cfg), p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
 }
 
 // stabilizeToolSet 在检索候选之上应用会话级稳定策略。
 // 实现见 builtin/ai/decision；recordToolSet 作为观测端口注入，指标名与标签不变。
 func (p *Plugin) stabilizeToolSet(session *session.Session, available, candidate []toolkit.Action) []toolkit.Action {
-	return decision.StabilizeToolSet(p.cfg, session, available, candidate, recordToolSet)
+	return decision.StabilizeToolSet(selectionOptions(p.cfg), session, available, candidate, recordToolSet)
 }
 
 // needAction 判断本轮是否需要主动寻找并执行新的动作。
@@ -94,11 +98,25 @@ func (p *Plugin) stabilizeToolSet(session *session.Session, available, candidate
 // 长期记忆、相关历史、运行时上下文）属检索，不计入动作，因此它们不会把
 // 本判定推成真——否则记忆一开，判定恒真，闸门就失去意义。
 //
-// 当前实现保守地恒为真，即不抑制可选动作，保持既有工具集行为。
-// 收紧判定（例如纯闲聊/纯知识问答直接判否）会改变发给模型的工具集，
-// 属行为变更，需单独评估后实施（见 docs/notes/28-ai-layering-progress.md）。
-func (p *Plugin) needAction() bool {
-	return true
+// 判定输入取自事件原文（ctx.GetMessageContent，未经回复/提及装饰）与会话是否
+// 存在进行中的计划；纯算法见 builtin/ai/decision（decision.NeedAction），本方法
+// 只做装配，不含判定口径。判定保守：只有"整条消息都是社交寒暄"才判否，任何
+// 掺杂其它文字都判真；"纯知识问答"无法在本地与动作请求区分，故不纳入判定。
+//
+// 闸门由 need_action_gate 控制：always 时恒真（与收紧前一致），auto（默认）时
+// 执行上述判定。判否会改变发给模型的工具集，属行为变更（见 CHANGELOG）；需要
+// 恢复旧行为时把该配置设为 always。
+func (p *Plugin) needAction(ctx *eventctx.Context, sess *session.Session) bool {
+	if p == nil || p.cfg == nil || p.cfg.NeedActionGate == config.NeedActionAlways {
+		return true
+	}
+	var planActive bool
+	if sess != nil {
+		if plan := sess.PlanSnapshot(); plan != nil && plan.Active && plan.HasPending() {
+			planActive = true
+		}
+	}
+	return decision.NeedAction(ctx.GetMessageContent(), planActive)
 }
 
 // ── 单次调用的策略评估 ───────────────────────────────────────────────
@@ -112,8 +130,10 @@ func (p *Plugin) needAction() bool {
 // allowed 为 false 时按拒绝处理：rejectText 是回填给模型的拒绝文案；
 // err 非空表示这是一次失败（计入重试预算），为空表示这是一次正常的"不许执行"
 // （例如用户拒绝审批，刻意不消耗重试预算）。
-// sendToGranted 表示本次调用已通过审批门、获得 SendTo 授权；嵌套 Skill 内的
-// 工具调用不经此处，拿到的 sender 未授权，仍受 SendTo 门控保护。
+// sendToGranted 表示本次调用已通过审批门、且动作声明了 GrantsSendTo，
+// 因此获得 SendTo 授权。授权是"动作声明 + 审批放行"的合取，不是"过了审批门"
+// 就自动具备——否则 always 审批模式下任意工具都能借一次审批越会话发送。
+// 嵌套 Skill 内的工具调用不经此处，拿到的 sender 未授权，仍受 SendTo 门控保护。
 type toolInvocationDecision struct {
 	rejectText    string
 	err           error
@@ -130,7 +150,8 @@ type toolInvocationDecision struct {
 //
 // 两种拒绝都以工具级结果返回，不中断整个对话。
 func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, tc protocol.ToolCall) toolInvocationDecision {
-	if action, ok := p.reg.Action(tc.Name); ok {
+	action, hasAction := p.reg.Action(tc.Name)
+	if hasAction {
 		if perms := action.Policy.Permissions; len(perms) > 0 && !p.hasToolPermission(ctx, perms) {
 			return toolInvocationDecision{
 				rejectText: fmt.Sprintf("错误: 工具 %q 需要权限（%s），当前用户无权调用",
@@ -142,12 +163,12 @@ func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, tc protocol.ToolCal
 	if !p.approvalModeFor(ctx, tc.Name) {
 		return toolInvocationDecision{allowed: true}
 	}
-	if !p.requestApproval(ctx, tc.Name, p.approvalSummaryForTool(ctx, tc), runtime.EffectiveApprovalTimeout(p.cfg)) {
+	if !p.requestApproval(ctx, tc.Name, p.approvalSummaryForTool(ctx, tc), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
 		// 审批被拒不消耗重试预算：模型无需"重试"一个用户已拒绝的动作，
 		// 与既有行为一致（此处刻意不置 err）。
 		return toolInvocationDecision{rejectText: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}
 	}
-	return toolInvocationDecision{allowed: true, sendToGranted: true}
+	return toolInvocationDecision{allowed: true, sendToGranted: hasAction && action.Policy.GrantsSendTo}
 }
 
 // needsApproval 判断指定动作在给定审批模式下是否需要用户批准。
@@ -165,17 +186,14 @@ func (p *Plugin) needsApproval(a toolkit.Action, mode string) bool {
 // approvalModeFor 判断指定工具在当前生效审批模式下是否需要审批。
 func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
 	mode := p.effectiveApprovalMode(ctx)
-	if mode == "" || mode == string(ApprovalOff) {
-		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
-		if action, ok := p.reg.Action(toolName); ok && action.Policy.AlwaysRequireApproval {
-			return true
-		}
-		return false
-	}
 	action, ok := p.reg.Action(toolName)
+	if mode == "" || mode == string(approvalOff) {
+		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
+		return ok && action.Policy.AlwaysRequireApproval
+	}
 	if !ok {
 		// 工具不存在（如 Skill）时：always 模式审批，restricted 不审批
-		return mode == string(ApprovalAlways)
+		return mode == string(approvalAlways)
 	}
 	return p.needsApproval(action, mode)
 }

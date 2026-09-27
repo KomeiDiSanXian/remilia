@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -51,8 +50,9 @@ type openaiClient struct {
 	httpClient   *http.Client
 }
 
-func NewOpenAIProvider(cfg *config.Config) (Provider, error) {
-	baseURL := cfg.BaseURL
+// NewOpenAIProvider 按线格式参数构造 OpenAI 兼容提供商。
+func NewOpenAIProvider(opts ProviderOptions) (Provider, error) {
+	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}
@@ -60,12 +60,12 @@ func NewOpenAIProvider(cfg *config.Config) (Provider, error) {
 
 	return &openaiClient{
 		baseURL:      baseURL,
-		apiKey:       cfg.APIKey,
-		model:        cfg.Model,
-		maxTokens:    cfg.MaxTokens,
-		apiTimeout:   cfg.APITimeout,
-		maxRetries:   cfg.MaxRetries,
-		includeUsage: cfg.IncludeUsage,
+		apiKey:       opts.APIKey,
+		model:        opts.Model,
+		maxTokens:    opts.MaxTokens,
+		apiTimeout:   opts.APITimeout,
+		maxRetries:   opts.MaxRetries,
+		includeUsage: opts.IncludeUsage,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,

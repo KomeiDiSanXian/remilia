@@ -36,7 +36,7 @@ func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Sessi
 	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(p.cfg) {
+	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
 	evt := ctx.GetPlatformEvent()
@@ -49,7 +49,7 @@ func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Sessi
 
 // schedulePlanContinue 递增轮次并调度一次后台推进（间隔后执行）。
 func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Event, sender platform.Sender) {
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(p.cfg) {
+	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
 	session.BumpPlanAutoRounds()

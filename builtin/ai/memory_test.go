@@ -21,9 +21,9 @@ import (
 func newTestMemoryStore(t *testing.T, maxFacts int, minInterval time.Duration) *memoryStore {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "ai_memory")
-	m, err := OpenMemoryStore(dir, maxFacts, minInterval)
+	m, err := openMemoryStore(dir, maxFacts, minInterval)
 	if err != nil {
-		t.Fatalf("OpenMemoryStore failed: %v", err)
+		t.Fatalf("openMemoryStore failed: %v", err)
 	}
 	t.Cleanup(m.Close)
 	return m
@@ -114,14 +114,14 @@ func TestMemoryStoreRetrieve(t *testing.T) {
 
 func TestMemoryStorePersistence(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "ai_memory")
-	m1, err := OpenMemoryStore(dir, 50, time.Minute)
+	m1, err := openMemoryStore(dir, 50, time.Minute)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	m1.Add(userScope("u1"), "用户喜欢喝咖啡")
 	m1.Close()
 
-	m2, err := OpenMemoryStore(dir, 50, time.Minute)
+	m2, err := openMemoryStore(dir, 50, time.Minute)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}

@@ -3,9 +3,9 @@
 // 决策只回答"这一轮把哪些动作交给模型"，从不执行动作本身：执行路径只消费
 // 结论，不重新推导策略。
 //
-//	打分    ScoreTool / ScoreToolParts  关键词命中 + 会话热用 + 可选语义余弦
-//	选择    SelectToolsForTurn          必保集 + 高分补充 + token 预算 + 会话缓存
-//	稳定    StabilizeToolSet            滞回 + 单调并集 + 空闲衰减（见 stabilize.go）
+//	打分    ScoreToolParts               关键词命中 + 会话热用 + 可选语义余弦（见 score.go）
+//	选择    SelectToolsForTurn           必保集 + 高分补充 + token 预算 + 会话缓存（见 selection.go）
+//	稳定    StabilizeToolSet             滞回 + 单调并集 + 空闲衰减（见 stabilize.go）
 //
 // 与检索骨架的分工：分词、重叠度、语义权重与确定性排序见 builtin/ai/retrieval；
 // 本包只承载动作选择这一领域的候选来源、入选门槛与稳定策略，不承载通用算法。
@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
@@ -32,11 +31,11 @@ import (
 // SelectionCacheTTL 工具选择缓存的 TTL。
 // 仅当上次选择的查询与本轮查询关键词 Jaccard 相似且未超 TTL 时复用，
 // 避免话题漂移后仍沿用陈旧工具集。
-// 与历史检索缓存共用同一套复用策略（见 session 的缓存策略常量）。
-const SelectionCacheTTL = session.CacheReuseTTL
+// 与历史检索缓存共用同一套复用策略（见 retrieval.CacheReuseTTL）。
+const SelectionCacheTTL = retrieval.CacheReuseTTL
 
 // SelectionCacheJaccard 复用缓存所需的最小关键词 Jaccard 相似度。
-const SelectionCacheJaccard = session.CacheReuseJaccard
+const SelectionCacheJaccard = retrieval.CacheReuseJaccard
 
 // SessionUsedTools 收集本会话中已调用过的工具名集合。
 // 用于会话热用加成与必保集，保证多轮任务中工具不抖动。
@@ -92,12 +91,15 @@ type scoredTool struct {
 //
 // query 为本轮检索用的用户消息文本，由调用方给定（历史检索与记忆检索复用同一份查询）。
 // observe 为工具集观测端口，可为 nil（观测依赖由装配侧注入）。
-func SelectToolsForTurn(cfg *config.Config, emb *retrieval.TextVectorCache, ctx *eventctx.Context,
+func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, ctx *eventctx.Context,
 	sess *session.Session, query string, actions []toolkit.Action, observe ToolSetObserver) []toolkit.Action {
-	max := cfg.ToolSelectMax
-	if max <= 0 {
-		max = 20
-	}
+	max := opts.maxTools()
+	// 短路口径（有意为之，不是遗漏稳定策略）：
+	//   - 工具数 ≤ 上限且未启用 embedding：全部发送即"最稳定"的集合，
+	//     没有可裁剪项，稳定策略无事可做，也无需写会话状态；
+	//   - 查询为空：没有打分依据，只能全量发送。
+	// 两条短路口径都不经过 StabilizeToolSet，因此不会触发工具集观测回调；
+	// 需要观测数据的部署应保证工具数超过上限或启用 embedding。
 	if len(actions) <= max && (emb == nil || !emb.Enabled()) {
 		return actions
 	}
@@ -110,13 +112,13 @@ func SelectToolsForTurn(cfg *config.Config, emb *retrieval.TextVectorCache, ctx 
 	if cached := sess.ToolSelection(); cached != nil && cached.ToolCount == len(actions) {
 		if time.Since(cached.At) <= SelectionCacheTTL &&
 			retrieval.JaccardSimilarity(queryTokens, cached.QueryTokens) >= SelectionCacheJaccard {
-			cand := cached.Tools(actions)
-			if cfg.ToolSetSticky {
+			cand := cachedTools(actions, cached.Names)
+			if opts.Sticky {
 				// 稳定策略下按缓存名剪枝，而非回退全量：个别工具失效不应
 				// 让整个稳定集合瞬间膨胀。
 				cand = resolveToolsByName(actions, cached.Names)
 			}
-			return StabilizeToolSet(cfg, sess, actions, cand, observe)
+			return StabilizeToolSet(opts, sess, actions, cand, observe)
 		}
 	}
 
@@ -161,10 +163,7 @@ func SelectToolsForTurn(cfg *config.Config, emb *retrieval.TextVectorCache, ctx 
 		logger.Debugf("[AI] ToolSelect query=%q tools=%d embed=%v%s", textutil.TruncateRunes(query, 60), len(scored), queryVec != nil, b.String())
 	}
 
-	budget := cfg.ToolBudget
-	if budget <= 0 {
-		budget = 8000
-	}
+	budget := opts.toolBudget()
 	seen := make(map[string]bool, len(actions))
 	out := make([]toolkit.Action, 0, max)
 	usedBudget := 0
@@ -218,5 +217,5 @@ func SelectToolsForTurn(cfg *config.Config, emb *retrieval.TextVectorCache, ctx 
 		Names:       names,
 	})
 
-	return StabilizeToolSet(cfg, sess, actions, out, observe)
+	return StabilizeToolSet(opts, sess, actions, out, observe)
 }

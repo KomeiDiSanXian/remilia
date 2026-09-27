@@ -112,7 +112,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			cfg := config.Load(ctx)
-			prov, err := NewProvider(cfg)
+			prov, err := newProvider(cfg)
 			if err != nil {
 				return nil, fmt.Errorf("ai: create provider: %w", err)
 			}
@@ -144,7 +144,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 群策略存储：优先使用 data/ai 目录（LevelDB），失败时降级为纯内存。
 			var groupPolicies *groupPolicyManager
 			if !ctx.DryRun {
-				gp, gpErr := OpenGroupPolicyStore("data")
+				gp, gpErr := openGroupPolicyStore("data")
 				if gpErr != nil {
 					ctx.Log.Warnf("Failed to open group policy store: %v, using in-memory only", gpErr)
 					groupPolicies = newGroupPolicyManager(nil, "")
@@ -176,7 +176,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 避免与群策略共用 data/ai 触发 LevelDB 锁冲突。
 			var memory *memoryStore
 			if cfg.MemoryEnabled && !ctx.DryRun {
-				mem, memErr := OpenMemoryStore("data", cfg.MemoryMaxFacts, cfg.MemoryMinInterval)
+				mem, memErr := openMemoryStore("data", cfg.MemoryMaxFacts, cfg.MemoryMinInterval)
 				if memErr != nil {
 					ctx.Log.Warnf("Failed to open memory store: %v, memory disabled", memErr)
 				} else {
@@ -608,20 +608,21 @@ func (r *runtimeState) aiDefinition() *command.Definition {
 	return r.def
 }
 
-// NewProvider 根据配置创建对应的 LLM 提供商实例。
+// newProvider 根据配置创建对应的 LLM 提供商实例。
 // 返回的实例外层包装了指标采集（ai_llm_* 指标族）；提供商选择与指标包装
 // 都属于装配职责，因此留在本包，协议层只提供具体实现。
-func NewProvider(cfg *config.Config) (protocol.Provider, error) {
+func newProvider(cfg *config.Config) (protocol.Provider, error) {
+	opts := providerOptions(cfg)
 	var prov protocol.Provider
 	switch cfg.Provider {
 	case "openai", "":
-		p, err := protocol.NewOpenAIProvider(cfg)
+		p, err := protocol.NewOpenAIProvider(opts)
 		if err != nil {
 			return nil, err
 		}
 		prov = p
 	case "anthropic":
-		p, err := protocol.NewAnthropicProvider(cfg)
+		p, err := protocol.NewAnthropicProvider(opts)
 		if err != nil {
 			return nil, err
 		}

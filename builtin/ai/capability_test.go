@@ -26,7 +26,7 @@ func TestToolCapabilitiesNilSafety(t *testing.T) {
 // TestToolCapabilitiesComposition 校验组合根按启用状态装配端口。
 func TestToolCapabilitiesComposition(t *testing.T) {
 	dir := t.TempDir()
-	mem, err := OpenMemoryStore(dir, 50, time.Minute)
+	mem, err := openMemoryStore(dir, 50, time.Minute)
 	require.NoError(t, err)
 	t.Cleanup(mem.Close)
 

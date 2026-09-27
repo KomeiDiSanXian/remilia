@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -50,8 +49,9 @@ type anthropicClient struct {
 	httpClient *http.Client
 }
 
-func NewAnthropicProvider(cfg *config.Config) (Provider, error) {
-	baseURL := cfg.BaseURL
+// NewAnthropicProvider 按线格式参数构造 Anthropic 提供商。
+func NewAnthropicProvider(opts ProviderOptions) (Provider, error) {
+	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = "https://api.anthropic.com"
 	}
@@ -59,11 +59,11 @@ func NewAnthropicProvider(cfg *config.Config) (Provider, error) {
 
 	return &anthropicClient{
 		baseURL:    baseURL,
-		apiKey:     cfg.APIKey,
-		model:      cfg.Model,
-		maxTokens:  cfg.MaxTokens,
-		apiTimeout: cfg.APITimeout,
-		maxRetries: cfg.MaxRetries,
+		apiKey:     opts.APIKey,
+		model:      opts.Model,
+		maxTokens:  opts.MaxTokens,
+		apiTimeout: opts.APITimeout,
+		maxRetries: opts.MaxRetries,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,

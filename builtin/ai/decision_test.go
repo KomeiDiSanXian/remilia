@@ -63,11 +63,55 @@ func toolNamesOf(actions []toolkit.Action) []string {
 	return names
 }
 
-// TestNeedActionIsConservativeByDefault 冻结现状：闸门当前恒为真，即不抑制
-// 可选动作；收紧判定（如纯闲聊直接判否）属行为变更，需单独评估。
-func TestNeedActionIsConservativeByDefault(t *testing.T) {
+// TestNeedActionGate 冻结装配侧的闸门策略：
+//
+//	auto（默认）：纯社交寒暄判否、任务请求判真、计划进行中判真；
+//	always：恒真，与收紧前一致，用于恢复旧行为。
+//
+// 判定口径本身（白名单与保守性）见 decision/needaction_test.go。
+func TestNeedActionGate(t *testing.T) {
+	pendingPlan := &session.Plan{
+		Task:   "分步任务",
+		Active: true,
+		Steps:  []session.PlanStep{{ID: "1", Description: "第一步", Status: session.PlanPending}},
+	}
+	cases := []struct {
+		name  string
+		gate  string
+		query string
+		plan  *session.Plan
+		want  bool
+	}{
+		{"auto 纯社交判否", config.NeedActionAuto, "你好", nil, false},
+		{"auto 闲聊判真", config.NeedActionAuto, "随便问问", nil, true},
+		{"auto 任务请求判真", config.NeedActionAuto, "帮我查下明天的天气", nil, true},
+		{"零值配置等同默认 auto", "", "谢谢啦", nil, false},
+		{"auto 计划进行中判真", config.NeedActionAuto, "你好", pendingPlan, true},
+		{"always 恒真", config.NeedActionAlways, "你好", nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := decisionPlugin(t)
+			p.cfg.NeedActionGate = tc.gate
+			sess := decisionSession(tc.query)
+			if tc.plan != nil {
+				sess.SetPlan(tc.plan)
+			}
+			assert.Equal(t, tc.want, p.needAction(decisionCtx(tc.query), sess))
+		})
+	}
+}
+
+// TestNeedActionGateNilSafe 冻结装配侧的防御：nil 插件配置、nil 会话与 nil 事件
+// 上下文都不得 panic——闸门可能在任何信号缺失的路径上被调用。
+func TestNeedActionGateNilSafe(t *testing.T) {
+	empty := &Plugin{}
+	assert.True(t, empty.needAction(nil, nil), "无配置时保守判真")
+
 	p := decisionPlugin(t)
-	assert.True(t, p.needAction())
+	assert.True(t, p.needAction(nil, nil), "无会话与事件时保守判真")
+	assert.True(t, p.needAction(nil, decisionSession("你好")), "无事件时保守判真")
+	assert.False(t, p.needAction(decisionCtx("你好"), nil), "无会话不影响按消息判定")
 }
 
 // TestDecideTurnActionsWithoutActionKeepsRetainedOnly 冻结决策语义：
@@ -85,6 +129,24 @@ func TestDecideTurnActionsWithoutActionKeepsRetainedOnly(t *testing.T) {
 	assert.ElementsMatch(t, []string{"baseline_gen", "used_optional"}, got,
 		"只保留默认保留级别与会话已用工具")
 	assert.NotContains(t, got, "weather", "可选动作不得因打分入选")
+}
+
+// TestMandatorySelectionRetainedWithoutAction 冻结显式强制保留的语义：
+// 即便动作不属于通用类别、也不在会话已用集合里，声明 SelectionMandatory
+// 的动作在"本轮无需主动动作"时仍必须保留（SelectionMandatory 因此可达）。
+func TestMandatorySelectionRetainedWithoutAction(t *testing.T) {
+	p := decisionPlugin(t,
+		toolkit.Tool{Name: "plain_general", Categories: []string{toolkit.CategoryGeneral}},
+		toolkit.Tool{Name: "forced", Categories: []string{"web"}, Selection: new(toolkit.SelectionMandatory), Description: "强制保留"},
+		toolkit.Tool{Name: "optional", Categories: []string{"web"}, Description: "可选动作"},
+	)
+	sess := decisionSession("随便聊聊")
+
+	got := toolNamesOf(p.decideTurnActions(decisionCtx("随便聊聊"), sess, false))
+
+	assert.Contains(t, got, "forced", "显式强制保留的动作不得被闸门抑制")
+	assert.Contains(t, got, "plain_general")
+	assert.NotContains(t, got, "optional")
 }
 
 // TestDecideTurnActionsRetainsStickyWhenNoAction 冻结不变量 N3：
@@ -122,7 +184,7 @@ func TestActionCandidatesGroupPolicyThenPermission(t *testing.T) {
 	)
 	allowed := "weather,admin_only"
 	gpm := newGroupPolicyManager(nil, "")
-	gpm.SetGroup("g1", &GroupPolicy{ToolPolicy: &allowed})
+	gpm.SetGroup("g1", &groupPolicy{ToolPolicy: &allowed})
 	p.groupPolicies = gpm
 
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "查天气",
@@ -189,8 +251,8 @@ func TestApprovalModeFor(t *testing.T) {
 	assert.True(t, p.approvalModeFor(ctx, "sensitive_tool"))
 
 	// per-group 覆盖：群策略 approval=off 覆盖全局 always
-	policy := &GroupPolicy{}
-	off := string(ApprovalOff)
+	policy := &groupPolicy{}
+	off := string(approvalOff)
 	policy.Approval = &off
 	gpm := newGroupPolicyManager(nil, "")
 	gpm.SetGroup("group_1", policy)
@@ -199,8 +261,8 @@ func TestApprovalModeFor(t *testing.T) {
 	assert.False(t, p.approvalModeFor(ctx, "sensitive_tool"), "group policy off should override global always")
 
 	// per-group 覆盖：群策略 approval=always 覆盖全局 off
-	always := string(ApprovalAlways)
-	policy2 := &GroupPolicy{Approval: &always}
+	always := string(approvalAlways)
+	policy2 := &groupPolicy{Approval: &always}
 	gpm2 := newGroupPolicyManager(nil, "")
 	gpm2.SetGroup("group_1", policy2)
 	p2 := &Plugin{reg: reg, cfg: &config.Config{ToolApproval: "off"}, groupPolicies: gpm2}
@@ -214,7 +276,7 @@ func TestDecideToolInvocationSingleSource(t *testing.T) {
 	reg := toolkit.NewToolRegistry()
 	reg.Register(toolkit.Tool{Name: "plain_tool"})
 	reg.Register(toolkit.Tool{Name: "protected_tool", Permissions: []string{"acl.view"}})
-	reg.Register(toolkit.Tool{Name: catalog.SendToToolName, RequiresApproval: true, AlwaysRequireApproval: true})
+	reg.Register(toolkit.Tool{Name: catalog.SendToToolName, RequiresApproval: true, AlwaysRequireApproval: true, GrantsSendTo: true})
 
 	t.Run("声明权限但无权：拒绝且计为失败", func(t *testing.T) {
 		p := &Plugin{
@@ -260,4 +322,58 @@ func TestDecideToolInvocationSingleSource(t *testing.T) {
 		assert.NoError(t, d.err, "用户拒绝不消耗重试预算")
 		assert.False(t, d.sendToGranted)
 	})
+}
+
+// TestSendToGrantBoundToDeclarativePolicy 冻结 SendTo 授权的声明式绑定：
+// 一次审批只解锁动作自己声明的能力——声明 GrantsSendTo 的动作通过审批后获得
+// 授权；未声明的动作即便因 always 模式被审批放行，也不获得 SendTo 授权。
+func TestSendToGrantBoundToDeclarativePolicy(t *testing.T) {
+	cases := []struct {
+		name  string
+		grant bool
+	}{
+		{"声明 GrantsSendTo：授予授权", true},
+		{"未声明 GrantsSendTo：不授予授权", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := toolkit.NewToolRegistry()
+			reg.Register(toolkit.Tool{
+				Name:                  "risky",
+				RequiresApproval:      true,
+				AlwaysRequireApproval: true,
+				GrantsSendTo:          tc.grant,
+			})
+			p := &Plugin{
+				reg:       reg,
+				cfg:       &config.Config{ToolApproval: "always", ApprovalTimeout: 2 * time.Second},
+				approvals: execution.NewApprovalManager(),
+			}
+			ctx, _ := newApprovalTestContext("u1")
+
+			done := make(chan toolInvocationDecision, 1)
+			go func() {
+				done <- p.decideToolInvocation(ctx, protocol.ToolCall{Name: "risky"})
+			}()
+
+			var id string
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) && id == "" {
+				if ids := p.approvals.PendingIDs(); len(ids) > 0 {
+					id = ids[0]
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			require.NotEmpty(t, id, "always 模式应发起审批")
+			require.True(t, p.approvals.Resolve(id, "u1", true))
+
+			select {
+			case d := <-done:
+				assert.True(t, d.allowed)
+				assert.Equal(t, tc.grant, d.sendToGranted)
+			case <-time.After(3 * time.Second):
+				t.Fatal("decideToolInvocation 未返回")
+			}
+		})
+	}
 }

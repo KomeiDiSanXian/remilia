@@ -32,9 +32,9 @@ func makeManageCtxRole(content string, isGroup bool, role platform.GroupRole) *e
 
 func newManagePlugin(t *testing.T) *Plugin {
 	t.Helper()
-	mem, err := OpenMemoryStore(t.TempDir(), 50, time.Minute)
+	mem, err := openMemoryStore(t.TempDir(), 50, time.Minute)
 	if err != nil {
-		t.Fatalf("OpenMemoryStore: %v", err)
+		t.Fatalf("openMemoryStore: %v", err)
 	}
 	t.Cleanup(mem.Close)
 	return &Plugin{

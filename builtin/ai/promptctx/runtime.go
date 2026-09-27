@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -18,16 +17,16 @@ import (
 //
 // 注入的字段由配置 context_fields 白名单控制：
 // 为空表示注入全部字段；非空时仅注入列出的字段。
-func BuildRuntimeContext(cfg *config.Config, ctx *eventctx.Context) string {
+func BuildRuntimeContext(opts ContextOptions, ctx *eventctx.Context) string {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 
-	allow := make(map[string]bool, len(cfg.ContextFields))
-	for _, f := range cfg.ContextFields {
+	allow := make(map[string]bool, len(opts.RuntimeFields))
+	for _, f := range opts.RuntimeFields {
 		allow[f] = true
 	}
 	in := func(key string) bool {
-		if len(cfg.ContextFields) == 0 {
+		if len(opts.RuntimeFields) == 0 {
 			return true
 		}
 		return allow[key]

@@ -8,8 +8,9 @@
 //
 //	运行时上下文 → 群聊最近消息 → 长期记忆 → 相关历史消息
 //
-// context_window > 0 时按预算编排：稳定系统提示词优先扣除，其余各节依次装入，
-// 装不下则缩减或丢弃。context_window <= 0 时各节按配置上限（非预算路径）。
+// context_window > 0 时按预算编排：稳定系统提示词优先扣除（取会话中实际会
+// 发送的那条 System 消息），其余各节依次装入，装不下则缩减或丢弃。
+// context_window <= 0 时各节按配置上限（非预算路径）。
 //
 // 两条路径共用同一套参与条件：正文为空的节一律不输出，群聊最近消息受
 // context_group_messages > 0 控制（关闭时两条路径都不纳入）。
@@ -31,6 +32,7 @@ import (
 // （context_group_include_bot）时去重；nil 时不去重。同时用于长期记忆/相关
 // 历史的检索查询词，因此调用时应保证本轮用户消息已写入会话。
 func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.Session) []promptctx.Source {
+	opts := contextOptions(p.cfg)
 	groupDefault := p.cfg.ContextGroupMessages
 	if groupDefault <= 0 {
 		groupDefault = 10
@@ -40,19 +42,19 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 		memDefault = 8
 	}
 	// 机器人回复去重集合按需构建、只构建一次（预算缩减会多次生成正文）。
-	skipBot := sync.OnceValue(func() map[string]bool { return promptctx.BotReplyContents(p.cfg, session) })
+	skipBot := sync.OnceValue(func() map[string]bool { return promptctx.BotReplyContents(opts, session) })
 
 	return []promptctx.Source{
 		{
 			Header:  "运行时上下文",
 			Enabled: func() bool { return p.cfg.IncludeRuntimeContext },
-			Body:    func(int) string { return promptctx.BuildRuntimeContext(p.cfg, ctx) },
+			Body:    func(int) string { return promptctx.BuildRuntimeContext(opts, ctx) },
 		},
 		{
 			Header:  "群聊最近消息",
 			Enabled: func() bool { return p.cfg.ContextGroupMessages > 0 },
 			Limit:   groupDefault,
-			Body:    func(n int) string { return promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, skipBot(), n) },
+			Body:    func(n int) string { return promptctx.BuildGroupWindowN(p.history, opts, ctx, skipBot(), n) },
 			Shrink:  true,
 		},
 		{
@@ -80,18 +82,17 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 //	→ 长期记忆（memory_enabled）→ 相关历史消息（context_rag_messages）
 //
 // context_window > 0 时按预算编排，动态各节按上述优先级依次装入、装不下
-// 则缩减或丢弃（见 promptctx.BuildBudgeted）。
+// 则缩减或丢弃；此时预算路径是权威的，不会回退到非预算路径
+// （见 promptctx.BuildWindowed）。context_window <= 0 时各节按配置上限装配。
 //
 // 返回空串表示当前无动态上下文。调用方负责把它注入到请求尾部
 // （processWithTools 挂在本轮用户消息上），不要写进 System 消息。
 func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, session *session.Session) string {
-	sources := p.dynamicContextSources(ctx, session)
-	if p.cfg.ContextWindow > 0 {
-		if budgeted := promptctx.BuildBudgeted(sources, p.cfg.ContextWindow, p.buildStaticSystemPrompt(ctx)); budgeted != "" {
-			return budgeted
-		}
-	}
-	return promptctx.Build(sources)
+	// 预算扣除复用会话里"实际会发送"的稳定系统提示词（回合开始时写入，
+	// 见 handler 的 runtime.SetSystemMessage），不重算：重算既浪费，
+	// 又可能在群策略热更新时与实际发送内容不一致。
+	return promptctx.BuildWindowed(p.dynamicContextSources(ctx, session),
+		p.cfg.ContextWindow, runtime.SystemMessage(session))
 }
 
 // buildMemoryContextN 同上，注入条数由调用方给定（预算编排时可动态缩减）。
@@ -108,5 +109,5 @@ func (s *contextState) buildMemoryContextN(ctx *eventctx.Context, session *sessi
 // buildRAGContextN 检索并格式化相关历史消息注入文本（无命中返回空串）。
 // max 为注入条数上限（<=0 表示关闭本功能）；条数上限由调用方给定。
 func (p *Plugin) buildRAGContextN(ctx *eventctx.Context, session *session.Session, max int) string {
-	return promptctx.BuildRAGContext(p.history, p.emb, p.cfg, ctx, session, runtime.LastUserMessage(session), max)
+	return promptctx.BuildRAGContext(p.history, p.emb, contextOptions(p.cfg), ctx, session, runtime.LastUserMessage(session), max)
 }

@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
@@ -61,7 +60,7 @@ func ragHitTieBreak(a, b ragHit) bool {
 //
 // query 为本轮检索用的用户消息文本（通常取最后一条用户消息）；
 // 由调用方给定，因为同一份查询也被记忆检索与工具选择复用。
-func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache, cfg *config.Config, ctx *eventctx.Context, sess *session.Session, query string, max int) string {
+func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache, opts ContextOptions, ctx *eventctx.Context, sess *session.Session, query string, max int) string {
 	if history == nil || max <= 0 {
 		return ""
 	}
@@ -80,20 +79,20 @@ func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache,
 		chatKey = "g:" + chat.ID
 	}
 	if cached := sess.RAGCacheSnapshot(); cached != nil && cached.ChatKey == chatKey {
-		if time.Since(cached.At) <= session.CacheReuseTTL &&
-			retrieval.JaccardSimilarity(queryTokens, cached.QueryTokens) >= session.CacheReuseJaccard {
+		if time.Since(cached.At) <= retrieval.CacheReuseTTL &&
+			retrieval.JaccardSimilarity(queryTokens, cached.QueryTokens) >= retrieval.CacheReuseJaccard {
 			return cached.Text
 		}
 	}
 
 	text := ""
-	if entries, err := ragCandidates(history, cfg, chat); err == nil && len(entries) > 0 {
+	if entries, err := ragCandidates(history, opts, chat); err == nil && len(entries) > 0 {
 		// 注入上限 = min(启用条数, context_rag_inject_max)。
 		injectMax := max
-		if cfg.ContextRAGInjectMax > 0 && cfg.ContextRAGInjectMax < injectMax {
-			injectMax = cfg.ContextRAGInjectMax
+		if opts.RAGInjectMax > 0 && opts.RAGInjectMax < injectMax {
+			injectMax = opts.RAGInjectMax
 		}
-		text = formatRAGHits(history, emb, cfg, ctx, entries, query, injectMax)
+		text = formatRAGHits(history, emb, opts, ctx, entries, query, injectMax)
 	}
 
 	sess.SetRAGCache(&session.RAGCache{
@@ -109,15 +108,9 @@ func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache,
 // 统一走 QueryRange（热缓存 + SQLite 合并，私聊刚发未 flush 的消息也能命中），
 // 返回最新在前——语义兜底"取最近候选"依赖此顺序（与旧 QueryGroupFromDB /
 // QueryUserFromDB 语义一致）。
-func ragCandidates(history *messagelog.Logger, cfg *config.Config, chat platform.ChatInfo) ([]messagelog.RecordEntry, error) {
-	days := cfg.ContextRAGDays
-	if days <= 0 {
-		days = 7
-	}
-	limit := cfg.ContextRAGCandidates
-	if limit <= 0 {
-		limit = 500
-	}
+func ragCandidates(history *messagelog.Logger, opts ContextOptions, chat platform.ChatInfo) ([]messagelog.RecordEntry, error) {
+	days := opts.ragDays()
+	limit := opts.ragCandidatesLimit()
 	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	entries, err := history.QueryRange(chat.ID, since, time.Now(), limit,
 		messagelog.QueryOptions{Direction: messagelog.DirectionInbound})
@@ -134,7 +127,7 @@ func ragCandidates(history *messagelog.Logger, cfg *config.Config, chat platform
 // 直接嵌入精排（覆盖"记不清原话"的查询，仅零命中才花费 embedding 调用）；
 // 阶段 2 对候选做 embedding 精排（失败降级纯关键词），取 Top-N 注入。
 // 与最近消息窗口（context_group_messages）按 EventID 去重。
-func formatRAGHits(history *messagelog.Logger, emb *retrieval.TextVectorCache, cfg *config.Config, ctx *eventctx.Context, entries []messagelog.RecordEntry, query string, max int) string {
+func formatRAGHits(history *messagelog.Logger, emb *retrieval.TextVectorCache, opts ContextOptions, ctx *eventctx.Context, entries []messagelog.RecordEntry, query string, max int) string {
 	if max <= 0 {
 		return ""
 	}
@@ -142,12 +135,12 @@ func formatRAGHits(history *messagelog.Logger, emb *retrieval.TextVectorCache, c
 
 	// 与最近窗口去重：窗口内已有的事件不再重复注入。
 	skip := make(map[string]bool)
-	if cfg.ContextGroupMessages > 0 {
+	if opts.GroupMessages > 0 {
 		var recent []messagelog.RecordEntry
 		if chat := ctx.GetChatInfo(); chat.IsGroup {
-			recent = history.QueryGroupRecent(chat.ID, cfg.ContextGroupMessages)
+			recent = history.QueryGroupRecent(chat.ID, opts.GroupMessages)
 		} else {
-			recent = history.QueryUser(chat.ID, cfg.ContextGroupMessages)
+			recent = history.QueryUser(chat.ID, opts.GroupMessages)
 		}
 		for _, e := range recent {
 			if e.EventID != "" {

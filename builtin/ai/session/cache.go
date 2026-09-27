@@ -2,23 +2,15 @@
 //
 // 三者都是"按会话复用上一轮计算结果"的槽位，生命周期与 Session 一致
 // （json:"-" 不持久化，重启后重新收敛），因此随 Session 一并归位。
+//
+// 本文件只保存槽位数据与访问器；缓存的复用策略（TTL / 相似度门槛）属于
+// 消费方领域，定义在 builtin/ai/retrieval（见 CacheReuseTTL / CacheReuseJaccard），
+// 会话层不反向依赖动作/工具类型。
 package session
 
 import (
 	"maps"
 	"time"
-
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
-)
-
-// 会话级缓存的复用策略。工具选择缓存与历史检索缓存共用同一套阈值：
-// 两者都是"同一会话内、查询措辞相近就复用上一轮结果"的语义，
-// 放在缓存槽位旁边，避免两个消费方各自维护一份而悄悄分叉。
-const (
-	// CacheReuseTTL 缓存可被复用的时间窗。
-	CacheReuseTTL = 10 * time.Minute
-	// CacheReuseJaccard 复用缓存所需的最小查询关键词 Jaccard 相似度。
-	CacheReuseJaccard = 0.5
 )
 
 // SelectionCache 会话级工具选择缓存（json:"-" 不持久化）。
@@ -27,24 +19,6 @@ type SelectionCache struct {
 	At          time.Time
 	ToolCount   int
 	Names       []string
-}
-
-// Tools 按动作名解析缓存结果；动作集内容变化（同名缺失）时回退全量。
-func (c *SelectionCache) Tools(actions []toolkit.Action) []toolkit.Action {
-	byName := make(map[string]toolkit.Action, len(actions))
-	for _, a := range actions {
-		byName[a.Spec.Name] = a
-	}
-	out := make([]toolkit.Action, 0, len(c.Names))
-	for _, n := range c.Names {
-		if a, ok := byName[n]; ok {
-			out = append(out, a)
-		}
-	}
-	if len(out) == len(c.Names) {
-		return out
-	}
-	return actions
 }
 
 // ToolSelection 返回会话缓存的工具选择结果（无缓存返回 nil）。

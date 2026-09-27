@@ -162,7 +162,7 @@ func TestBuildRuntimeContext(t *testing.T) {
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	p := &Plugin{cfg: &config.Config{}}
-	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	runtimeCtx := promptctx.BuildRuntimeContext(contextOptions(p.cfg), ctx)
 	if runtimeCtx == "" {
 		t.Error("runtime context should not be empty")
 	}
@@ -184,7 +184,7 @@ func TestBuildRuntimeContextGroupInfo(t *testing.T) {
 	)
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	p := &Plugin{cfg: &config.Config{}}
-	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	runtimeCtx := promptctx.BuildRuntimeContext(contextOptions(p.cfg), ctx)
 
 	for _, want := range []string{
 		"聊天类型: 群聊",
@@ -210,7 +210,7 @@ func TestBuildRuntimeContextFieldFilter(t *testing.T) {
 
 	// 只注入用户昵称 + 群名称
 	p := &Plugin{cfg: &config.Config{ContextFields: []string{"user_name", "chat_name"}}}
-	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	runtimeCtx := promptctx.BuildRuntimeContext(contextOptions(p.cfg), ctx)
 	if !strings.Contains(runtimeCtx, "用户昵称: 小明") {
 		t.Errorf("expected user_name injected, got:\n%s", runtimeCtx)
 	}
@@ -236,7 +236,7 @@ func TestBuildRuntimeContextAllFieldsDefault(t *testing.T) {
 
 	// ContextFields 为空 = 注入全部字段（默认行为）
 	p := &Plugin{cfg: &config.Config{}}
-	runtimeCtx := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	runtimeCtx := promptctx.BuildRuntimeContext(contextOptions(p.cfg), ctx)
 	for _, want := range []string{"用户 ID: user1", "群 ID: g1", "发送者群角色: 群主/所有者", "所属服务器 ID: server1"} {
 		if !strings.Contains(runtimeCtx, want) {
 			t.Errorf("expected %q in runtime context, got:\n%s", want, runtimeCtx)
@@ -265,7 +265,7 @@ func TestBuildSystemPromptGatesRuntimeContext(t *testing.T) {
 	if !strings.Contains(static2, "自定义") {
 		t.Error("expected custom system prompt still present")
 	}
-	if !strings.Contains(static2, DefaultFrameworkPrompt) {
+	if !strings.Contains(static2, defaultFrameworkPrompt) {
 		t.Error("expected framework prompt still present")
 	}
 	if strings.Contains(static2, "运行时上下文") {

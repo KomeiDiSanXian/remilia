@@ -39,7 +39,7 @@ func TestOpenAIChatImageOutput(t *testing.T) {
 	srv := openAIImageOutServer(t, `[{"type":"text","text":"给你画好了"},{"type":"image_url","image_url":{"url":"`+pngDataURI(t)+`"}}]`)
 	defer srv.Close()
 
-	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := openAIProviderForTest(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestOpenAIChatURLOutput(t *testing.T) {
 	srv := openAIImageOutServer(t, `{"type":"image_url","image_url":{"url":"https://img.example.com/apple.png"}}`)
 	defer srv.Close()
 
-	prov, _ := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, _ := openAIProviderForTest(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "画一个苹果"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestOpenAIStreamImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := openAIProviderForTest(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestAnthropicChatImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := protocol.NewAnthropicProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := anthropicProviderForTest(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestAnthropicStreamImageOutput(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov, err := protocol.NewAnthropicProvider(&config.Config{BaseURL: srv.URL, APIKey: "k"})
+	prov, err := anthropicProviderForTest(&config.Config{BaseURL: srv.URL, APIKey: "k"})
 	if err != nil {
 		t.Fatal(err)
 	}

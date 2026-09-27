@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 )
 
@@ -39,12 +39,18 @@ type VerifyResult struct {
 	Reason string
 }
 
-// Verifier 回答校验器：用独立模型（verify_model，默认空 = 跟随主模型）评审回答。
+// Verifier 回答校验器：用独立模型（VerifyModel，默认空 = 跟随主模型）评审回答。
 type Verifier struct {
 	// Client 单轮非流式 LLM 调用。
 	Client Client
-	// Cfg 插件配置（提供校验开关、模型与超时）。
-	Cfg *config.Config
+	// Model 主模型名（VerifyModel 为空时回退到它）。
+	Model string
+	// VerifyModel 校验专用模型（空 = 跟随主模型）。
+	VerifyModel string
+	// APITimeout 单次校验调用超时（<=0 时不额外设限）。
+	APITimeout time.Duration
+	// MaxRetry 校验失败后的最大重新生成次数（<=0 用默认 1）。
+	MaxRetry int
 }
 
 // Verify 校验一段回答。校验调用自身出错时返回错误（由调用方决定降级）。
@@ -54,12 +60,16 @@ func (v Verifier) Verify(ctx context.Context, userContent, answer string) (Verif
 		{Role: protocol.RoleUser, Content: "用户问题：" + userContent + "\n\n助手回答：" + answer},
 	}
 
-	verifyCtx, cancel := context.WithTimeout(ctx, v.Cfg.APITimeout)
-	defer cancel()
+	verifyCtx := ctx
+	if v.APITimeout > 0 {
+		var cancel context.CancelFunc
+		verifyCtx, cancel = context.WithTimeout(ctx, v.APITimeout)
+		defer cancel()
+	}
 
-	model := v.Cfg.VerifyModel
+	model := v.VerifyModel
 	if model == "" {
-		model = v.Cfg.Model
+		model = v.Model
 	}
 	resp, err := v.Client.SingleRound(verifyCtx, model, messages, nil)
 	if err != nil {
@@ -70,10 +80,10 @@ func (v Verifier) Verify(ctx context.Context, userContent, answer string) (Verif
 
 // MaxRetries 返回校验失败后的最大重新生成次数（<=0 用默认 1）。
 func (v Verifier) MaxRetries() int {
-	if v.Cfg.VerifyMaxRetries <= 0 {
+	if v.MaxRetry <= 0 {
 		return 1
 	}
-	return v.Cfg.VerifyMaxRetries
+	return v.MaxRetry
 }
 
 // ParseVerdict 鲁棒解析评审输出。

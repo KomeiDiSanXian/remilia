@@ -264,3 +264,41 @@ func TestMergeOrAppendToolCall(t *testing.T) {
 		t.Errorf("expected merged arguments, got %q", calls[0].Function.Arguments)
 	}
 }
+
+// TestAnthropicDropsMidArraySystemButKeepsUserTail 冻结 Anthropic 适配器的两条
+// 角色约束，二者共同决定"逐轮变化的尾部内容"必须用 user 角色承载：
+//   - 数组内的 system 消息被整条丢弃（只有首条 system 进入顶级 system 字段），
+//     因此尾部追加的 system（如执行计划）对 Claude 完全不可见；
+//   - 尾部的 user 消息会保留成独立的一轮，内容完整送达。
+//
+// 这是 processWithTools 用 user 角色注入执行计划（而非 system）的依据。
+func TestAnthropicDropsMidArraySystemButKeepsUserTail(t *testing.T) {
+	const plan = "===== 当前执行计划 =====\n- s1 收集资料"
+	base := func() []Message {
+		return []Message{
+			{Role: RoleSystem, Content: "stable system"},
+			{Role: RoleUser, Content: "开始"},
+		}
+	}
+
+	withSystemTail := append(base(), Message{Role: RoleSystem, Content: plan})
+	if got := extractAnthropicSystem(withSystemTail); got != "stable system" {
+		t.Errorf("only the first system message feeds the top-level field, got %q", got)
+	}
+	if out := toAnthropicMessages(withSystemTail); len(out) != 1 {
+		t.Fatalf("mid-array system must be dropped by Anthropic, got %d messages: %+v", len(out), out)
+	}
+
+	withUserTail := append(base(), Message{Role: RoleUser, Content: plan})
+	out := toAnthropicMessages(withUserTail)
+	if len(out) != 2 {
+		t.Fatalf("trailing user message must be preserved, got %d messages: %+v", len(out), out)
+	}
+	last := out[len(out)-1]
+	if last.Role != "user" {
+		t.Errorf("trailing message must keep the user role, got %q", last.Role)
+	}
+	if len(last.Content) != 1 || last.Content[0].Type != "text" || !strings.Contains(last.Content[0].Text, "当前执行计划") {
+		t.Errorf("plan text must reach Anthropic unchanged, got %+v", last.Content)
+	}
+}

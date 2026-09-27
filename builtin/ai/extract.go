@@ -47,6 +47,8 @@ func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Sess
 func (p *Plugin) memoryExtractor() runtime.Extractor {
 	return runtime.Extractor{
 		Client:       p.runtimeClient(),
+		Model:        p.cfg.Model,
+		ExtractModel: p.cfg.ExtractModel,
 		Memory:       p.memoryWriter(),
 		Scopes:       memoryScopeKeys{},
 		LifecycleCtx: p.lifecycleCtx,

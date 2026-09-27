@@ -1,15 +1,14 @@
 // Package runtime 回合运行时的可复用逻辑：单轮 LLM 调用、回答校验与事实抽取。
 //
-// 这里只承载不依赖 AI 运行时状态的部分。装配侧（builtin/ai）把配置、提供商、
-// 记忆写入、作用域键与生命周期等依赖显式注入，本包不持有 *Plugin，也不反向
-// 读取运行时字段；回合编排（主工具循环、消息入口）仍留在装配侧。
+// 这里只承载不依赖 AI 运行时状态的部分。装配侧（builtin/ai）把采样参数、
+// 运行预算、提供商、记忆写入、作用域键与生命周期等依赖显式注入，本包不持有
+// *Plugin，也不依赖插件配置包；回合编排（主工具循环、消息入口）仍留在装配侧。
 package runtime
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 )
 
@@ -21,10 +20,14 @@ type SingleRoundResult struct {
 	ToolCalls []protocol.ToolCall
 }
 
-// Client 单轮非流式 LLM 调用：请求形状（温度、核采样、最大 token）由配置决定。
+// Client 单轮非流式 LLM 调用：请求形状（温度、核采样、最大 token）由采样参数决定。
 type Client struct {
-	// Cfg 插件配置（提供采样参数）。
-	Cfg *config.Config
+	// Temperature 采样温度。
+	Temperature float64
+	// TopP 核采样阈值。
+	TopP float64
+	// MaxTokens 单次请求的输出上限。
+	MaxTokens int
 	// Prov LLM 提供商。
 	Prov protocol.Provider
 }
@@ -37,9 +40,9 @@ func (c Client) SingleRound(ctx context.Context, model string, messages []protoc
 		Model:       model,
 		Messages:    messages,
 		Tools:       tools,
-		Temperature: c.Cfg.Temperature,
-		TopP:        c.Cfg.TopP,
-		MaxTokens:   c.Cfg.MaxTokens,
+		Temperature: c.Temperature,
+		TopP:        c.TopP,
+		MaxTokens:   c.MaxTokens,
 	}
 
 	resp, err := c.Prov.Chat(ctx, req)

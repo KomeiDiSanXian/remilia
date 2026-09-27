@@ -55,10 +55,10 @@ func TestToolFailureIsTypedNotTextual(t *testing.T) {
 }
 
 func TestEffectiveToolRetryLimit(t *testing.T) {
-	if got := runtime.EffectiveToolRetryLimit(&config.Config{}); got != 2 {
+	if got := runtime.EffectiveToolRetryLimit(runtime.Limits{}); got != 2 {
 		t.Errorf("default retry limit should be 2, got %d", got)
 	}
-	if got := runtime.EffectiveToolRetryLimit(&config.Config{ToolRetryLimit: 5}); got != 5 {
+	if got := runtime.EffectiveToolRetryLimit(runtime.Limits{ToolRetryLimit: 5}); got != 5 {
 		t.Errorf("configured retry limit should be 5, got %d", got)
 	}
 }

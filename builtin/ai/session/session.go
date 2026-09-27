@@ -52,14 +52,17 @@ type Session struct {
 
 	// toolSet 会话级工具集稳定状态（json:"-" 不持久化，重启后重新收敛）。
 	// 用于抑制工具集抖动——tools 是请求前缀的前段，集合一变其后的
-	// 历史全部失去前缀缓存（见 toolset.go）。
+	// 历史全部失去前缀缓存（策略见 builtin/ai/decision/stabilize.go，
+	// 状态定义见本包 cache.go）。
 	toolSet *ToolSetState `json:"-"`
 
 	// toolFailures 各工具在本会话中的连续失败次数（json:"-" 不持久化）。
 	// 用于工具执行的重试预算与反思引导；成功执行后归零。
 	toolFailures map[string]int `json:"-"`
 
-	// plan 当前任务计划（json:"-" 不持久化，重启后计划丢失）。
+	// plan 当前任务计划。经 Record.Plan 持久化，跨重启继续执行
+	// （json:"-" 只表示不参与 Session 的直接 JSON 序列化，不代表不落库，
+	//  见 record.go 的 ToRecord/ToSession）。
 	// 由 create_plan 创建、update_plan_step 更新；每轮 LLM 调用前注入。
 	plan *Plan `json:"-"`
 

@@ -1,12 +1,15 @@
 // Package retrieval 检索与排序的公共骨架。
 //
-// 工具选择（builtin/ai/select.go）、历史消息检索（builtin/ai/rag.go）、长期记忆检索（builtin/ai/memory.go）
+// 工具选择（builtin/ai/decision）、历史消息检索与长期记忆检索（builtin/ai/promptctx）
 // 三个消费者共享同一套算法骨架：
 //
 //	tokenize → 候选筛选 → 关键词打分 →（可选）语义精排 → 排序 → Top-K
 //
 // 本文件只承载骨架本身（分词、重叠度、语义权重与向量获取、确定性排序、截断），
 // 不承载领域模型：候选来源、入选门槛与筛选策略仍由各消费者自行决定。
+// 例外是会话内检索结果的复用策略（CacheReuseTTL / CacheReuseJaccard）：它由
+// 工具选择与历史检索两个消费者共用，且以本包的 JaccardSimilarity 表达，
+// 因此与算法同置，避免消费者各自维护而分叉。
 package retrieval
 
 import (
@@ -22,6 +25,17 @@ import (
 
 // ScoreEmbedW 语义余弦相似度权重（工具选择、历史检索、记忆检索共用）。
 const ScoreEmbedW = 2.0
+
+// 会话内检索结果的复用策略：工具选择缓存与历史检索缓存共用同一套阈值。
+// 两者都是"同一会话内、查询措辞相近就复用上一轮结果"的语义，且都以
+// [JaccardSimilarity] 衡量查询相近程度，因此把策略与所依赖的算法放在一起，
+// 避免两个消费方各自维护一份而悄悄分叉。
+const (
+	// CacheReuseTTL 检索结果可被复用的时间窗。
+	CacheReuseTTL = 10 * time.Minute
+	// CacheReuseJaccard 复用缓存所需的最小查询关键词 Jaccard 相似度。
+	CacheReuseJaccard = 0.5
+)
 
 var wordRegexp = regexp.MustCompile(`[a-z0-9]+`)
 

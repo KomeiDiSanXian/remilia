@@ -306,7 +306,21 @@ type Config struct {
 	// 开启后创建计划后机器人按 plan_auto_interval 自动继续执行未完成步骤
 	// 并主动汇报，用户无需逐条消息推动；用户发消息时重置推进预算。
 	PlanAutoContinue bool `yaml:"plan_auto_continue"`
+	// NeedActionGate“本轮是否需要主动动作”闸门的开关（默认 auto）。
+	//
+	// auto：纯社交寒暄轮判定为无需动作——不挑选可选动作、跳过检索与嵌入调用，
+	// 工具集只保留默认保留级别与会话已用（见 decision.NeedAction）；
+	// always：闸门恒开，不做判定，行为与收紧前一致。
+	NeedActionGate string `yaml:"need_action_gate"`
 }
+
+// NeedActionGate 取值。
+const (
+	// NeedActionAuto 按本轮消息判定是否需要动作（默认）。
+	NeedActionAuto = "auto"
+	// NeedActionAlways 闸门恒开，始终按需要动作处理。
+	NeedActionAlways = "always"
+)
 
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
@@ -353,6 +367,7 @@ var DefaultConfig = Config{
 	ApprovalTimeout:        60 * time.Second,
 	ToolSelectMax:          20,
 	ToolBudget:             8000,
+	NeedActionGate:         NeedActionAuto,
 	ToolSetSticky:          true,
 	ToolSetStickyMax:       8,
 	ToolSetTTL:             20 * time.Minute,
@@ -375,7 +390,7 @@ var DefaultConfig = Config{
 //
 // 当前配置校验：
 //   - 至少启用一种触发方式（trigger_cmd / at_bot / private_chat）
-//   - provider、model、api_key 等由 Setup 阶段 NewProvider 校验
+//   - provider、model、api_key 等由 Setup 阶段 newProvider 校验
 func Load(ctx *plugin.SetupContext) *Config {
 	cfg := DefaultConfig
 	if ctx.Config == nil {
@@ -511,6 +526,15 @@ func Load(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetDuration("approval_timeout", 0); v > 0 {
 		cfg.ApprovalTimeout = v
+	}
+
+	if v := ctx.Config.GetString("need_action_gate", ""); v != "" {
+		switch v {
+		case NeedActionAuto, NeedActionAlways:
+			cfg.NeedActionGate = v
+		default:
+			ctx.Log.Warnf("invalid need_action_gate %q, must be auto|always, ignoring", v)
+		}
 	}
 
 	if v := ctx.Config.GetInt("tool_select_max", 0); v > 0 {

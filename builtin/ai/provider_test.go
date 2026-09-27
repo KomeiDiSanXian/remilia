@@ -45,7 +45,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 		Model:     "gpt-4o-mini",
 		MaxTokens: 100,
 	}
-	prov, err := protocol.NewOpenAIProvider(cfg)
+	prov, err := openAIProviderForTest(cfg)
 	if err != nil {
 		t.Fatalf("NewOpenAIProvider failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestOpenAIProvider_ChatWithTools(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "test-key", Model: "gpt-4o-mini", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Weather?"}},
@@ -122,7 +122,7 @@ func TestOpenAIProvider_ChatStream(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "test-key", Model: "gpt-4o-mini", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -156,7 +156,7 @@ func TestOpenAIProvider_ChatStreamToolCalls(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "test-key", Model: "gpt-4o-mini", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Weather?"}},
@@ -194,7 +194,7 @@ func TestOpenAIProvider_APIError(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "bad-key", Model: "gpt-4o-mini", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	_, err := prov.Chat(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -212,7 +212,7 @@ func TestOpenAIProvider_ChatStreamError(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "key", Model: "gpt-4o-mini", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -248,7 +248,7 @@ func TestAnthropicProvider_Chat(t *testing.T) {
 		Model:     "claude-sonnet-4-20250514",
 		MaxTokens: 100,
 	}
-	prov, _ := protocol.NewAnthropicProvider(cfg)
+	prov, _ := anthropicProviderForTest(cfg)
 
 	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{
@@ -283,7 +283,7 @@ func TestAnthropicProvider_ChatStream(t *testing.T) {
 		Model:     "claude-sonnet-4-20250514",
 		MaxTokens: 100,
 	}
-	prov, _ := protocol.NewAnthropicProvider(cfg)
+	prov, _ := anthropicProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -331,7 +331,7 @@ func TestOpenAIProvider_RetryOn5xx(t *testing.T) {
 		MaxRetries: 3,
 		APITimeout: 5 * time.Second,
 	}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	resp, err := prov.Chat(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -354,7 +354,7 @@ func TestOpenAIProvider_ContextCancel(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "key", Model: "gpt-4o-mini", MaxTokens: 100, APITimeout: 10 * time.Second}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -382,7 +382,7 @@ func TestOpenAIProvider_ChatUsesRequestModelAndMaxTokens(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "k", Model: "default-model", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	_, err := prov.Chat(context.Background(), &protocol.ChatRequest{
 		Model:     "override-model",
@@ -413,7 +413,7 @@ func TestOpenAIProvider_ChatStreamUsesRequestModelAndMaxTokens(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "k", Model: "default-model", MaxTokens: 100}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Model:     "override-model",
@@ -449,7 +449,7 @@ func TestOpenAIProvider_ChatStreamRetryOn5xx(t *testing.T) {
 	defer server.Close()
 
 	cfg := &config.Config{BaseURL: server.URL, APIKey: "k", Model: "gpt-4o-mini", MaxTokens: 100, MaxRetries: 3}
-	prov, _ := protocol.NewOpenAIProvider(cfg)
+	prov, _ := openAIProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
@@ -497,7 +497,7 @@ func TestAnthropicProvider_ChatStreamParallelToolCalls(t *testing.T) {
 		Model:     "claude-sonnet-4-20250514",
 		MaxTokens: 100,
 	}
-	prov, _ := protocol.NewAnthropicProvider(cfg)
+	prov, _ := anthropicProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Weather and time?"}},
@@ -558,7 +558,7 @@ func TestAnthropicProvider_ChatStreamErrorEvent(t *testing.T) {
 		Model:     "claude-sonnet-4-20250514",
 		MaxTokens: 100,
 	}
-	prov, _ := protocol.NewAnthropicProvider(cfg)
+	prov, _ := anthropicProviderForTest(cfg)
 
 	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
 		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},

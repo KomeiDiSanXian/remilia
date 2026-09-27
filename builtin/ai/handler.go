@@ -640,13 +640,13 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 // 这两节只随配置/群策略变化，在同一会话的连续请求之间字节稳定，因此
 // 放在请求最前面作为 LLM 前缀缓存的可复用段。
 //
-// 任何逐轮变化的内容（运行时上下文、群聊窗口、长期记忆、相关历史、
-// 执行计划）一律不得进入本函数——它们由 [buildDynamicContext] 构建，
-// 并在请求构建时挂到本轮用户消息尾部（见 processWithTools）。把动态
-// 内容混进 System 消息会让缓存前缀在很靠前的位置失效，历史消息随之
-// 整段无法复用（cache hit 长期只有个位数~十几个百分点）。
+// 任何逐轮变化的内容（运行时上下文、群聊窗口、长期记忆、相关历史）一律
+// 不得进入本函数——它们由 [buildDynamicContext] 构建；执行计划则由
+// processWithTools 单独构建。两者都在请求构建时挂到本轮用户消息尾部。
+// 把动态内容混进 System 消息会让缓存前缀在很靠前的位置失效，历史消息
+// 随之整段无法复用（cache hit 长期只有个位数~十几个百分点）。
 func (p *Plugin) buildStaticSystemPrompt(ctx *eventctx.Context) string {
-	parts := []string{DefaultFrameworkPrompt}
+	parts := []string{defaultFrameworkPrompt}
 	if custom := p.effectiveCustomPrompt(ctx); custom != "" {
 		parts = append(parts, "===== 自定义指令 =====\n"+custom)
 	}

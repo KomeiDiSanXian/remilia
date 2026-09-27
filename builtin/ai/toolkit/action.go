@@ -29,6 +29,7 @@ type SelectionClass uint8
 
 const (
 	// SelectionOptional 正常选择阶段可被淘汰：按相关度打分竞争，未命中即落选。
+	// 数值与 v1.65.0 保持一致（0），不要在中间插入新值——外部代码可能按数值比较。
 	SelectionOptional SelectionClass = iota
 	// SelectionBaseline 默认保留：正常情况下进入稳定工具集，
 	// 且在"本轮无需主动动作"时仍必须保留（见 KeepsWhenNoAction）。
@@ -82,6 +83,10 @@ type ActionPolicy struct {
 	RequiresApproval bool
 	// AlwaysRequireApproval 是否在任意审批模式（含 off）下都强制审批。
 	AlwaysRequireApproval bool
+	// GrantsSendTo 审批放行后是否授予 SendTo（向其他会话推送）能力。
+	// 只有声明它的动作在审批通过后拿到已授权的 ToolSender；其余动作即使
+	// 在 always 模式下通过审批，也只拿到未授权的 sender（见 Tool.GrantsSendTo）。
+	GrantsSendTo bool
 	// Permissions 执行所需的 RBAC 权限（任一命中即放行）。
 	Permissions []string
 }
@@ -124,23 +129,28 @@ func ActionSpecOf(t Tool) ActionSpec {
 
 // ActionPolicyOf 从工具派生选择与安全策略。
 //
-// 保留级别的映射是保真的：原有"通用工具"（Categories 为空或含 general）
-// 一律映射为 [SelectionBaseline]，其余为 [SelectionOptional]，
-// 因此工具集组成与重构前逐项一致。
+// 保留级别先看工具是否显式声明（[Tool.Selection] 非 nil）；未声明时按原有
+// 兼容语义派生：\"通用工具\"（Categories 为空或含 general）映射为
+// [SelectionBaseline]，其余为 [SelectionOptional]，因此工具集组成与重构前逐项一致。
 func ActionPolicyOf(t Tool) ActionPolicy {
 	return ActionPolicy{
 		Selection:             SelectionClassOf(t),
 		RequiresApproval:      t.RequiresApproval,
 		AlwaysRequireApproval: t.AlwaysRequireApproval,
+		GrantsSendTo:          t.GrantsSendTo,
 		Permissions:           t.Permissions,
 	}
 }
 
-// SelectionClassOf 是"通用工具"这一既有概念与保留级别之间的翻译函数。
+// SelectionClassOf 解析工具最终的保留级别：显式声明优先，否则按类别派生。
 //
-// 它是该映射的唯一事实来源：选择路径只认 [SelectionClass]，
-// 而"空类别视为通用"的兼容语义只在这里定义一次。
+// 它是保留级别的唯一事实来源：选择路径只认 [SelectionClass]，而"空类别视为
+// 通用"的兼容语义只在这里定义一次。显式声明（含 [SelectionMandatory]）让框架
+// 与插件能为单个动作指定保留策略，而无需借道类别污染检索语义。
 func SelectionClassOf(t Tool) SelectionClass {
+	if t.Selection != nil {
+		return *t.Selection
+	}
 	if IsGeneralTool(t) {
 		return SelectionBaseline
 	}

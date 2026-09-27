@@ -50,7 +50,7 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
+	prov, err := openAIProviderForTest(&config.Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	}))
 	defer streamServer.Close()
 
-	sprov, err := protocol.NewOpenAIProvider(&config.Config{BaseURL: streamServer.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
+	sprov, err := openAIProviderForTest(&config.Config{BaseURL: streamServer.URL, APIKey: "k", Model: "m", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
@@ -109,9 +109,9 @@ func TestMetricsProviderChat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "test-model", MaxTokens: 8, IncludeUsage: true})
+	prov, err := newProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "test-model", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
-		t.Fatalf("NewProvider: %v", err)
+		t.Fatalf("newProvider: %v", err)
 	}
 	callsBefore := counterValue(llmCalls, "test-model", "ok")
 	promptBefore := counterValue(llmTokens, "test-model", "prompt")
@@ -133,9 +133,9 @@ func TestMetricsProviderStreamError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := NewProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "err-model", MaxTokens: 8, IncludeUsage: true})
+	prov, err := newProvider(&config.Config{Provider: "openai", BaseURL: server.URL, APIKey: "k", Model: "err-model", MaxTokens: 8, IncludeUsage: true})
 	if err != nil {
-		t.Fatalf("NewProvider: %v", err)
+		t.Fatalf("newProvider: %v", err)
 	}
 	// doStreamRequest 对 5xx 同步返回错误（重试后），装饰器同步计数
 	before := counterValue(llmCalls, "err-model", "error")
@@ -162,7 +162,7 @@ func TestAnthropicStreamUsage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	prov, err := protocol.NewAnthropicProvider(&config.Config{Provider: "anthropic", BaseURL: server.URL, APIKey: "k", Model: "claude-test", MaxTokens: 8})
+	prov, err := anthropicProviderForTest(&config.Config{Provider: "anthropic", BaseURL: server.URL, APIKey: "k", Model: "claude-test", MaxTokens: 8})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}

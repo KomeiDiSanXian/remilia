@@ -107,7 +107,9 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 		// 保证 off 模式下也必须审批。
 		RequiresApproval:      true,
 		AlwaysRequireApproval: true,
-		Permissions:           []string{SendToPermission},
+		// 审批通过即授予 SendTo 能力；其余动作不声明，避免借用审批越会话发送。
+		GrantsSendTo: true,
+		Permissions:  []string{SendToPermission},
 		Parameters: protocol.ToolParamSchema{
 			Type:       "object",
 			Properties: sendToProps,

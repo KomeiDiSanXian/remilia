@@ -41,25 +41,25 @@ const globalGroupID = "__global__"
 // groupPolicyKey 存储键名。
 const groupPolicyKey = "grouppolicies"
 
-// ToolApprovalMode 工具审批模式。
-type ToolApprovalMode string
+// toolApprovalMode 工具审批模式。
+type toolApprovalMode string
 
 const (
-	// ApprovalOff 不审批。
-	ApprovalOff ToolApprovalMode = "off"
-	// ApprovalRestricted 仅审批标记 RequiresApproval 的工具。
-	ApprovalRestricted ToolApprovalMode = "restricted"
-	// ApprovalAlways 审批所有工具。
-	ApprovalAlways ToolApprovalMode = "always"
+	// approvalOff 不审批。
+	approvalOff toolApprovalMode = "off"
+	// approvalRestricted 仅审批标记 RequiresApproval 的工具。
+	approvalRestricted toolApprovalMode = "restricted"
+	// approvalAlways 审批所有工具。
+	approvalAlways toolApprovalMode = "always"
 )
 
-// ValidApprovalModes 合法审批模式列表（用于校验）。
-var ValidApprovalModes = []string{string(ApprovalOff), string(ApprovalRestricted), string(ApprovalAlways)}
+// validApprovalModes 合法审批模式列表（用于校验）。
+var validApprovalModes = []string{string(approvalOff), string(approvalRestricted), string(approvalAlways)}
 
-// GroupPolicy 单个群的 AI 策略配置。
+// groupPolicy 单个群的 AI 策略配置。
 //
 // 字段指针语义：nil = 未显式配置（回退链中跳过）；非 nil = 显式覆盖。
-type GroupPolicy struct {
+type groupPolicy struct {
 	// SystemPrompt 群级系统提示词；nil = 未配置（用全局/默认）。
 	SystemPrompt *string `json:"system_prompt,omitempty"`
 	// ToolPolicy 群级工具策略："all" | "none" | 逗号分隔工具名；nil = 未配置。
@@ -71,11 +71,11 @@ type GroupPolicy struct {
 }
 
 // Clone 深拷贝策略（避免外部修改污染内部状态）。
-func (p *GroupPolicy) Clone() *GroupPolicy {
+func (p *groupPolicy) Clone() *groupPolicy {
 	if p == nil {
 		return nil
 	}
-	cp := &GroupPolicy{}
+	cp := &groupPolicy{}
 	if p.SystemPrompt != nil {
 		v := *p.SystemPrompt
 		cp.SystemPrompt = &v
@@ -96,7 +96,7 @@ func (p *GroupPolicy) Clone() *GroupPolicy {
 }
 
 // Empty 判断策略是否完全未配置。
-func (p *GroupPolicy) Empty() bool {
+func (p *groupPolicy) Empty() bool {
 	return p == nil ||
 		(p.SystemPrompt == nil && p.ToolPolicy == nil && p.Approval == nil && p.RequireMention == nil)
 }
@@ -104,7 +104,7 @@ func (p *GroupPolicy) Empty() bool {
 // groupPolicyManager 管理全部群的 AI 策略（内存 + LevelDB 持久化）。
 type groupPolicyManager struct {
 	mu       sync.RWMutex
-	policies map[string]*GroupPolicy
+	policies map[string]*groupPolicy
 	store    *kv.DB
 	path     string
 }
@@ -112,7 +112,7 @@ type groupPolicyManager struct {
 // newGroupPolicyManager 创建策略管理器。store 为 nil 时纯内存（测试用）。
 func newGroupPolicyManager(store *kv.DB, path string) *groupPolicyManager {
 	m := &groupPolicyManager{
-		policies: make(map[string]*GroupPolicy),
+		policies: make(map[string]*groupPolicy),
 		store:    store,
 		path:     path,
 	}
@@ -122,9 +122,9 @@ func newGroupPolicyManager(store *kv.DB, path string) *groupPolicyManager {
 	return m
 }
 
-// OpenGroupPolicyStore 打开指定数据目录的 LevelDB 存储并加载策略。
+// openGroupPolicyStore 打开指定数据目录的 LevelDB 存储并加载策略。
 // 目录不存在时自动创建。
-func OpenGroupPolicyStore(dataDir string) (*groupPolicyManager, error) {
+func openGroupPolicyStore(dataDir string) (*groupPolicyManager, error) {
 	dir := filepath.Join(dataDir, "ai")
 	db, err := kv.Open(dir)
 	if err != nil {
@@ -141,7 +141,7 @@ func (m *groupPolicyManager) Close() {
 }
 
 // Get 返回指定群的显式配置（nil = 无显式配置）。
-func (m *groupPolicyManager) Get(groupID string) *GroupPolicy {
+func (m *groupPolicyManager) Get(groupID string) *groupPolicy {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.policies[groupID].Clone()
@@ -149,7 +149,7 @@ func (m *groupPolicyManager) Get(groupID string) *GroupPolicy {
 
 // Effective 返回指定群的生效配置（群显式配置 > 全局 > 空策略）。
 // 返回的策略字段为 nil 表示使用插件默认值。
-func (m *groupPolicyManager) Effective(groupID string) *GroupPolicy {
+func (m *groupPolicyManager) Effective(groupID string) *groupPolicy {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if p, ok := m.policies[groupID]; ok {
@@ -158,17 +158,17 @@ func (m *groupPolicyManager) Effective(groupID string) *GroupPolicy {
 	if g, ok := m.policies[globalGroupID]; ok {
 		return g.Clone()
 	}
-	return &GroupPolicy{}
+	return &groupPolicy{}
 }
 
 // SetGroup 设置指定群的策略（空字段表示清除对应项）。
-func (m *groupPolicyManager) SetGroup(groupID string, p *GroupPolicy) {
+func (m *groupPolicyManager) SetGroup(groupID string, p *groupPolicy) {
 	m.mu.Lock()
 	if p == nil || p.Empty() {
 		delete(m.policies, groupID)
 	} else {
 		if m.policies[groupID] == nil {
-			m.policies[groupID] = &GroupPolicy{}
+			m.policies[groupID] = &groupPolicy{}
 		}
 		// 只合并非 nil 字段，保留未涉及字段的既有配置
 		if p.SystemPrompt != nil {
@@ -228,7 +228,7 @@ func (m *groupPolicyManager) save() {
 		return
 	}
 	m.mu.RLock()
-	data := make(map[string]*GroupPolicy, len(m.policies))
+	data := make(map[string]*groupPolicy, len(m.policies))
 	maps.Copy(data, m.policies)
 	m.mu.RUnlock()
 	bytes, err := json.Marshal(data)
@@ -250,7 +250,7 @@ func (m *groupPolicyManager) load() {
 	if err != nil {
 		return
 	}
-	var data map[string]*GroupPolicy
+	var data map[string]*groupPolicy
 	if err := json.Unmarshal(bytes, &data); err != nil {
 		logger.WithError(err).Warn("[AI] Failed to load group policies")
 		return
@@ -262,7 +262,7 @@ func (m *groupPolicyManager) load() {
 
 // effectiveTools 按群策略解析工具白名单。
 // 返回 (工具名集合, 是否启用白名单过滤)。all → (nil, false)；none → (空集, true)。
-func (p *GroupPolicy) effectiveTools() (allowSet map[string]struct{}, filter bool) {
+func (p *groupPolicy) effectiveTools() (allowSet map[string]struct{}, filter bool) {
 	if p == nil || p.ToolPolicy == nil {
 		return nil, false
 	}
@@ -285,7 +285,7 @@ func (p *GroupPolicy) effectiveTools() (allowSet map[string]struct{}, filter boo
 }
 
 // EffectiveSystemPrompt 返回生效的群提示词（空串 = 用全局/默认）。
-func (p *GroupPolicy) EffectiveSystemPrompt() string {
+func (p *groupPolicy) EffectiveSystemPrompt() string {
 	if p == nil || p.SystemPrompt == nil {
 		return ""
 	}
@@ -293,7 +293,7 @@ func (p *GroupPolicy) EffectiveSystemPrompt() string {
 }
 
 // EffectiveApproval 返回生效的审批模式（空串 = 用全局配置）。
-func (p *GroupPolicy) EffectiveApproval() string {
+func (p *groupPolicy) EffectiveApproval() string {
 	if p == nil || p.Approval == nil {
 		return ""
 	}
@@ -301,7 +301,7 @@ func (p *GroupPolicy) EffectiveApproval() string {
 }
 
 // EffectiveRequireMention 返回生效的 @ 触发要求（nil = 用全局配置）。
-func (p *GroupPolicy) EffectiveRequireMention() (bool, bool) {
+func (p *groupPolicy) EffectiveRequireMention() (bool, bool) {
 	if p == nil || p.RequireMention == nil {
 		return false, false
 	}
@@ -310,7 +310,7 @@ func (p *GroupPolicy) EffectiveRequireMention() (bool, bool) {
 
 // FilterTools 按群策略过滤动作列表。
 // 策略为 nil 或未限制工具时原样返回；否则返回过滤后的动作副本（不影响原列表）。
-func (p *GroupPolicy) FilterTools(actions []toolkit.Action) []toolkit.Action {
+func (p *groupPolicy) FilterTools(actions []toolkit.Action) []toolkit.Action {
 	if p == nil {
 		return actions
 	}

@@ -19,7 +19,7 @@ import (
 func newTestMemoryToolsPlugin(t *testing.T) *Plugin {
 	t.Helper()
 	dir := t.TempDir()
-	m, err := OpenMemoryStore(dir, 50, time.Minute)
+	m, err := openMemoryStore(dir, 50, time.Minute)
 	require.NoError(t, err)
 	t.Cleanup(m.Close)
 	return &Plugin{memory: m}

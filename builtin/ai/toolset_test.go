@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/decision"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
@@ -203,6 +204,34 @@ func TestStabilizeToolSetDisabledKeepsLegacyBehavior(t *testing.T) {
 	if sess.ToolSetState() != nil {
 		t.Error("disabled stabilization must not record session tool set state")
 	}
+}
+
+// TestToolSetStickyReportsAvailabilityShrink 冻结归因修正：可用集收缩
+// （RBAC / 群策略剔除工具）是一次真实变更，必须 gen++ 且归因为 shrink，
+// 而不是因为 st.Names 与可用集求交后被误记为 keep。
+func TestToolSetStickyReportsAvailabilityShrink(t *testing.T) {
+	cfg := &config.Config{ToolSetSticky: true, ToolSetStickyMax: 8, ToolSetTTL: time.Hour, ToolBudget: 8000}
+	now := time.Now()
+	sess := &session.Session{ID: "s"}
+	sess.SetToolSetState(&session.ToolSetState{
+		Names:      []string{"a", "b", "restricted"},
+		LastSeen:   map[string]time.Time{"a": now, "b": now, "restricted": now},
+		Generation: 1,
+	})
+
+	var reason string
+	var changed bool
+	got := decision.StabilizeToolSet(selectionOptions(cfg), sess, toolSet("a", "b"), toolSet("a", "b"),
+		func(r string, c bool, _ int) { reason, changed = r, c })
+
+	assertNames(t, got, "a", "b")
+	if !changed {
+		t.Error("availability shrink must be reported as changed")
+	}
+	if reason != "shrink" {
+		t.Errorf("availability shrink reason = %q, want %q", reason, "shrink")
+	}
+	assertGeneration(t, sess, 2)
 }
 
 // TestSelectToolsForTurnStickySurvivesTopicShift 集成验证：经完整选择路径

@@ -127,7 +127,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 
 	field := strings.ToLower(args[0])
 	value := strings.TrimSpace(strings.Join(args[1:], " "))
-	policy := &GroupPolicy{}
+	policy := &groupPolicy{}
 
 	switch field {
 	case "prompt", "提示词":
@@ -145,7 +145,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		}
 	case "approval", "审批":
 		norm := strings.ToLower(value)
-		if !slices.Contains(ValidApprovalModes, norm) {
+		if !slices.Contains(validApprovalModes, norm) {
 			ctx.ReplyText("❌ 审批模式必须为 off / restricted / always")
 			return nil
 		}

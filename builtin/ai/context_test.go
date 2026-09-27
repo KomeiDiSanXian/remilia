@@ -503,7 +503,7 @@ func TestBuildGroupContext(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
+	got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 在吗") {
 		t.Errorf("expected user message in group context, got %q", got)
 	}
@@ -536,7 +536,7 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 	// 注入机器人名称：出站消息应以机器人自身名称标注
 	ctx.SetBotName("蕾米莉亚")
 
-	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
+	got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "蕾米莉亚: AI 的回复") {
 		t.Errorf("expected bot outbound labeled with bot name, got %q", got)
 	}
@@ -553,7 +553,7 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 
 	// 会话历史已含 "AI 的回复"（assistant 轮次）：开启去重后该条目被跳过
 	skip := map[string]bool{"AI 的回复": true}
-	got = promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, skip, p.cfg.ContextGroupMessages)
+	got = promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, skip, p.cfg.ContextGroupMessages)
 	if strings.Contains(got, "AI 的回复") {
 		t.Errorf("expected dedup against session history, got %q", got)
 	}
@@ -563,7 +563,7 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 
 	// 未注入机器人名称时兜底"机器人"
 	ctx2 := eventctx.NewContextFromEvent(evt, nil)
-	got2 := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx2, nil, p.cfg.ContextGroupMessages)
+	got2 := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx2, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got2, "机器人: AI 的回复") {
 		t.Errorf("expected fallback label, got %q", got2)
 	}
@@ -596,7 +596,7 @@ func TestBuildGroupContextSkipsUnsentOutbound(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	ctx.SetBotName("蕾米莉亚")
 
-	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
+	got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "成功回复") {
 		t.Errorf("expected confirmed reply in window, got %q", got)
 	}
@@ -628,7 +628,7 @@ func TestBuildGroupContextReplyInline(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
+	got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 你说得对（回复 小红: 我觉得不行）") {
 		t.Errorf("expected reply inline suffix, got %q", got)
 	}
@@ -658,7 +658,7 @@ func TestBuildGroupContextMentions(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages)
+	got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages)
 	if !strings.Contains(got, "小明: 在吗（@小红、@小刚）") {
 		t.Errorf("expected mention annotation, got %q", got)
 	}
@@ -675,7 +675,7 @@ func TestBuildGroupContextDisabled(t *testing.T) {
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	if got := promptctx.BuildGroupWindowN(p.history, p.cfg, ctx, nil, p.cfg.ContextGroupMessages); got != "" {
+	if got := promptctx.BuildGroupWindowN(p.history, contextOptions(p.cfg), ctx, nil, p.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty when context_group_messages=0, got %q", got)
 	}
 
@@ -683,13 +683,13 @@ func TestBuildGroupContextDisabled(t *testing.T) {
 	evt2 := platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "u1"}))
 	p2 := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: messagelog.New(10)}
-	if got := promptctx.BuildGroupWindowN(p2.history, p2.cfg, eventctx.NewContextFromEvent(evt2, nil), nil, p2.cfg.ContextGroupMessages); got != "" {
+	if got := promptctx.BuildGroupWindowN(p2.history, contextOptions(p2.cfg), eventctx.NewContextFromEvent(evt2, nil), nil, p2.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty for private chat, got %q", got)
 	}
 
 	// history 为 nil
 	p3 := &Plugin{cfg: &config.Config{ContextGroupMessages: 10}, history: nil}
-	if got := promptctx.BuildGroupWindowN(p3.history, p3.cfg, ctx, nil, p3.cfg.ContextGroupMessages); got != "" {
+	if got := promptctx.BuildGroupWindowN(p3.history, contextOptions(p3.cfg), ctx, nil, p3.cfg.ContextGroupMessages); got != "" {
 		t.Errorf("expected empty when history unavailable, got %q", got)
 	}
 }
@@ -699,7 +699,7 @@ func TestBuildRuntimeContextUserIsBot(t *testing.T) {
 		platform.WithSyntheticSender(platform.UserInfo{ID: "u1", IsBot: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 	p := &Plugin{cfg: &config.Config{ContextFields: []string{"user_is_bot"}}}
-	got := promptctx.BuildRuntimeContext(p.cfg, ctx)
+	got := promptctx.BuildRuntimeContext(contextOptions(p.cfg), ctx)
 	if !strings.Contains(got, "发送者是否为机器人: 是") {
 		t.Errorf("expected bot flag in runtime context, got %q", got)
 	}
@@ -707,7 +707,7 @@ func TestBuildRuntimeContextUserIsBot(t *testing.T) {
 	evt2 := platform.NewSyntheticEvent("c2c", "/test",
 		platform.WithSyntheticSender(platform.UserInfo{ID: "u2", IsBot: false}))
 	p2 := &Plugin{cfg: &config.Config{ContextFields: []string{"user_is_bot"}}}
-	if got := promptctx.BuildRuntimeContext(p2.cfg, eventctx.NewContextFromEvent(evt2, nil)); !strings.Contains(got, "发送者是否为机器人: 否") {
+	if got := promptctx.BuildRuntimeContext(contextOptions(p2.cfg), eventctx.NewContextFromEvent(evt2, nil)); !strings.Contains(got, "发送者是否为机器人: 否") {
 		t.Errorf("expected non-bot flag in runtime context, got %q", got)
 	}
 }

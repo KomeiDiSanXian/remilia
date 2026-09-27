@@ -12,6 +12,9 @@
 package execution
 
 import (
+	"errors"
+	"fmt"
+
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -33,17 +36,26 @@ type EventProcessor interface {
 
 // RunCommand 通过合成事件执行动作对应的真实命令，返回捕获到的回复文本。
 //
-// 返回空串表示没有可执行的命令——动作名未登记命令模式，或原事件不含平台事件；
-// 调用方据此回退到动作自身的执行路径，与既有回退语义一致。
-func RunCommand(origCtx *eventctx.Context, toolName string, args map[string]any, cs *CaptureSender, patterns CommandPatterns, processor EventProcessor) string {
+// 来源解析由调用方完成：只有命令模式已登记的动作才会走到这里。返回 error 只
+// 表示"命中了命令却无法重放"（动作未登记命令模式——编程错误；原事件不含平台
+// 事件——该上下文无法触发命令）。返回空文本是合法结果：命令执行成功但 handler
+// 没有产生文本（例如只发附件），调用方必须如实回填，不得据此回退到动作自身的
+// 占位 Execute。
+func RunCommand(origCtx *eventctx.Context, toolName string, args map[string]any, cs *CaptureSender, patterns CommandPatterns, processor EventProcessor) (string, error) {
 	pattern, ok := patterns.Pattern(toolName)
 	if !ok {
-		return ""
+		return "", fmt.Errorf("动作 %q 没有登记命令模式", toolName)
+	}
+	if processor == nil {
+		return "", fmt.Errorf("动作 %q 缺少事件处理器，无法触发真实命令", toolName)
+	}
+	if origCtx == nil {
+		return "", fmt.Errorf("动作 %q 缺少事件上下文，无法触发真实命令", toolName)
 	}
 
 	originalEvent := origCtx.GetPlatformEvent()
 	if originalEvent == nil {
-		return ""
+		return "", errors.New("当前上下文缺少平台事件，无法触发真实命令")
 	}
 
 	if rawArgs, ok := args["arguments"].(string); ok && rawArgs != "" {
@@ -59,5 +71,5 @@ func RunCommand(origCtx *eventctx.Context, toolName string, args map[string]any,
 		platform.WithSyntheticChat(originalEvent.Chat()),
 	)
 	processor.ProcessPlatformEventSync(evt, cs)
-	return cs.CapturedText
+	return cs.CapturedText, nil
 }

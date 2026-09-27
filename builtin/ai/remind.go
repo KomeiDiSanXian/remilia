@@ -181,8 +181,7 @@ func (a *adminState) parseRemindArgs(rest string) (time.Duration, string, bool) 
 	return d, content, true
 }
 
-// addReminder 创建并注册一条定时提醒，返回提醒对象与确认文本。
-// 供 /ai remind 子命令与 set_reminder 工具共用。
+// handleRemindAdd 处理 /ai remind <时长> <内容>：创建提醒并回复确认文本。
 func (p *Plugin) handleRemindAdd(ctx *eventctx.Context, duration time.Duration, content string) error {
 	sender := ctx.GetPlatformSender()
 	if sender == nil {
@@ -196,9 +195,13 @@ func (p *Plugin) handleRemindAdd(ctx *eventctx.Context, duration time.Duration, 
 
 // addReminder 创建并注册一条定时提醒，返回提醒对象与确认文本。
 // 供 /ai remind 子命令与 set_reminder 工具共用。
+//
+// reminders 由 Setup 在装配时创建，本函数不按需初始化：set_reminder 工具经
+// 并行工具执行进入，/ai remind 也可能与其它回合并发，惰性写插件字段是数据
+// 竞争。nil 表示提醒功能不可用，按降级处理。
 func (p *Plugin) addReminder(chat platform.ChatInfo, sender platform.Sender, duration time.Duration, content string) (*reminder, string) {
 	if p.reminders == nil {
-		p.reminders = newReminderManager()
+		return nil, "❌ 提醒功能不可用"
 	}
 
 	remindCtx, cancel := context.WithCancel(p.lifecycleCtx)
@@ -266,7 +269,8 @@ func (p *Plugin) fireReminder(r *reminder) {
 // handleRemindList 列出本会话的活跃提醒。
 func (p *Plugin) handleRemindList(ctx *eventctx.Context) error {
 	if p.reminders == nil {
-		p.reminders = newReminderManager()
+		ctx.ReplyText("❌ 提醒功能不可用")
+		return nil
 	}
 	items := p.reminders.list(ctx.GetChatInfo().ID)
 	if len(items) == 0 {

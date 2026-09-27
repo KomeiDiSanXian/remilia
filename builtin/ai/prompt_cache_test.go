@@ -6,7 +6,7 @@
 //
 //   - System 消息只含稳定内容（框架 + 自定义指令），逐轮字节一致
 //   - 逐轮变化的动态上下文挂在最后一条 user 消息上，且不写回会话历史
-//   - 执行计划附在消息序列末尾，不插到稳定前缀之后
+//   - 执行计划以 user 角色附在消息序列末尾，不插到稳定前缀之后
 //   - 工具列表顺序确定（注册表底层是 map，必须排序）
 package ai
 
@@ -66,7 +66,7 @@ func TestStaticSystemPromptStableAcrossTurns(t *testing.T) {
 	if first != second {
 		t.Errorf("static system prompt must not depend on the event:\n%q\n%q", first, second)
 	}
-	if !strings.Contains(first, DefaultFrameworkPrompt) || !strings.Contains(first, "你是蕾米莉亚") {
+	if !strings.Contains(first, defaultFrameworkPrompt) || !strings.Contains(first, "你是蕾米莉亚") {
 		t.Errorf("static prompt must carry framework + custom instructions, got %q", first)
 	}
 	for _, marker := range []string{"运行时上下文", "群聊最近消息", "长期记忆", "相关历史消息", "当前执行计划", "动态上下文"} {
@@ -250,6 +250,11 @@ func TestPromptPrefixStableAcrossTurns(t *testing.T) {
 
 // TestPlanMessageAppendedAtTail 验证执行计划作为消息序列最后一条发送，
 // 不插到稳定前缀（System 与历史）之后的中段。
+//
+// 角色必须是 user：Anthropic 适配器只保留数组内第一条 system（顶级字段），
+// 数组里的其余 system 会被整条丢弃，system 角色会让计划对 Claude 不可见。
+// 跨 provider 的适配器契约见 builtin/ai/protocol 的
+// TestAnthropicDropsMidArraySystemButKeepsUserTail。
 func TestPlanMessageAppendedAtTail(t *testing.T) {
 	var (
 		mu   sync.Mutex
@@ -305,8 +310,8 @@ func TestPlanMessageAppendedAtTail(t *testing.T) {
 	}
 	msgs := reqs[0].Messages
 	last := msgs[len(msgs)-1]
-	if last.Role != protocol.RoleSystem || !strings.Contains(last.Content, "当前执行计划") {
-		t.Errorf("plan must be the trailing message, got %+v", msgs)
+	if last.Role != protocol.RoleUser || !strings.Contains(last.Content, "当前执行计划") {
+		t.Errorf("plan must be the trailing user message (visible to every provider), got %+v", msgs)
 	}
 	// 计划不得出现在稳定前缀（System 与历史）之间
 	for i := 0; i < len(msgs)-1; i++ {

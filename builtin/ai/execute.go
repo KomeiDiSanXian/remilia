@@ -35,7 +35,11 @@ import (
 // 优先通过 vevent 触发真实命令并捕获其回复；若工具无对应命令，
 // 回退到工具自身的 Execute 回调。
 //
-// Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调返回错误。
+// 来源判定是显式的：只有登记了命令模式的动作才走命令通道（commands.Pattern），
+// 命中后结果完全由命令通道负责，不再以"文本为空"回退到占位 Execute——命令
+// 跑通但没输出会如实回填"未返回文本"，而不是冒充成功。
+//
+// Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调/命令/Skill 返回错误。
 // 工具正常返回、正文恰好以"错误:"开头，不算失败。
 func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context, cs *execution.CaptureSender, sender toolkit.ToolSender) runtime.ActionResult {
 	callerCtx := toolkit.WithCallerInfo(toolCtx, ctx.GetSenderInfo())
@@ -54,10 +58,10 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 	skills := pluginSkillRunner{p: p}
 	commands := pluginCommandCatalog{p: p}
 	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
-		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills}.Invoke(callerCtx)
+		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Record: recordToolCall}.Invoke(callerCtx)
 	}
 	if skill, ok := p.skillReg.GetSystem(tc.Name); ok {
-		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills}.Invoke(callerCtx)
+		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Record: recordToolCall}.Invoke(callerCtx)
 	}
 
 	tool, ok := p.reg.Get(tc.Name)
@@ -68,20 +72,23 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 		}
 	}
 
-	if p.syncer != nil {
+	// 真实命令路径：来源判定在装配侧——只有确实登记了命令模式的动作才走合成
+	// 事件重放，命中后结果完全由命令通道负责（包括"命令执行了但没有输出"），
+	// 不再以"文本为空"回退到动作自身的占位 Execute 冒充成功。
+	if _, ok := commands.Pattern(tc.Name); ok {
 		// 并行工具执行时串行化真实命令路径（syncer 非线程安全）。
 		p.realCmdMu.Lock()
-		result := runtime.CommandInvoker{Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments, CS: cs}.Invoke(callerCtx)
+		result := runtime.CommandInvoker{
+			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments, CS: cs, Record: recordToolCall,
+		}.Invoke(callerCtx)
 		p.realCmdMu.Unlock()
-		if result.Text != "" {
-			return result
-		}
+		return result
 	}
 
 	// 工具级权限强制校验：工具声明了 Permissions 时，调用前校验调用者
 	// RBAC 权限（任一命中即放行）。权限管理器缺失时拒绝（安全默认），
 	// 不依赖插件自觉实现校验。
-	if perms := toolkit.ActionPolicyOf(tool).Permissions; len(perms) > 0 && !p.hasToolPermission(ctx, perms) {
+	if perms := tool.Permissions; len(perms) > 0 && !p.hasToolPermission(ctx, perms) {
 		return runtime.ActionResult{
 			Text: fmt.Sprintf("错误: 工具 %q 需要权限（%s），当前用户无权调用",
 				tc.Name, strings.Join(perms, ", ")),
@@ -89,7 +96,7 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 		}
 	}
 
-	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Record: RecordToolCall}.Invoke(callerCtx)
+	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Record: recordToolCall}.Invoke(callerCtx)
 }
 
 // executeSkill 执行一个 Skill 的内部工具调用循环。

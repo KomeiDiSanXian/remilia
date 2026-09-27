@@ -36,7 +36,7 @@ func LastUserIsReplan(sess *session.Session) bool {
 	msgs := sess.SnapshotMessages()
 	for _, msg := range slices.Backward(msgs) {
 		if msg.Role == protocol.RoleUser {
-			return strings.HasPrefix(msg.Content, "计划步骤")
+			return strings.HasPrefix(msg.Content, replanPrefix)
 		}
 	}
 	return false
@@ -70,6 +70,9 @@ func SummarizeArgs(args map[string]any) string {
 // 多模态消息（ContentParts 模式）时从 text part 提取，保证工具选择/RAG/
 // 记忆查询拿到的是文字而非空串或媒体占位符。
 func LastUserMessage(sess *session.Session) string {
+	if sess == nil {
+		return ""
+	}
 	sess.Lock()
 	defer sess.Unlock()
 	for _, v := range slices.Backward(sess.Messages) {
@@ -80,6 +83,25 @@ func LastUserMessage(sess *session.Session) string {
 			return text
 		}
 		return ""
+	}
+	return ""
+}
+
+// SystemMessage 返回会话当前的 System 消息内容（无则空串，sess 为 nil 时同样为空）。
+//
+// 稳定系统提示词由装配侧在回合开始时经 [SetSystemMessage] 写入会话，所以
+// "实际会发送的那一份"就是会话里这一条。上下文预算据此扣除，而不是重新推导
+// 一次——重推既浪费，又可能在群策略热更新时与真正发送的内容不一致。
+func SystemMessage(sess *session.Session) string {
+	if sess == nil {
+		return ""
+	}
+	sess.Lock()
+	defer sess.Unlock()
+	for _, m := range sess.Messages {
+		if m.Role == protocol.RoleSystem {
+			return m.Content
+		}
 	}
 	return ""
 }

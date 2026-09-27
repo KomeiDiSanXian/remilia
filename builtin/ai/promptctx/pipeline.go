@@ -110,7 +110,10 @@ func Build(sources []Source) string {
 // BuildBudgeted 按窗口预算编排动态上下文：
 // reserve 从窗口中预留后，先扣除 staticSystemPrompt 的估算用量，
 // 剩余额度按节序依次装入，装不下则缩减或丢弃。
-// 返回空串表示剩余预算装不下任何动态节。
+//
+// 本函数是预算路径的权威实现：window > 0 时调用方必须直接采用其返回值，
+// 返回空串只表示"本轮无动态上下文可装下"，不得据此回退到 [Build] 的
+// 非预算路径——那会恰好在预算最紧时突破窗口。装配入口请用 [BuildWindowed]。
 func BuildBudgeted(sources []Source, window int, staticSystemPrompt string) string {
 	if window <= 0 {
 		return ""
@@ -140,4 +143,19 @@ func BuildBudgeted(sources []Source, window int, staticSystemPrompt string) stri
 		parts = append(parts, s.render(body))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// BuildWindowed 是动态上下文装配的唯一入口：按 context_window 选择路径。
+//
+//	window > 0  → 预算路径（权威）：稳定系统提示词先扣除，剩余额度装不下的
+//	              节一律缩减或丢弃，绝不回退到非预算路径；
+//	window <= 0 → 非预算路径：各节按配置上限装配。
+//
+// 两条路径共用同一套参与条件（见 Source.participates），因此返回值只表达
+// "本轮装下的动态上下文"，空串是合法结果（无动态内容或预算装不下）。
+func BuildWindowed(sources []Source, window int, staticSystemPrompt string) string {
+	if window > 0 {
+		return BuildBudgeted(sources, window, staticSystemPrompt)
+	}
+	return Build(sources)
 }

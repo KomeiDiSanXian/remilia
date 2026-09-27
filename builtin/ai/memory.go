@@ -1,14 +1,14 @@
 // Package ai memory.go — 长期事实记忆（自动抽取，LevelDB 持久化）。
 //
 // 本文件实现 AI 的跨会话长期记忆：
-//   - MemoryFact：单条事实（文本 + 更新时间 + 出现次数）
+//   - memoryFact：单条事实（文本 + 更新时间 + 出现次数）
 //   - memoryStore：按作用域（user:<id> / group:<id>）存储与检索的 LevelDB 存储，
 //     独立目录 data/ai_memory（与群策略的 data/ai 分开，避免 LevelDB 锁冲突）
 //   - 去重合并：新事实与已有事实精确相等或关键词 Jaccard ≥ 0.6 时合并
 //     （保留原文本、更新次数），避免同一事实反复抽取产生冗余条目
 //   - 上限淘汰：每个作用域超过 memory_max_facts 时按次数最少、最旧优先淘汰
-//   - 检索：按用户消息关键词对事实打分取 Top-N（复用 select.go 分词器），
-//     注入 system prompt 供模型在后续对话中使用
+//   - 检索：按用户消息关键词对事实打分取 Top-N（复用 retrieval 的分词与
+//     打分骨架），作为动态上下文的一节注入，供模型在后续对话中使用
 //
 // 抽取与注入开关见 memory_enabled（默认关闭，隐私考虑）。
 package ai
@@ -46,8 +46,8 @@ const memoryMergeJaccard = 0.6
 //	"用户喜欢喝咖啡" vs "用户喜欢玩原神" → 3/7 ≈ 0.43（不合并）
 const memoryMergeCharRatio = 0.75
 
-// MemoryFact 一条长期记忆事实。
-type MemoryFact struct {
+// memoryFact 一条长期记忆事实。
+type memoryFact struct {
 	// Text 事实文本（规范化后的稳定描述）。
 	Text string `json:"text"`
 	// UpdatedAt 最近一次出现/更新时间。
@@ -61,7 +61,7 @@ type memoryStore struct {
 	mu       sync.RWMutex
 	store    *kv.DB
 	path     string
-	scopes   map[string][]MemoryFact // scope key → 事实列表（时间降序，最新在前）
+	scopes   map[string][]memoryFact // scope key → 事实列表（时间降序，最新在前）
 	maxFacts int
 
 	// emb 文本向量缓存（embedding_base_url 配置时由插件注入）。
@@ -74,9 +74,9 @@ type memoryStore struct {
 	minInterval time.Duration
 }
 
-// OpenMemoryStore 打开长期记忆存储。目录不存在时自动创建。
+// openMemoryStore 打开长期记忆存储。目录不存在时自动创建。
 // 使用独立目录 data/ai_memory，避免与群策略共用 data/ai 触发 LevelDB 锁冲突。
-func OpenMemoryStore(dataDir string, maxFacts int, minInterval time.Duration) (*memoryStore, error) {
+func openMemoryStore(dataDir string, maxFacts int, minInterval time.Duration) (*memoryStore, error) {
 	dir := filepath.Join(dataDir, "ai_memory")
 	db, err := kv.Open(dir)
 	if err != nil {
@@ -85,7 +85,7 @@ func OpenMemoryStore(dataDir string, maxFacts int, minInterval time.Duration) (*
 	return &memoryStore{
 		store:       db,
 		path:        dir,
-		scopes:      make(map[string][]MemoryFact),
+		scopes:      make(map[string][]memoryFact),
 		maxFacts:    maxFacts,
 		lastExtract: make(map[string]time.Time),
 		minInterval: minInterval,
@@ -119,14 +119,14 @@ func userScope(userID string) string { return memoryScopeUser + userID }
 func groupScope(chatID string) string { return memoryScopeGroup + chatID }
 
 // load 从存储加载指定作用域的事实列表（懒加载）。
-func (m *memoryStore) load(scope string) []MemoryFact {
+func (m *memoryStore) load(scope string) []memoryFact {
 	m.mu.RLock()
 	facts, ok := m.scopes[scope]
 	m.mu.RUnlock()
 	if ok {
 		return facts
 	}
-	var loaded []MemoryFact
+	var loaded []memoryFact
 	if m.store != nil {
 		if bytes, err := m.store.Get([]byte(scope)); err == nil {
 			if err := json.Unmarshal(bytes, &loaded); err != nil {
@@ -146,9 +146,9 @@ func (m *memoryStore) load(scope string) []MemoryFact {
 }
 
 // Facts 返回指定作用域的全部事实副本。
-func (m *memoryStore) Facts(scope string) []MemoryFact {
+func (m *memoryStore) Facts(scope string) []memoryFact {
 	facts := m.load(scope)
-	out := make([]MemoryFact, len(facts))
+	out := make([]memoryFact, len(facts))
 	copy(out, facts)
 	return out
 }
@@ -199,7 +199,7 @@ func (m *memoryStore) Clear(scope string) int {
 
 // RemoveWhere 删除作用域内所有满足 match 条件的记忆事实，返回删除条数并持久化。
 // 供 /ai memory remove 子命令使用（按序号或文本片段删除）。
-func (m *memoryStore) RemoveWhere(scope string, match func(MemoryFact) bool) int {
+func (m *memoryStore) RemoveWhere(scope string, match func(memoryFact) bool) int {
 	if scope == "" || match == nil {
 		return 0
 	}
@@ -294,7 +294,7 @@ func (m *memoryStore) Add(scope, text string) {
 		}
 	}
 	if !merged {
-		facts = append(facts, MemoryFact{Text: text, UpdatedAt: time.Now(), Count: 1})
+		facts = append(facts, memoryFact{Text: text, UpdatedAt: time.Now(), Count: 1})
 	}
 
 	// 按更新时间降序（最新在前），便于截断保留最新
@@ -310,11 +310,11 @@ func (m *memoryStore) Add(scope, text string) {
 }
 
 // loadLocked 在持有写锁时加载作用域事实（load 的锁内版本）。
-func (m *memoryStore) loadLocked(scope string) []MemoryFact {
+func (m *memoryStore) loadLocked(scope string) []memoryFact {
 	if facts, ok := m.scopes[scope]; ok {
 		return facts
 	}
-	var facts []MemoryFact
+	var facts []memoryFact
 	if m.store != nil {
 		if bytes, err := m.store.Get([]byte(scope)); err == nil {
 			_ = json.Unmarshal(bytes, &facts)
@@ -326,11 +326,11 @@ func (m *memoryStore) loadLocked(scope string) []MemoryFact {
 
 // evictLocked 淘汰 n 条事实：优先次数少、更新时间旧的。
 // 调用方需持有写锁。
-func (m *memoryStore) evictLocked(facts []MemoryFact, n int) []MemoryFact {
+func (m *memoryStore) evictLocked(facts []memoryFact, n int) []memoryFact {
 	if n <= 0 || len(facts) <= n {
 		return facts
 	}
-	sorted := make([]MemoryFact, len(facts))
+	sorted := make([]memoryFact, len(facts))
 	copy(sorted, facts)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].Count != sorted[j].Count {
@@ -342,7 +342,7 @@ func (m *memoryStore) evictLocked(facts []MemoryFact, n int) []MemoryFact {
 	for _, f := range sorted[:n] {
 		drop[f.Text] = true
 	}
-	out := make([]MemoryFact, 0, len(facts)-n)
+	out := make([]memoryFact, 0, len(facts)-n)
 	for _, f := range facts {
 		if !drop[f.Text] {
 			out = append(out, f)
@@ -352,7 +352,7 @@ func (m *memoryStore) evictLocked(facts []MemoryFact, n int) []MemoryFact {
 }
 
 // save 持久化指定作用域（锁外拷贝）。
-func (m *memoryStore) save(scope string, facts []MemoryFact) {
+func (m *memoryStore) save(scope string, facts []memoryFact) {
 	if m.store == nil {
 		return
 	}
@@ -368,7 +368,7 @@ func (m *memoryStore) save(scope string, facts []MemoryFact) {
 
 // memoryScored 记忆检索的打分中间结果。
 type memoryScored struct {
-	fact  MemoryFact
+	fact  memoryFact
 	score float64
 }
 
@@ -379,7 +379,7 @@ type memoryScored struct {
 // 无关键词重叠但语义相近的事实（如"今天想喝点东西"→"用户喜欢喝咖啡"）
 // 也能命中；embedder 未配置或嵌入失败自动降级纯关键词。
 // 返回 (事实, 得分) 对，按得分降序。
-func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit int) []MemoryFact {
+func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit int) []memoryFact {
 	if limit <= 0 || strings.TrimSpace(query) == "" {
 		return nil
 	}
@@ -442,7 +442,7 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 	logger.Debugf("[AI] MemoryRetrieve scope=%s facts=%d embed=%v kept=%d semantic_only=%d top=%s",
 		scope, len(facts), queryVec != nil, len(scored), semanticOnly, sb.String())
 
-	out := make([]MemoryFact, 0, len(scored))
+	out := make([]memoryFact, 0, len(scored))
 	for _, s := range scored {
 		out = append(out, s.fact)
 	}

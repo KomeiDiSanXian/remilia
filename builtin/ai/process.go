@@ -29,15 +29,20 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// ChatResult AI 对话的最终回复结果，包含文字和附件。
-type ChatResult struct {
+// chatResult AI 对话的最终回复结果，包含文字和附件。
+type chatResult struct {
 	Text        string
 	Attachments []platform.Attachment
 }
 
 // runtimeClient 组装单轮非流式 LLM 调用客户端（请求形状与调用见 builtin/ai/runtime）。
 func (p *Plugin) runtimeClient() runtime.Client {
-	return runtime.Client{Cfg: p.cfg, Prov: p.prov}
+	return runtime.Client{
+		Temperature: p.cfg.Temperature,
+		TopP:        p.cfg.TopP,
+		MaxTokens:   p.cfg.MaxTokens,
+		Prov:        p.prov,
+	}
 }
 
 // processWithTools 执行 AI 对话的工具调用循环。
@@ -55,7 +60,7 @@ func (p *Plugin) runtimeClient() runtime.Client {
 //  5. 无工具调用时返回最终文本（含捕获的附件）
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
-func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Session) (*ChatResult, error) {
+func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
 	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
 
@@ -71,7 +76,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// deadline，多轮工具循环（每轮 LLM 调用 + 工具执行）共享同一 deadline
 	// 时，长任务会在中途被整段切断（如 send_message 分步任务第二轮超时）。
 	// 这里以插件独立预算替换（turn_timeout，见 effectiveTurnTimeout）。
-	restoreDeadline := runtime.LiftEventDeadline(ctx, runtime.EffectiveTurnTimeout(p.cfg))
+	restoreDeadline := runtime.LiftEventDeadline(ctx, runtime.EffectiveTurnTimeout(runtimeLimits(p.cfg)))
 	defer restoreDeadline()
 
 	// 回合中断感知上下文：RequestInterrupt（/ai stop 命令、用户新消息抢占）
@@ -83,7 +88,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// 动作决策：候选发现（注册表 + 用户 Skill，经群策略与 RBAC）→ 选择
 	// （工具较多时按当前用户消息本地检索 Top-K，替代旧的 LLM 单分类路由）
 	// → 稳定策略。见 decision.go。
-	activeTools := p.decideTurnActions(ctx, session, p.needAction())
+	activeTools := p.decideTurnActions(ctx, session, p.needAction(ctx, session))
 
 	// 动态上下文（运行时/群聊窗口/长期记忆/相关历史）逐轮变化，统一挂到本轮
 	// 用户消息尾部发送，不写进 System 消息（见 buildDynamicContext）。
@@ -96,7 +101,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 
 		// 中断检查点：用户新消息抢占时，未开始的轮次直接收尾。
 		if session.Interrupted() {
-			return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
+			return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
 		}
 
 		session.Lock()
@@ -126,12 +131,16 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		msgs = runtime.RepairToolCallSequence(msgs)
 		msgs = runtime.InjectDynamicContext(msgs, dynamicContext)
 
-		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"作为 system 消息
-		// 附在消息序列末尾（而不是插到系统提示词之后），让模型有状态可依地
-		// 推进多步任务，同时不使已完成的历史（含本回合的工具结果）失去缓存
-		// 复用能力。
+		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"附在消息序列末尾，
+		// 而不是插到系统提示词之后，让模型有状态可依地推进多步任务，同时不使
+		// 已完成的历史（含本回合的工具结果）失去缓存复用能力。
+		//
+		// 角色必须是 user 而不是 system：Anthropic 适配器只把数组内的第一条
+		// system 放进顶级 system 字段，数组里的其余 system 消息会被整条丢弃
+		// （见 protocol.toAnthropicMessages），若用 system 则计划对 Claude 完全
+		// 不可见；尾部 user 消息对所有 provider 都成立，与反思/重规划指令同一约定。
 		if text := session.PlanText(); text != "" {
-			msgs = append(msgs, protocol.Message{Role: protocol.RoleSystem, Content: "===== 当前执行计划 =====\n" + text})
+			msgs = append(msgs, protocol.Message{Role: protocol.RoleUser, Content: "===== 当前执行计划 =====\n" + text})
 		}
 
 		req := &protocol.ChatRequest{
@@ -149,9 +158,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			cancel()
 			if session.Interrupted() {
 				// 主动停止：流尚未产生任何内容，按已捕获内容收尾，不报错。
-				return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
+				return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
 			}
-			return &ChatResult{Text: cs.CapturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
+			return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
 		}
 
 		var fullResponse strings.Builder
@@ -194,10 +203,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			if text == "" {
 				text = cs.CapturedText
 			}
-			return &ChatResult{Text: text, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
+			return &chatResult{Text: text, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
 		}
 		if streamErr != nil {
-			return &ChatResult{Text: cs.CapturedText}, streamErr
+			return &chatResult{Text: cs.CapturedText}, streamErr
 		}
 
 		for i := range toolCalls {
@@ -224,7 +233,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			if replanMsg != nil {
 				p.sm.AppendMessage(session, *replanMsg)
 			}
-			return &ChatResult{
+			return &chatResult{
 				Text:        responseText,
 				Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments),
 			}, nil
@@ -278,10 +287,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 				continue
 			}
 			fails := session.IncrToolFailure(tc.Name)
-			if fails > runtime.EffectiveToolRetryLimit(p.cfg) {
+			if fails > runtime.EffectiveToolRetryLimit(runtimeLimits(p.cfg)) {
 				msg := execution.BuildRetryAbortMessage(tc.Name, fails, toolResult)
 				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleUser, Content: msg})
-				return &ChatResult{Text: msg, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
+				return &chatResult{Text: msg, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
 			}
 			if fails >= 2 {
 				p.sm.AppendMessage(session, execution.BuildReflectionMessage(tc.Name, fails, toolResult))
@@ -295,7 +304,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		}
 	}
 
-	return &ChatResult{Text: cs.CapturedText, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)},
+	return &chatResult{Text: cs.CapturedText, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)},
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
@@ -314,7 +323,9 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, session *session.Session, cs
 
 	toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
 	defer cancel()
-	toolCtx = runtime.WithPlanSession(toolCtx, session)
+	// 计划端口由装配侧直接注入：runtime 只承载与具体动作无关的机制，
+	// 不反向依赖内置动作包（catalog）。
+	toolCtx = catalog.WithPlanAccess(toolCtx, session)
 	// SendTo 能力仅在本次调用通过审批门后注入（sendToAllowed）；
 	// 嵌套 Skill 工具调用继承同一 context，无法绕过审批。
 	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: verdict.sendToGranted, budget: budget}
@@ -325,12 +336,15 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, session *session.Session, cs
 }
 
 // approvalSummaryForTool 生成工具审批展示用的参数摘要。
-// send_to 在审批前预解析目标，审批消息中显示解析后的目标
-// （如 张三（12345）），让批准者明确知道消息将发送给谁；
-// 解析失败时回退原始参数摘要。
+//
+// 声明了 GrantsSendTo 的动作（会向其他会话推送，如 send_to）在审批前预解析目标，
+// 审批消息中显示解析后的目标（如 张三（12345）），让批准者明确知道消息将发送给
+// 谁——判定依据是动作的策略声明，不是写死的动作名。未声明者直接返回参数摘要，
+// 解析失败也回退摘要。
 func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc protocol.ToolCall) string {
 	summary := runtime.SummarizeArgs(tc.Arguments)
-	if tc.Name != catalog.SendToToolName {
+	action, ok := p.reg.Action(tc.Name)
+	if !ok || !action.Policy.GrantsSendTo {
 		return summary
 	}
 	raw, _ := tc.Arguments["target"].(string)
@@ -364,11 +378,11 @@ func (p *Plugin) effectiveApprovalMode(ctx *eventctx.Context) string {
 	if p.cfg.ToolApproval != "" {
 		return p.cfg.ToolApproval
 	}
-	return string(ApprovalOff)
+	return string(approvalOff)
 }
 
 // groupPolicyFor 返回当前会话生效的群策略（仅群聊；私聊返回 nil 表示不受群策略约束）。
-func (a *adminState) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
+func (a *adminState) groupPolicyFor(ctx *eventctx.Context) *groupPolicy {
 	if a.groupPolicies == nil {
 		return nil
 	}

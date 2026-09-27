@@ -17,14 +17,14 @@ import (
 )
 
 func TestGroupPolicyCloneEmpty(t *testing.T) {
-	p := &GroupPolicy{}
+	p := &groupPolicy{}
 	assert.True(t, p.Empty())
-	assert.True(t, (&GroupPolicy{}).Empty())
-	assert.True(t, (*GroupPolicy)(nil).Empty())
+	assert.True(t, (&groupPolicy{}).Empty())
+	assert.True(t, (*groupPolicy)(nil).Empty())
 
 	s := "hi"
 	on := true
-	p2 := &GroupPolicy{SystemPrompt: &s, RequireMention: &on}
+	p2 := &groupPolicy{SystemPrompt: &s, RequireMention: &on}
 	assert.False(t, p2.Empty())
 	cp := p2.Clone()
 	assert.False(t, cp == p2)
@@ -44,7 +44,7 @@ func TestGroupPolicyManager_Effective(t *testing.T) {
 
 	// 设置群配置 → 命中
 	prompt := "群专属提示词"
-	m.SetGroup("group_1", &GroupPolicy{SystemPrompt: &prompt})
+	m.SetGroup("group_1", &groupPolicy{SystemPrompt: &prompt})
 	eff = m.Effective("group_1")
 	assert.Equal(t, "群专属提示词", eff.EffectiveSystemPrompt())
 
@@ -53,7 +53,7 @@ func TestGroupPolicyManager_Effective(t *testing.T) {
 
 	// 全局配置 → 未配置群回退到全局
 	gPrompt := "全局提示词"
-	m.SetGroup(globalGroupID, &GroupPolicy{SystemPrompt: &gPrompt})
+	m.SetGroup(globalGroupID, &groupPolicy{SystemPrompt: &gPrompt})
 	assert.Equal(t, "全局提示词", m.Effective("group_2").EffectiveSystemPrompt())
 	// 已配置群优先于全局
 	assert.Equal(t, "群专属提示词", m.Effective("group_1").EffectiveSystemPrompt())
@@ -62,11 +62,11 @@ func TestGroupPolicyManager_Effective(t *testing.T) {
 func TestGroupPolicyManager_SetMergeFields(t *testing.T) {
 	m := newGroupPolicyManager(nil, "")
 	prompt := "提示词"
-	m.SetGroup("g1", &GroupPolicy{SystemPrompt: &prompt})
+	m.SetGroup("g1", &groupPolicy{SystemPrompt: &prompt})
 
 	// 二次设置只改 tools，prompt 保留
 	tools := "pic,sauce"
-	m.SetGroup("g1", &GroupPolicy{ToolPolicy: &tools})
+	m.SetGroup("g1", &groupPolicy{ToolPolicy: &tools})
 	gp := m.Get("g1")
 	assert.Equal(t, "提示词", *gp.SystemPrompt)
 	assert.Equal(t, "pic,sauce", *gp.ToolPolicy)
@@ -81,7 +81,7 @@ func TestGroupPolicyManager_Reset(t *testing.T) {
 	m := newGroupPolicyManager(nil, "")
 	prompt := "p"
 	off := "off"
-	m.SetGroup("g1", &GroupPolicy{SystemPrompt: &prompt, Approval: &off})
+	m.SetGroup("g1", &groupPolicy{SystemPrompt: &prompt, Approval: &off})
 	m.ResetField("g1", "prompt")
 	gp := m.Get("g1")
 	assert.Nil(t, gp.SystemPrompt)
@@ -99,7 +99,7 @@ func TestGroupPolicyManager_Persistence(t *testing.T) {
 
 	m := newGroupPolicyManager(db, dir)
 	prompt := "持久化提示词"
-	m.SetGroup("g1", &GroupPolicy{SystemPrompt: &prompt})
+	m.SetGroup("g1", &groupPolicy{SystemPrompt: &prompt})
 	// 触发落盘
 	m.save()
 
@@ -121,22 +121,22 @@ func TestGroupPolicyManager_EmptyStore(t *testing.T) {
 
 func TestEffectiveTools(t *testing.T) {
 	// nil 策略 → 不过滤
-	_, filter := (*GroupPolicy)(nil).effectiveTools()
+	_, filter := (*groupPolicy)(nil).effectiveTools()
 	assert.False(t, filter)
 
 	// all → 不过滤
 	all := "all"
-	assert.False(t, func() bool { _, f := (&GroupPolicy{ToolPolicy: &all}).effectiveTools(); return f }())
+	assert.False(t, func() bool { _, f := (&groupPolicy{ToolPolicy: &all}).effectiveTools(); return f }())
 
 	// none → 过滤且空集
 	none := "none"
-	set, filter := (&GroupPolicy{ToolPolicy: &none}).effectiveTools()
+	set, filter := (&groupPolicy{ToolPolicy: &none}).effectiveTools()
 	assert.True(t, filter)
 	assert.Empty(t, set)
 
 	// 白名单 → 过滤指定集合
 	list := "pic, sauce ,bilibili"
-	set, filter = (&GroupPolicy{ToolPolicy: &list}).effectiveTools()
+	set, filter = (&groupPolicy{ToolPolicy: &list}).effectiveTools()
 	assert.True(t, filter)
 	assert.Len(t, set, 3)
 	_, ok := set["sauce"]
@@ -152,20 +152,20 @@ func TestGroupPolicyFilterTools(t *testing.T) {
 	actions := toolkit.ActionsOf(tools)
 
 	// nil 策略 → 原样返回
-	var nilPolicy *GroupPolicy
+	var nilPolicy *groupPolicy
 	assert.Len(t, nilPolicy.FilterTools(actions), 3)
 
 	// all → 原样
 	all := "all"
-	assert.Len(t, (&GroupPolicy{ToolPolicy: &all}).FilterTools(actions), 3)
+	assert.Len(t, (&groupPolicy{ToolPolicy: &all}).FilterTools(actions), 3)
 
 	// none → 空
 	none := "none"
-	assert.Empty(t, (&GroupPolicy{ToolPolicy: &none}).FilterTools(actions))
+	assert.Empty(t, (&groupPolicy{ToolPolicy: &none}).FilterTools(actions))
 
 	// 白名单 → 仅保留命中工具
 	list := "pic,bilibili"
-	out := (&GroupPolicy{ToolPolicy: &list}).FilterTools(actions)
+	out := (&groupPolicy{ToolPolicy: &list}).FilterTools(actions)
 	assert.Len(t, out, 2)
 	assert.Equal(t, "pic", out[0].Spec.Name)
 	assert.Equal(t, "bilibili", out[1].Spec.Name)
@@ -174,28 +174,28 @@ func TestGroupPolicyFilterTools(t *testing.T) {
 func TestGroupPolicyJSONRoundTrip(t *testing.T) {
 	prompt := "提示词"
 	on := true
-	p := &GroupPolicy{SystemPrompt: &prompt, RequireMention: &on}
+	p := &groupPolicy{SystemPrompt: &prompt, RequireMention: &on}
 	data, err := json.Marshal(p)
 	require.NoError(t, err)
 
-	var back GroupPolicy
+	var back groupPolicy
 	require.NoError(t, json.Unmarshal(data, &back))
 	assert.Equal(t, "提示词", *back.SystemPrompt)
 	assert.Equal(t, true, *back.RequireMention)
 }
 
-// TestGroupPolicyStore_OpenPath 验证 OpenGroupPolicyStore 创建目录并可用。
+// TestGroupPolicyStore_OpenPath 验证 openGroupPolicyStore 创建目录并可用。
 func TestGroupPolicyStore_OpenPath(t *testing.T) {
 	dir := t.TempDir()
-	m, err := OpenGroupPolicyStore(dir)
+	m, err := openGroupPolicyStore(dir)
 	require.NoError(t, err)
 
 	prompt := "测试"
-	m.SetGroup("g1", &GroupPolicy{SystemPrompt: &prompt})
+	m.SetGroup("g1", &groupPolicy{SystemPrompt: &prompt})
 	// 关闭后才能在同一目录重新打开（LevelDB 独占锁）
 	m.Close()
 
-	m2, err := OpenGroupPolicyStore(dir)
+	m2, err := openGroupPolicyStore(dir)
 	require.NoError(t, err)
 	t.Cleanup(m2.Close)
 	assert.Equal(t, "测试", m2.Effective("g1").EffectiveSystemPrompt())
@@ -207,7 +207,7 @@ func TestGroupPolicyStore_OpenPath(t *testing.T) {
 
 func TestGroupPolicyStore_CloseIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	m, err := OpenGroupPolicyStore(dir)
+	m, err := openGroupPolicyStore(dir)
 	require.NoError(t, err)
 	m.Close()
 	m.Close() // 重复关闭不应 panic
@@ -290,14 +290,14 @@ func TestGroupRequireMention(t *testing.T) {
 
 	// mention=on → (true, true)
 	on := true
-	p.groupPolicies.SetGroup("g1", &GroupPolicy{RequireMention: &on})
+	p.groupPolicies.SetGroup("g1", &groupPolicy{RequireMention: &on})
 	require, ok := p.groupRequireMention(ctx)
 	assert.True(t, ok)
 	assert.True(t, require)
 
 	// mention=off → (false, true)
 	off := false
-	p.groupPolicies.SetGroup("g1", &GroupPolicy{RequireMention: &off})
+	p.groupPolicies.SetGroup("g1", &groupPolicy{RequireMention: &off})
 	require, ok = p.groupRequireMention(ctx)
 	assert.True(t, ok)
 	assert.False(t, require)

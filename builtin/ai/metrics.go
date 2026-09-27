@@ -8,7 +8,8 @@
 // prompt_cached 为命中提示词前缀缓存的输入 token 数，
 // rate(prompt_cached)/rate(prompt) 即前缀缓存命中率。
 //   - ai_tool_calls_total{tool, result}       工具调用次数（result: ok/error）
-//   - ai_toolset_changes_total{reason}        工具集变更次数（reason: init/grow/decay）
+//   - ai_toolset_changes_total{reason}        工具集变更次数
+//     （reason: init/grow/shrink/decay；仅在集合真的变化时计数，keep 不计数）
 //   - ai_toolset_size                        每轮发送的工具数量分布
 //
 // 工具集与提示词前缀：tools 排在请求最前面，集合一变其后的历史全部失去
@@ -16,7 +17,7 @@
 // 反映抖动程度，与 ai_llm_tokens_total{type="prompt_cached"} 的命中率
 // 一起看，可定量判断稳定策略是否真的减少了整段历史的重复计费。
 //
-// LLM 指标经 metricsProvider（Provider 装饰器，NewProvider 统一包装）采集；
+// LLM 指标经 metricsProvider（Provider 装饰器，newProvider 统一包装）采集；
 // 流式调用的耗时覆盖整个流的消费过程，token 用量取自 Done 事件的 Usage。
 // 装饰器留在本包而非协议层：协议层只描述线格式，不承担可观测性依赖。
 package ai
@@ -115,8 +116,8 @@ func recordLLMCall(model string, duration time.Duration, usage *protocol.TokenUs
 	}
 }
 
-// RecordToolCall 记录一次工具调用结果（作为观测回调注入动作调用器）。
-func RecordToolCall(tool string, err error) {
+// recordToolCall 记录一次工具调用结果（作为观测回调注入动作调用器）。
+func recordToolCall(tool string, err error) {
 	result := "ok"
 	if err != nil {
 		result = "error"
