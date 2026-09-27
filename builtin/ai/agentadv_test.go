@@ -59,9 +59,14 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 				// 保证 Add(1) 必然在任一工具完成前被双方执行。
 				ready <- struct{}{}
 				<-startCh
-				v := curConcurrent.Add(1)
-				if v > maxConcurrent.Load() {
-					maxConcurrent.Store(v)
+				cur := curConcurrent.Add(1)
+				// 原子地取最大值：Load+Store 非原子，两个工具并发时可能
+				// 互相覆盖（后写的小值盖掉先前的大值），使并发度被误判为 1。
+				for {
+					prev := maxConcurrent.Load()
+					if cur <= prev || maxConcurrent.CompareAndSwap(prev, cur) {
+						break
+					}
 				}
 				defer curConcurrent.Add(-1)
 				time.Sleep(50 * time.Millisecond)
@@ -96,8 +101,8 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 		close(startCh)
 		<-done
 		elapsed := time.Since(started)
-		if maxConcurrent.Load() < 2 {
-			t.Errorf("expected parallel execution (concurrency >= 2), got %d", maxConcurrent.Load())
+		if got := maxConcurrent.Load(); got < 2 {
+			t.Errorf("expected parallel execution (concurrency >= 2), got %d", got)
 		}
 		// 虚拟时钟下两个 50ms 工具并行耗时恰为 50ms；退化为串行时并发度断言
 		// 已能确定性捕获，此处仅作兜底。
@@ -487,8 +492,12 @@ func TestPlanAutoContinueStopsWithoutProgress(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, &platform.NoopSender{})
 
 	p.maybeContinuePlan(ctx, sess)
-	time.Sleep(300 * time.Millisecond)
 
+	// 无进度时应在若干轮后自动停止：轮询等待而非固定睡眠，避免加载较高时误判。
+	deadline := time.Now().Add(3 * time.Second)
+	for !sess.PlanAutoStopped() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if !sess.PlanAutoStopped() {
 		t.Error("no-progress plan should stop auto-continue")
 	}
