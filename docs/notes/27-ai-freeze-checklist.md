@@ -257,7 +257,8 @@ Stable Prefix
 
 ### E1 可用集先过群策略（`decision.go` `actionCandidates`）
 
-`gp.FilterTools(actions)`（群策略方法 `GroupPolicy.FilterTools`）定义本轮**可用边界**。
+`gp.FilterTools(actions)`（群策略方法 `groupPolicy.FilterTools`，类型未导出见
+[29](29-ai-package-boundaries.md) §十一）定义本轮**可用边界**。
 
 ### E2 RBAC 再过滤（`process.go:130`）
 
@@ -329,6 +330,7 @@ Stable Prefix
 | `tool_budget` | `8000` | `config.go:193` |
 | `tool_set_sticky` | `true` | `config.go:202` |
 | `tool_set_sticky_max` | `8` | `config.go:208` |
+| `need_action_gate` | `auto`（`auto`/`always`） | `config.go`（`Config.NeedActionGate`） |
 | `tool_parallel` | `4` | `config.go:271` |
 | `tool_approval` | `off`（`off`/`restricted`/`always`） | `config.go:183` |
 | `approval_timeout` | `60s` | `config.go:185` |
@@ -539,3 +541,4 @@ go test ./builtin/ai/... -run 'Contract|Retrieval'
 | v1 | 初次定稿：冻结原则、A–G 契约表、缺口清单 G1–G10、完成判据、Phase 映射 |
 | v2 | 落 GPT 审查：① A7 补"预算不回收必保集"；② A9 改 `Candidate ∪ StickyFillers` 精确语义；③ E4 改为"群策略定义可用边界、RBAC 在可用集内过滤"，不再把执行顺序当独立契约；④ G3 改为持久化字段集合 + round-trip；⑤ G4 明确当前无 `SchemaVersion`，引入版本号属 Phase 8；⑥ 缺口编号 `G1–G10` → `GAP-1–GAP-10`，消除与契约分组冲突；⑦ 新增负向不变量 N1–N6；⑧ 新增 §H 优先补齐测试 17 例；⑨ Phase 映射修正：Phase 1 只绑 E3，Session 归 Phase 8 |
 | v3 | 与实际落地对齐（仅文档）：§H 用例数 17 → 20（17 契约 + 3 负向）并单列负向分组；用例现名标注（`TestToolResultFailureIsTyped`、`TestToolSetStickyNeverExceedsAvailable`、`TestDecideTurnActionsRetainsStickyWhenNoAction`、`TestToolSetGenerationStableOnRepeatedCandidate`）；B5 补"失败判定已类型化、文本前缀保留"的后续状态；§十四 判据 3/5 口径同步 |
+| v4 | 新增配置键 `need_action_gate`（默认 `auto`，`auto`/`always`）：G1 表补一行。属"新增量通过新增键引入"，不改变既有键语义；旧键行为保持不变，设 `always` 可恢复闸门恒开 |

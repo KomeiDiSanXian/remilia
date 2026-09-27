@@ -1,5 +1,109 @@
 # Changelog
 
+## Unreleased
+
+### 🔧 AI 分层重构的收尾修正：预算权威性、执行语义、授权绑定与可观测性
+
+v1.65.0 的 11 子包拆分总体成立，但评审发现若干"分层到位、语义未闭环"的问题。
+本次逐条修正，含 5 处有意的行为变更——计划注入角色、命令失败语义、上下文预算
+权威化、主动动作闸门收紧，以及 SendTo 授权收紧（安全性）——其中 4 处已用 ⚠️ 标注。
+
+- **⚠️ 计划注入改挂 user 角色（行为变更）**：执行计划此前以 `RoleSystem` 追加在
+  消息数组中段，而 Anthropic 适配器只取数组内**第一条** system 作为顶级
+  `system` 字段、其余 system 消息整条丢弃（`protocol.toAnthropicMessages`），
+  导致计划对 Claude 完全不可见。现改为尾部 `RoleUser` 消息（与反思/重规划
+  指令同一约定），对所有 provider 一致可见；提示词文本不变
+- **⚠️ 命令执行失败语义闭环（行为变更）**：`CommandInvoker` 此前从不置
+  `ActionResult.Err`，`executeToolResult` 以 `result.Text != ""` 判定命令是否
+  成功，于是"命令命中但无文本输出"会回退到占位 `Execute`（`[命令 X 已触发]`）
+  伪装成功——不消耗重试预算、不触发反思。现 `execution.RunCommand` 返回
+  `(string, error)`：模式未命中 / 上下文缺失等为失败并写入类型化 `Err`，
+  空文本 + 无错误是合法结果并回填"(命令 %q 已执行，未返回文本)"；命令来源
+  解析改为显式 `commands.Pattern(name)`，删除 `result.Text != ""` 回退
+- **调用器契约统一与三路指标**：新增 `runtime.Invoker` 接口与 `RecordFunc`，
+  `FuncInvoker` / `CommandInvoker` / `SkillInvoker` 均实现之，并统一上报
+  `ai_tool_calls_total`——此前命令与 Skill 路径不计入工具调用指标
+- **⚠️ 上下文预算权威化（行为变更）**：`buildDynamicContext` 在预算路径返回空串时
+  会回退到非预算 `Build`，而预算路径恰在"稳定系统提示词已吃掉全部窗口"时返回
+  空串——即预算最紧时反而突破窗口。现收敛为唯一入口 `promptctx.BuildWindowed`：
+  `context_window > 0` 一律走预算路径、绝不回退；`<= 0` 走配置上限路径
+- **SelectionClass 显式化**：`Tool` 新增 `Selection` 字段（类型 `*SelectionClass`，
+  nil 仍按类别派生，兼容既有工具），用 `new(SelectionMandatory)` 显式声明
+  （Go 1.26+ 的 `new(表达式)` 形式，无需辅助函数）；原先 `SelectionMandatory`
+  在生产不可达，现可由框架/插件为单个动作声明保留级别，无需借道类别污染检索
+  语义。枚举**不新增零值哨兵**，`SelectionOptional` / `Baseline` / `Mandatory`
+  数值与 v1.65.0 逐位一致（0/1/2），避免按数值比较的外部代码被静默错位
+- **审批目标预解析改判定策略声明**：`approvalSummaryForTool` 此前按动作名硬编码
+  `send_to` 决定是否预解析发送目标，现改读 `ActionPolicy.GrantsSendTo`——与
+  SendTo 授权同一处声明。改名/别名动作不再漏解析，冒用 `send_to` 之名的动作也
+  不再获得未声明的目标解析能力
+- **⚠️ 主动动作闸门收紧（行为变更）**：`needAction` 原为恒真占位，现真正实现——
+  纯算法（白名单式社交寒暄识别 + 进行中计划优先）下沉到 `decision.NeedAction`，
+  装配侧只用事件原文（`ctx.GetMessageContent`，未经回复/提及装饰）与会话计划状态
+  调用它。判否的轮次不挑选可选动作、跳过检索与嵌入调用，工具集只保留默认保留
+  级别与会话已用——纯社交寒暄是本地唯一能可靠识别的"无需动作"意图；"纯知识问答"
+  无法在本地与动作请求区分，不纳入判定。新增 `need_action_gate`（默认 `auto`；
+  设 `always` 恢复闸门恒开即旧行为），可一键回退
+- **选择缓存策略移出 session**：`session` 不再反向依赖 `toolkit`（唯一逆流依赖）。
+  `SelectionCache.Tools` 迁入 `decision`（`cachedTools`），复用的 TTL/Jaccard
+  常量迁到共同算法层 `retrieval`（`CacheReuseTTL` / `CacheReuseJaccard`），
+  由工具选择与历史检索两个消费者共用
+- **SendTo 授权绑定声明式策略（安全性收紧）**：此前任何工具只要通过审批门就
+  被授予 `SendTo`（越会话推送）能力，`tool_approval=always` 下任意工具都能借
+  一次审批获得该能力。现新增 `Tool.GrantsSendTo` / `ActionPolicy.GrantsSendTo`
+  （仅 `send_to` 声明），授权 = 动作声明 ∧ 审批放行；未声明者即使被审批放行
+  也只拿到未授权 sender
+- **稳定策略归因修正**：`StabilizeToolSet` 的变更判定改与"上一轮实际持有的
+  集合"（`st.Names`）比对，RBAC/群策略/插件注销导致的可用集收缩如实计为
+  `shrink` 并使生成代数递增，不再误记为 `keep`
+- **注释与文档纠偏**：修正"会话计划不持久化"（实际经 `Record.Plan` 跨重启续跑）、
+  指向已删除源码文件（`select.go` / `rag.go` / `toolset.go`）的注释、
+  `buildStaticSystemPrompt` 中"计划由 buildDynamicContext 构建"的过时描述、
+  `ai_toolset_changes_total` 的 reason 取值（补 `shrink`/`keep`）、
+  以及 `SelectToolsForTurn` 两条短路（工具数≤上限 / 查询为空）跳过稳定策略与
+  观测回调的有意口径。同时把 v1.65.0 中"插件根只保留装配"的说法校正为
+  "插件根只承担装配与编排，领域算法与纯逻辑全部下沉子包"
+
+### 🧩 AI 子包边界收口：配置脱钩、公共面最小化与代理状态覆盖
+
+对 v1.65.0 的 11 子包拆分做成品评审，发现"分层到位、边界未闭环"的三类问题并逐条
+收口。**无运行时行为变更**（唯一删除的 `runtime.WithPlanSession` 是上一轮新增的
+转发壳，仓库内调用点已改到 `catalog.WithPlanAccess`）。
+
+- **子包不再直读插件配置**：`protocol` / `decision` / `promptctx` / `runtime`
+  停止 import `builtin/ai/config`，各自改收最小参数结构（`protocol.ProviderOptions` /
+  `decision.SelectionOptions` / `promptctx.ContextOptions` / `runtime.Limits`）；
+  装配根新增 `builtin/ai/options.go` 作为"插件配置 → 子包参数"的唯一映射层。
+  `config` 从此是叶子包，只有 `ai` 引用它——子包可脱离整份配置独立构造与测试，
+  也不再有"顺手读任意配置字段"的口子
+- **`runtime` 调用点参数化**：`Client` 收 `Temperature` / `TopP` / `MaxTokens` / `Prov`，
+  `Verifier` 收 `Model` / `VerifyModel` / `APITimeout` / `MaxRetry`，
+  `Extractor` 收 `Model` / `ExtractModel`，`Effective*` 系列收 `Limits` 值参
+- **删除 `runtime → catalog` 隐性回边**：`runtime.WithPlanSession` 只是转发壳，
+  装配点改为直接调用 `catalog.WithPlanAccess`
+- **装配根公共面收口到 `New` + `Plugin`**：`ChatResult` / `NewProvider` /
+  `OpenMemoryStore` / `OpenGroupPolicyStore` / `MemoryFact` / `GroupPolicy` /
+  `ToolApprovalMode` / `ValidApprovalModes` / `ApprovalOff`·`Restricted`·`Always` /
+  `RecordToolCall` / `DefaultFrameworkPrompt` 全部改未导出——它们此前或是
+  **未导出类型的返回者**（外部本就无法使用），或 **仅被测试引用**。
+  仅影响编译期可见性，插件作者契约（`Plugin` 的服务查找、`Discover*`、`Register*`）
+  不变；4 条 provider 工厂用例随之迁入包内 `provider_factory_test.go`
+- **代理状态清单扩到 Plugin 侧**：补齐 `approval`（待审批请求）、`long_term_memory`
+  （LevelDB `data/ai_memory`）、`group_policy`（LevelDB `data/ai`）三项，并新增
+  `agentStateProcessPersisted` 归属类（进程级持有、自带持久化、不随 `SessionRecord`
+  落库）；新增 `TestAgentStateCoversPluginState` 递归覆盖 `Plugin`（含五个 owner
+  嵌入结构）的全部字段，要求每个字段要么登记为代理状态，要么在非代理名单里说明
+  原因，杜绝新增状态静默溜过
+- **顺带修正**：绑定提醒的惰性初始化竞态（`addReminder` 不再写 `p.reminders`，
+  改返回"提醒功能不可用"）、重规划前缀 `replanPrefix` 常量化（`BuildReplanMessage`
+  与 `LastUserIsReplan` 共用一处定义）、`buildStaticSystemPrompt` 的重复计算（新增
+  `runtime.SystemMessage`）、`toolkit` 注册表保真保存 `Tool.Selection` 指针
+  （`nil` 不再被类别派生的 `Optional` 顶替）、`execute.go` 直读 `tool.Permissions`、
+  `approvalModeFor` 收敛为单次注册表查询
+- **新增分区守卫**：`pluginparts_test.go` 除字段名外，现在也拦下两个 owner 结构
+  定义同名导出方法的情形——方法经匿名嵌入提升后同名会让 `p.<方法>()` 二义，
+  而 Go 只在调用处报错，静默存在时难以发现
+
 ## v1.65.0 (2026-09-22)
 
 ### 🧱 分层重构：AI 插件拆分与执行语义解耦
@@ -10,7 +114,9 @@
 
 - **拆分子包**：`builtin/ai` 拆为 `config` / `protocol` / `toolkit` /
   `session` / `catalog` / `retrieval` / `decision` / `execution` / `promptctx` /
-  `runtime` / `textutil` 共 11 个包，依赖一律朝内，插件根只保留装配
+  `runtime` / `textutil` 共 11 个包，子包依赖一律朝内；插件根不再是"零逻辑"，
+  但仍只承担装配与编排（候选来源、策略注入、审批交互等依赖运行时状态的代码），
+  领域算法与纯逻辑全部下沉子包
 - **能力端口（Capability）**：工具执行上下文不再反向持有 `*Plugin`，
   改为依赖 `memoryPort` / `todoPort` / `reminderPort` /
   `reminderSchedulerPort` 四个最小端口

@@ -46,19 +46,37 @@
 
 ## 三、目标包与依赖方向
 
-依赖单向，不允许回边（回边即循环）：
+依赖单向，不允许回边（回边即循环）。**现状**（`go list` 实测，2026-09 复核）：
 
 ```
-config  →  protocol  →  toolkit  →  retrieval
-                            ↓
-                         session
-                            ↓
-        catalog / decision / context / execution
-                            ↓
-                  runtime / admin   （依赖全部下层）
-                            ↓
-                    ai（Plugin + Setup 装配）
+叶子（零 builtin/ai 内部依赖）：
+    textutil     retrieval     protocol     config
+
+第二层（只依赖叶子）：
+    toolkit   → protocol
+    execution → protocol
+    session   → protocol
+
+第三层（依赖第二层及以下）：
+    catalog   → protocol, session, toolkit
+    promptctx → protocol, retrieval, session, textutil
+    decision  → retrieval, session, textutil, toolkit
+    runtime   → execution, protocol, session, textutil, toolkit
+
+装配根：
+    ai (Plugin + Setup) → 全部子包（唯一 import config 的包）
 ```
+
+两条关键性质：
+
+1. **`config` 是叶子，只有 `ai` 引用它**。子包各自声明自己需要的最小参数结构
+   （`protocol.ProviderOptions` / `decision.SelectionOptions` /
+   `promptctx.ContextOptions` / `runtime.Limits`），由装配根的
+   `builtin/ai/options.go` 做唯一一次"插件配置 → 子包参数"映射（见 §十一）。
+   早期设计里 `config` 位于依赖链顶端（`config → protocol → …`）已被推翻：
+   那会让每个子包都能读到整份插件配置，把"最小依赖"变成"任意依赖"。
+2. **`decision` 不依赖 `catalog`，`runtime` 不依赖 `catalog`/`decision`**。
+   候选发现（读注册表与群策略）留在装配侧，子包只接收已过滤好的动作集合。
 
 | owner | 方法数 | 自有字段 | 建议包 |
 |-------|-------:|----------|--------|
@@ -425,9 +443,11 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
   会话已有 API 一致，装配侧注入会话本身即可，不再多一层适配。
   - **为什么依赖方向成立**：§三 中 `session` 在 `catalog` 之下，故
     `catalog → session` 是下行边，不产生回边。
-  - **编排留在 `ai`**：供动作取端口的 `WithPlanSession`（签名与行为不变，改为转发
-    `catalog.WithPlanAccess`）、重规划指令 `buildReplanMessage`、无进度签名
-    `planSignature` 都是回合运行时的编排语义，不随动作下沉。
+  - **编排留在装配侧**：`catalog.WithPlanAccess`（把会话注入工具 context 的
+    端口约定）由装配点直接调用；重规划指令 `runtime.BuildReplanMessage`、无进度
+    签名 `runtime.PlanSignature` 都是回合运行时的编排语义，不随动作下沉。
+    `runtime` 侧一度存在的转发 `WithPlanSession` 已删除——它只为"装配侧不直接
+    认识 `catalog`"而存在，反而给 `runtime` 加了一条指向 `catalog` 的边。
   - **测试留在真实装配**：`plan_test.go` / `agentadv_test.go` / `action_test.go`
     的计划用例断言的是"模型调用 → 计划落库 → 回合推进"，属动作级集成，仍走
     `Plugin` 装配，只把调用改成限定名。
@@ -468,7 +488,7 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
   （`observe` 为 nil 时不记录；装配侧恒非 nil，且与既有实现一样只在稳定策略真正
   生效时上报）。`decision` 因此不引入 prometheus 依赖。
 - **候选来源与审批交互留在装配侧**：`actionCandidates`（注册表 + 用户 Skill + 群策略 +
-  RBAC）、`needAction`（当前恒真）、`decideToolInvocation` / `needsApproval` /
+  RBAC）、`needAction`（委托 `decision.NeedAction`，见 28 v26）、`decideToolInvocation` / `needsApproval` /
   `approvalModeFor` 依赖插件状态、群策略与审批提示能力，仍是 `*Plugin` 方法；
   `decision` 不反向读取 `reg` / `groupPolicies`，只接收已过滤好的可用动作。
 - **查询文本由调用方给定**：`SelectToolsForTurn` 不再自行提取最后一条用户消息，
@@ -495,17 +515,17 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
 
 | 迁入 | 内容 | 依赖 |
 |------|------|------|
-| `builtin/ai/runtime/client.go` | `Client`（单轮非流式 LLM 调用，请求形状由配置决定）、`SingleRoundResult` | `config`、`protocol` |
-| `builtin/ai/runtime/verify.go` | `VerifyPrompt`、`Verifier`（`Verify` / `MaxRetries`）、`ParseVerdict`、`BuildVerifyRetryMessage` | `config`、`protocol` |
+| `builtin/ai/runtime/client.go` | `Client`（单轮非流式 LLM 调用，采样参数由装配侧给定）、`SingleRoundResult` | `protocol` |
+| `builtin/ai/runtime/verify.go` | `VerifyPrompt`、`Verifier`（`Verify` / `MaxRetries`）、`ParseVerdict`、`BuildVerifyRetryMessage` | `protocol` |
 | `builtin/ai/runtime/extract.go` | `Extractor`（跑一轮抽取并写入）、`MemoryExtractPrompt`、`ParseExtractedFacts`、`LastRoundForMemory`、`MemoryMessageText`，以及消费方端口 `MemoryWriter` / `ScopeKeys` | `protocol`、`session`、`platform` |
 | `builtin/ai/runtime/message.go` | 消息与载荷的纯形状工具：`MergeChatAttachments`、`LastUserIsReplan`、`SummarizeArgs`、`LastUserMessage`、`MessageText`、`CountImageParts`、`RepairToolCallSequence`、`StripBinaryParts`、`TruncateToolResult`、`FormatAIError`，以及常量 `ToolResultMissing` / `MaxToolResultLen` | `protocol`、`session`、`logger`、`platform` |
 | `builtin/ai/runtime/request.go` | 请求消息副本构造：`Retention`（`MaxTurns` / `Window` / `MaxPerRequest`）、`InjectDynamicContext`、`PrepareRequestMessages` | `protocol` |
 | `builtin/ai/runtime/turn.go` | 回合内工具调用的并行编排 `ExecuteToolCallsParallel` 与结果 `ToolExecResult`、调用追踪 `RecordToolTrace` | `protocol`、`session`、`textutil` |
-| `builtin/ai/runtime/limits.go` | 由配置推导的运行预算：`EffectiveToolRetryLimit`、`EffectiveApprovalTimeout`、`EffectiveTurnTimeout`、`EffectivePlanAutoRounds` | `config` |
+| `builtin/ai/runtime/limits.go` | 由入参推导的运行预算：`Limits` + `EffectiveToolRetryLimit`、`EffectiveApprovalTimeout`、`EffectiveTurnTimeout`、`EffectivePlanAutoRounds`（纯函数，装配侧传 `runtimeLimits(cfg)`） | （无子包依赖） |
 | `builtin/ai/runtime/deadline.go` | `LiftEventDeadline`（以回合预算替换事件上下文 deadline） | `core/context` |
 | `builtin/ai/runtime/inbound.go` | 入站消息归一化的纯形状工具：`BotMentioned`、附件类型判定（`HasImageAttachment` / `IsImageAttachment` / `IsAudioAttachment` / `IsImageAttachmentMeta`）、待合并图片引用与拼装（`PendingImageRefsFromAttachments` / `MergePendingImageParts`）、`HasSubstantiveText`、`InferPartType` / `InferAudioFormat`、`HasTriggerPrefix` / `IsCommandMessage` / `CleanMessage`、`AppendMentionInfo`、`SetSystemMessage`、`MakeSessionID` | `protocol`、`session`、`textutil`、`messagelog`、`core/context`、`platform` |
 | `builtin/ai/runtime/forward.go` | 合并转发记录识别与触发：`ForwardRecordFromEvent`、`ForwardTriggerContent`、`ForwardRecordImageAtts`、`QuotedImageFromSegments` | `platform` |
-| `builtin/ai/runtime/plan.go` | 计划的编排使用约定：`PlanSignature`（无进度检测）、`WithPlanSession`（计划端口注入）、`BuildReplanMessage`（失败步骤重规划指令）；`ai/plan.go` 整体出线 | `catalog`、`protocol`、`session` |
+| `builtin/ai/runtime/plan.go` | 计划的编排使用约定：`PlanSignature`（无进度检测）、`BuildReplanMessage`（失败步骤重规划指令）、`replanPrefix`（与 `LastUserIsReplan` 共用的识别前缀）；`ai/plan.go` 整体出线 | `protocol`、`session` |
 | `builtin/ai/runtime/invoke.go` | 动作调用器与结果：`ActionResult`、`FuncInvoker`（含观测回调 `Record`）、`SkillInvoker` + 端口 `SkillRunner`、`CommandInvoker` + 端口 `CommandCatalog`、`ToolFailureText` | `execution`、`toolkit`、`core/context` |
 
 - **LLM 单轮调用整体出线**：`runSingleRound` / `runSingleRoundModel` 收敛为
@@ -646,9 +666,9 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
 |--------|------|
 | `pluginCommandCatalog` / `pluginSkillRunner`（`invoker.go`）、`loopToolSender`（`sendtool.go`）、`capability.go` 的四个 accessor | 消费方端口 → 插件能力的**装配适配器**：价值在于把 `*Plugin` 挡在子包之外，子包只认端口。删掉它们等于把 `*Plugin` 交回给子包 |
 | `execution.ApprovalManager.PendingIDs` / `PendingCount`（`execution/approval.go`） | 装配侧读结果走 `req.Result()`，这两个只读查询是包内读侧与用例的观察口；无副作用、无策略语义，保留成本低于让用例去翻未导出字段 |
-| `needAction` 恒真 | 冻结的架构闸门，收紧判定属行为变更（见 28） |
+| `needAction` | 装配侧只取事件原文与会话计划状态，判定下沉 `decision.NeedAction`；收紧过程与回退开关见 28 v26 |
 | `agentStateInventory()` | 归属表的唯一事实来源，生产与守卫用例共用 |
-| `retrieval.WithPlanAccess` | 封装的 context key 类型未导出，内联会让调用方无法构造；属必要封装 |
+| `catalog.WithPlanAccess` | 封装的 context key 类型未导出，内联会让调用方无法构造；属必要封装 |
 | `memoryScopeKeys.UserScope` / `GroupScope` | `runtime.ScopeKeys` 端口实现，键格式仍只有 `userScope` / `groupScope` 一处定义 |
 
 ### 下一步
@@ -690,6 +710,108 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
 `IncrementUsage` 不属于以上任何一类——它有真实消费方（计数展示），只是调用被漏掉了，
 因此按“修复漏接线”处理，而不是删除。
 
+## 十一、依赖收口与公共面最小化（评审后修正）
+
+§一～§十 交付后，对 11 子包拆分做了一次成品评审。分层本身成立，但暴露三类
+"分层到位、边界未闭环"的问题：**子包直读插件配置**、**装配根公共面过大**、
+**代理状态清单覆盖不全**。本节逐条收口。
+
+### 1. `config` 退化为叶子，`options.go` 成为唯一映射层
+
+评审前 `protocol` / `decision` / `promptctx` / `runtime` 都直接 import
+`builtin/ai/config` 并读 `*config.Config` 的字段。这有两个代价：子包无法脱离
+整份插件配置独立构造与测试；新增配置键时任何子包都能"顺手"读取任意字段，
+最小依赖形同虚设。
+
+现在四个子包各自声明**最小参数结构**，只认识自己需要的那几个数：
+
+| 子包 | 参数类型 | 装配侧映射函数 |
+|------|----------|----------------|
+| `protocol` | `ProviderOptions`（BaseURL / APIKey / Model / MaxTokens / APITimeout / MaxRetries / IncludeUsage） | `providerOptions(cfg)` |
+| `decision` | `SelectionOptions`（Max / Budget / Sticky / StickyMax / StickyTTL） | `selectionOptions(cfg)` |
+| `promptctx` | `ContextOptions`（RuntimeFields / GroupIncludeBot / GroupMessages / RAGDays / RAGCandidates / RAGInjectMax） | `contextOptions(cfg)` |
+| `runtime` | `Limits`（ToolRetryLimit / ApprovalTimeout / TurnTimeout / APITimeout / MaxDepth / PlanAutoRounds） | `runtimeLimits(cfg)` |
+
+- **`builtin/ai/options.go`** 是"插件配置 → 子包参数"的唯一翻译层，四个函数都在
+  此一处定义（早期散落在 `plugin.go` / `decision.go` / `dynamiccontext.go` 的
+  局部副本已删除）。新增子包开关的代价是显式加一行，而不是让子包伸手读配置对象。
+- **`runtime` 的三种调用点全部参数化**：`Client` 拆成
+  `Temperature` / `TopP` / `MaxTokens` / `Prov` 四个字段；`Verifier` 拆出
+  `Model` / `VerifyModel` / `APITimeout` / `MaxRetry`；`Extractor` 拆出
+  `Model` / `ExtractModel`；`Effective*` 系列收 `Limits` 值参。`Verifier.APITimeout <= 0`
+  时不再套 `context.WithTimeout`（沿用"不额外设限"语义）。
+- **`protocol` 现在 import 的 `builtin/ai` 包数为 0**；`runtime` 只剩
+  `protocol` / `execution` / `session` / `textutil` / `toolkit`（见 §三 现状图）。
+- `runtime→catalog` 的隐性回边一并删除：`runtime.WithPlanSession` 只是
+  "装配侧不直接认识 `catalog`"的转发壳，装配点改为直接调用
+  `catalog.WithPlanAccess`；`runtime` 因此不再依赖 `catalog`。
+
+### 2. 装配根公共面收口到 `New` + `Plugin`
+
+`ai` 一度声明"只保留 `New` / `Plugin` 两个装配面"，实际还漏着若干
+**生产不可达、仅测试引用**的导出名（AST 扫描确认顶层导出符号为
+`ChatResult` / `New` / `NewProvider` / `Plugin`）。本轮逐名收口：
+
+| 原名 | 处理 | 依据 |
+|------|------|------|
+| `ChatResult` → `chatResult` | 改未导出 | 只是包内未导出方法 `processWithTools` 的返回类型，无任何外部消费者 |
+| `NewProvider` → `newProvider` | 改未导出 | 唯一外部引用是 `ai_test.go`（外部测试包）；4 条用例迁入包内 `provider_factory_test.go` 走真实入口 |
+| `OpenMemoryStore` / `OpenGroupPolicyStore` | 改未导出 | 导出函数返回**未导出类型**（`*memoryStore` / `*groupPolicyManager`），外部本就无法使用其返回值 |
+| `MemoryFact` / `GroupPolicy` / `ToolApprovalMode` / `ValidApprovalModes` / `ApprovalOff`·`Restricted`·`Always` | 改未导出 | 仅包内与包内测试引用；并非插件作者契约 |
+| `RecordToolCall` → `recordToolCall` / `DefaultFrameworkPrompt` → `defaultFrameworkPrompt` | 改未导出 | 仅装配侧自身与包内测试引用 |
+
+收口后 `ai` 的顶层导出面**恰为 `New` 与 `Plugin`**（AST 复核），与 §一 的声明
+一致。`Plugin` 上对外的方法（`Discover*` / `Register*Provider` /
+`HealthCheckers` 等服务查找契约）不变——它们经匿名嵌入提升，签名与可用性照旧。
+
+复核 `Plugin` 的方法集后确认它同样收敛：自身声明 6 个导出方法
+（`DiscoverCommands` / `DiscoverSkillProviders` / `HealthCheckers` /
+`RegisterSkill` / `RegisterSkillProvider` / `RegisterUserSkill`），加上从
+`catalogState` 提升的 2 个（`DiscoverToolProviders` / `RegisterToolProvider`），
+共 8 个，全部是插件作者或宿主的契约（`RegisterToolProvider` 在
+`docs/06-plugins/AI_PLUGIN.md` 有面向插件作者的说明）。owner 结构上的其余 42 个
+方法都是未导出名，因此不进入公共面。
+
+**附带风险与守卫**：方法提升是"字段→方法同归属"的机制，代价是 owner 结构上的
+导出方法会并入 `*Plugin` 的方法集。两个 owner 若定义同名导出方法，`p.<方法>()`
+会二义——Go 只在**调用处**报错，无人调用时静默存在。`pluginparts_test.go` 现在
+除字段名外也守卫 owner **方法名**唯一（`TestPluginOwnerMethodNamesDoNotCollide`）。
+
+### 3. 代理状态清单覆盖 Plugin，并新增一类持久化归属
+
+`agentStateInventory()` 原先把"Session 上每个业务字段都被覆盖"写进包文档，但
+**Plugin 上的进程级状态没有对应的穷尽覆盖**：`approvals`（待审批请求）、
+`memory`（长期记忆）、`groupPolicies`（per-group 策略）都不在清单里，而
+`summaries` / `actionRate` 属于"看着像状态、其实是后台守卫"的灰区。
+
+本轮把归属表扩成四类，并补齐 Plugin 侧条目：
+
+| 新增 | Class | 承载字段 | 说明 |
+|------|-------|----------|------|
+| `approval` | `agentStateProcessMemory` | `approvals` | 待用户按钮/文本应答的审批请求，按会话索引，超时按拒绝，重启即丢 |
+| `long_term_memory` | `agentStateProcessPersisted` | `memory` | LevelDB（`data/ai_memory`）自带持久化，不随 `SessionRecord` 落库 |
+| `group_policy` | `agentStateProcessPersisted` | `groupPolicies` | LevelDB（`data/ai`）自带持久化，属进程级配置态 |
+
+新增的 `agentStateProcessPersisted` 用来区分"插件进程级管理器持有、但自带
+持久化"的状态——它既不是 `agentStatePersisted`（载体是 `SessionRecord`），
+也不是 `agentStateProcessMemory`（重启即丢）。
+
+覆盖守卫同步扩到 Plugin 侧：`TestAgentStateCoversPluginState` 递归展开 `Plugin`
+的五个匿名 owner 结构，要求每个字段要么在归属表里，要么在
+`agentStatePluginNonAgent()`（与守卫用例同址，仿 `agentStateInfrastructure`）
+登记原因。灰区字段据此显式归类：`summaries` / `actionRate`（后台去重与限流）、
+`def` / `triggerCmd` / `cmdPatterns`（由 `cfg` 派生的装配管道）、`sm` / `reg` /
+`history` 等服务句柄、`cfg` 静态配置。包文档相应改成**精确**表述：Session /
+Record / Plugin 三处覆盖全部穷尽，并说明"非代理字段"的范围界定。
+
+### 4. 小结：本轮不改可观测行为
+
+以上三类收口都是**依赖方向、命名可见性与文档/守卫**的修正，不改变任何运行时
+行为：映射函数只是把原先内联读配置的地方集中一次；未导出只影响编译期可见性；
+清单扩充是文档与守卫。唯一需要留意的是 `runtime.WithPlanSession` 被删除——
+它是上一轮为兼容新增的转发壳，仓库内调用点已全部改到
+`catalog.WithPlanAccess`。
+
 ## 修订记录
 
 | 版本 | 修订 |
@@ -723,3 +845,4 @@ catalog 是**工具/技能目录** owner：回答"有哪些动作可用、它们
 | v27 | 精简收口：删除 `SkillRegistry.Get` 兼容别名及其用例；`decision.namesEqual` 内联为 `slices.Equal`；`agentStateInfrastructure` 移入 `agentstate_test.go`；27 个只依赖单一 owner 的方法归位（`catalogState` 9 个、`adminState` 7 个 + 原包级 `qqActionRateKey`→`adminState.rateKey`、`contextState` 3 个、`executionState` 1 个、`runtimeState` 7 个），`Plugin` 方法数 129→102；§十 记录判据、保留层、残留项，并登记 8 个“生产不可达、仅用例引用”的导出名待裁决。回归：`./builtin/ai/` 565 通过 / 0 失败、`./builtin/ai/...` 711 通过 / 0 失败，全仓 125 包通过 |
 | v28 | 收口裁决：8 个“生产不可达、仅用例引用”的导出名逐个落地——删除 6 个（`Plugin.executeTool`、`Plugin.extractAndStore`、`promptctx.BuildGroupWindow`、`decision.ScoreTool`、`toolkit.ActionSpec.HasCategory`、`session.Session.ClearPendingImage`）并把 32 处用例改到真实入口，保留只读观察口 `execution.ApprovalManager.PendingIDs` / `PendingCount`，**恢复 `toolkit.SkillRegistry.IncrementUsage` 在 `executeSkill` 入口的调用**（技能调用计数一度恒为 0，与其展示语义不符）并补冻结用例 `TestSkillLoopCountsUsage`；删除不可达方法的同时删掉其验证用例 `TestSessionPendingImageRejectPath`。基准口径：`--- PASS` 行数（含子测试）`./builtin/ai/` 565 / 0 失败、`./builtin/ai/...` 710 / 0 失败，全仓 125 包通过，`gofmt` / `go vet` 干净 |
 | v29 | 文档订正：§十「下一步」原称行为修正 backlog“未开工”、并称 `isToolErrorResult` 仍在兼容位——与事实不符（该方法已在 28 第十五节退役，代码中 0 命中）。改为如实记录 C1–C5 与 L7 已在 28 第十五～二十节完成，本节只保留“再改动须独立变更并同步冻结清单”的约束。无代码改动 |
+| v30 | 评审后修正，新增 §十一：① `config` 退化为叶子——`protocol` / `decision` / `promptctx` / `runtime` 全部停止 import 配置包，各自改收最小参数结构（`ProviderOptions` / `SelectionOptions` / `ContextOptions` / `Limits`），装配根新增 `builtin/ai/options.go` 作为唯一映射层；`runtime.Client` / `Verifier` / `Extractor` 的字段随之参数化（`Client.Temperature/TopP/MaxTokens/Prov`、`Verifier.Model/VerifyModel/APITimeout/MaxRetry`、`Extractor.Model/ExtractModel`）；② 删除 `runtime.WithPlanSession` 转发壳，装配点直接调 `catalog.WithPlanAccess`，去掉 `runtime → catalog` 边；③ 装配根公共面收口——`ChatResult`/`NewProvider`/`OpenMemoryStore`/`OpenGroupPolicyStore`/`MemoryFact`/`GroupPolicy`/`ToolApprovalMode`/`ValidApprovalModes`/`ApprovalOff`·`Restricted`·`Always`/`RecordToolCall`/`DefaultFrameworkPrompt` 全部改未导出，4 条 provider 工厂用例迁入包内 `provider_factory_test.go`，AST 复核顶层导出面恰为 `New` + `Plugin`；④ 代理状态清单扩到 Plugin 侧——新增 `approval`（`agentStateProcessMemory`）、`long_term_memory` / `group_policy`（新增类 `agentStateProcessPersisted`），新增 `TestAgentStateCoversPluginState` 递归覆盖 Plugin 全部字段并要求非代理字段在 `agentStatePluginNonAgent()`（测试同址）登记原因，包文档改为精确表述；⑤ 顺带修正：绑定提醒的惰性初始化竞态（`addReminder` 不再写 `p.reminders`）、`replanPrefix` 常量化（`BuildReplanMessage` 与 `LastUserIsReplan` 共用）、`buildStaticSystemPrompt` 双算（新增 `runtime.SystemMessage`）、`toolkit.registeredAction` 保真保存 `Selection` 指针（`nil` 不再被类别派生的 `Optional` 顶替）、`execute.go` 直读 `tool.Permissions`、`approvalModeFor` 单次注册表查询；⑥ `pluginparts_test.go` 新增 owner 方法名唯一守卫，防止方法提升二义。依赖图见 §三（已按 `go list` 实测改写）。无运行时行为变更 |

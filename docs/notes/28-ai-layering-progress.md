@@ -42,7 +42,7 @@ go test ./builtin/ai/... -count=1 -v
 | 4b | 输出捕获退役评估 | `captureSender` 依赖 vevent/engine；评估完成：附件在回合级捕获，整段退役不可行 | ✅ 已裁决：不退役（见 L6） |
 | 5 | 检索骨架（Retrieval） | `RetrievalCore`：三个消费者共享分词/向量获取/排序/截断骨架 | ✅ |
 | 6 | 上下文管线（Context） | Provider + Builder（未引入 Fragment/Snapshot 类型，见第二十一节） | ✅ |
-| 7 | 选择与决策（Selection + Decision） | Candidate Discovery / Retrieval / Selection / Stability + `needAction` gate | ✅（闸门当前保守恒真） |
+| 7 | 选择与决策（Selection + Decision） | Candidate Discovery / Retrieval / Selection / Stability + `needAction` gate | ✅（闸门已收紧：纯社交判否，`need_action_gate` 可回退） |
 | 8 | 代理状态（Agent State） | Plan / Todo / Reminder / PendingImage / Interrupt 的逻辑归属与持久化分离 | ✅ |
 | 9 | Jev | 二级决策器（仅处理规则无法判定的歧义决策） | ⏳ 按需（真实需求出现再做） |
 | F | 冻结用例（27 §H） | 现状契约的可执行断言 | ✅ 20/20（17 契约 + 3 负向） |
@@ -97,7 +97,7 @@ go test ./builtin/ai/... -count=1 -v
 | L5 | 审批被拒文案"工具已被用户拒绝执行"当前不算失败（无 `错误:` 前缀） | 属既有行为，保持不动 |
 | L6 | 附件在回合级而非工具级捕获，`ActionResult` 暂不含 `Attachments` | 记录：4b 的退役范围因此收窄 |
 | L7 | `builtin/knowledgebase/retrieve.go` 自行实现 `tokenize` / `tokenOverlap` / `tokenJaccard`（已复用 `ai.CosineSimilarity`） | ✅ 已实施：导出 `ai.TokenizeText` / `TokenOverlap` / `TokenJaccard` 并删除本地实现（见第二十节） |
-| L8 | `needAction` 闸门当前保守恒为真（不抑制可选动作） | 收紧判定（如纯闲聊/纯知识问答判否）会改变发给模型的工具集，属独立变更；本工作流只交付闸门骨架与保留语义 |
+| L8 | `needAction` 闸门恒为真（不抑制可选动作） | ✅ 已实施（见修订记录 v26）：纯社交寒暄判否、进行中计划判真，纯算法下沉 `decision.NeedAction`；“纯知识问答”无法本地判别，不纳入判定 |
 
 ### 已裁决事项
 
@@ -443,7 +443,7 @@ go test ./builtin/ai/... -count=1 -v
 | L5 | 保持现状 | 审批被拒文案不算失败，属既有行为 |
 | L6 | 保持现状 | 附件为回合级捕获，`ActionResult` 不承载附件 |
 | L7 | 后续候选 | 跨包检索 API 清理，独立课题（已由第二十节落地） |
-| L8 | 保持现状 | `needAction` 恒真是兼容实现，收紧属独立行为变更 |
+| L8 | 保持现状（后由 v26 收紧） | `needAction` 恒真是兼容实现，收紧属独立行为变更 |
 
 ### 行为修正待办不变
 
@@ -669,7 +669,7 @@ go test ./builtin/ai/... -count=1 -v
 | G-E | Context `Provider → Fragment → Builder → Snapshot`（26 §3.6） | 交付 Provider（`dynamicContextSource`）+ Builder；无 `Fragment` / `Snapshot` 类型 | 不变量 9：无消费者不为抽象而抽象；节间不需要独立寻址 | 出现"跨 Provider 片段级重排/去重"需求时再引入 |
 
 > 另有两项**已裁决保留**的既有行为，不属本表：`captureSender` 未退役（L6，4b 范围收窄）、
-> `needAction` 恒真（L8，收紧属独立行为变更）。
+> `needAction` 恒真（L8；已由 v26 收紧为纯社交判否，可用 `need_action_gate=always` 回退）。
 
 ### 检索契约实测（关闭原验证盲区）
 
@@ -847,3 +847,5 @@ go test ./builtin/ai/ -run TestRetrievalContractLive -count=1 -v
 | v22 | 遗留项 G-D 实施：注册表改存动作视图，`Action` 成为管线内部货币、`Execute` 仅经执行视图取出；新增保真用例；基线更新至 590/0/0 |
 | v23 | 代码组织收口（详见 29-ai-package-boundaries.md v28）：删除 6 个生产不可达的导出名（含 `executeTool` / `extractAndStore`）、恢复 `IncrementUsage` 调用，上文“不可达”记录已被后续补正取代；新基线：`./builtin/ai/` 565 / 0 失败、`./builtin/ai/...` 710 / 0 失败 |
 | v24 | 状态标记订正（仅文档，无代码改动）：工作流 4a/4b、L3/L4 与第十三节裁决表原写“⏸ 待办”，实际已由 C1 与工作流 2 交付；第八节「仍待补」表三行（N3/B5/B1,B2）已在第十四节随 §H 20/20 补齐；第十三节“行为修正待办不变”补后续已完成的注记。修正后全文无“已完成却标为待办”的标记 |
+| v25 | 重构后架构评审的收尾修正（详见 CHANGELOG「Unreleased」）：① 计划注入改挂 `RoleUser` 尾部消息（原中段 `RoleSystem` 被 Anthropic 丢弃，计划对 Claude 不可见）；② 命令执行失败语义闭环（`RunCommand` 返回 `(string, error)`、空文本为合法结果、来源解析改显式 `Pattern`）；③ 统一 `runtime.Invoker` 契约并补齐命令/Skill 的工具调用指标；④ 上下文预算权威化（新增 `promptctx.BuildWindowed`，预算路径不再回退非预算路径）；⑤ `Tool.Selection` 显式化（类型 `*SelectionClass`，nil 按类别派生，`new(SelectionMandatory)` 显式声明（Go 1.26+ `new(表达式)`）；**不引入零值哨兵**，`Optional/Baseline/Mandatory` 数值保持 0/1/2 与 v1.65.0 一致，`SelectionMandatory` 从此可达）；⑥ `needAction(ctx, session)` 签名化（仍保守恒真，为收紧判定预留输入）；⑦ `session` 去除对 `toolkit` 的逆流依赖（缓存策略常量迁至 `retrieval`，`SelectionCache.Tools` 迁至 `decision`）；⑧ `GrantsSendTo` 声明式绑定 SendTo 授权（授权 = 动作声明 ∧ 审批放行），审批目标预解析同源改读 `ActionPolicy.GrantsSendTo`（不再按 `send_to` 名字硬编码）；⑨ 稳定策略变更判定改与 `st.Names` 比对，可用集收缩如实归因为 `shrink`。本行所述修正超出本文第十三节“C1–C5 不实施”的原始裁决范围，属评审后新增，第十二节的 L8 描述（`needAction` 闸门）相应更新为“签名已预留输入、仍保守恒真” |
+| v26 | L8 实施：`needAction` 闸门真正收紧。纯算法（`isSocialOnly` 白名单 + 计划优先）下沉到 `builtin/ai/decision/needaction.go`（`NeedAction(query, planActive)`），装配侧 `(*Plugin).needAction` 只取 `ctx.GetMessageContent()` 与会话 `PlanSnapshot()`（`Active && HasPending`）并委托之；判定保守——只有“整条消息都是社交寒暄”才判否，掺杂任何其它文字或带回复/提及装饰的消息都判真，“纯知识问答”不纳入。新增配置键 `need_action_gate`（默认 `auto`，`always` 恢复恒开即旧行为）；G1 冻结表补该行（新增键，不改旧键语义）。判否轮次跳过检索/嵌入、只保留默认保留级别与会话已用，属行为变更（CHANGELOG 已标 ⚠️） |

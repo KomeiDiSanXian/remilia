@@ -1,5 +1,11 @@
 # 26 — AI 插件分层：职责边界、语义过载与 Decision 层
 
+> **⚠️ 历史设计稿。** 本文是 11 子包拆分**之前**的目标分层设计，文中的文件路径
+> （`builtin/ai/tool.go`、`select.go`、`toolset.go`、`rag.go`、`tool_context.go`、
+> `context_pipeline.go` 等）与"实现留在单个 `ai` 包内"的前提都已失效，§三 的落地
+> 状态与附录「关键代码位置」仅作历史对照。**现状（依赖方向、包归属、公共面、
+> 代理状态清单）一律以 [29 — AI 插件分包边界与归位记录](29-ai-package-boundaries.md) 为准。**
+
 > 起始动机：为引入 **Jev** 做准备。在讨论"Jev 应该放在哪里"时暴露出一件事——
 > 当前 AI 插件里 `Tool` 一个抽象同时承担了 Protocol / Capability / Action /
 > Context / Runtime 五种语义，`Context`、`Capability`、`Action`、`Runtime`
@@ -312,6 +318,11 @@ memory_add     → Action
 memory_forget  → Action
 ```
 
+> 实现状态（见 [28](28-ai-layering-progress.md) v26）：`NeedAction` 已落地为纯函数
+> `decision.NeedAction(query, planActive)`，装配侧取事件原文与会话计划状态调用。
+> 判定保守——只有“整条消息都是社交寒暄”才判否，“纯知识问答”无法本地判别故不纳入；
+> 配置键 `need_action_gate`（默认 `auto`，`always` 恢复恒真）可回退。
+
 ### 3.5 Retrieval 是横切服务，不是 Context 的兄弟层
 
 `Retrieval/Ranking` 同时喂 Context（Memory / RAG 注入）和 Decision（Action 选择），
@@ -544,6 +555,9 @@ Retrieval、Sticky、Prompt Cache、Execution、Metrics 与持久化行为的前
 | v8 | `Action` 取代 `Tool` 成为内部存储、`Execute` 仅经执行视图取出（未交付遗留 2 项 → 1 项），附录代码位置同步 |
 
 ## 附：关键代码位置
+
+> 下表记录的是**拆分前**的平铺路径，除 `builtin/ai/` 根下的装配文件外均已失效；
+> 当前归属见 [29](29-ai-package-boundaries.md) §三 依赖图与 §五–§八 归位表。
 
 | 主题 | 位置 |
 |------|------|
