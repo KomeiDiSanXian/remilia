@@ -121,8 +121,8 @@ func pluginOwnerTypes() map[string]reflect.Type {
 func TestPluginOwnerMethodNamesDoNotCollide(t *testing.T) {
 	seen := map[string]string{}
 	for owner, typ := range pluginOwnerTypes() {
-		for i := 0; i < typ.NumMethod(); i++ {
-			name := typ.Method(i).Name
+		for method := range typ.Methods() {
+			name := method.Name
 			if prev, ok := seen[name]; ok {
 				t.Errorf("method %q appears on both %q and %q; p.%s() would be ambiguous",
 					name, prev, owner, name)
