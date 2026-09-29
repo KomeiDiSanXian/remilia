@@ -461,6 +461,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		pendingTools := make(map[int]*anthropicStreamToolUse)
 
 		var promptTokens, completionTokens, cacheReadTokens int
+		var stopReason string
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -484,6 +485,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					Type        string `json:"type"`
 					Text        string `json:"text"`
 					PartialJSON string `json:"partial_json"`
+					StopReason  string `json:"stop_reason"`
 				} `json:"delta,omitempty"`
 				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
 				Usage        *anthropicUsageBody `json:"usage,omitempty"`
@@ -574,9 +576,12 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				if streamEvent.Usage != nil {
 					completionTokens = streamEvent.Usage.OutputTokens
 				}
+				if streamEvent.Delta != nil && streamEvent.Delta.StopReason != "" {
+					stopReason = streamEvent.Delta.StopReason
+				}
 
 			case "message_stop":
-				sendEvent(StreamEvent{Type: StreamEventDone, Usage: &TokenUsage{
+				sendEvent(StreamEvent{Type: StreamEventDone, FinishReason: stopReason, Usage: &TokenUsage{
 					PromptTokens:     promptTokens,
 					CompletionTokens: completionTokens,
 					CachedTokens:     cacheReadTokens,
@@ -603,7 +608,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			return
 		}
 
-		sendEvent(StreamEvent{Type: StreamEventDone})
+		sendEvent(StreamEvent{Type: StreamEventDone, FinishReason: stopReason})
 	}()
 
 	return ch, nil

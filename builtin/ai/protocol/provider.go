@@ -155,6 +155,10 @@ type StreamEvent struct {
 	Err        error                // StreamEventError 时有效
 	// Usage token 用量（StreamEventDone 时有效；提供商未返回时为 nil）。
 	Usage *TokenUsage
+	// FinishReason 提供商给出的结束原因（StreamEventDone 时有效；缺失为空串）。
+	// 供编排层区分"正常 stop"与"length/content_filter 导致的空回复"，
+	// 空回复不再被静默当成成功。
+	FinishReason string
 }
 
 // Provider LLM 提供商抽象接口。

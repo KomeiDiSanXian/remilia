@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 AI 插件缺陷修复：空回复 / 断流被静默当成成功
+
+- **空回复不再静默**：模型首轮返回既无正文、也无工具调用与附件（如
+  `finish_reason=length` 耗尽 token、推理模型正文为空、内容被过滤）时，此前
+  `processWithTools` 会返回一个空的 `chatResult` 且 `err == nil`，`handleAIChat`
+  因结果为空跳过发送，整回合以 `handler execution success` 收尾——用户侧表现为
+  "引用图片提问后没有任何回复"，日志也停在检索阶段之前、看不到生成/发送记录。
+  现在该情形会记录告警并返回错误，由调用方给出可见反馈
+- **断流不再静默**：流未收到结束事件、也没有显式错误事件（部分 OpenAI 兼容
+  provider 在请求上下文取消/连接中断时直接关闭 channel，不补发错误事件）且
+  回合未被 `/ai stop` 或新消息抢占时，此前同样会返回空的成功结果。现在：
+  已到手内容（正文片段/发送工具已发出的内容或附件）按部分输出收尾并告警，
+  完全无产出时按请求失败处理并报错，不再让用户面对"发了消息没反应"
+- **流内错误不再被吞**：OpenAI 兼容端点在 HTTP 200 的 SSE 流里以 `error`
+  对象收尾（内容过滤、限流、请求非法等）时，此前该对象会被忽略、流被当成
+  "正常但无正文"，现将 `error.message` 转为错误事件上报
+- **可观测性**：`protocol.StreamEvent` 新增 `FinishReason`（Done 事件携带），
+  OpenAI / Anthropic 适配器回填 `finish_reason` / `stop_reason`；空回复与
+  断流日志据此可区分"正常结束但无正文"与"传输中断"
+
 ## v1.67.0 (2026-09-29)
 
 ### ✨ AI 插件接入 MCP（Model Context Protocol）外部工具服务器

@@ -132,16 +132,22 @@ func TestOpenAIProvider_ChatStream(t *testing.T) {
 	}
 
 	var text strings.Builder
+	var finishReason string
 	for evt := range ch {
 		switch evt.Type {
 		case protocol.StreamEventText:
 			text.WriteString(evt.Content)
 		case protocol.StreamEventError:
 			t.Fatalf("stream error: %v", evt.Err)
+		case protocol.StreamEventDone:
+			finishReason = evt.FinishReason
 		}
 	}
 	if text.String() != "Hello World" {
 		t.Errorf("expected %q, got %q", "Hello World", text.String())
+	}
+	if finishReason != "stop" {
+		t.Errorf("expected finish_reason %q on Done, got %q", "stop", finishReason)
 	}
 }
 
@@ -226,6 +232,35 @@ func TestOpenAIProvider_ChatStreamError(t *testing.T) {
 		}
 	}
 	t.Error("expected stream error event")
+}
+
+// TestOpenAIProvider_ChatStreamAPIErrorInStream 验证 HTTP 200 但流内以错误对象
+// 收尾（部分网关/内容过滤场景）时被识别为错误事件，而不是被忽略成一次空回复。
+func TestOpenAIProvider_ChatStreamAPIErrorInStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"error\":{\"message\":\"content filter triggered\",\"type\":\"invalid_request_error\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{BaseURL: server.URL, APIKey: "key", Model: "gpt-4o-mini", MaxTokens: 100}
+	prov, _ := openAIProviderForTest(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		return // 也可由 ChatStream 直接返回错误
+	}
+	for evt := range ch {
+		if evt.Type == protocol.StreamEventError {
+			if !strings.Contains(evt.Err.Error(), "content filter triggered") {
+				t.Errorf("unexpected error text: %v", evt.Err)
+			}
+			return
+		}
+	}
+	t.Error("expected stream error event for in-stream error object")
 }
 
 func TestAnthropicProvider_Chat(t *testing.T) {

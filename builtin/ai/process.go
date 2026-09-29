@@ -173,6 +173,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		var toolCalls []protocol.ToolCall
 		var streamErr error
 		doneReceived := false
+		finishReason := ""
 
 		for event := range streamCh {
 			switch event.Type {
@@ -192,15 +193,16 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 				streamErr = event.Err
 			case protocol.StreamEventDone:
 				doneReceived = true
+				finishReason = event.FinishReason
 			}
 		}
 		cancel()
 
 		responseText := fullResponse.String()
 
-		// 主动停止收尾：流因中断被取消（未收到 [DONE]，或 provider 以错误事件
-		// 收尾）。把已到手部分记入会话并作为最终回复返回，不视为错误——停止
-		// 由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
+		// 主动停止收尾：流因中断被取消（未收到结束事件，或 provider 以错误
+		// 事件收尾）。把已到手部分记入会话并作为最终回复返回，不视为错误——
+		// 停止由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
 		if session.Interrupted() && (!doneReceived || streamErr != nil) {
 			if responseText != "" {
 				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
@@ -213,6 +215,25 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		}
 		if streamErr != nil {
 			return &chatResult{Text: cs.CapturedText}, streamErr
+		}
+		// 未被抢占却收不到结束事件：传输被中断/取消。部分 provider（如
+		// OpenAI 兼容实现）在 ctx 取消或连接中断时直接关闭 channel，不补发
+		// 错误事件（见 protocol/provider_openai.go 的 sendEvent）。
+		// 已有可见产出（正文片段 / 发送工具已发出的内容或附件）时按已到手部分
+		// 收尾，不丢弃；完全没有任何产出时这不是"模型正常返回空"，必须报错——
+		// 否则整回合会静默收尾，用户看不到任何回复，日志也停在调用之前
+		// （正是"没有后续生成/发送记录"的现象）。
+		if !doneReceived {
+			attachments := runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)
+			if responseText != "" || cs.CapturedText != "" || len(attachments) > 0 {
+				text := responseText
+				if text == "" {
+					text = cs.CapturedText
+				}
+				logger.Warnf("[AI] chat stream ended without done event (finish_reason=%q), using partial output", finishReason)
+				return &chatResult{Text: text, Attachments: attachments}, nil
+			}
+			return &chatResult{}, fmt.Errorf("chat stream: 连接中断（未收到结束事件，finish_reason=%q）", finishReason)
 		}
 
 		for i := range toolCalls {
@@ -239,9 +260,18 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			if replanMsg != nil {
 				p.sm.AppendMessageNoPersist(session, *replanMsg)
 			}
+			attachments := runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)
+			// 首轮即空回复（无文本、无工具调用、无附件、无发送工具捕获输出）：
+			// 模型这次什么都没产出（如 finish_reason=length/content_filter，
+			// 或推理模型的正文为空）。不能当成成功的空回答静默结束，否则用户
+			// 只看到"发了消息没反应"；报错让调用方给出可见反馈并留下日志。
+			if responseText == "" && currentDepth == 1 && cs.CapturedText == "" && len(attachments) == 0 {
+				logger.Warnf("[AI] empty completion from model %q (finish_reason=%q)", p.cfg.Model, finishReason)
+				return &chatResult{}, fmt.Errorf("模型未返回任何内容（空回复，finish_reason=%q）", finishReason)
+			}
 			return &chatResult{
 				Text:        responseText,
-				Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments),
+				Attachments: attachments,
 			}, nil
 		}
 

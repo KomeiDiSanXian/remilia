@@ -664,3 +664,63 @@ func TestRealCommandExecution(t *testing.T) {
 		t.Error("expected non-empty result from ping tool")
 	}
 }
+
+// newEmptyTurnPlugin 组装一个最小插件：无工具、无历史，用于验证空回复/断流
+// 不会被静默当成"成功的空回答"。
+func newEmptyTurnPlugin(t *testing.T, streamFn func(context.Context, *protocol.ChatRequest) (<-chan protocol.StreamEvent, error)) (*Plugin, *session.Session, *eventctx.Context) {
+	t.Helper()
+	p := &Plugin{
+		cfg:      &config.Config{MaxDepth: 3, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, Model: "test-model"},
+		sm:       session.NewSessionManager(10, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
+		prov:     &mockProvider{chatStreamFn: streamFn},
+	}
+	sess := p.sm.GetOrCreate("test:empty", "user", "chat")
+	if !sess.BeginTurn() {
+		t.Fatal("BeginTurn failed")
+	}
+	t.Cleanup(sess.EndTurn)
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "在吗"})
+	ctx := eventctx.NewContextFromEvent(platform.NewSyntheticEvent("c2c", "在吗"), nil)
+	return p, sess, ctx
+}
+
+// TestProcessWithToolsEmptyCompletionIsError 正常收到结束事件但模型没有任何
+// 输出（空回复）时，必须返回错误而不是静默的空结果——否则调用方不会发送任何
+// 内容，用户只看到"发了消息没反应"，且日志里没有任何后续阶段记录。
+func TestProcessWithToolsEmptyCompletionIsError(t *testing.T) {
+	p, sess, ctx := newEmptyTurnPlugin(t, func(_ context.Context, _ *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+		ch := make(chan protocol.StreamEvent, 1)
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventDone, FinishReason: "length"}
+		close(ch)
+		return ch, nil
+	})
+
+	result, err := p.processWithTools(ctx, sess)
+	if err == nil {
+		t.Fatalf("empty completion must surface an error, got result=%+v", result)
+	}
+	if !strings.Contains(err.Error(), "空回复") {
+		t.Errorf("expected empty-completion error, got %v", err)
+	}
+}
+
+// TestProcessWithToolsStreamWithoutDoneIsError 流未收到结束事件（连接中断 /
+// ctx 被取消后 provider 直接关闭 channel）且回合未被抢占时，必须报错，不能
+// 当成空回答静默收尾。
+func TestProcessWithToolsStreamWithoutDoneIsError(t *testing.T) {
+	p, sess, ctx := newEmptyTurnPlugin(t, func(_ context.Context, _ *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+		ch := make(chan protocol.StreamEvent)
+		close(ch) // 无任何事件、无 Done 直接关闭
+		return ch, nil
+	})
+
+	result, err := p.processWithTools(ctx, sess)
+	if err == nil {
+		t.Fatalf("stream without done must surface an error, got result=%+v", result)
+	}
+	if !strings.Contains(err.Error(), "未收到结束事件") {
+		t.Errorf("expected stream-interrupted error, got %v", err)
+	}
+}

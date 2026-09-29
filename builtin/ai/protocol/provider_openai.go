@@ -547,6 +547,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 
 		var pendingToolCalls []OpenAIToolCall
 		var usage *TokenUsage
+		var finishReason string
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -570,7 +571,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 						}
 					}
 				}
-				sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage})
+				sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage, FinishReason: finishReason})
 				return
 			}
 
@@ -587,10 +588,27 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
 				Usage *openaiUsageBody `json:"usage"`
+				// Error 兼容网关（含 OpenAI 官方）在流内以错误对象收尾的场景：
+				// 这类响应 HTTP 状态仍是 200，若不显式识别会被忽略成一次
+				// "正常但没有正文"的空回复。
+				Error *struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+					Code    any    `json:"code"`
+				} `json:"error"`
 			}
 
 			if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
 				continue
+			}
+
+			if streamResp.Error != nil {
+				msg := streamResp.Error.Message
+				if msg == "" {
+					msg = streamResp.Error.Type
+				}
+				sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: api stream error: %s", msg)})
+				return
 			}
 
 			// usage 块（include_usage 开启时在 [DONE] 前到达，choices 为空）
@@ -607,6 +625,9 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			}
 
 			delta := streamResp.Choices[0].Delta
+			if fr := streamResp.Choices[0].FinishReason; fr != "" {
+				finishReason = fr
+			}
 
 			if txt := delta.Content.String(); txt != "" {
 				if !sendEvent(StreamEvent{Type: StreamEventText, Content: txt}) {
@@ -650,7 +671,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			return
 		}
 
-		sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage})
+		sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage, FinishReason: finishReason})
 	}()
 
 	return ch, nil
