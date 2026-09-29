@@ -160,7 +160,7 @@ func (c *catalogState) registerCatalogTool(t toolkit.Tool) {
 		return
 	}
 	if _, exists := c.reg.Get(t.Name); !exists {
-		c.catalogGen.Add(1)
+		c.bumpCatalogGeneration("add")
 	}
 	c.reg.Register(t)
 }
@@ -171,7 +171,7 @@ func (c *catalogState) upsertCatalogTool(t toolkit.Tool) {
 		return
 	}
 	if _, exists := c.reg.Get(t.Name); !exists {
-		c.catalogGen.Add(1)
+		c.bumpCatalogGeneration("add")
 	}
 	c.reg.Upsert(t)
 }
@@ -179,9 +179,15 @@ func (c *catalogState) upsertCatalogTool(t toolkit.Tool) {
 // removeCatalogTool 移除一个目录工具；实际删除时推进代数并清理命令映射。
 func (c *catalogState) removeCatalogTool(name string) {
 	if c.reg.Remove(name) {
-		c.catalogGen.Add(1)
+		c.bumpCatalogGeneration("remove")
 	}
 	c.clearCommandPattern(name)
+}
+
+// bumpCatalogGeneration 推进目录代数并打点。reason 区分新增（add）与移除
+// （remove）；每次推进都会让会话级选择缓存失效，指标用于观测抖动来源。
+func (c *catalogState) bumpCatalogGeneration(reason string) {
+	recordCatalogGeneration(reason, c.catalogGen.Add(1))
 }
 
 // clearCommandPattern 清除某动作名对应的真实命令映射。

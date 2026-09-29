@@ -43,6 +43,9 @@ type httpTransport struct {
 	mu        sync.Mutex
 	handler   func([]byte)
 	sessionID string
+	// protocolVersion 为 initialize 协商出的版本；初始化后的请求都要带上
+	// MCP-Protocol-Version 头（2025-06-18 起为 MUST）。
+	protocolVersion string
 
 	baseCtx    context.Context
 	baseCancel context.CancelFunc
@@ -76,6 +79,13 @@ func (t *httpTransport) Start(handler func([]byte)) error {
 	return nil
 }
 
+// SetProtocolVersion 记录协商后的协议版本（实现 [protocolVersionSetter]）。
+func (t *httpTransport) SetProtocolVersion(v string) {
+	t.mu.Lock()
+	t.protocolVersion = v
+	t.mu.Unlock()
+}
+
 // Send 发送一条报文并把收到的响应交给回调。
 func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.cfg.URL, bytes.NewReader(msg))
@@ -89,9 +99,13 @@ func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	}
 	t.mu.Lock()
 	sid := t.sessionID
+	pv := t.protocolVersion
 	t.mu.Unlock()
 	if sid != "" {
 		req.Header.Set("Mcp-Session-Id", sid)
+	}
+	if pv != "" {
+		req.Header.Set("MCP-Protocol-Version", pv)
 	}
 
 	resp, err := t.client.Do(req)
@@ -183,6 +197,7 @@ func (t *httpTransport) streamLoop() {
 func (t *httpTransport) openStream() error {
 	t.mu.Lock()
 	sid := t.sessionID
+	pv := t.protocolVersion
 	t.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(t.baseCtx)
@@ -198,6 +213,9 @@ func (t *httpTransport) openStream() error {
 	}
 	if sid != "" {
 		req.Header.Set("Mcp-Session-Id", sid)
+	}
+	if pv != "" {
+		req.Header.Set("MCP-Protocol-Version", pv)
 	}
 	resp, err := t.streamClient.Do(req)
 	if err != nil {

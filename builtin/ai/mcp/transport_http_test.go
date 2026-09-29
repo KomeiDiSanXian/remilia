@@ -41,14 +41,13 @@ func TestHTTPTransportRoundTrip(t *testing.T) {
 		URL:               httpSrv.URL,
 		AllowInsecureHTTP: true, // httptest 服务是回环明文地址
 		Timeout:           Duration(2 * time.Second),
-		Reconnect:         boolPtr(false),
+		Reconnect:         new(false),
 	}}}
 	mgr, err := NewManager(cfg)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
@@ -144,7 +143,7 @@ func TestHTTPTransportReceivesServerPush(t *testing.T) {
 		URL:               httpSrv.URL,
 		AllowInsecureHTTP: true,
 		Timeout:           Duration(2 * time.Second),
-		Reconnect:         boolPtr(false),
+		Reconnect:         new(false),
 	}
 	cl, err := newClient(cfg)
 	if err != nil {
@@ -176,5 +175,66 @@ func TestHTTPTransportReceivesServerPush(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("client did not open a server-push stream")
+	}
+}
+
+// TestHTTPTransportSendsNegotiatedProtocolVersion 覆盖协议版本头：initialize
+// 不带版本头，协商完成后（HTTP 传输）后续请求必须携带对端选定的版本。
+func TestHTTPTransportSendsNegotiatedProtocolVersion(t *testing.T) {
+	const serverVersion = "2025-06-18"
+
+	fake := newFakeServer(mcpTool{Name: "ping"})
+	fake.setProtocolVersion(serverVersion)
+
+	problems := make(chan string, 4)
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case strings.Contains(string(body), `"method":"initialize"`):
+			if v := r.Header.Get("MCP-Protocol-Version"); v != "" {
+				problems <- "initialize must not carry MCP-Protocol-Version, got " + v
+			}
+		case strings.Contains(string(body), `"method":"tools/list"`):
+			if v := r.Header.Get("MCP-Protocol-Version"); v != serverVersion {
+				problems <- "tools/list must carry the negotiated MCP-Protocol-Version " + serverVersion + ", got " + v
+			}
+		}
+		resp := fake.handle(body)
+		if resp == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(resp)
+	}))
+	defer httpSrv.Close()
+
+	cfg := ServerConfig{
+		Name:              "pv",
+		Transport:         "http",
+		URL:               httpSrv.URL,
+		AllowInsecureHTTP: true,
+		Timeout:           Duration(2 * time.Second),
+		Reconnect:         new(false),
+	}
+	cl, err := newClient(cfg)
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	if err := cl.start(context.Background(), 2*time.Second); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer cl.close()
+
+	if _, err := cl.listTools(context.Background()); err != nil {
+		t.Fatalf("listTools: %v", err)
+	}
+	close(problems)
+	for p := range problems {
+		t.Error(p)
 	}
 }

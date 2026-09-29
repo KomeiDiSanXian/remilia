@@ -66,6 +66,7 @@ func (m *Manager) buildTool(s *serverState, t mcpTool, modelName string) toolkit
 		cl := srv.currentClient()
 		if cl == nil {
 			// 软不可用：工具仍在集合中，调用时如实失败，避免集合抖动。
+			recordUnavailableCall(srv.cfg.Name)
 			return toolkit.ToolResult{}, fmt.Errorf("外部工具服务器 %q 当前不可用，请稍后重试", srv.cfg.Name)
 		}
 		callCtx, cancel := context.WithTimeout(ctx, srv.cfg.timeout())

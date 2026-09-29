@@ -11,6 +11,12 @@
 //   - ai_toolset_changes_total{reason}        工具集变更次数
 //     （reason: init/grow/shrink/decay；仅在集合真的变化时计数，keep 不计数）
 //   - ai_toolset_size                        每轮发送的工具数量分布
+//   - ai_catalog_changes_total{reason}        目录代数推进次数（reason: add/remove）
+//   - ai_catalog_generation                   当前目录代数（成员关系版本号）
+//
+// 目录代数只在成员关系变化时推进，而每次推进都会让会话级选择缓存失效；
+// ai_catalog_changes_total 的变化率因此是"MCP 等动态来源是否在制造抖动"的
+// 直接信号，可与 mcp_tool_list_changes_total 对照定位抖动来源。
 //
 // 工具集与提示词前缀：tools 排在请求最前面，集合一变其后的历史全部失去
 // 前缀缓存。ai_toolset_changes_total 的增速（变更次数 / 请求次数）直接
@@ -87,6 +93,23 @@ var (
 			Buckets:   []float64{1, 3, 5, 8, 12, 16, 20, 24, 32, 48, 64},
 		},
 	)).(prometheus.Histogram)
+
+	catalogChanges = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "catalog_changes_total",
+			Help:      "目录代数推进次数（reason: add/remove；每次推进都会让会话级选择缓存失效）",
+		},
+		[]string{"reason"},
+	)).(*prometheus.CounterVec)
+
+	catalogGeneration = inframetrics.MustRegisterOrGet(nil, prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ai",
+			Name:      "catalog_generation",
+			Help:      "当前目录代数（工具成员关系的版本号）",
+		},
+	)).(prometheus.Gauge)
 )
 
 // recordToolSet 记录一次工具集决策结果。
@@ -96,6 +119,13 @@ func recordToolSet(reason string, changed bool, size int) {
 	if changed {
 		toolSetChanges.WithLabelValues(reason).Inc()
 	}
+}
+
+// recordCatalogGeneration 记录一次目录代数推进：计数器按原因累加，gauge 反映
+// 当前代数。代数变化率即"会让会话缓存失效"的事件率。
+func recordCatalogGeneration(reason string, generation uint64) {
+	catalogChanges.WithLabelValues(reason).Inc()
+	catalogGeneration.Set(float64(generation))
 }
 
 // recordLLMCall 记录一次 LLM 调用结果与用量。

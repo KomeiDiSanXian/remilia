@@ -1,6 +1,9 @@
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // protocol.go — MCP 协议类型与版本协商。
 //
@@ -8,9 +11,31 @@ import "encoding/json"
 // tools/list_changed 通知。其余能力（resources / prompts / sampling 等）
 // 不在此声明。
 
-// ProtocolVersion 是客户端声明的 MCP 协议版本。服务器会在 initialize 结果里
-// 返回它自己支持的版本；不一致时按对方返回的版本继续（尽力而为），并记录日志。
-const ProtocolVersion = "2025-06-18"
+// ProtocolVersion 是客户端在 initialize 里声明的 MCP 协议版本：取本接入支持的
+// 最新一版。服务器会在 initialize 结果里返回它**选定**的版本，客户端应以该版本
+// 为准继续（见 [SupportedProtocolVersions] 与 client 的版本协商）。
+//
+// 为什么停在 2025-11-25：这是最后一个保留 initialize / notifications/initialized
+// 握手与 Mcp-Session-Id 会话的修订版。2026-07-28 改为无状态协议——去掉握手与会话
+// id、版本与客户端能力改经每请求的 _meta 传递、以 server/discover 与
+// subscriptions/listen 取代 GET 流与资源订阅、结果新增必填的 resultType——需要
+// 另起一套流程，本接入暂不声明该版本。对端返回更旧或未知版本时按两端共同子集
+// 尽力继续。
+const ProtocolVersion = "2025-11-25"
+
+// SupportedProtocolVersions 列出本接入声明可互通的协议版本（新→旧）。对端在
+// initialize 中选定的版本若在此列，直接沿用；不在列时仍按"两端共同子集"尽力
+// 继续，但调用方应记录告警。
+var SupportedProtocolVersions = []string{
+	"2025-11-25",
+	"2025-06-18",
+	"2025-03-26",
+}
+
+// SupportsProtocolVersion 报告版本是否在本接入声明支持之列。
+func SupportsProtocolVersion(v string) bool {
+	return slices.Contains(SupportedProtocolVersions, v)
+}
 
 // clientInfo 客户端标识。
 type clientInfo struct {

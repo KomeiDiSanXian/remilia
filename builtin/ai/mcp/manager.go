@@ -74,6 +74,11 @@ func NewManager(cfg *Config) (*Manager, error) {
 		prefix = uniquePrefix(prefix, prefixes)
 		states = append(states, &serverState{cfg: sc, prefix: prefix, refreshCh: make(chan struct{}, 1)})
 	}
+	// 预置 0 值序列，让"从未连上"的服务器也能在监控里被看到。
+	for _, s := range states {
+		recordServerUp(s.cfg.Name, false)
+		recordServerTools(s.cfg.Name, 0)
+	}
 	return &Manager{cfg: cfg, servers: states}, nil
 }
 
@@ -195,6 +200,7 @@ func (m *Manager) supervise(s *serverState) {
 		if !s.cfg.reconnect() {
 			return
 		}
+		recordReconnect(s.cfg.Name)
 		if !m.sleep(interval) {
 			return
 		}
@@ -206,6 +212,7 @@ func (m *Manager) connectOnce(s *serverState) bool {
 	cl, err := newClient(s.cfg)
 	if err != nil {
 		logger.Warnf("[MCP] %s: %v", s.cfg.Name, err)
+		recordConnect(s.cfg.Name, "error")
 		s.setDisconnected()
 		m.notify()
 		return false
@@ -214,6 +221,7 @@ func (m *Manager) connectOnce(s *serverState) bool {
 	cl.setOnChange(func() { m.requestRefresh(s) })
 	if err := cl.start(m.ctx, s.cfg.initTimeout()); err != nil {
 		logger.Warnf("[MCP] %s: connect failed: %v", s.cfg.Name, err)
+		recordConnect(s.cfg.Name, "error")
 		cl.close()
 		s.setDisconnected()
 		m.notify()
@@ -224,11 +232,13 @@ func (m *Manager) connectOnce(s *serverState) bool {
 	cancel()
 	if err != nil {
 		logger.Warnf("[MCP] %s: tools/list failed: %v", s.cfg.Name, err)
+		recordConnect(s.cfg.Name, "error")
 		cl.close()
 		s.setDisconnected()
 		m.notify()
 		return false
 	}
+	recordConnect(s.cfg.Name, "ok")
 	if !s.hasTools() || sameToolSet(tools, s.currentTools()) {
 		s.setConnected(cl, tools)
 		logger.Infof("[MCP] %s: connected (%d tools)", s.cfg.Name, len(tools))
@@ -282,10 +292,12 @@ func (m *Manager) stabilize(s *serverState, cl *client, candidate []mcpTool) {
 	}
 	if !sameToolSet(candidate, confirmed) {
 		// 集合仍在变化：重新排队，等下一轮再确认。
+		recordToolListChange(s.cfg.Name, "jitter")
 		m.requestRefresh(s)
 		return
 	}
 	s.setConnected(cl, confirmed)
+	recordToolListChange(s.cfg.Name, "adopted")
 	logger.Debugf("[MCP] %s: tool list stabilized (%d tools)", s.cfg.Name, len(confirmed))
 	m.notify()
 }
@@ -353,6 +365,8 @@ func (s *serverState) setConnected(cl *client, tools []mcpTool) {
 	s.connected = true
 	s.tools = tools
 	s.mu.Unlock()
+	recordServerUp(s.cfg.Name, true)
+	recordServerTools(s.cfg.Name, len(tools))
 }
 
 // setClient 只标记连接可用、保留现有工具集合（重连时先恢复调用能力）。
@@ -361,6 +375,7 @@ func (s *serverState) setClient(cl *client) {
 	s.client = cl
 	s.connected = true
 	s.mu.Unlock()
+	recordServerUp(s.cfg.Name, true)
 }
 
 // currentTools 返回当前采用的工具集合副本。
@@ -383,6 +398,7 @@ func (s *serverState) setDisconnected() {
 	s.client = nil
 	s.connected = false
 	s.mu.Unlock()
+	recordServerUp(s.cfg.Name, false)
 }
 
 // currentClient 返回当前连接（无则 nil）。

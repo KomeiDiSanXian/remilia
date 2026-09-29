@@ -13,6 +13,8 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // ===== 内存传输与假服务器 =====
@@ -57,11 +59,12 @@ func (m *memTransport) Close() error {
 func (m *memTransport) Wait() <-chan struct{} { return m.done }
 
 type fakeServer struct {
-	mu      sync.Mutex
-	tools   []mcpTool
-	queued  [][]mcpTool
-	handler func([]byte)
-	onCall  func(name string, args map[string]any) *callToolResult
+	mu           sync.Mutex
+	tools        []mcpTool
+	queued       [][]mcpTool
+	protoVersion string
+	handler      func([]byte)
+	onCall       func(name string, args map[string]any) *callToolResult
 }
 
 func newFakeServer(tools ...mcpTool) *fakeServer { return &fakeServer{tools: tools} }
@@ -95,6 +98,13 @@ func (s *fakeServer) scriptLists(lists ...[]mcpTool) {
 	s.mu.Unlock()
 }
 
+// setProtocolVersion 设定 initialize 结果里返回的协议版本（空则回显客户端版本）。
+func (s *fakeServer) setProtocolVersion(v string) {
+	s.mu.Lock()
+	s.protoVersion = v
+	s.mu.Unlock()
+}
+
 func (s *fakeServer) notifyToolsChanged() {
 	b, _ := encodeNotification(methodToolsListChanged, nil)
 	s.push(b)
@@ -109,8 +119,14 @@ func (s *fakeServer) handle(raw []byte) []byte {
 	resp := rpcResponse{JSONRPC: jsonrpcVersion, ID: env.ID}
 	switch env.Method {
 	case methodInitialize:
+		s.mu.Lock()
+		pv := s.protoVersion
+		s.mu.Unlock()
+		if pv == "" {
+			pv = ProtocolVersion
+		}
 		resp.Result, _ = json.Marshal(initializeResult{
-			ProtocolVersion: ProtocolVersion,
+			ProtocolVersion: pv,
 			ServerInfo:      serverInfo{Name: "fake", Version: "1.0"},
 		})
 	case methodListTools:
@@ -173,8 +189,6 @@ func installFactory(t *testing.T, f *transportFactory) {
 	t.Cleanup(func() { newTransport = orig })
 }
 
-func boolPtr(v bool) *bool { return &v }
-
 // stdioConfig 构造一个通过校验的 stdio 服务器配置。
 func stdioConfig(name string, tweak func(*ServerConfig)) *Config {
 	sc := ServerConfig{
@@ -223,8 +237,7 @@ func TestManagerMaterializesToolsAndExecutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
@@ -268,8 +281,7 @@ func TestManagerRefreshesOnToolsListChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
@@ -288,16 +300,16 @@ func TestManagerStabilizesToolListBeforeAdopting(t *testing.T) {
 	f := &transportFactory{server: srv}
 	installFactory(t, f)
 
-	mgr, err := NewManager(stdioConfig("srv", nil))
+	mgr, err := NewManager(stdioConfig("stab", nil))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
 	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "initial tool list")
+	adoptedBefore := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("stab", "adopted"))
 
 	// 集合变化不得在稳定窗口内被立即采用。
 	srv.setTools(mcpTool{Name: "a"}, mcpTool{Name: "b"})
@@ -308,6 +320,9 @@ func TestManagerStabilizesToolListBeforeAdopting(t *testing.T) {
 
 	// 窗口另一端复读到同样的集合后才切换。
 	waitFor(t, func() bool { return len(mgr.ListTools()) == 2 }, "stabilized adoption")
+	if got := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("stab", "adopted")) - adoptedBefore; got != 1 {
+		t.Fatalf("adopted delta = %v, want 1", got)
+	}
 }
 
 func TestManagerDoesNotAdoptJitteryToolList(t *testing.T) {
@@ -315,16 +330,17 @@ func TestManagerDoesNotAdoptJitteryToolList(t *testing.T) {
 	f := &transportFactory{server: srv}
 	installFactory(t, f)
 
-	mgr, err := NewManager(stdioConfig("srv", nil))
+	mgr, err := NewManager(stdioConfig("jitter", nil))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
 	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "initial tool list")
+	jitterBefore := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("jitter", "jitter"))
+	adoptedBefore := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("jitter", "adopted"))
 
 	// 窗口开始时读到"半截"列表，窗口另一端又变回原样：视为抖动，不切换。
 	srv.scriptLists([]mcpTool{{Name: "a"}, {Name: "b"}})
@@ -333,8 +349,28 @@ func TestManagerDoesNotAdoptJitteryToolList(t *testing.T) {
 	// 远大于数个稳定窗口后集合仍应保持原样（不推进目录代数）。
 	time.Sleep(300 * time.Millisecond)
 	tools := mgr.ListTools()
-	if len(tools) != 1 || tools[0].Name != "mcp_srv_a" {
+	if len(tools) != 1 || tools[0].Name != "mcp_jitter_a" {
 		t.Fatalf("jittery list must not be adopted, got %+v", tools)
+	}
+	if got := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("jitter", "jitter")) - jitterBefore; got != 1 {
+		t.Fatalf("jitter delta = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(mcpToolListChanges.WithLabelValues("jitter", "adopted")) - adoptedBefore; got != 0 {
+		t.Fatalf("adopted delta = %v, want 0 (jitter must not be adopted)", got)
+	}
+}
+
+// TestSupportedProtocolVersions 锁定版本声明范围：声明最新一版，且暂不声明
+// 去掉握手与会话的无状态修订版。
+func TestSupportedProtocolVersions(t *testing.T) {
+	if !SupportsProtocolVersion(ProtocolVersion) {
+		t.Fatalf("offered version %q must be in the supported list", ProtocolVersion)
+	}
+	if SupportsProtocolVersion("2026-07-28") {
+		t.Error("the stateless revision must not be declared until its flow is implemented")
+	}
+	if SupportsProtocolVersion("") {
+		t.Error("empty version must not be reported as supported")
 	}
 }
 
@@ -344,21 +380,24 @@ func TestManagerKeepsToolsWhenDisconnected(t *testing.T) {
 	installFactory(t, f)
 
 	// 关闭重连：断开后停留在软不可用，便于断言。
-	mgr, err := NewManager(stdioConfig("srv", func(sc *ServerConfig) { sc.Reconnect = boolPtr(false) }))
+	mgr, err := NewManager(stdioConfig("srv", func(sc *ServerConfig) { sc.Reconnect = new(false) }))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	mgr.Start(ctx)
 	defer mgr.Close()
 
 	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "tool materialization")
+	if up := testutil.ToFloat64(mcpServerUp.WithLabelValues("srv")); up != 1 {
+		t.Fatalf("server_up = %v, want 1 while connected", up)
+	}
 	waitFor(t, func() bool { return f.last() != nil }, "transport creation")
 	if err := f.last().Close(); err != nil {
 		t.Fatalf("close transport: %v", err)
 	}
 
+	unavailableBefore := testutil.ToFloat64(mcpUnavailableCalls.WithLabelValues("srv"))
 	tool := mgr.ListTools()[0]
 	// 断开后连接清空有短暂窗口：等待工具调用收敛到"来源暂不可用"的类型化错误。
 	waitFor(t, func() bool {
@@ -373,6 +412,12 @@ func TestManagerKeepsToolsWhenDisconnected(t *testing.T) {
 	if _, callErr := tool.ExecuteRich(context.Background(), nil); callErr == nil ||
 		!strings.Contains(callErr.Error(), "不可用") {
 		t.Fatalf("expected unavailable error, got %v", callErr)
+	}
+	if up := testutil.ToFloat64(mcpServerUp.WithLabelValues("srv")); up != 0 {
+		t.Fatalf("server_up = %v, want 0 after disconnect", up)
+	}
+	if got := testutil.ToFloat64(mcpUnavailableCalls.WithLabelValues("srv")) - unavailableBefore; got < 1 {
+		t.Fatalf("unavailable call delta = %v, want >= 1", got)
 	}
 }
 

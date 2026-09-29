@@ -126,7 +126,9 @@ func TestMetricsDescriptorsRegistered(t *testing.T) {
 		descStrings(llmTokens) +
 		descStrings(toolCalls) +
 		descStrings(toolSetChanges) +
-		descStrings(toolSetSize)
+		descStrings(toolSetSize) +
+		descStrings(catalogChanges) +
+		descStrings(catalogGeneration)
 
 	for _, want := range []string{
 		`fqName: "ai_llm_calls_total"`,
@@ -135,6 +137,8 @@ func TestMetricsDescriptorsRegistered(t *testing.T) {
 		`fqName: "ai_tool_calls_total"`,
 		`fqName: "ai_toolset_changes_total"`,
 		`fqName: "ai_toolset_size"`,
+		`fqName: "ai_catalog_changes_total"`,
+		`fqName: "ai_catalog_generation"`,
 	} {
 		assert.Contains(t, got, want)
 	}

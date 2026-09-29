@@ -96,13 +96,25 @@ func (c *client) start(ctx context.Context, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("mcp: %s: initialize: %w", c.cfg.Name, err)
 	}
+	negotiated := res.ProtocolVersion
+	if negotiated == "" {
+		negotiated = ProtocolVersion
+	}
 	c.mu.Lock()
 	c.serverInfo = res.ServerInfo
-	c.protocolVersion = res.ProtocolVersion
+	c.protocolVersion = negotiated
 	c.mu.Unlock()
-	if res.ProtocolVersion != "" && res.ProtocolVersion != ProtocolVersion {
-		logger.Debugf("[MCP] %s: server protocol %q differs from client %q (continuing)",
-			c.cfg.Name, res.ProtocolVersion, ProtocolVersion)
+	switch {
+	case !SupportsProtocolVersion(negotiated):
+		logger.Warnf("[MCP] %s: server selected protocol %q, which this client does not declare support for; continuing on the common subset",
+			c.cfg.Name, negotiated)
+	case negotiated != ProtocolVersion:
+		logger.Debugf("[MCP] %s: negotiated protocol %q (client offered %q)",
+			c.cfg.Name, negotiated, ProtocolVersion)
+	}
+	// HTTP 传输须在初始化后的每个请求上携带协商出的协议版本头。
+	if setter, ok := c.tr.(protocolVersionSetter); ok {
+		setter.SetProtocolVersion(negotiated)
 	}
 	if nb, err := encodeNotification(methodInitialized, map[string]any{}); err == nil {
 		_ = c.tr.Send(hsCtx, nb)
@@ -148,8 +160,11 @@ func (c *client) callInto(ctx context.Context, method string, params, out any) e
 	return json.Unmarshal(raw, out)
 }
 
-// call 发起一次请求并等待响应。
-func (c *client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+// call 发起一次请求并等待响应，顺带记录请求次数与耗时。
+func (c *client) call(ctx context.Context, method string, params any) (raw json.RawMessage, err error) {
+	start := time.Now()
+	defer func() { recordRPCRequest(c.cfg.Name, method, time.Since(start), err) }()
+
 	id := c.nextID.Add(1)
 	ch := make(chan rpcResponse, 1)
 	c.mu.Lock()
@@ -199,6 +214,7 @@ func (c *client) handleMessage(raw []byte) {
 	}
 	switch env.Method {
 	case methodToolsListChanged:
+		recordRPCNotification(c.cfg.Name, env.Method)
 		c.mu.Lock()
 		cb := c.onChange
 		c.mu.Unlock()
@@ -206,6 +222,9 @@ func (c *client) handleMessage(raw []byte) {
 			cb()
 		}
 	default:
+		if env.Method != "" {
+			recordRPCNotification(c.cfg.Name, env.Method)
+		}
 		logger.Debugf("[MCP] %s: notification %q ignored", c.cfg.Name, env.Method)
 	}
 }

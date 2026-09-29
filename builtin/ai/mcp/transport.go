@@ -18,3 +18,10 @@ type Transport interface {
 	// Close 关闭通道并释放资源（子进程、连接等）。
 	Close() error
 }
+
+// protocolVersionSetter 由需要携带协议版本头的传输实现（http）。协商出的版本
+// 在 initialize 完成后注入；stdio 无 HTTP 头，无需实现。
+type protocolVersionSetter interface {
+	// SetProtocolVersion 记录协商后的 MCP 协议版本，供后续请求携带。
+	SetProtocolVersion(v string)
+}
