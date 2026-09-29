@@ -390,6 +390,11 @@ func (r *runtimeState) handleStopCommand(ctx *eventctx.Context) error {
 		stopped = true
 	}
 	planCancelled := s.CancelPlan()
+	if planCancelled {
+		// 取消是回合外的状态变更（生成可能已空闲），显式落库，
+		// 避免重启后旧计划从持久化快照复活。
+		r.sm.SaveSession(s)
+	}
 	switch {
 	case stopped && planCancelled:
 		ctx.ReplyText("🛑 已停止当前生成，任务计划一并取消")

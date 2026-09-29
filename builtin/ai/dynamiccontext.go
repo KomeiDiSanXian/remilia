@@ -56,6 +56,8 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 			Limit:   groupDefault,
 			Body:    func(n int) string { return promptctx.BuildGroupWindowN(p.history, opts, ctx, skipBot(), n) },
 			Shrink:  true,
+			// 群聊窗口按时间序（旧→新）：截断兜底时保留末尾（最新消息）。
+			KeepTail: true,
 		},
 		{
 			Header:  "长期记忆",

@@ -76,7 +76,9 @@ func LastUserMessage(sess *session.Session) string {
 	sess.Lock()
 	defer sess.Unlock()
 	for _, v := range slices.Backward(sess.Messages) {
-		if v.Role != protocol.RoleUser {
+		// 跳过系统注入的内部指令（反思/重规划/校验修正）：它们以 user 角色
+		// 进入序列，但不是用户真实发言，不能作为检索查询词。
+		if v.Role != protocol.RoleUser || v.Internal {
 			continue
 		}
 		if text := MessageText(v); text != "" {

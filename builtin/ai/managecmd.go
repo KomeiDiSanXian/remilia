@@ -387,6 +387,10 @@ func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 		return nil
 	case "cancel", "取消":
 		if sess.CancelPlan() {
+			// 计划变更经会话持久化：不保存的话重启/换实例后，已被用户取消的
+			// 计划会从库里的旧快照"复活"并继续自动推进（回合内的计划变更由
+			// processWithTools 的回合末保存覆盖，这里补上回合外的显式保存）。
+			p.sm.SaveSession(sess)
 			p.replyFormatted(ctx, "🛑 已取消当前计划（剩余步骤不再自动推进）")
 		} else {
 			p.replyFormatted(ctx, "📭 当前没有进行中的计划可取消")

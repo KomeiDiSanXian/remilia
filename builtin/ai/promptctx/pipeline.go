@@ -17,7 +17,10 @@
 // 各节的正文由调用方（装配侧）提供函数，因此本包不读取任何插件状态。
 package promptctx
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // ReserveTokens 预算中为输出 token 预留的余量。
 const ReserveTokens = 512
@@ -33,9 +36,14 @@ type Source struct {
 	Header string
 	// Limit 本节注入上限的起步值（预算编排以此为起点缩减）。
 	Limit int
-	// Shrink 为 true 时预算路径以"计数减半"适配剩余预算（FitSection）；
-	// false 时单次估测，装不下即丢弃（既有运行时上下文语义）。
+	// Shrink 为 true 时预算路径按比例缩量适配剩余预算：先按上限构建一次，
+	// 超预算则按"估算用量/预算"缩量重建一次，仍装不下才按 [truncateToTokenBudget]
+	// 截断（详见 fitSection）。false 时单次估测，装不下即丢弃（运行时上下文语义）。
 	Shrink bool
+	// KeepTail 仅在 Shrink 截断兜底时生效：true 表示保留正文末尾（截掉开头），
+	// 适用于按时间序排列、最新内容在末尾的节（如群聊最近消息，旧→新）。
+	// 默认 false 保留开头（截掉结尾），适用于引导行/高分命中在前的节。
+	KeepTail bool
 }
 
 // participates 判断本节是否参与本轮（两条路径共用同一条件）。
@@ -45,10 +53,11 @@ func (s Source) participates() bool {
 }
 
 // fit 在剩余预算内装入本节，装入成功时扣减 *remain。
-// Shrink 为 true 时按计数减半重试；否则单次估测，正文为空或超预算都不装入。
+// Shrink 为 true 时按比例缩量重试一次、必要时截断；否则单次估测，
+// 正文为空或超预算都不装入。
 func (s Source) fit(remain *int) string {
 	if s.Shrink {
-		return fitSection(remain, s.Limit, s.Body)
+		return fitSection(remain, s.Limit, s.KeepTail, s.Body)
 	}
 	body := s.Body(s.Limit)
 	if body == "" {
@@ -75,19 +84,81 @@ func EstimateTokens(s string) int {
 	return len(s)/3 + 1
 }
 
-// fitSection 在预算内构建一节：从上限 max 开始，估测超预算则计数减半重试，
-// 直至装入或为 0。返回构建文本（空串 = 未装入），并扣减剩余预算。
-func fitSection(remain *int, max int, build func(n int) string) string {
-	n := max
-	for n > 0 {
-		text := build(n)
-		if est := EstimateTokens(text); est <= *remain {
-			*remain -= est
-			return text
-		}
-		n /= 2
+// fitSection 在预算内构建一节：按上限构建一次，超预算则按比例缩量重建一次，
+// 仍装不下才截断到剩余额度。
+//
+// 先前的"沿计数减半反复重建"会让每次缩减都重跑一遍检索/嵌入（记忆与历史
+// 检索的正文生成并不廉价），且当正文大小与条数无关时（如 RAG 会话缓存命中
+// 直接返回整段文本）永远缩不下去，最终整节被丢弃。改为：
+//  1. build(max)：一次检索/嵌入，覆盖绝大多数够预算的场景；
+//  2. 按 est/预算 比例缩量重建一次：保留"按条数裁剪"的语义
+//     （时间序节留最新、高分节留最优），重复构建最多两次；
+//  3. 截断兜底：正文与条数无关（缓存）或极度超预算时，截到预算内而非整节丢弃。
+//
+// keepTail 仅在步骤 3 生效，见 [Source.KeepTail]。
+// 返回构建文本（空串 = 未装入），并扣减剩余预算。
+func fitSection(remain *int, max int, keepTail bool, build func(n int) string) string {
+	text := build(max)
+	if text == "" {
+		return ""
 	}
-	return ""
+	est := EstimateTokens(text)
+	if est <= *remain {
+		*remain -= est
+		return text
+	}
+
+	if max > 1 {
+		if scaled := max * (*remain) / est; scaled > 0 && scaled < max {
+			if smaller := build(scaled); smaller != "" {
+				if est2 := EstimateTokens(smaller); est2 <= *remain {
+					*remain -= est2
+					return smaller
+				}
+			}
+		}
+	}
+
+	trimmed := truncateToTokenBudget(text, *remain, keepTail)
+	if trimmed == "" {
+		return ""
+	}
+	*remain -= EstimateTokens(trimmed)
+	return trimmed
+}
+
+// truncateToTokenBudget 把文本截到 token 预算内（口径同 [EstimateTokens]），
+// 截断点落在 UTF-8 字符边界上，避免截出半个多字节字符。
+//
+// keepTail 为 true 时保留末尾、截掉开头，并丢弃开头被截断的半行（跳到第一个
+// 换行之后），使注入内容从整行开始；false 时保留开头、截掉结尾。
+// 返回空串表示预算不足以放下任何完整内容。
+func truncateToTokenBudget(text string, budget int, keepTail bool) string {
+	if budget <= 0 {
+		return ""
+	}
+	// EstimateTokens(s) = len(s)/3 + 1 ≤ budget ⇔ len(s) ≤ (budget-1)*3。
+	maxBytes := (budget - 1) * 3
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text
+	}
+	if !keepTail {
+		cut := maxBytes
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		return strings.TrimRight(text[:cut], "\n")
+	}
+	start := len(text) - maxBytes
+	for start < len(text) && !utf8.RuneStart(text[start]) {
+		start++
+	}
+	if start > 0 {
+		if nl := strings.IndexByte(text[start:], '\n'); nl >= 0 {
+			start += nl + 1
+		}
+	}
+	return strings.TrimLeft(text[start:], "\n")
 }
 
 // Build 非预算路径：各节按节序装入，正文为空的节跳过。

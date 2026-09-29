@@ -23,8 +23,8 @@ import (
 //   - Messages: 对话消息列表（受 mu 保护）
 //   - CreatedAt: 会话创建时间
 //   - UpdatedAt: 会话最后活跃时间（用于 TTL 过期判断）
-//   - CallCount: 本轮对话中 LLM API 的累计调用次数
-//   - ToolCount: 本轮对话中工具调用的累计次数
+//   - CallCount: 当前会话累计的 LLM API 调用次数（跨回合累加，随会话持久化）
+//   - ToolCount: 当前会话累计的工具调用次数（跨回合累加，随会话持久化）
 //   - contentCache: 附件二进制内容的内存缓存（按 URL key，限本轮会话有效，不持久化）
 type Session struct {
 	mu        sync.Mutex

@@ -61,6 +61,12 @@ func (p *Plugin) runtimeClient() runtime.Client {
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
 func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
+	// 回合内会追加多条中间消息（assistant/tool/反思/重规划），统一走
+	// AppendMessageNoPersist，回合结束（含提前 return / 出错 / 中断）在这里
+	// 一次性落库：把每条工具结果一次整记录 upsert 降为每回合一次，消除写放大。
+	// 用户消息等跨回合的即时持久化仍由 handler / generateVerified 负责。
+	defer p.sm.SaveSession(session)
+
 	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
 
@@ -197,7 +203,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		// 由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
 		if session.Interrupted() && (!doneReceived || streamErr != nil) {
 			if responseText != "" {
-				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
+				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
 			}
 			text := responseText
 			if text == "" {
@@ -228,10 +234,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 
 		if len(toolCalls) == 0 {
 			if responseText != "" {
-				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
+				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
 			}
 			if replanMsg != nil {
-				p.sm.AppendMessage(session, *replanMsg)
+				p.sm.AppendMessageNoPersist(session, *replanMsg)
 			}
 			return &chatResult{
 				Text:        responseText,
@@ -239,7 +245,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			}, nil
 		}
 
-		p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText, ToolCalls: toolCalls})
+		p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText, ToolCalls: toolCalls})
 
 		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；
 		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
@@ -253,7 +259,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			// 的每个 tool_call_id 都有对应 tool 响应（API 硬性约束，
 			// 缺失会导致下次请求被 400 拒绝）。
 			if results[i].Skipped {
-				p.sm.AppendMessage(session, protocol.Message{
+				p.sm.AppendMessageNoPersist(session, protocol.Message{
 					Role:       protocol.RoleTool,
 					Content:    "（工具未执行：对话被新消息打断）",
 					ToolCallID: tc.ID,
@@ -261,7 +267,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 				continue
 			}
 			toolResult := results[i].Result
-			p.sm.AppendMessage(session, protocol.Message{
+			p.sm.AppendMessageNoPersist(session, protocol.Message{
 				Role:       protocol.RoleTool,
 				Content:    runtime.TruncateToolResult(toolResult),
 				ToolCallID: tc.ID,
@@ -289,18 +295,18 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			fails := session.IncrToolFailure(tc.Name)
 			if fails > runtime.EffectiveToolRetryLimit(runtimeLimits(p.cfg)) {
 				msg := execution.BuildRetryAbortMessage(tc.Name, fails, toolResult)
-				p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleUser, Content: msg})
+				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleUser, Content: msg})
 				return &chatResult{Text: msg, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
 			}
 			if fails >= 2 {
-				p.sm.AppendMessage(session, execution.BuildReflectionMessage(tc.Name, fails, toolResult))
+				p.sm.AppendMessageNoPersist(session, execution.BuildReflectionMessage(tc.Name, fails, toolResult))
 			}
 		}
 
 		// 重规划指令在全部工具结果之后追加——assistant(tool_calls) 必须紧接
 		// tool 消息（API 约束），指令若插在二者之间会使消息序列非法被拒绝。
 		if replanMsg != nil {
-			p.sm.AppendMessage(session, *replanMsg)
+			p.sm.AppendMessageNoPersist(session, *replanMsg)
 		}
 	}
 

@@ -65,11 +65,13 @@ type loopToolSender struct {
 
 // ReplyToChat 向当前会话发送消息（经 messagelog 记录，群聊窗口可见）。
 func (s *loopToolSender) ReplyToChat(ctx context.Context, msg platform.OutboundMessage) (platform.SendResult, error) {
-	if !s.budget.tryUse() {
-		return platform.SendResult{}, fmt.Errorf("本轮对话发送消息次数已达上限")
-	}
+	// 先校验内容再扣预算：空消息不该消耗发送额度（否则模型一次空调用
+	// 就会白白吃掉一次配额，后面的真实发送被误判为超限）。
 	if msg.IsEmpty() {
 		return platform.SendResult{}, fmt.Errorf("消息内容为空")
+	}
+	if !s.budget.tryUse() {
+		return platform.SendResult{}, fmt.Errorf("本轮对话发送消息次数已达上限")
 	}
 	return s.p.replyAndRecord(s.ctx, msg).Wait(ctx)
 }
@@ -84,11 +86,12 @@ func (s *loopToolSender) SendTo(ctx context.Context, target toolkit.ChatTarget, 
 	if target.ID == "" {
 		return platform.SendResult{}, fmt.Errorf("目标 ID 不能为空")
 	}
-	if !s.budget.tryUse() {
-		return platform.SendResult{}, fmt.Errorf("本轮对话发送消息次数已达上限")
-	}
+	// 先校验内容再扣预算（同 ReplyToChat）：空消息不消耗额度。
 	if msg.IsEmpty() {
 		return platform.SendResult{}, fmt.Errorf("消息内容为空")
+	}
+	if !s.budget.tryUse() {
+		return platform.SendResult{}, fmt.Errorf("本轮对话发送消息次数已达上限")
 	}
 	sender := s.ctx.GetPlatformSender()
 	if sender == nil {

@@ -42,3 +42,30 @@ func (s *CaptureSender) Send(_ context.Context, req platform.SendRequest) (platf
 	}
 	return platform.SendResult{}, nil
 }
+
+// Merge 把另一次调用捕获到的文本与附件并入本发送器（线程安全，nil 安全）。
+//
+// 命令通道为每次调用使用独立的捕获器（避免共享捕获器的文本串味），执行结束后
+// 用本方法把局部结果汇总回回合级发送器：文本仅在非空时覆盖（保留"最近一次
+// 非空回复"的兜底语义），附件按调用顺序累积（随最终回复发送）。
+func (s *CaptureSender) Merge(other *CaptureSender) {
+	if s == nil || other == nil {
+		return
+	}
+	text, atts := other.snapshot()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if text != "" {
+		s.CapturedText = text
+	}
+	if len(atts) > 0 {
+		s.CapturedAttachments = append(s.CapturedAttachments, atts...)
+	}
+}
+
+// snapshot 返回当前捕获内容的副本（线程安全）。
+func (s *CaptureSender) snapshot() (string, []platform.Attachment) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.CapturedText, append([]platform.Attachment(nil), s.CapturedAttachments...)
+}

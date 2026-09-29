@@ -78,9 +78,14 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 	if _, ok := commands.Pattern(tc.Name); ok {
 		// 并行工具执行时串行化真实命令路径（syncer 非线程安全）。
 		p.realCmdMu.Lock()
+		// 每次调用使用独立的捕获器：共享捕获器的 CapturedText 只在非空时覆盖、
+		// 从不重置，会让"本次命令无输出"错误回填上一次命令的旧文本。
+		cmdCS := &execution.CaptureSender{}
 		result := runtime.CommandInvoker{
-			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments, CS: cs, Record: recordToolCall,
+			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments, CS: cmdCS, Record: recordToolCall,
 		}.Invoke(callerCtx)
+		// 汇入回合级捕获器：文本保留为"模型无输出"时的兜底回复，附件随最终回复发送。
+		cs.Merge(cmdCS)
 		p.realCmdMu.Unlock()
 		return result
 	}

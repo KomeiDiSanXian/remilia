@@ -43,6 +43,22 @@ func TestGetLastUserMessageNone(t *testing.T) {
 	}
 }
 
+// TestLastUserMessageSkipsInternal 冻结：系统注入的内部指令
+// （反思/重规划/校验修正）虽以 user 角色进入消息序列，但不是用户真实发言，
+// 不得作为检索查询词（工具选择/RAG/记忆检索共用它）。
+func TestLastUserMessageSkipsInternal(t *testing.T) {
+	sess := &session.Session{
+		Messages: []protocol.Message{
+			{Role: protocol.RoleUser, Content: "帮我看下天气"},
+			{Role: protocol.RoleAssistant, Content: "好的"},
+			{Role: protocol.RoleUser, Internal: true, Content: "反思提示：工具连续失败"},
+		},
+	}
+	if got := runtime.LastUserMessage(sess); got != "帮我看下天气" {
+		t.Fatalf("应跳过内部指令取真实用户消息，got %q", got)
+	}
+}
+
 func TestIsAllowedDownloadURL(t *testing.T) {
 	tests := []struct {
 		url  string

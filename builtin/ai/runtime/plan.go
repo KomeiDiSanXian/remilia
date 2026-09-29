@@ -42,7 +42,8 @@ func PlanSignature(p *session.Plan) string {
 // 要求模型重新规划剩余步骤（而非自行猜测下一步）。
 func BuildReplanMessage(step *session.PlanStep) protocol.Message {
 	return protocol.Message{
-		Role: protocol.RoleUser,
+		Role:     protocol.RoleUser,
+		Internal: true,
 		Content: fmt.Sprintf(
 			replanPrefix+" `%s`（%s）已标记失败。请重新评估剩余步骤：可以调用 create_plan 调整计划（跳过/替换失败步骤），或直接告知用户无法完成并说明原因。不要继续执行基于旧计划的后续步骤。",
 			step.ID, step.Description),

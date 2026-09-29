@@ -416,7 +416,7 @@ func TestTextVectorCacheBounded(t *testing.T) {
 	cache := NewTextVectorCache(&scriptedEmbedder{})
 	cache.maxEntries = 2
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		text := fmt.Sprintf("text-%d", i)
 		if _, err := cache.EmbedTexts(context.Background(), []string{text}); err != nil {
 			t.Fatalf("EmbedTexts(%q) failed: %v", text, err)

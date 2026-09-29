@@ -11,7 +11,9 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
@@ -120,16 +122,21 @@ func (p *Plugin) RegisterUserSkill(s toolkit.Skill, ownerID string) error {
 		return err
 	}
 
-	userSkills := p.skillReg.ListByOwner(ownerID)
-	if len(userSkills) >= p.cfg.MaxUserSkills {
-		return fmt.Errorf("达到技能数量上限 (%d)，请先删除一个再添加", p.cfg.MaxUserSkills)
+	// Prompt 长度按字符（rune）计：配置语义是"最大字符数"，中文一字一字符；
+	// 按字节数会让中文用户可用的长度只有配置值的三分之一。
+	if promptLen := utf8.RuneCountInString(s.Prompt); promptLen > p.cfg.MaxUserSkillPromptLen {
+		return fmt.Errorf("技能 Prompt 过长（%d > %d），请缩短", promptLen, p.cfg.MaxUserSkillPromptLen)
 	}
 
-	if len(s.Prompt) > p.cfg.MaxUserSkillPromptLen {
-		return fmt.Errorf("技能 Prompt 过长（%d > %d），请缩短", len(s.Prompt), p.cfg.MaxUserSkillPromptLen)
+	// 数量上限与注册在同一把写锁内完成（AddCapped）：先前的"先计数再 Add"
+	// 存在 TOCTOU，并发注册可一起通过检查而突破上限。
+	if err := p.skillReg.AddCapped(s, p.cfg.MaxUserSkills); err != nil {
+		if errors.Is(err, toolkit.ErrOwnerSkillLimit) {
+			return fmt.Errorf("达到技能数量上限 (%d)，请先删除一个再添加", p.cfg.MaxUserSkills)
+		}
+		return err
 	}
-
-	return p.skillReg.Add(s)
+	return nil
 }
 
 func (p *Plugin) registerSkillAsTool(s toolkit.Skill) {

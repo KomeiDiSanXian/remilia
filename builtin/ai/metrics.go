@@ -196,6 +196,10 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 					return
 				}
 			case <-ctx.Done():
+				// 上游/回合取消且暂无事件可转发：同样排空 inner，避免 provider
+				// 的发送 goroutine 因无人接收而永久阻塞泄漏。
+				for range inner {
+				}
 				recordLLMCall(model, time.Since(start), usage, "stopped")
 				return
 			}

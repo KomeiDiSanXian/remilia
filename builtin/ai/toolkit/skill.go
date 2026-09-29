@@ -9,6 +9,7 @@
 package toolkit
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +27,10 @@ const (
 	// 自动添加以防止与系统技能名称冲突，如用户注册 "poetry_writer" 实际名为 "u_poetry_writer"。
 	UserSkillPrefix = "u_"
 )
+
+// ErrOwnerSkillLimit 表示同一所有者下的技能数量已达上限（[SkillRegistry.AddCapped] 返回）。
+// 面向用户的文案由调用方决定，注册表只暴露"达到上限"这一事实。
+var ErrOwnerSkillLimit = errors.New("owner skill limit reached")
 
 // Skill 定义一个可被 AI 调用的子代理（技能）。
 //
@@ -91,6 +96,23 @@ func (r *SkillRegistry) Register(s Skill) {
 func (r *SkillRegistry) Add(s Skill) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.addLocked(s)
+}
+
+// AddCapped 在同一把写锁内原子地"检查数量上限 + 注册"。
+//
+// 先前的"调用方先 ListByOwner 计数、再 Add"存在 TOCTOU：并发的两次注册
+// 可能都读到 count == max-1 而一起通过，最终突破上限。把计数与写入收进
+// 同一临界区后，上限才是真正不可逾越的。
+//
+// max <= 0 表示不限；数量按所有者统计（系统技能与各用户技能分别计数）。
+// 达到上限时返回 [ErrOwnerSkillLimit]。
+func (r *SkillRegistry) AddCapped(s Skill, max int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if max > 0 && len(r.byOwner[s.OwnerID]) >= max {
+		return ErrOwnerSkillLimit
+	}
 	return r.addLocked(s)
 }
 

@@ -73,7 +73,13 @@ func (m *todoManager) remove(chatID, id string) bool {
 	items := m.items[chatID]
 	for i := range items {
 		if items[i].ID == id {
-			m.items[chatID] = append(items[:i], items[i+1:]...)
+			rest := append(items[:i], items[i+1:]...)
+			// 列表清空时删除键，避免残留空切片让 map 无限增长。
+			if len(rest) == 0 {
+				delete(m.items, chatID)
+			} else {
+				m.items[chatID] = rest
+			}
 			return true
 		}
 	}
@@ -94,7 +100,11 @@ func (m *todoManager) clearDone(chatID string) int {
 		}
 		kept = append(kept, it)
 	}
-	m.items[chatID] = kept
+	if len(kept) == 0 {
+		delete(m.items, chatID)
+	} else {
+		m.items[chatID] = kept
+	}
 	return cleared
 }
 
@@ -103,6 +113,8 @@ func (m *todoManager) clearAll(chatID string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := len(m.items[chatID])
-	m.items[chatID] = nil
+	if n > 0 {
+		delete(m.items, chatID)
+	}
 	return n
 }

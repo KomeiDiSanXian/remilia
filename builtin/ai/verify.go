@@ -63,6 +63,10 @@ func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Sessio
 		}
 		logger.Debugf("[AI] Answer verification failed, regenerating (%d/%d): %s",
 			attempt+1, verifier.MaxRetries(), v.Reason)
-		p.sm.AppendMessage(session, protocol.Message{Role: protocol.RoleUser, Content: runtime.BuildVerifyRetryMessage(v.Reason)})
+		p.sm.AppendMessage(session, protocol.Message{
+			Role:     protocol.RoleUser,
+			Internal: true,
+			Content:  runtime.BuildVerifyRetryMessage(v.Reason),
+		})
 	}
 }

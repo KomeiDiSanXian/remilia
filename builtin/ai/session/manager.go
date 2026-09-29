@@ -75,35 +75,48 @@ func NewSessionManager(maxSize, maxHistory int, ttl time.Duration, storage Sessi
 // 先从 LRU 缓存查找，未命中时尝试从持久化存储加载，
 // 都未找到时创建全新的会话。
 func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session {
+	// 快路径：命中内存缓存时只在 sm.mu 内触碰会话，不做任何存储 I/O。
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	if elem, ok := sm.sessions[sessionID]; ok {
 		entry := elem.Value.(*sessionEntry)
 		sm.lru.MoveToFront(elem)
-		entry.session.Lock()
-		entry.session.UpdatedAt = time.Now()
-		TrimMessages(entry.session, sm.maxHistory)
-		entry.session.Unlock()
+		sm.mu.Unlock()
+		sm.touch(entry.session)
+		return entry.session
+	}
+	sm.mu.Unlock()
+
+	// 慢路径：存储加载在 sm.mu 之外执行。此前在全局写锁内 Load 会让单个慢查询
+	// 阻塞所有会话的创建/查询/清理（队头阻塞）。加载幂等，命中二次检查即丢弃。
+	var loaded *Session
+	if sm.storage != nil {
+		if stored, err := sm.storage.Load(sessionID); err == nil && stored != nil {
+			loaded = stored
+		}
+	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// 二次检查：锁外加载期间可能已有并发 GetOrCreate 创建并登记了同一会话。
+	if elem, ok := sm.sessions[sessionID]; ok {
+		entry := elem.Value.(*sessionEntry)
+		sm.lru.MoveToFront(elem)
+		sm.touch(entry.session)
 		return entry.session
 	}
 
-	session := &Session{
-		ID:        sessionID,
-		UserID:    userID,
-		ChatID:    chatID,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if sm.storage != nil {
-		if stored, err := sm.storage.Load(sessionID); err == nil && stored != nil {
-			session = stored
-			session.Lock()
-			session.UpdatedAt = time.Now()
-			TrimMessages(session, sm.maxHistory)
-			session.Unlock()
+	session := loaded
+	if session == nil {
+		session = &Session{
+			ID:        sessionID,
+			UserID:    userID,
+			ChatID:    chatID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
+	} else {
+		sm.touch(session)
 	}
 
 	elem := sm.lru.PushFront(&sessionEntry{session: session})
@@ -112,6 +125,14 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	sm.evictLocked()
 
 	return session
+}
+
+// touch 更新会话活跃时间并按窗口裁剪消息（内部持会话锁）。
+func (sm *SessionManager) touch(session *Session) {
+	session.Lock()
+	session.UpdatedAt = time.Now()
+	TrimMessages(session, sm.maxHistory)
+	session.Unlock()
 }
 
 // Peek 仅从内存缓存查找会话，不创建、不触碰持久化存储。
@@ -282,10 +303,22 @@ func TrimMessages(s *Session, maxHistory int) {
 }
 
 // AppendMessage 向会话追加一条消息，自动裁剪上下文窗口并持久化。
-// 线程安全，持有 session 写锁。
+// 线程安全。跨回合的即时持久化（如用户消息）用它；一回合内的多条中间消息
+// （assistant/tool/反思/重规划）请用 [AppendMessageNoPersist] 追加、回合结束时
+// 用 [SaveSession] 一次性落库，避免每条工具结果都触发一次整记录 upsert。
 func (sm *SessionManager) AppendMessage(session *Session, msg protocol.Message) {
+	sm.AppendMessageNoPersist(session, msg)
+	sm.SaveSession(session)
+}
+
+// AppendMessageNoPersist 向会话追加一条消息并裁剪窗口，但不写持久化存储。
+//
+// 供一回合内的多次追加使用：回合内每条 tool 结果各写一次库会把单次 upsert
+// 放大成 N 次，改为调用方在回合结束时（processWithTools 的 defer）统一
+// [SaveSession]，把 N 次整记录 upsert 降为 1 次。线程安全，持有 session 写锁。
+func (sm *SessionManager) AppendMessageNoPersist(session *Session, msg protocol.Message) {
 	session.Lock()
 	defer session.Unlock()
 	session.Messages = append(session.Messages, msg)
-	sm.SaveLocked(session)
+	TrimMessages(session, sm.maxHistory)
 }

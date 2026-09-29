@@ -89,6 +89,11 @@ type Message struct {
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
 	// Timestamp 消息到达时间（用于历史图片保留时间窗判定；0 值表示未知）。
 	Timestamp time.Time `json:"timestamp"`
+	// Internal 标记系统注入的内部指令（反思/重规划/校验修正），它们虽以
+	// user 角色进入消息序列（各提供商对 user/assistant 交替有硬性约束），
+	// 但不是用户真实发言。检索/记忆抽取选取"最后一条用户消息"时须跳过，
+	// 否则查询词会变成内部指令。
+	Internal bool `json:"internal,omitempty"`
 }
 
 // ChatRequest 发送给 LLM 的聊天请求。

@@ -21,11 +21,29 @@ type SelectionCache struct {
 	Names       []string
 }
 
-// ToolSelection 返回会话缓存的工具选择结果（无缓存返回 nil）。
+// ToolSelection 返回会话缓存的工具选择结果副本（无缓存返回 nil）。
+// 返回副本而非内部指针，避免调用方在锁外读写 QueryTokens/Names 与
+// SetToolSelection 的并发写入竞争（与 RAGCacheSnapshot / ToolSetState 一致）。
 func (s *Session) ToolSelection() *SelectionCache {
 	s.Lock()
 	defer s.Unlock()
-	return s.selCache
+	return s.selCache.clone()
+}
+
+// clone 深拷贝选择缓存（跨锁返回，避免调用方在锁外读写共享字段）。
+func (c *SelectionCache) clone() *SelectionCache {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.Names = append([]string(nil), c.Names...)
+	if len(c.QueryTokens) > 0 {
+		cp.QueryTokens = make(map[string]float64, len(c.QueryTokens))
+		maps.Copy(cp.QueryTokens, c.QueryTokens)
+	} else {
+		cp.QueryTokens = nil
+	}
+	return &cp
 }
 
 // SetToolSelection 写入会话工具选择缓存。

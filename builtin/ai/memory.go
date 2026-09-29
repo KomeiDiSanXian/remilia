@@ -178,6 +178,8 @@ func (m *memoryStore) Remove(scope, text string) bool {
 	}
 	if removed {
 		m.scopes[scope] = facts
+		// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
+		facts = append([]memoryFact(nil), facts...)
 	}
 	m.mu.Unlock()
 	if removed {
@@ -222,6 +224,8 @@ func (m *memoryStore) RemoveWhere(scope string, match func(memoryFact) bool) int
 	}
 	if removed > 0 {
 		m.scopes[scope] = kept
+		// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
+		kept = append([]memoryFact(nil), kept...)
 	}
 	m.mu.Unlock()
 	if removed > 0 {
@@ -310,6 +314,8 @@ func (m *memoryStore) Add(scope, text string) {
 		facts = m.evictLocked(facts, len(facts)-m.maxFacts)
 	}
 	m.scopes[scope] = facts
+	// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
+	facts = append([]memoryFact(nil), facts...)
 	m.mu.Unlock()
 
 	m.save(scope, facts)
@@ -357,7 +363,8 @@ func (m *memoryStore) evictLocked(facts []memoryFact, n int) []memoryFact {
 	return out
 }
 
-// save 持久化指定作用域（锁外拷贝）。
+// save 持久化指定作用域。facts 必须是已与 m.scopes 解耦的副本
+// （调用方在写锁内复制产出），因此本函数可在锁外安全 marshal。
 func (m *memoryStore) save(scope string, facts []memoryFact) {
 	if m.store == nil {
 		return

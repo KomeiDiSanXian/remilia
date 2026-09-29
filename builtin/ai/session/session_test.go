@@ -559,3 +559,56 @@ func TestNoopSessionStore(t *testing.T) {
 		t.Fatalf("Delete failed: %v", err)
 	}
 }
+
+// countingSessionStore 记录 Save 次数，用于验证批量落库。
+type countingSessionStore struct {
+	saved map[string]*Session
+	saves int
+}
+
+func (c *countingSessionStore) Load(id string) (*Session, error) { return c.saved[id], nil }
+
+func (c *countingSessionStore) Save(s *Session) error {
+	c.saves++
+	if c.saved == nil {
+		c.saved = map[string]*Session{}
+	}
+	c.saved[s.ID] = s
+	return nil
+}
+
+func (c *countingSessionStore) Delete(id string) error { delete(c.saved, id); return nil }
+
+// TestAppendMessageNoPersistBatchesWrites 冻结：回合内的多条中间消息
+// 追加不逐条写库，回合结束时一次 SaveSession 合并为单次整记录 upsert，
+// 消除写放大。
+func TestAppendMessageNoPersistBatchesWrites(t *testing.T) {
+	store := &countingSessionStore{}
+	sm := NewSessionManager(10, 5, time.Hour, store)
+	s := sm.GetOrCreate("s", "u", "c")
+
+	for i := range 5 {
+		sm.AppendMessageNoPersist(s, protocol.Message{
+			Role:       protocol.RoleTool,
+			ToolCallID: fmt.Sprintf("c%d", i),
+			Content:    "r",
+		})
+	}
+	if store.saves != 0 {
+		t.Fatalf("AppendMessageNoPersist 不应写库，saves = %d", store.saves)
+	}
+	if got := len(s.SnapshotMessages()); got != 5 {
+		t.Fatalf("追加应生效，消息数 = %d", got)
+	}
+
+	sm.SaveSession(s)
+	if store.saves != 1 {
+		t.Fatalf("回合末一次 SaveSession 应只写一次库，saves = %d", store.saves)
+	}
+
+	// AppendMessage 仍保持"追加即持久化"的语义（用户消息等跨回合即时落库）。
+	sm.AppendMessage(s, protocol.Message{Role: protocol.RoleUser, Content: "hi"})
+	if store.saves != 2 {
+		t.Fatalf("AppendMessage 应即时持久化，saves = %d", store.saves)
+	}
+}

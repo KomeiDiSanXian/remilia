@@ -22,7 +22,8 @@ import (
 // 追加到工具失败结果之后，引导模型在下一轮调用前先分析失败原因。
 func BuildReflectionMessage(toolName string, fails int, lastErr string) protocol.Message {
 	return protocol.Message{
-		Role: protocol.RoleUser,
+		Role:     protocol.RoleUser,
+		Internal: true,
 		Content: fmt.Sprintf(
 			"反思提示：工具 `%s` 已连续失败 %d 次，最后一次错误：%s\n"+
 				"请先分析失败原因（参数不对？结果格式问题？工具用错了？），"+

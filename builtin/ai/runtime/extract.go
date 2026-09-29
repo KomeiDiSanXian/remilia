@@ -124,6 +124,11 @@ func LastRoundForMemory(sess *session.Session) string {
 	for _, m := range sess.SnapshotMessages() {
 		switch m.Role {
 		case protocol.RoleUser:
+			// 跳过系统注入的内部指令（反思/重规划/校验修正）：它们以 user
+			// 角色进入序列，但不是用户真实发言，不应进入抽取输入。
+			if m.Internal {
+				continue
+			}
 			if text := MemoryMessageText(m); text != "" {
 				lastUser = text
 			}

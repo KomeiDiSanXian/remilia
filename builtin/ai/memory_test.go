@@ -43,14 +43,50 @@ func TestMemoryFactsConcurrentWithAdd(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			m.Add(scope, fmt.Sprintf("事实 %d", i%20))
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < rounds; i++ {
+		for range rounds {
 			_ = m.Facts(scope)
+		}
+	}()
+	wg.Wait()
+}
+
+// TestMemoryConcurrentWritersDoNotRaceSave 覆盖数据竞争：写路径
+// （Add/Remove/RemoveWhere）在写锁内原地改写 m.scopes 的底层数组，而 save 在
+// 锁外 marshal。若写路径不把待持久化的切片与共享底层数组解耦（解锁前复制），
+// 并发的另一个写操作会与 marshal 读取同一底层数组（-race 可复现 Write/Read 竞争）。
+func TestMemoryConcurrentWritersDoNotRaceSave(t *testing.T) {
+	m := newTestMemoryStore(t, 500, time.Minute)
+	scope := userScope("u_writer_race")
+	const rounds = 60
+
+	var wg sync.WaitGroup
+	for seed := range 2 {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+			for i := range rounds {
+				m.Add(scope, fmt.Sprintf("用户偏好项目%d-%d", seed, i))
+			}
+		}(seed)
+	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := range rounds {
+			m.Remove(scope, fmt.Sprintf("用户偏好项目0-%d", i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range rounds {
+			// 命中即走 RemoveWhere 的原地改写 + save 路径。
+			m.RemoveWhere(scope, func(f memoryFact) bool { return strings.Contains(f.Text, "项目1-") })
 		}
 	}()
 	wg.Wait()
@@ -212,6 +248,24 @@ func TestLastRoundForMemory(t *testing.T) {
 	}
 	if strings.Contains(conv, "system") || strings.Contains(conv, "我喜欢喝咖啡") {
 		t.Errorf("should only contain latest round, got %q", conv)
+	}
+}
+
+// TestLastRoundForMemorySkipsInternal 内部指令（反思/重规划/校验修正）不得
+// 进入记忆抽取输入——它们以 user 角色入栈，但不是用户的真实发言。
+func TestLastRoundForMemorySkipsInternal(t *testing.T) {
+	s := &session.Session{}
+	s.Messages = []protocol.Message{
+		{Role: protocol.RoleUser, Content: "我喜欢喝咖啡"},
+		{Role: protocol.RoleAssistant, Content: "好的，记住了"},
+		{Role: protocol.RoleUser, Internal: true, Content: "反思提示：工具连续失败，请先分析原因"},
+	}
+	conv := runtime.LastRoundForMemory(s)
+	if strings.Contains(conv, "反思提示") {
+		t.Fatalf("内部指令不应进入记忆抽取输入: %q", conv)
+	}
+	if !strings.Contains(conv, "我喜欢喝咖啡") {
+		t.Fatalf("真实用户消息应保留: %q", conv)
 	}
 }
 
