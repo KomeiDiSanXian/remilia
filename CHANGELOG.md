@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.67.0 (2026-09-29)
 
 ### ✨ AI 插件接入 MCP（Model Context Protocol）外部工具服务器
 
