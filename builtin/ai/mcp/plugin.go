@@ -57,13 +57,16 @@ func New() *plugin.Descriptor {
         - name: remote
           transport: http
           url: https://tools.example.com/mcp
+          # allow_stateless: true  # 优先用无状态流程（没有握手/会话），默认关闭
           headers:
             Authorization: "Bearer ${MCP_TOKEN}"
 
 安全说明：
   - 外部服务器视为不可信对端；其声明的工具默认需要审批。
   - stdio 命令必须在 allowed_commands 白名单内；只透传白名单环境变量。
-  - http 地址强制 https（回环地址可显式放开），连接前做 SSRF 校验。`,
+  - http 地址强制 https（回环地址可显式放开），连接前做 SSRF 校验。
+  - 无状态流程是一条独立的协议路径，需显式开启 allow_stateless；对端不支持时
+    自动回退到握手流程。`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			cfg, err := Load(ctx.Config.GetAll())

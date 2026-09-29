@@ -50,6 +50,20 @@ func (m *memTransport) Send(_ context.Context, msg []byte) error {
 	return nil
 }
 
+// SendStream 模拟长连订阅：先投递服务器对订阅请求的即时应答，再阻塞到连接关闭
+// 或 ctx 取消——与真实传输"流随连接存续"的语义一致。
+func (m *memTransport) SendStream(ctx context.Context, msg []byte) error {
+	if err := m.Send(ctx, msg); err != nil {
+		return err
+	}
+	select {
+	case <-m.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (m *memTransport) Close() error {
 	m.once.Do(func() { close(m.done) })
 	return nil
@@ -63,8 +77,15 @@ type fakeServer struct {
 	tools        []mcpTool
 	queued       [][]mcpTool
 	protoVersion string
-	handler      func([]byte)
-	onCall       func(name string, args map[string]any) *callToolResult
+	stateless    bool
+	// discoverVersions 是 server/discover 声明支持的版本；为空表示只支持无状态版本。
+	discoverVersions []string
+	// rejectVersion 让服务器以 UnsupportedProtocolVersionError 拒绝所请求的版本。
+	rejectVersion bool
+	handler       func([]byte)
+	onCall        func(name string, args map[string]any) *callToolResult
+	requests      []string
+	metas         []map[string]any
 }
 
 func newFakeServer(tools ...mcpTool) *fakeServer { return &fakeServer{tools: tools} }
@@ -105,6 +126,53 @@ func (s *fakeServer) setProtocolVersion(v string) {
 	s.mu.Unlock()
 }
 
+// setStateless 让服务器实现（或不实现）无状态流程。
+func (s *fakeServer) setStateless(v bool) {
+	s.mu.Lock()
+	s.stateless = v
+	s.mu.Unlock()
+}
+
+// setDiscoverVersions 设置 server/discover 声明支持的版本。
+func (s *fakeServer) setDiscoverVersions(v ...string) {
+	s.mu.Lock()
+	s.discoverVersions = v
+	s.mu.Unlock()
+}
+
+// setRejectVersion 让服务器以 UnsupportedProtocolVersionError 拒绝所请求的版本。
+func (s *fakeServer) setRejectVersion(v bool) {
+	s.mu.Lock()
+	s.rejectVersion = v
+	s.mu.Unlock()
+}
+
+func (s *fakeServer) recordRequest(method string, meta map[string]any) {
+	s.mu.Lock()
+	s.requests = append(s.requests, method)
+	s.metas = append(s.metas, meta)
+	s.mu.Unlock()
+}
+
+// sawMethod 报告是否收到过某方法的请求。
+func (s *fakeServer) sawMethod(method string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Contains(s.requests, method)
+}
+
+// lastMeta 返回某方法最后一次请求携带的 _meta（无则 nil）。
+func (s *fakeServer) lastMeta(method string) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, v := range slices.Backward(s.requests) {
+		if v == method {
+			return s.metas[i]
+		}
+	}
+	return nil
+}
+
 func (s *fakeServer) notifyToolsChanged() {
 	b, _ := encodeNotification(methodToolsListChanged, nil)
 	s.push(b)
@@ -113,7 +181,25 @@ func (s *fakeServer) notifyToolsChanged() {
 // handle 处理一条客户端报文；通知返回 nil（无需响应）。
 func (s *fakeServer) handle(raw []byte) []byte {
 	var env rpcEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil || env.ID == nil {
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil
+	}
+	if env.Method != "" {
+		var carrier struct {
+			Meta map[string]any `json:"_meta"`
+		}
+		_ = json.Unmarshal(env.Params, &carrier)
+		s.recordRequest(env.Method, carrier.Meta)
+	}
+	// 订阅是长连：先回一条 ack 通知（无 id），流的生命周期由传输维持。
+	if env.Method == methodSubscriptionsListen && env.ID != nil {
+		ack, _ := encodeNotification(methodSubscriptionsAcknowledged, map[string]any{
+			"_meta":         map[string]any{metaSubscriptionID: *env.ID},
+			"notifications": map[string]any{"toolsListChanged": true},
+		})
+		return ack
+	}
+	if env.ID == nil {
 		return nil
 	}
 	resp := rpcResponse{JSONRPC: jsonrpcVersion, ID: env.ID}
@@ -123,11 +209,39 @@ func (s *fakeServer) handle(raw []byte) []byte {
 		pv := s.protoVersion
 		s.mu.Unlock()
 		if pv == "" {
-			pv = ProtocolVersion
+			pv = HandshakeProtocolVersion
 		}
 		resp.Result, _ = json.Marshal(initializeResult{
 			ProtocolVersion: pv,
 			ServerInfo:      serverInfo{Name: "fake", Version: "1.0"},
+		})
+	case methodDiscover:
+		s.mu.Lock()
+		stateless := s.stateless
+		reject := s.rejectVersion
+		versions := append([]string(nil), s.discoverVersions...)
+		s.mu.Unlock()
+		if len(versions) == 0 {
+			versions = []string{StatelessProtocolVersion}
+		}
+		if !stateless {
+			// 握手时代的服务器不认识它，只回一个实现自定义（非现代）的错误。
+			resp.Error = &rpcError{Code: rpcCodeMethodNotFound, Message: "method not found"}
+			break
+		}
+		if reject {
+			resp.Error = &rpcError{
+				Code:    rpcCodeUnsupportedProtocolVersion,
+				Message: "Unsupported protocol version",
+				Data:    map[string]any{"supported": versions, "requested": StatelessProtocolVersion},
+			}
+			break
+		}
+		resp.Result, _ = json.Marshal(discoverResult{
+			ResultType:        resultTypeComplete,
+			SupportedVersions: versions,
+			Capabilities:      map[string]any{"tools": map[string]any{}},
+			Meta:              resultMeta{ServerInfo: serverInfo{Name: "fake", Version: "1.0"}},
 		})
 	case methodListTools:
 		s.mu.Lock()
@@ -139,7 +253,7 @@ func (s *fakeServer) handle(raw []byte) []byte {
 			tools = append([]mcpTool(nil), s.tools...)
 		}
 		s.mu.Unlock()
-		resp.Result, _ = json.Marshal(listToolsResult{Tools: tools})
+		resp.Result, _ = json.Marshal(listToolsResult{Tools: tools, ResultType: resultTypeComplete})
 	case methodCallTool:
 		var p callToolParams
 		_ = json.Unmarshal(env.Params, &p)
@@ -149,9 +263,10 @@ func (s *fakeServer) handle(raw []byte) []byte {
 		} else {
 			res = &callToolResult{Content: []contentItem{{Type: "text", Text: "ok"}}}
 		}
+		res.ResultType = resultTypeComplete
 		resp.Result, _ = json.Marshal(res)
 	default:
-		resp.Error = &rpcError{Code: -32601, Message: "method not found"}
+		resp.Error = &rpcError{Code: rpcCodeMethodNotFound, Message: "method not found"}
 	}
 	out, _ := json.Marshal(resp)
 	return out
@@ -360,17 +475,220 @@ func TestManagerDoesNotAdoptJitteryToolList(t *testing.T) {
 	}
 }
 
-// TestSupportedProtocolVersions 锁定版本声明范围：声明最新一版，且暂不声明
-// 去掉握手与会话的无状态修订版。
+// TestSupportedProtocolVersions 锁定版本声明范围：两条流程各自的版本都在声明
+// 之列，且按新→旧排列（协商时取最新的一版）。
 func TestSupportedProtocolVersions(t *testing.T) {
-	if !SupportsProtocolVersion(ProtocolVersion) {
-		t.Fatalf("offered version %q must be in the supported list", ProtocolVersion)
-	}
-	if SupportsProtocolVersion("2026-07-28") {
-		t.Error("the stateless revision must not be declared until its flow is implemented")
+	for _, v := range []string{StatelessProtocolVersion, HandshakeProtocolVersion} {
+		if !SupportsProtocolVersion(v) {
+			t.Fatalf("offered version %q must be in the supported list", v)
+		}
 	}
 	if SupportsProtocolVersion("") {
 		t.Error("empty version must not be reported as supported")
+	}
+	if SupportedProtocolVersions[0] != StatelessProtocolVersion {
+		t.Errorf("versions must be listed newest first, got %v", SupportedProtocolVersions)
+	}
+}
+
+func TestBestSupportedVersionPicksNewest(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want string
+		ok   bool
+	}{
+		{"stateless wins", []string{"2025-06-18", StatelessProtocolVersion}, StatelessProtocolVersion, true},
+		{"handshake only", []string{"2025-03-26", HandshakeProtocolVersion}, HandshakeProtocolVersion, true},
+		{"nothing in common", []string{"2024-11-05", "1900-01-01"}, "", false},
+		{"empty", nil, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := bestSupportedVersion(c.in)
+			if got != c.want || ok != c.ok {
+				t.Fatalf("bestSupportedVersion(%v) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
+
+// ===== 无状态流程 =====
+
+func TestStatelessSessionConnectsExecutesAndSubscribes(t *testing.T) {
+	srv := newFakeServer(mcpTool{
+		Name:        "search",
+		Description: "search things",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+	})
+	srv.setStateless(true)
+	srv.onCall = func(name string, _ map[string]any) *callToolResult {
+		return &callToolResult{Content: []contentItem{{Type: "text", Text: "result for " + name}}}
+	}
+	installFactory(t, &transportFactory{server: srv})
+
+	negBefore := testutil.ToFloat64(mcpProtocolNegotiations.WithLabelValues("stateless", StatelessProtocolVersion))
+	fallbacksBefore := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("stateless"))
+
+	mgr, err := NewManager(stdioConfig("stateless", func(sc *ServerConfig) {
+		sc.AllowStateless = true
+		sc.Reconnect = new(false)
+	}))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := t.Context()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "stateless tool materialization")
+
+	if !srv.sawMethod(methodDiscover) {
+		t.Error("the stateless flow must probe server/discover")
+	}
+	if !srv.sawMethod(methodSubscriptionsListen) {
+		t.Error("the stateless flow must subscribe to tool list changes")
+	}
+	if srv.sawMethod(methodInitialize) {
+		t.Error("the stateless flow must not perform an initialize handshake")
+	}
+	if delta := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("stateless")) - fallbacksBefore; delta != 0 {
+		t.Errorf("a stateless server must not trigger a fallback, delta = %v", delta)
+	}
+	if delta := testutil.ToFloat64(mcpProtocolNegotiations.WithLabelValues("stateless", StatelessProtocolVersion)) - negBefore; delta != 1 {
+		t.Errorf("negotiation delta = %v, want 1", delta)
+	}
+	// 每个请求都必须携带版本、客户端能力与身份。
+	for _, method := range []string{methodDiscover, methodListTools} {
+		meta := srv.lastMeta(method)
+		if meta == nil {
+			t.Fatalf("%s must carry _meta", method)
+		}
+		if got := meta[metaProtocolVersion]; got != StatelessProtocolVersion {
+			t.Errorf("%s: %s = %v, want %q", method, metaProtocolVersion, got, StatelessProtocolVersion)
+		}
+		if _, ok := meta[metaClientCapabilities]; !ok {
+			t.Errorf("%s: %s is required", method, metaClientCapabilities)
+		}
+		if _, ok := meta[metaClientInfo]; !ok {
+			t.Errorf("%s: %s is required", method, metaClientInfo)
+		}
+	}
+
+	tool := mgr.ListTools()[0]
+	if tool.Name != "mcp_stateless_search" {
+		t.Fatalf("model function name = %q, want mcp_stateless_search", tool.Name)
+	}
+	if !tool.RequiresApproval {
+		t.Error("external server tools must still require approval")
+	}
+	res, err := tool.ExecuteRich(context.Background(), map[string]any{"q": "x"})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if got := res.Flatten(); got != "result for search" {
+		t.Fatalf("flattened result = %q", got)
+	}
+	if meta := srv.lastMeta(methodCallTool); meta == nil || meta[metaProtocolVersion] != StatelessProtocolVersion {
+		t.Errorf("tools/call must carry the stateless _meta, got %v", meta)
+	}
+}
+
+func TestStatelessProbeFallsBackToHandshake(t *testing.T) {
+	srv := newFakeServer(mcpTool{Name: "a"}) // 未实现无状态流程
+	installFactory(t, &transportFactory{server: srv})
+
+	fallbacksBefore := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("fallback"))
+	negBefore := testutil.ToFloat64(mcpProtocolNegotiations.WithLabelValues("fallback", HandshakeProtocolVersion))
+
+	mgr, err := NewManager(stdioConfig("fallback", func(sc *ServerConfig) {
+		sc.AllowStateless = true
+		sc.Reconnect = new(false)
+	}))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := t.Context()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "fallback tool materialization")
+
+	if !srv.sawMethod(methodDiscover) {
+		t.Error("the probe must be attempted first")
+	}
+	if !srv.sawMethod(methodInitialize) {
+		t.Error("a non-modern server must fall back to the initialize handshake")
+	}
+	if srv.sawMethod(methodSubscriptionsListen) {
+		t.Error("no subscription may be opened on a handshake-era server")
+	}
+	if delta := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("fallback")) - fallbacksBefore; delta != 1 {
+		t.Errorf("fallback delta = %v, want 1", delta)
+	}
+	if delta := testutil.ToFloat64(mcpProtocolNegotiations.WithLabelValues("fallback", HandshakeProtocolVersion)) - negBefore; delta != 1 {
+		t.Errorf("handshake negotiation delta = %v, want 1", delta)
+	}
+}
+
+// TestStatelessProbeFallsBackWhenVersionRejected 覆盖"对端是现代实现但不支持
+// 所选版本"：服务器以 UnsupportedProtocolVersionError 作答，客户端据此改用
+// 握手流程（而不是把它当成协议错误直接失败）。
+func TestStatelessProbeFallsBackWhenVersionRejected(t *testing.T) {
+	srv := newFakeServer(mcpTool{Name: "a"})
+	srv.setStateless(true)
+	srv.setDiscoverVersions(HandshakeProtocolVersion)
+	srv.setRejectVersion(true)
+	installFactory(t, &transportFactory{server: srv})
+
+	fallbacksBefore := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("rejected"))
+
+	mgr, err := NewManager(stdioConfig("rejected", func(sc *ServerConfig) {
+		sc.AllowStateless = true
+		sc.Reconnect = new(false)
+	}))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := t.Context()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "fallback tool materialization")
+
+	if !srv.sawMethod(methodInitialize) {
+		t.Error("a server rejecting the version must fall back to the initialize handshake")
+	}
+	if srv.sawMethod(methodSubscriptionsListen) {
+		t.Error("no subscription may be opened when the stateless flow was rejected")
+	}
+	if delta := testutil.ToFloat64(mcpProtocolFallbacks.WithLabelValues("rejected")) - fallbacksBefore; delta != 1 {
+		t.Errorf("fallback delta = %v, want 1", delta)
+	}
+}
+
+func TestStatelessDisabledByDefault(t *testing.T) {
+	srv := newFakeServer(mcpTool{Name: "a"})
+	srv.setStateless(true)
+	installFactory(t, &transportFactory{server: srv})
+
+	mgr, err := NewManager(stdioConfig("handshake-only", func(sc *ServerConfig) {
+		sc.Reconnect = new(false)
+	}))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := t.Context()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "handshake tool materialization")
+
+	if srv.sawMethod(methodDiscover) {
+		t.Error("the stateless probe must be opt-in (allow_stateless)")
+	}
+	if !srv.sawMethod(methodInitialize) {
+		t.Error("the handshake flow must be used by default")
 	}
 }
 

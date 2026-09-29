@@ -112,6 +112,11 @@ type ServerConfig struct {
 	Reconnect *bool `json:"reconnect"`
 	// AlwaysRequireApproval 任意审批模式下都强制审批。
 	AlwaysRequireApproval bool `json:"always_require_approval"`
+	// AllowStateless 允许优先尝试无状态流程（2026-07-28 起：没有握手与会话，
+	// 版本/能力/身份经每个请求的 _meta 传递，变更通知经 subscriptions/listen
+	// 订阅）。默认关闭——它是一条新的协议路径，需要在配置里显式声明；对端不是
+	// 现代实现时会自动回退到握手流程。
+	AllowStateless bool `json:"allow_stateless"`
 }
 
 // Config 本子系统的配置。

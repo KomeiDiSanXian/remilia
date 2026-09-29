@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -236,5 +238,152 @@ func TestHTTPTransportSendsNegotiatedProtocolVersion(t *testing.T) {
 	close(problems)
 	for p := range problems {
 		t.Error(p)
+	}
+}
+
+// TestHTTPStatelessHeadersAndNoStream 覆盖无状态流程的 HTTP 约定：每个请求都带
+// 协议版本头与方法镜像头（tools/call 还带工具名），且不再打开独立的 GET 事件流
+// ——变更通知改由 subscriptions/listen 订阅。
+func TestHTTPStatelessHeadersAndNoStream(t *testing.T) {
+	fake := newFakeServer(mcpTool{Name: "search"})
+	fake.setStateless(true)
+
+	type seen struct{ mirrored, body, version string }
+	var mu sync.Mutex
+	var got []seen
+	var gets int
+
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			mu.Lock()
+			gets++
+			mu.Unlock()
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var env struct {
+			Method string `json:"method"`
+			Name   string `json:"name"`
+		}
+		_ = json.Unmarshal(body, &env)
+		mu.Lock()
+		got = append(got, seen{
+			mirrored: r.Header.Get("Mcp-Method"),
+			body:     env.Method,
+			version:  r.Header.Get("MCP-Protocol-Version"),
+		})
+		mu.Unlock()
+		resp := fake.handle(body)
+		if resp == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(resp)
+	}))
+	defer httpSrv.Close()
+
+	cfg := ServerConfig{
+		Name:              "stateless-http",
+		Transport:         "http",
+		URL:               httpSrv.URL,
+		AllowInsecureHTTP: true,
+		AllowStateless:    true,
+		Timeout:           Duration(2 * time.Second),
+		Reconnect:         new(false),
+	}
+	cl, err := newClient(cfg)
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	defer cl.close()
+	ctx := t.Context()
+	if err := cl.start(ctx, 2*time.Second); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := cl.watch(ctx); err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	if _, err := cl.listTools(ctx); err != nil {
+		t.Fatalf("listTools: %v", err)
+	}
+	if _, err := cl.callTool(ctx, "search", nil); err != nil {
+		t.Fatalf("callTool: %v", err)
+	}
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, s := range got {
+			if s.body == methodSubscriptionsListen {
+				return true
+			}
+		}
+		return false
+	}, "subscription request")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gets != 0 {
+		t.Errorf("the stateless flow must not open the legacy GET event stream, got %d GET(s)", gets)
+	}
+	byMethod := make(map[string]seen, len(got))
+	for _, s := range got {
+		if s.version != StatelessProtocolVersion {
+			t.Errorf("%s: MCP-Protocol-Version = %q, want %q", s.body, s.version, StatelessProtocolVersion)
+		}
+		if s.mirrored != s.body {
+			t.Errorf("Mcp-Method = %q must mirror the body method %q", s.mirrored, s.body)
+		}
+		byMethod[s.body] = s
+	}
+	for _, want := range []string{methodDiscover, methodListTools, methodCallTool, methodSubscriptionsListen} {
+		if _, ok := byMethod[want]; !ok {
+			t.Errorf("expected a %s request", want)
+		}
+	}
+	if _, ok := byMethod[methodInitialize]; ok {
+		t.Error("the stateless flow must not perform an initialize handshake")
+	}
+}
+
+// TestMirrorHeaders 覆盖方法镜像头：Mcp-Method 对所有请求必填，Mcp-Name 只在
+// tools/call（resources/read、prompts/get）上出现。
+func TestMirrorHeaders(t *testing.T) {
+	call, _ := encodeRequest(1, methodCallTool, callToolParams{Name: "get_weather"})
+	h := http.Header{}
+	mirrorHeaders(h, call)
+	if h.Get("Mcp-Method") != methodCallTool {
+		t.Errorf("Mcp-Method = %q, want %q", h.Get("Mcp-Method"), methodCallTool)
+	}
+	if h.Get("Mcp-Name") != "get_weather" {
+		t.Errorf("Mcp-Name = %q, want get_weather", h.Get("Mcp-Name"))
+	}
+
+	list, _ := encodeRequest(2, methodListTools, listToolsParams{})
+	h = http.Header{}
+	mirrorHeaders(h, list)
+	if h.Get("Mcp-Method") != methodListTools {
+		t.Errorf("Mcp-Method = %q, want %q", h.Get("Mcp-Method"), methodListTools)
+	}
+	if h.Get("Mcp-Name") != "" {
+		t.Errorf("Mcp-Name must be absent on tools/list, got %q", h.Get("Mcp-Name"))
+	}
+}
+
+// TestEncodeHeaderValue 锁定 Base64 哨兵编码：无法安全表示的值（非 ASCII、首尾
+// 空白、换行）与本身匹配哨兵模式的值都必须编码，取值与规范示例一致。
+func TestEncodeHeaderValue(t *testing.T) {
+	cases := map[string]string{
+		"get_weather":        "get_weather",
+		"Hello, 世界":          "=?base64?SGVsbG8sIOS4lueVjA==?=",
+		" padded ":           "=?base64?IHBhZGRlZCA=?=",
+		"line1\nline2":       "=?base64?bGluZTEKbGluZTI=?=",
+		"=?base64?literal?=": "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=",
+	}
+	for in, want := range cases {
+		if got := encodeHeaderValue(in); got != want {
+			t.Errorf("encodeHeaderValue(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -111,6 +111,23 @@ func (t *stdioTransport) Send(ctx context.Context, msg []byte) error {
 	return nil
 }
 
+// SendStream 发送一条报文并等待它开启的长连流结束（实现 [Transport]）。
+//
+// stdio 是共享的单通道：服务器推送的通知经 Start 注册的 handler 到达，不存在
+// 请求私有的响应流。长连流的生命周期因此与子进程一致——阻塞到子进程退出
+// （读取循环结束）或 ctx 取消。
+func (t *stdioTransport) SendStream(ctx context.Context, msg []byte) error {
+	if err := t.Send(ctx, msg); err != nil {
+		return err
+	}
+	select {
+	case <-t.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Close 关闭输入并终止子进程（Windows 下连同进程树）。
 func (t *stdioTransport) Close() error {
 	t.closeOnce.Do(func() {

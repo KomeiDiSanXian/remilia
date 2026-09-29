@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -11,14 +12,34 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// client.go — 单个服务器的协议客户端：握手、列工具、调工具、处理通知。
+// client.go — 单个服务器的协议客户端：报文收发、请求-响应关联与会话编排。
 //
 // 请求按数字 id 关联响应；服务器主动发来的通知（如工具列表变化）在读取循环里
 // 处理并回调，不阻塞请求。
+//
+// 客户端本身不关心"协议方言"：握手流程与无状态流程各由一个 [protocolSession]
+// 实现（protocol_handshake.go / protocol_stateless.go），二者共用这里的 id
+// 分配、等待队列与通知路由。
+
+// protocolSession 一条协议流程（协议方言）的实现。两种流程共享 client 的
+// 收发设施，只在"怎么协商、怎么订阅"上不同。
+type protocolSession interface {
+	// Connect 建立连接并完成该流程的协商（握手流程的 initialize；无状态流程的
+	// server/discover）。对端时代不符时返回 [errLegacyServer]。
+	Connect(ctx context.Context, timeout time.Duration) error
+	// ListTools 拉取全部工具（自动翻页）。
+	ListTools(ctx context.Context) ([]mcpTool, error)
+	// CallTool 调用一个工具。
+	CallTool(ctx context.Context, name string, args map[string]any) (*callToolResult, error)
+	// Watch 开始接收服务器推送的变更通知。握手流程的通知经既有通道到达，为空
+	// 实现；无状态流程需显式订阅（subscriptions/listen）。
+	Watch(ctx context.Context) error
+}
 
 type client struct {
-	cfg ServerConfig
-	tr  Transport
+	cfg  ServerConfig
+	tr   Transport
+	sess protocolSession
 
 	nextID atomic.Int64
 
@@ -45,6 +66,49 @@ func newClient(cfg ServerConfig) (*client, error) {
 		pending: make(map[int64]chan rpcResponse),
 		done:    make(chan struct{}),
 	}, nil
+}
+
+// session 返回当前生效的协议流程；尚未连接时为 nil。
+func (c *client) session() protocolSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sess
+}
+
+// setSession 记录生效的协议流程。
+func (c *client) setSession(s protocolSession) {
+	c.mu.Lock()
+	c.sess = s
+	c.mu.Unlock()
+}
+
+// connect 选择协议流程并完成协商。
+//
+// 显式允许时先探测无状态流程；对端不是现代实现（返回 [errLegacyServer]）时
+// 回退到握手流程。时代判定是对端的属性而非单次请求的属性，因此一次探测的结论
+// 即代表该对端。
+func (c *client) connect(ctx context.Context, timeout time.Duration) error {
+	if c.cfg.AllowStateless {
+		sess := &statelessSession{c: c}
+		err := sess.Connect(ctx, timeout)
+		if err == nil {
+			c.setSession(sess)
+			return nil
+		}
+		if !errors.Is(err, errLegacyServer) {
+			return err
+		}
+		logger.Debugf("[MCP] %s: server does not speak the stateless flow, falling back to the initialize handshake: %v", c.cfg.Name, err)
+		recordProtocolFallback(c.cfg.Name)
+		// 清掉探测时带上的版本，交给握手流程重新协商。
+		c.setProtocolVersion("")
+	}
+	sess := &handshakeSession{c: c}
+	if err := sess.Connect(ctx, timeout); err != nil {
+		return err
+	}
+	c.setSession(sess)
+	return nil
 }
 
 // newTransport 按传输类型构造传输实现。抽成包级变量以便测试注入内存传输。
@@ -84,68 +148,62 @@ func (c *client) start(ctx context.Context, timeout time.Duration) error {
 			}
 		}()
 	}
-
-	hsCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	var res initializeResult
-	err := c.callInto(hsCtx, methodInitialize, initializeParams{
-		ProtocolVersion: ProtocolVersion,
-		Capabilities:    map[string]any{},
-		ClientInfo:      clientInfo{Name: "remilia", Version: "1.0.0"},
-	}, &res)
-	if err != nil {
-		return fmt.Errorf("mcp: %s: initialize: %w", c.cfg.Name, err)
+	if err := c.connect(ctx, timeout); err != nil {
+		return err
 	}
-	negotiated := res.ProtocolVersion
-	if negotiated == "" {
-		negotiated = ProtocolVersion
-	}
-	c.mu.Lock()
-	c.serverInfo = res.ServerInfo
-	c.protocolVersion = negotiated
-	c.mu.Unlock()
-	switch {
-	case !SupportsProtocolVersion(negotiated):
-		logger.Warnf("[MCP] %s: server selected protocol %q, which this client does not declare support for; continuing on the common subset",
-			c.cfg.Name, negotiated)
-	case negotiated != ProtocolVersion:
-		logger.Debugf("[MCP] %s: negotiated protocol %q (client offered %q)",
-			c.cfg.Name, negotiated, ProtocolVersion)
-	}
-	// HTTP 传输须在初始化后的每个请求上携带协商出的协议版本头。
-	if setter, ok := c.tr.(protocolVersionSetter); ok {
-		setter.SetProtocolVersion(negotiated)
-	}
-	if nb, err := encodeNotification(methodInitialized, map[string]any{}); err == nil {
-		_ = c.tr.Send(hsCtx, nb)
-	}
+	recordProtocolNegotiation(c.cfg.Name, c.currentProtocolVersion())
 	return nil
+}
+
+// setProtocolVersion 记录生效的协议版本；HTTP 传输还须在后续请求头上携带它。
+func (c *client) setProtocolVersion(v string) {
+	c.mu.Lock()
+	c.protocolVersion = v
+	c.mu.Unlock()
+	if setter, ok := c.tr.(protocolVersionSetter); ok {
+		setter.SetProtocolVersion(v)
+	}
+}
+
+// currentProtocolVersion 返回当前生效的协议版本（未协商出时为空）。
+func (c *client) currentProtocolVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.protocolVersion
+}
+
+// setServerInfo 记录对端自报的身份（仅用于日志/展示）。
+func (c *client) setServerInfo(info serverInfo) {
+	c.mu.Lock()
+	c.serverInfo = info
+	c.mu.Unlock()
 }
 
 // listTools 拉取全部工具（自动翻页）。
 func (c *client) listTools(ctx context.Context) ([]mcpTool, error) {
-	var all []mcpTool
-	cursor := ""
-	for {
-		var res listToolsResult
-		if err := c.callInto(ctx, methodListTools, listToolsParams{Cursor: cursor}, &res); err != nil {
-			return nil, err
-		}
-		all = append(all, res.Tools...)
-		if res.NextCursor == "" {
-			return all, nil
-		}
-		cursor = res.NextCursor
+	sess := c.session()
+	if sess == nil {
+		return nil, fmt.Errorf("mcp: %s: client is not connected", c.cfg.Name)
 	}
+	return sess.ListTools(ctx)
 }
 
 // callTool 调用一个工具。
 func (c *client) callTool(ctx context.Context, name string, args map[string]any) (*callToolResult, error) {
-	var res callToolResult
-	if err := c.callInto(ctx, methodCallTool, callToolParams{Name: name, Arguments: args}, &res); err != nil {
-		return nil, err
+	sess := c.session()
+	if sess == nil {
+		return nil, fmt.Errorf("mcp: %s: client is not connected", c.cfg.Name)
 	}
-	return &res, nil
+	return sess.CallTool(ctx, name, args)
+}
+
+// watch 开始接收服务器推送的变更通知（见 [protocolSession.Watch]）。
+func (c *client) watch(ctx context.Context) error {
+	sess := c.session()
+	if sess == nil {
+		return fmt.Errorf("mcp: %s: client is not connected", c.cfg.Name)
+	}
+	return sess.Watch(ctx)
 }
 
 // callInto 发起请求并把结果反序列化到 out。
@@ -165,7 +223,7 @@ func (c *client) call(ctx context.Context, method string, params any) (raw json.
 	start := time.Now()
 	defer func() { recordRPCRequest(c.cfg.Name, method, time.Since(start), err) }()
 
-	id := c.nextID.Add(1)
+	id := c.nextRequestID()
 	ch := make(chan rpcResponse, 1)
 	c.mu.Lock()
 	c.pending[id] = ch
@@ -196,6 +254,10 @@ func (c *client) call(ctx context.Context, method string, params any) (raw json.
 	}
 }
 
+// nextRequestID 分配一个连接内唯一的请求 id。无状态流程的订阅流需要在请求之外
+// 自行分配 id，故单独暴露。
+func (c *client) nextRequestID() int64 { return c.nextID.Add(1) }
+
 // handleMessage 处理一条入站报文：响应交给等待方，通知就地处理。
 func (c *client) handleMessage(raw []byte) {
 	var env rpcEnvelope
@@ -214,6 +276,8 @@ func (c *client) handleMessage(raw []byte) {
 	}
 	switch env.Method {
 	case methodToolsListChanged:
+		// 无状态流程下该通知经 subscriptions/listen 到达（带订阅 id）；本接入只
+		// 订阅工具列表变化，故不区分来源：任何工具列表变化都触发刷新。
 		recordRPCNotification(c.cfg.Name, env.Method)
 		c.mu.Lock()
 		cb := c.onChange
@@ -246,3 +310,16 @@ func (c *client) close() {
 
 // closed 在客户端关闭时关闭。
 func (c *client) closed() <-chan struct{} { return c.done }
+
+// alive 报告连接是否仍可用：ctx 未取消且客户端未关闭。
+func (c *client) alive(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case <-c.done:
+		return false
+	default:
+		return true
+	}
+}

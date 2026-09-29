@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -88,26 +90,10 @@ func (t *httpTransport) SetProtocolVersion(v string) {
 
 // Send 发送一条报文并把收到的响应交给回调。
 func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.cfg.URL, bytes.NewReader(msg))
+	req, err := t.newPost(ctx, msg)
 	if err != nil {
-		return fmt.Errorf("mcp: %s: build request: %w", t.cfg.Name, err)
+		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	for k, v := range expandHeaders(t.cfg.Headers) {
-		req.Header.Set(k, v)
-	}
-	t.mu.Lock()
-	sid := t.sessionID
-	pv := t.protocolVersion
-	t.mu.Unlock()
-	if sid != "" {
-		req.Header.Set("Mcp-Session-Id", sid)
-	}
-	if pv != "" {
-		req.Header.Set("MCP-Protocol-Version", pv)
-	}
-
 	resp, err := t.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("mcp: %s: request: %w", t.cfg.Name, err)
@@ -135,9 +121,86 @@ func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	} else {
 		t.dispatch(body)
 	}
-	// 会话已建立：尽力打开服务器推送通道（仅一次）。
-	t.ensureStream()
+	// 握手流程：会话已建立，尽力打开服务器推送通道（仅一次）。无状态流程没有
+	// 独立的 GET 事件流，变更通知经 subscriptions/listen 到达。
+	if t.version() != StatelessProtocolVersion {
+		t.ensureStream()
+	}
 	return nil
+}
+
+// SendStream 发送一条报文并持续消费它开启的长连响应流（实现 [Transport]）。
+//
+// 与 Send 的区别只在响应形态：流会长期打开，因此既不设整体超时，也不等待
+// 完整响应，而是逐条把流内报文交给 handler，直到流结束或 ctx 取消。
+func (t *httpTransport) SendStream(ctx context.Context, msg []byte) error {
+	// 同时受调用方 ctx 与传输生命周期约束：任一方结束都应关闭流。
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(t.baseCtx, cancel)
+	defer stop()
+
+	req, err := t.newPost(ctx, msg)
+	if err != nil {
+		return err
+	}
+	resp, err := t.streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("mcp: %s: stream request: %w", t.cfg.Name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("mcp: %s: http %d: %s", t.cfg.Name, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		return t.consumeSSE(resp.Body)
+	}
+	limit := t.cfg.maxResponseBytes()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return fmt.Errorf("mcp: %s: read response: %w", t.cfg.Name, err)
+	}
+	if int64(len(body)) > limit {
+		return fmt.Errorf("mcp: %s: response exceeds %d bytes", t.cfg.Name, limit)
+	}
+	t.dispatch(body)
+	return nil
+}
+
+// newPost 构造一条 POST 请求：固定头、自定义头与会话/协议版本头，并在无状态
+// 流程下补齐方法镜像头（Mcp-Method / Mcp-Name）。
+func (t *httpTransport) newPost(ctx context.Context, msg []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.cfg.URL, bytes.NewReader(msg))
+	if err != nil {
+		return nil, fmt.Errorf("mcp: %s: build request: %w", t.cfg.Name, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range expandHeaders(t.cfg.Headers) {
+		req.Header.Set(k, v)
+	}
+	t.mu.Lock()
+	sid := t.sessionID
+	pv := t.protocolVersion
+	t.mu.Unlock()
+	if sid != "" {
+		req.Header.Set("Mcp-Session-Id", sid)
+	}
+	if pv != "" {
+		req.Header.Set("MCP-Protocol-Version", pv)
+	}
+	if pv == StatelessProtocolVersion {
+		mirrorHeaders(req.Header, msg)
+	}
+	return req, nil
+}
+
+// version 返回当前记录的协议版本。
+func (t *httpTransport) version() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.protocolVersion
 }
 
 // Close 取消事件流并释放空闲连接（幂等）。
@@ -280,4 +343,53 @@ func (t *httpTransport) consumeSSE(r io.Reader) error {
 	}
 	flush()
 	return sc.Err()
+}
+
+// 无状态流程的 HTTP 头镜像：把报文体里的方法/工具名复制到请求头，供中间层
+// 不经解析报文体即可路由（这些头对现代服务器是 REQUIRED）。
+func mirrorHeaders(h http.Header, msg []byte) {
+	var env rpcEnvelope
+	if err := json.Unmarshal(msg, &env); err != nil {
+		return
+	}
+	if env.Method != "" {
+		h.Set("Mcp-Method", encodeHeaderValue(env.Method))
+	}
+	if env.Method == methodCallTool {
+		var p callToolParams
+		if err := json.Unmarshal(env.Params, &p); err == nil && p.Name != "" {
+			h.Set("Mcp-Name", encodeHeaderValue(p.Name))
+		}
+	}
+}
+
+// Base64 哨兵：值无法安全放进 ASCII 头时用它包裹编码后的内容。
+const (
+	headerBase64Prefix = "=?base64?"
+	headerBase64Suffix = "?="
+)
+
+// encodeHeaderValue 按无状态流程的约定编码头值：可安全表示的值原样使用，
+// 否则用 =?base64?…?= 哨兵包裹；本身匹配哨兵模式的值也必须编码，避免歧义。
+func encodeHeaderValue(v string) string {
+	if v == "" {
+		return ""
+	}
+	if isPlainHeaderValue(v) && !strings.HasPrefix(v, headerBase64Prefix) {
+		return v
+	}
+	return headerBase64Prefix + base64.StdEncoding.EncodeToString([]byte(v)) + headerBase64Suffix
+}
+
+// isPlainHeaderValue 报告值能否直接作为 ASCII 头值（可见 ASCII 且无首尾空白）。
+func isPlainHeaderValue(v string) bool {
+	if v == "" || v != strings.TrimSpace(v) {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		if c := v[i]; c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	return true
 }

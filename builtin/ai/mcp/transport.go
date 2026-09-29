@@ -15,6 +15,10 @@ type Transport interface {
 	// Send 发送一条报文。请求-响应式传输（http）会在返回前把收到的响应交给
 	// 已注册的 handler。
 	Send(ctx context.Context, msg []byte) error
+	// SendStream 发送一条报文并持续消费它开启的长连响应流：流内每条报文即时
+	// 交给已注册的 handler，直到流结束或 ctx 取消。用于无状态流程的
+	// subscriptions/listen——它与普通请求的区别只在响应是长期打开的流。
+	SendStream(ctx context.Context, msg []byte) error
 	// Close 关闭通道并释放资源（子进程、连接等）。
 	Close() error
 }

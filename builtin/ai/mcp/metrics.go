@@ -104,6 +104,24 @@ var (
 		},
 		[]string{"server"},
 	)).(*prometheus.CounterVec)
+
+	mcpProtocolNegotiations = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "mcp",
+			Name:      "protocol_negotiations_total",
+			Help:      "成功建立连接时生效的 MCP 协议版本分布（version 为具体版本号）",
+		},
+		[]string{"server", "version"},
+	)).(*prometheus.CounterVec)
+
+	mcpProtocolFallbacks = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "mcp",
+			Name:      "protocol_fallbacks_total",
+			Help:      "无状态流程探测未能成立（对端为握手时代或未声明无状态版本）而回退到 initialize 的次数",
+		},
+		[]string{"server"},
+	)).(*prometheus.CounterVec)
 )
 
 // recordServerUp 记录服务器连接状态。
@@ -153,4 +171,17 @@ func recordRPCNotification(server, method string) {
 // recordUnavailableCall 记录一次"软不可用时的调用"。
 func recordUnavailableCall(server string) {
 	mcpUnavailableCalls.WithLabelValues(server).Inc()
+}
+
+// recordProtocolNegotiation 记录一次成功连接后生效的协议版本。
+func recordProtocolNegotiation(server, version string) {
+	if version == "" {
+		return
+	}
+	mcpProtocolNegotiations.WithLabelValues(server, version).Inc()
+}
+
+// recordProtocolFallback 记录一次"探测无状态流程失败、回退到握手流程"。
+func recordProtocolFallback(server string) {
+	mcpProtocolFallbacks.WithLabelValues(server).Inc()
 }

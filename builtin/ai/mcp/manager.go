@@ -227,6 +227,11 @@ func (m *Manager) connectOnce(s *serverState) bool {
 		m.notify()
 		return false
 	}
+	// 先订阅变更通知再首次拉取工具：拉取期间发生的列表变化不会漏掉。无状态
+	// 流程需要这次显式订阅，握手流程是空实现。订阅失败不影响连接本身。
+	if err := cl.watch(m.ctx); err != nil {
+		logger.Debugf("[MCP] %s: subscribe to tool list changes failed: %v", s.cfg.Name, err)
+	}
 	listCtx, cancel := context.WithTimeout(m.ctx, s.cfg.timeout())
 	tools, err := cl.listTools(listCtx)
 	cancel()
