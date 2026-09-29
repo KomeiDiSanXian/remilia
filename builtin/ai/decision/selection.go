@@ -109,7 +109,11 @@ func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, c
 	}
 	queryTokens := retrieval.TokenizeText(query)
 
-	if cached := sess.ToolSelection(); cached != nil && cached.ToolCount == len(actions) {
+	// 复用条件：目录代数一致（目录成员未变）且可见动作数一致（每轮过滤结果未变）。
+	// 代数把"来源增删动作"与"每调用者过滤"两类变化都纳入，二者任一变化即不复用。
+	if cached := sess.ToolSelection(); cached != nil &&
+		cached.CatalogGeneration == opts.CatalogGeneration &&
+		cached.ToolCount == len(actions) {
 		if time.Since(cached.At) <= SelectionCacheTTL &&
 			retrieval.JaccardSimilarity(queryTokens, cached.QueryTokens) >= SelectionCacheJaccard {
 			cand := cachedTools(actions, cached.Names)
@@ -211,10 +215,11 @@ func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, c
 		names = append(names, a.Spec.Name)
 	}
 	sess.SetToolSelection(&session.SelectionCache{
-		QueryTokens: queryTokens,
-		At:          time.Now(),
-		ToolCount:   len(actions),
-		Names:       names,
+		QueryTokens:       queryTokens,
+		At:                time.Now(),
+		ToolCount:         len(actions),
+		Names:             names,
+		CatalogGeneration: opts.CatalogGeneration,
 	})
 
 	return StabilizeToolSet(opts, sess, actions, out, observe)

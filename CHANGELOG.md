@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### ✨ AI 插件接入 MCP（Model Context Protocol）外部工具服务器
+
+- **外部工具来源**：新增独立插件 `builtin/ai/mcp`，把外部工具服务器（MCP）
+  接入为 AI 的工具来源。配置自持于 `plugins.mcp`（AI 插件配置保持为叶子，
+  不新增 MCP 字段），支持 `stdio`（启动子进程）与 `http`（Streamable HTTP /
+  SSE）两种传输。插件经既有的 `ToolProvider` / 工具发现机制装配，AI 核心
+  （decision/runtime/execution）对该来源零改动
+- **动态目录与代数**：工具目录被正式建模为不可变、带代数的
+  `catalog.CatalogSnapshot`；来源可动态变化（`ToolChangeNotifier` 通知目录
+  重同步），但工具本身保持不可变。`ToolRegistry` 仍是"登记/查找"的兼容 API，
+  聚合、快照与代数归目录 owner——不再让单个注册表长成超级管理器
+- **可用性状态机**：新增 `catalog.Availability`（`Ready` / 策略禁止 /
+  来源未加载 / 断开 / 配置禁用 / 已移除）。策略禁止与配置禁用为**硬不可用**，
+  立即从可选集合收缩（权限收缩立即生效）；来源断开为**软不可用**，工具保留在
+  稳定集合中、仅调用时报类型化错误——以此避免一次连接抖动放大成整段提示词
+  前缀缓存失效
+- **缓存代数关联**：会话级选择缓存与工具集稳定状态携带目录代数，仅在代数与
+  可见动作数都一致时复用；来源增删工具会推进代数并让缓存失效，而同名改 schema
+  或重连同集合不推进代数（连接抖动不再击穿缓存）
+- **身份模型**：引入 `toolkit.ActionID{Source, Name}` 表达动作身份（外部来源为
+  `mcp:<server>`），模型函数名作为可重命名的展示投影由目录确定分配
+  （`mcp_<server>_<tool>`，冲突时确定性地追加序号）。内置/命令/技能来源行为
+  不变（缺省即内置）
+- **富结果**：`toolkit.ToolResult` / `runtime.ActionResult.Parts` 支持 text /
+  image / audio / resource / structured 片段；MCP `tools/call` 结果是唯一的
+  转换点。回填给模型仍以文本投影为准（非文本片段保守降级为可读说明）
+- **安全边界**：外部服务器视为不可信对端。所有 MCP 工具都经同一管线
+  `目录选择 → ActionPolicy → 审批/RBAC → Invoker` 执行，**没有** AI 直连
+  MCP client 的旁路；工具默认需要审批，服务器注解（如 `destructiveHint`）
+  只能**收紧**策略、不能放松。stdio 命令须在 `allowed_commands` 白名单内、
+  仅透传白名单环境变量；http 强制 https（回环可显式放开）、做 SSRF 防护
+  （私网/回环/链路本地/云元数据）、始终校验 TLS，凭据经 `${ENV}` 引用不落明文
+
 ## v1.66.1 (2026-09-29)
 
 ### 🐛 AI 插件缺陷修复：审批/提醒生命周期、并发安全、命令输出、预算缩量与写放大

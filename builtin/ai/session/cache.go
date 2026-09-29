@@ -19,6 +19,9 @@ type SelectionCache struct {
 	At          time.Time
 	ToolCount   int
 	Names       []string
+	// CatalogGeneration 记录该选择结果对应的目录代数；目录内容变化后不
+	// 再复用（软不可用切换不推进代数，因此不失效）。
+	CatalogGeneration uint64
 }
 
 // ToolSelection 返回会话缓存的工具选择结果副本（无缓存返回 nil）。
@@ -93,6 +96,8 @@ type ToolSetState struct {
 	Generation uint64
 	// ChangedAt 最近一次变更时间。
 	ChangedAt time.Time
+	// CatalogGeneration 记录该稳定集合收敛时的目录代数。
+	CatalogGeneration uint64
 }
 
 // clone 深拷贝状态（跨锁返回，避免调用方在锁外读写共享字段）。
@@ -101,9 +106,10 @@ func (st *ToolSetState) clone() *ToolSetState {
 		return nil
 	}
 	cp := &ToolSetState{
-		Names:      append([]string(nil), st.Names...),
-		Generation: st.Generation,
-		ChangedAt:  st.ChangedAt,
+		Names:             append([]string(nil), st.Names...),
+		Generation:        st.Generation,
+		ChangedAt:         st.ChangedAt,
+		CatalogGeneration: st.CatalogGeneration,
 	}
 	if len(st.LastSeen) > 0 {
 		cp.LastSeen = make(map[string]time.Time, len(st.LastSeen))

@@ -141,9 +141,10 @@ func StabilizeToolSet(opts SelectionOptions, sess *session.Session, available, c
 
 	// 回写状态：即使集合未变也要更新 LastSeen（衰减依赖它）。
 	state := &session.ToolSetState{
-		Names:      next,
-		LastSeen:   restrictLastSeen(lastSeen, next),
-		Generation: gen,
+		Names:             next,
+		LastSeen:          restrictLastSeen(lastSeen, next),
+		Generation:        gen,
+		CatalogGeneration: opts.CatalogGeneration,
 	}
 	if changed || st == nil {
 		state.ChangedAt = now

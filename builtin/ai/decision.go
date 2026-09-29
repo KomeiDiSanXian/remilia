@@ -39,7 +39,9 @@ import (
 // 但无权的动作不进入模型视野（避免占名额与"调用了才被告知无权"）。
 // 执行路径的权限校验保留为纵深防御。
 func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Session) []toolkit.Action {
-	actions := p.reg.Actions()
+	// 目录快照是聚合边界：来源（注册表、外部工具服务器）的可变状态在此固定为
+	// 一份只读视图；本函数只在其上做每调用者的收敛（用户 Skill、群策略、RBAC）。
+	actions := p.catalogSnapshot().Actions()
 	actions = append(actions, p.userSkillActions(session.UserID)...)
 
 	// per-group 工具白名单过滤（/ai group set tools）
@@ -83,13 +85,17 @@ func (p *Plugin) decideTurnActions(ctx *eventctx.Context, session *session.Sessi
 // 打分、会话缓存与稳定策略见 builtin/ai/decision；本方法只交出插件持有的配置、
 // 嵌入器、会话与本轮查询（最后一条用户消息）。
 func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *session.Session, actions []toolkit.Action) []toolkit.Action {
-	return decision.SelectToolsForTurn(selectionOptions(p.cfg), p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
+	opts := selectionOptions(p.cfg)
+	opts.CatalogGeneration = p.catalogGeneration()
+	return decision.SelectToolsForTurn(opts, p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
 }
 
 // stabilizeToolSet 在检索候选之上应用会话级稳定策略。
 // 实现见 builtin/ai/decision；recordToolSet 作为观测端口注入，指标名与标签不变。
 func (p *Plugin) stabilizeToolSet(session *session.Session, available, candidate []toolkit.Action) []toolkit.Action {
-	return decision.StabilizeToolSet(selectionOptions(p.cfg), session, available, candidate, recordToolSet)
+	opts := selectionOptions(p.cfg)
+	opts.CatalogGeneration = p.catalogGeneration()
+	return decision.StabilizeToolSet(opts, session, available, candidate, recordToolSet)
 }
 
 // needAction 判断本轮是否需要主动寻找并执行新的动作。

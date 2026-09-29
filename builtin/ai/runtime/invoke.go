@@ -21,6 +21,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // ActionResult 一次动作调用的结果。
@@ -33,6 +34,12 @@ type ActionResult struct {
 	Text string
 	// Err 非空表示本次调用失败。
 	Err error
+	// Parts 富结果的原始片段（可选）。Text 始终是可直接回填的文本投影；
+	// Parts 供未来多模态回灌使用，当前文本路径不依赖它。
+	Parts []toolkit.ResultPart
+	// Attachments 富结果中的媒体附件（可选）：图片/音频等可直接走框架既有的
+	// 附件通道。当前文本回填不依赖它，供装配侧按需消费。
+	Attachments []platform.Attachment
 }
 
 // Invoker 一次动作调用的执行器契约。三种执行语义（普通动作 / 真实命令 /
@@ -55,12 +62,25 @@ type FuncInvoker struct {
 	Args map[string]any
 	// Fn 工具自身的 Execute 回调。
 	Fn func(context.Context, map[string]any) (string, error)
+	// Rich 工具自身的富结果回调（可选）。非空时优先于 Fn。
+	Rich func(context.Context, map[string]any) (toolkit.ToolResult, error)
 	// Record 观测回调：调用结束（无论成败）时上报动作名与错误，可为 nil。
 	Record RecordFunc
 }
 
 // Invoke 真执行回调，并把失败格式化为模型可见文本。
+// 工具实现了富结果回调（Rich）时优先使用，正文取其文本投影。
 func (i FuncInvoker) Invoke(ctx context.Context) ActionResult {
+	if i.Rich != nil {
+		result, err := i.Rich(ctx, i.Args)
+		if i.Record != nil {
+			i.Record(i.Name, err)
+		}
+		if err != nil {
+			return ActionResult{Text: ToolFailureText(i.Name, err), Err: err}
+		}
+		return ActionResult{Text: result.Flatten(), Parts: result.Parts, Attachments: result.Attachments}
+	}
 	result, err := i.Fn(ctx, i.Args)
 	if i.Record != nil {
 		i.Record(i.Name, err)

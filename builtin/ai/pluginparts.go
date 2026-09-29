@@ -24,6 +24,7 @@ package ai
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
@@ -43,7 +44,13 @@ type catalogState struct {
 	// coord 命令协调器（engine.Reader），用于启动时发现已注册的命令。
 	coord engine.Reader
 	// reg 工具注册表，管理所有可供 LLM 调用的工具。
+	// 职责边界：reg 只负责"登记与按名查找"这一兼容注册 API；目录的聚合、
+	// 快照与代数（catalogGen）由本 owner 承担，Selector/Invoker 各自只读其一。
 	reg *toolkit.ToolRegistry
+	// catalogGen 目录代数：工具成员关系变化（登记/移除）时递增。会话级选择缓存
+	// 与稳定状态据此判断能否复用；来源的软不可用（断开/重连，成员未变）不推进
+	// 代数，避免连接抖动击穿前缀缓存。用原子量以免为读代数而取注册表锁。
+	catalogGen atomic.Uint64
 	// skillReg 技能注册表，管理所有已注册的 Skill。
 	skillReg *toolkit.SkillRegistry
 	// perms RBAC 权限插件（用于工具级权限校验与按角色注入）。

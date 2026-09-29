@@ -40,6 +40,7 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 27 | [AI 插件冻结清单](27-ai-freeze-checklist.md) | 改前先锁行为：ToolSet/Execute 三态/Retrieval 指标/Prompt 前缀/策略闸门/运行时语义的现状契约；20 条（17 契约 + 3 负向）已全部落地为可执行用例 |
 | 28 | [AI 插件分层重构执行进度](28-ai-layering-progress.md) | 重构执行记录：对照基线、工作流状态、遗留问题与下一步；工作流 1–8 与冻结用例均已收口 |
 | 29 | [AI 插件包边界](29-ai-package-boundaries.md) | 分包边界与收口记录：子包职责与依赖方向、方法归位与精简判据、代码组织收口与生产不可达导出名裁决 |
+| 30 | [AI 插件接入 MCP 的架构评审](30-ai-mcp-architecture.md) | MCP 接入暴露的九个架构问题（Tool 生命周期/身份模型/缓存稳定性/Selector 边界/结果模型/安全/MCP 分包/配置边界/Provider 职责）与总体结论、M0–M4 分期 |
 | 附 | [Handle 方法设计分析](HANDLE_METHOD_DESIGN_ANALYSIS.md) | 终结点 API 的取舍讨论（由 03-architecture 移入的内部设计文档） |
 | 附 | [OutboundDispatcher 实现方案](OUTBOUND_DISPATCHER_PLAN.md) | 出站调度层的设计方案存档（已实现，配套 21） |
 | 附 | [Trie 前缀树](trie.md) | 命令补全的前缀树实现细节（08 的配套深潜） |

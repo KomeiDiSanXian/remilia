@@ -101,7 +101,7 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 		}
 	}
 
-	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Record: recordToolCall}.Invoke(callerCtx)
+	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Rich: tool.ExecuteRich, Record: recordToolCall}.Invoke(callerCtx)
 }
 
 // executeSkill 执行一个 Skill 的内部工具调用循环。

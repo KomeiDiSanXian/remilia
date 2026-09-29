@@ -180,6 +180,7 @@ func agentStatePluginNonAgent() map[string]string {
 		// 装配管道与并发原语。
 		"cmdMu":           "cmdPatterns 的读写锁",
 		"cmdPatterns":     "工具名 → 命令模式映射（发现结果）",
+		"catalogGen":      "目录代数：工具成员关系的版本号（进程级，随注册演进）",
 		"realCmdMu":       "真实命令通道的串行化互斥",
 		"defOnce":         "触发命令定义的懒初始化",
 		"def":             "触发命令定义（由 cfg 派生）",

@@ -102,6 +102,9 @@ type Tool struct {
 	Name        string
 	Description string
 	Categories  []string // "general"、"space"、"weather"、"admin" 等
+	// Source 动作来源命名空间（见 identity.go）。空值等价于 SourceBuiltin；
+	// MCP 等外部来源使用 "mcp:<server>"，用于身份、去重与路由。
+	Source ActionSource
 	// Selection 工具在选择中的保留级别；nil（零值）表示按 Categories 派生
 	// （空或含 general → SelectionBaseline，否则 SelectionOptional）。
 	// 用 new(SelectionMandatory) 显式声明（Go 1.26+ 的 new(表达式) 形式）。
@@ -124,6 +127,10 @@ type Tool struct {
 	// 支持格式与框架命令一致：resource.action / resource:action / resource。
 	Permissions []string
 	Execute     func(ctx context.Context, args map[string]any) (string, error)
+	// ExecuteRich 可选：返回富结果（文本 + 多模态片段）。非空时优先于 Execute，
+	// 供需要携带图片/音频/资源/结构化数据的工具（如外部工具服务器）使用；
+	// 既有工具只实现 Execute 即可，行为不变。
+	ExecuteRich func(ctx context.Context, args map[string]any) (ToolResult, error)
 }
 
 // SkillProvider 插件可通过实现此接口向 AI 插件注册自定义 Skill。
@@ -176,6 +183,12 @@ type ToolRegistry struct {
 type registeredAction struct {
 	action  Action
 	execute func(ctx context.Context, args map[string]any) (string, error)
+	// executeRich 富结果执行载荷（可选）；与 execute 一样只存放在注册表里，
+	// 只经 Get/List 的执行视图取出。
+	executeRich func(ctx context.Context, args map[string]any) (ToolResult, error)
+	// source 动作来源：动作视图（Action）不承载来源，注册表在这里保真保存，
+	// 保证 Get/List 还原的执行视图与注册时一致。
+	source ActionSource
 	// selection 记录注册时是否显式声明了保留级别（nil = 未声明，按类别派生）。
 	// 动作视图只存解析后的值，无法区分"显式 Optional"与"未声明"，
 	// 因此这里保留一份副本，保证 Get/List 还原的执行视图与注册时逐字段一致。
@@ -188,6 +201,7 @@ func (e registeredAction) tool() Tool {
 		Name:                  e.action.Spec.Name,
 		Description:           e.action.Spec.Description,
 		Categories:            e.action.Spec.Categories,
+		Source:                e.source,
 		Selection:             e.selection,
 		Parameters:            e.action.Spec.Parameters,
 		RequiresApproval:      e.action.Policy.RequiresApproval,
@@ -195,6 +209,7 @@ func (e registeredAction) tool() Tool {
 		GrantsSendTo:          e.action.Policy.GrantsSendTo,
 		Permissions:           e.action.Policy.Permissions,
 		Execute:               e.execute,
+		ExecuteRich:           e.executeRich,
 	}
 }
 
@@ -209,16 +224,38 @@ func NewToolRegistry() *ToolRegistry {
 func (r *ToolRegistry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	t = normalizeToolName(t)
+	if _, exists := r.entries[t.Name]; exists {
+		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
+		return
+	}
+	r.put(t)
+}
+
+// Upsert 登记工具，同名工具会被新定义覆盖（而非被 first-wins 丢弃）。
+//
+// 供"工具集合会运行时变化"的来源（如外部工具服务器）刷新集合使用：来源重连后
+// 同名工具的描述/schema 可能变化，需要就地更新。是否因此推进目录代数由调用方
+// 决定（成员关系未变则不应推进，见 builtin/ai 的目录装配）。
+func (r *ToolRegistry) Upsert(t Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.put(normalizeToolName(t))
+}
+
+// normalizeToolName 校验并修正名称，保证注册表内名称合法。
+func normalizeToolName(t Tool) Tool {
 	if !ValidToolName(t.Name) {
 		original := t.Name
 		t.Name = SanitizeToolName(t.Name)
 		logger.Warnf("[AI] Tool name %q is invalid (must match ^[a-zA-Z0-9_-]+$), sanitized to %q", original, t.Name)
 	}
-	if _, exists := r.entries[t.Name]; exists {
-		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
-		return
-	}
-	record := registeredAction{action: ActionOf(t), execute: t.Execute}
+	return t
+}
+
+// put 写入一条注册记录（调用方须持有写锁并已规范化名称）。
+func (r *ToolRegistry) put(t Tool) {
+	record := registeredAction{action: ActionOf(t), execute: t.Execute, executeRich: t.ExecuteRich, source: t.Source}
 	if t.Selection != nil {
 		// 复制而非共享指针：注册后调用方再改自己的 Selection 不应影响注册表。
 		v := *t.Selection

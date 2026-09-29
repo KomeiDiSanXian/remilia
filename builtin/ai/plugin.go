@@ -214,26 +214,26 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 规划层内置工具（create_plan / update_plan_step，general 类别恒被选中）。
 			// 模型按需调用：简单任务不创建计划零开销；复杂任务先建计划再逐步执行。
 			for _, t := range catalog.BuildPlanTools(cfg.PlanMaxSteps) {
-				p.reg.Register(t)
+				p.registerCatalogTool(t)
 			}
 
 			// 消息发送工具（send_message / send_to，默认启用）：
 			// send_message 无需审批；send_to 强制审批 + ai.message.send 权限。
 			for _, t := range catalog.BuildSendTools(catalog.SendOptions{Markdown: cfg.Markdown}) {
-				p.reg.Register(t)
+				p.registerCatalogTool(t)
 			}
 
 			// 会话内能力工具（定时提醒 / 待办清单，默认启用）。
 			for _, t := range catalog.BuildReminderTools() {
-				p.reg.Register(t)
+				p.registerCatalogTool(t)
 			}
 			for _, t := range catalog.BuildTodoTools() {
-				p.reg.Register(t)
+				p.registerCatalogTool(t)
 			}
 			// 长期记忆工具仅在 memory_enabled 开启时注册（未开启时不让模型看到）。
 			if memory != nil {
 				for _, t := range catalog.BuildMemoryTools() {
-					p.reg.Register(t)
+					p.registerCatalogTool(t)
 				}
 			}
 

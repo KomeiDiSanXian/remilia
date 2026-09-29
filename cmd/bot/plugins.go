@@ -8,6 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/about"
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	mcpplugin "github.com/KomeiDiSanXian/remilia/builtin/ai/mcp"
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/autoresponder"
@@ -148,6 +149,7 @@ func (a *app) setupPlugins() {
 
 		// AI 与内容工具
 		ai.New(eng),
+		mcpplugin.New(),
 		knowledgebase.New(),
 		weather.New(),
 		websearch.New(),
