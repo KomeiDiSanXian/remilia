@@ -6,12 +6,15 @@
 package runtime
 
 import (
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // ToolExecResult 单个工具调用的执行结果（回合编排按原始顺序回填）。
@@ -40,7 +43,7 @@ func ExecuteToolCallsParallel(
 	results := make([]ToolExecResult, len(calls))
 	if parallel <= 1 || len(calls) <= 1 {
 		for i := range calls {
-			results[i] = exec(i, calls[i])
+			results[i] = runToolSafely(exec, i, calls[i])
 		}
 		return results
 	}
@@ -61,11 +64,28 @@ func ExecuteToolCallsParallel(
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = exec(i, tc)
+			results[i] = runToolSafely(exec, i, tc)
 		}(i, calls[i])
 	}
 	wg.Wait()
 	return results
+}
+
+// runToolSafely 执行单个工具调用并兜底 recover：工具回调是插件提供的任意
+// 代码，其 panic 不应终止整个 bot（Go 中任意协程的未捕获 panic 都会导致
+// 进程退出）。panic 被转成该调用的类型化失败，交由既有的重试预算处理。
+func runToolSafely(exec func(int, protocol.ToolCall) ToolExecResult, i int, tc protocol.ToolCall) (res ToolExecResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("tool %q panicked: %v", tc.Name, r)
+			res = ToolExecResult{
+				Result: fmt.Sprintf("错误: 工具 %q 执行时内部错误（panic）", tc.Name),
+				Err:    err,
+			}
+			logger.Errorf("[AI] tool %q panicked: %v\n%s", tc.Name, r, debug.Stack())
+		}
+	}()
+	return exec(i, tc)
 }
 
 // RecordToolTrace 记录一次工具调用的追踪信息（耗时、参数摘要、失败标记）。

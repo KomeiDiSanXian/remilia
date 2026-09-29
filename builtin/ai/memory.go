@@ -146,10 +146,16 @@ func (m *memoryStore) load(scope string) []memoryFact {
 }
 
 // Facts 返回指定作用域的全部事实副本。
+//
+// 拷贝必须与写入（Add/Remove/RemoveWhere 在写锁内原地改写同一个底层数组）
+// 在同一次读锁内完成：load 返回的是共享切片，若在锁外 copy，会读到正在被
+// 后台抽取协程改写的元素（数据竞争）。
 func (m *memoryStore) Facts(scope string) []memoryFact {
 	facts := m.load(scope)
+	m.mu.RLock()
 	out := make([]memoryFact, len(facts))
 	copy(out, facts)
+	m.mu.RUnlock()
 	return out
 }
 

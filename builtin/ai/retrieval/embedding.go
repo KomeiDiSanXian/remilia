@@ -306,11 +306,23 @@ type TextVectorCache struct {
 	mu       sync.Mutex
 	embedder Embedder
 	vectors  map[string][]float32 // model\x00text → vector
+	// order 记录插入顺序，用于容量上限的 FIFO 淘汰；与 vectors 同步增删。
+	order []string
+	// maxEntries 缓存条目上限（<=0 表示不限）。用户事实等长尾文本会持续
+	// 注入新键，无上限会随进程运行时间无界增长。
+	maxEntries int
 }
+
+// defaultVectorCacheMaxEntries 是文本向量缓存的默认条目上限。
+const defaultVectorCacheMaxEntries = 4096
 
 // NewTextVectorCache 创建文本向量缓存。
 func NewTextVectorCache(e Embedder) *TextVectorCache {
-	return &TextVectorCache{embedder: e, vectors: make(map[string][]float32)}
+	return &TextVectorCache{
+		embedder:   e,
+		vectors:    make(map[string][]float32),
+		maxEntries: defaultVectorCacheMaxEntries,
+	}
 }
 
 // Enabled 返回是否配置了可用的嵌入器。
@@ -329,9 +341,15 @@ func (c *TextVectorCache) cacheKey(text string) string {
 
 // EmbedQuery 嵌入单条查询文本（查询随消息变化，不缓存）。
 func (c *TextVectorCache) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	if !c.Enabled() {
+		return nil, errors.New("embedding cache disabled")
+	}
 	vecs, err := c.embedder.Embed(ctx, []string{text})
 	if err != nil {
 		return nil, err
+	}
+	if len(vecs) == 0 || len(vecs[0]) == 0 {
+		return nil, errors.New("embed: empty query vector")
 	}
 	return vecs[0], nil
 }
@@ -340,30 +358,68 @@ func (c *TextVectorCache) EmbedQuery(ctx context.Context, text string) ([]float3
 // 返回 text → vector 映射；embedder 出错时返回错误（调用方整体跳过
 // embedding 加权并降级纯关键词）。
 func (c *TextVectorCache) EmbedTexts(ctx context.Context, texts []string) (map[string][]float32, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if !c.Enabled() {
+		return nil, errors.New("embedding cache disabled")
+	}
 
+	// 1) 锁内挑出缓存缺失项，随后立即释放锁——embed 是网络调用（最长 30s），
+	//    绝不能在锁内执行，否则所有会话的检索会在同一互斥量上全局串行
+	//    （队头阻塞：一个慢请求拖住全部上下文构建）。
+	c.mu.Lock()
+	seen := make(map[string]struct{}, len(texts))
 	var need []string
 	for _, t := range texts {
-		if _, ok := c.vectors[c.cacheKey(t)]; !ok {
-			need = append(need, t)
+		key := c.cacheKey(t)
+		if _, ok := c.vectors[key]; ok {
+			continue
 		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		need = append(need, t)
 	}
+	c.mu.Unlock()
+
+	// 2) 锁外嵌入。并发请求同一缺失文本时可能重复嵌入，接受该代价换取 I/O
+	//    不互相阻塞（结果幂等，写回时后到者覆盖）。
 	if len(need) > 0 {
 		vecs, err := c.embedder.Embed(ctx, need)
 		if err != nil {
 			return nil, err
 		}
-		for i, t := range need {
-			c.vectors[c.cacheKey(t)] = vecs[i]
+		if len(vecs) != len(need) {
+			return nil, fmt.Errorf("embed: got %d vectors for %d texts", len(vecs), len(need))
 		}
+		c.mu.Lock()
+		for i, t := range need {
+			c.putLocked(c.cacheKey(t), vecs[i])
+		}
+		c.mu.Unlock()
 	}
 
+	// 3) 锁内组装结果。
+	c.mu.Lock()
 	out := make(map[string][]float32, len(texts))
 	for _, t := range texts {
 		if v, ok := c.vectors[c.cacheKey(t)]; ok {
 			out[t] = v
 		}
 	}
+	c.mu.Unlock()
 	return out, nil
+}
+
+// putLocked 写入一条向量并按容量上限 FIFO 淘汰最旧条目（调用方须持有 c.mu）。
+func (c *TextVectorCache) putLocked(key string, v []float32) {
+	if _, exists := c.vectors[key]; exists {
+		return
+	}
+	for c.maxEntries > 0 && len(c.vectors) >= c.maxEntries && len(c.order) > 0 {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		delete(c.vectors, oldest)
+	}
+	c.vectors[key] = v
+	c.order = append(c.order, key)
 }

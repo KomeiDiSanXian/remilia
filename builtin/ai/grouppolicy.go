@@ -23,7 +23,6 @@ package ai
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -229,7 +228,11 @@ func (m *groupPolicyManager) save() {
 	}
 	m.mu.RLock()
 	data := make(map[string]*groupPolicy, len(m.policies))
-	maps.Copy(data, m.policies)
+	for id, p := range m.policies {
+		// 深拷贝：浅拷贝只复制指针，锁外 json.Marshal 会与并发的
+		// SetGroup/ResetField 读写同一结构体（数据竞争）。
+		data[id] = p.Clone()
+	}
 	m.mu.RUnlock()
 	bytes, err := json.Marshal(data)
 	if err != nil {

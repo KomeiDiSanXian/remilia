@@ -217,7 +217,7 @@ func (p *Plugin) addReminder(chat platform.ChatInfo, sender platform.Sender, dur
 	p.reminders.add(r)
 
 	// 到期推送（协程，受插件生命周期与 cancel 控制）
-	go func() {
+	goSafe("reminder fire", func() {
 		timer := time.NewTimer(duration)
 		defer timer.Stop()
 		select {
@@ -225,8 +225,11 @@ func (p *Plugin) addReminder(chat platform.ChatInfo, sender platform.Sender, dur
 			return
 		case <-timer.C:
 			p.fireReminder(r)
+			// 触发后从活跃列表移除：否则 /ai remind list 会永久残留
+			// "0秒后触发"的僵尸条目，管理器 items 也无界增长。
+			p.reminders.remove(r.ChatID, r.ID)
 		}
-	}()
+	})
 
 	return r, fmt.Sprintf("⏰ 已设置提醒：%s（%s 后触发，ID: %s）", content, catalog.FormatRemindDuration(duration), r.ID)
 }

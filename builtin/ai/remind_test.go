@@ -143,3 +143,17 @@ func TestFireReminder_NoSenderNoPanic(t *testing.T) {
 	r := &reminder{ID: "R3", Text: "x", ChatID: "c", IsGroup: true}
 	require.NotPanics(t, func() { p.fireReminder(r) })
 }
+
+// TestReminderFiredIsRemoved 触发后必须从活跃列表移除：否则 /ai remind list
+// 会永久残留"0秒后触发"的僵尸条目，管理器 items 也无界增长。
+func TestReminderFiredIsRemoved(t *testing.T) {
+	p := &Plugin{lifecycleCtx: context.Background(), reminders: newReminderManager()}
+
+	_, confirm := p.addReminder(platform.ChatInfo{ID: "chat_fire"}, nil, 20*time.Millisecond, "喝水")
+	require.NotEmpty(t, confirm)
+	require.Len(t, p.reminders.list("chat_fire"), 1, "提醒设置后应在活跃列表中")
+
+	require.Eventually(t, func() bool {
+		return len(p.reminders.list("chat_fire")) == 0
+	}, 2*time.Second, 10*time.Millisecond, "已触发的提醒应从活跃列表移除")
+}

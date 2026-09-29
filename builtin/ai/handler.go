@@ -564,7 +564,14 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 		return nil
 	}
 
-	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 下载挂到插件生命周期上下文：既不随（可能很快超时的）事件上下文取消，
+	// 又能在插件关闭时中止在途下载。生命周期上下文缺失（测试）时回退到
+	// Background，保持原有行为。
+	downloadBase := p.lifecycleCtx
+	if downloadBase == nil {
+		downloadBase = context.Background()
+	}
+	dlCtx, dlCancel := context.WithTimeout(downloadBase, 30*time.Second)
 	defer dlCancel()
 	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, att.URL, nil)
 	if err != nil {

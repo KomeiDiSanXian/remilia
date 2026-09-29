@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -398,5 +399,39 @@ func TestTextVectorCacheDisabled(t *testing.T) {
 	cache := NewTextVectorCache(nil)
 	if cache.Enabled() {
 		t.Error("cache without embedder should be disabled")
+	}
+}
+
+func TestTextVectorCacheDisabledEmbedQueryAndTexts(t *testing.T) {
+	cache := NewTextVectorCache(nil)
+	if _, err := cache.EmbedQuery(context.Background(), "q"); err == nil {
+		t.Error("EmbedQuery on disabled cache should return error, not panic")
+	}
+	if _, err := cache.EmbedTexts(context.Background(), []string{"q"}); err == nil {
+		t.Error("EmbedTexts on disabled cache should return error, not panic")
+	}
+}
+
+func TestTextVectorCacheBounded(t *testing.T) {
+	cache := NewTextVectorCache(&scriptedEmbedder{})
+	cache.maxEntries = 2
+
+	for i := 0; i < 5; i++ {
+		text := fmt.Sprintf("text-%d", i)
+		if _, err := cache.EmbedTexts(context.Background(), []string{text}); err != nil {
+			t.Fatalf("EmbedTexts(%q) failed: %v", text, err)
+		}
+	}
+
+	cache.mu.Lock()
+	size := len(cache.vectors)
+	orderLen := len(cache.order)
+	cache.mu.Unlock()
+
+	if size > 2 {
+		t.Errorf("cache size %d exceeds maxEntries 2", size)
+	}
+	if orderLen != size {
+		t.Errorf("order length %d should track vectors length %d", orderLen, size)
 	}
 }

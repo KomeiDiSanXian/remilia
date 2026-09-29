@@ -264,6 +264,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 					select {
 					case <-ticker.C:
 						p.sm.CleanupExpired()
+						// 审批请求的兜底清理：正常超时路径已由 requestApproval
+						// 的本地兜底移除，这里捕获异常路径残留的请求，避免
+						// pending map 无界增长。
+						if p.cfg.ApprovalTimeout > 0 {
+							p.approvals.CleanupExpired(p.cfg.ApprovalTimeout, time.Now())
+						}
 					case <-runCtx.Done():
 						return
 					}

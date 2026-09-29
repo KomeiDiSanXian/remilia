@@ -119,6 +119,28 @@ func (m *ApprovalManager) Resolve(id, responderID string, approved bool) bool {
 	return true
 }
 
+// Cancel 由本地超时兜底路径调用：不校验响应者，直接把请求标记为结束并关闭
+// 结果通道（等待方收到关闭即按拒绝处理）。返回是否命中（幂等：请求不存在或
+// 已处理时返回 false）。
+//
+// 不能复用 [ApprovalManager.Resolve] 来完成这件事——Resolve 校验响应者必须是
+// 发起者，而超时兜底没有响应者（空 ID），会被判为无权而静默失败，导致请求
+// 永久残留在 pending 中。
+func (m *ApprovalManager) Cancel(id string) bool {
+	m.mu.Lock()
+	r, ok := m.pending[id]
+	if !ok || r.done {
+		m.mu.Unlock()
+		return false
+	}
+	r.done = true
+	delete(m.pending, id)
+	m.mu.Unlock()
+
+	close(r.result)
+	return true
+}
+
 // CleanupExpired 清理超时的待审批请求（关闭通道触发等待方超时路径）。
 // 每次调用间隔至少 sweepInterval，避免高频加锁。
 func (m *ApprovalManager) CleanupExpired(timeout time.Duration, now time.Time) {

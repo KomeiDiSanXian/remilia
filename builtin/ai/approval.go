@@ -49,7 +49,7 @@ func (e *executionState) handleApprovalButton(ctx *eventctx.Context) error {
 //  2. 同时提示文本命令 /ai approve <ID> / /ai deny <ID> 作为兜底
 //  3. 等待响应或超时（approvalTimeout），超时按拒绝处理
 //
-// 审批请求消息通过独立 goroutine 发送（不阻塞工具循环的等待）。
+// 审批请求消息与工具结果相互独立，发送失败也不影响文本兜底。
 func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary string, approvalTimeout time.Duration) bool {
 	req := execution.NewApprovalRequest(ctx.GetSenderInfo().ID, ctx.GetChatInfo().ID, toolName, argsSummary)
 	p.approvals.Register(req)
@@ -68,8 +68,11 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary st
 		platform.Button{ID: execution.ApproveButtonPrefix + id, Label: "✅ 允许", Style: platform.ButtonStylePrimary},
 		platform.Button{ID: execution.DenyButtonPrefix + id, Label: "❌ 拒绝", Style: platform.ButtonStyleDanger},
 	)
-	// 审批请求消息与工具结果相互独立，异步发送避免阻塞等待
+	// 审批请求消息与工具结果相互独立；发送失败不影响文本兜底。
 	_ = ctx.Reply(msg)
+
+	timer := time.NewTimer(approvalTimeout)
+	defer timer.Stop()
 
 	select {
 	case approved, ok := <-req.Result():
@@ -79,9 +82,11 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary st
 			return false
 		}
 		return approved
-	case <-time.After(approvalTimeout):
-		// 本地超时兜底：从 pending 移除（幂等，已处理则 no-op）
-		p.approvals.Resolve(id, "", false)
+	case <-timer.C:
+		// 本地超时兜底：从 pending 移除并关闭结果通道（幂等，已处理则 no-op）。
+		// 不能走 Resolve——它以发起者身份校验响应者，空响应者会被判为无权而
+		// 静默失败，使请求永久残留在 pending 中。
+		p.approvals.Cancel(id)
 		p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", execution.FormatApprovalTimeout(approvalTimeout), toolName))
 		return false
 	}

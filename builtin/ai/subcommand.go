@@ -117,14 +117,19 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		p.summaries[sessionID] = true
 		p.summaryMu.Unlock()
 
-		go func() {
+		// 快照事件与发送器后再起后台任务：后台 goroutine 若在 handler 返回后
+		// 直接读事件上下文，可能读到已回收的对象（与 maybeExtractMemory 刻意
+		// 规避事件上下文保持一致）。goSafe 兜底 recover，避免后台 panic 终止进程。
+		event := ctx.GetPlatformEvent()
+		sender := ctx.GetPlatformSender()
+		goSafe("summary", func() {
 			defer func() {
 				p.summaryMu.Lock()
 				delete(p.summaries, sessionID)
 				p.summaryMu.Unlock()
 			}()
-			p.doSummary(ctx, msgsSnapshot)
-		}()
+			p.doSummary(event, sender, msgsSnapshot)
+		})
 		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
 		return nil
 
@@ -490,10 +495,10 @@ func (a *adminState) formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm", m)
 }
 
-// doSummary 在后台调用 LLM 生成对话总结，通过原始 sender 发送结果。
+// doSummary 在后台调用 LLM 生成对话总结，通过快照的事件与 sender 发送结果。
 // msgs 是调用方已复制的消息快照，不会与 sess 管理器产生 data race。
 // 使用 p.lifecycleCtx 作为父上下文，确保插件关闭时及时取消。
-func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []protocol.Message) {
+func (p *Plugin) doSummary(event platform.Event, sender platform.Sender, msgs []protocol.Message) {
 	filtered := make([]protocol.Message, 0, len(msgs)+1)
 	for _, m := range msgs {
 		if m.Role != protocol.RoleSystem {
@@ -523,7 +528,7 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []protocol.Message) {
 		if p.lifecycleCtx.Err() != nil {
 			return
 		}
-		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
+		newCtx := eventctx.NewContextFromEvent(event, sender)
 		if e := newCtx.ReplyText("❌ 生成总结失败: " + runtime.FormatAIError(err)); e != nil {
 			logger.Errorf("doSummary reply error: %v", e)
 		}
@@ -531,7 +536,7 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []protocol.Message) {
 	}
 
 	if resp.Content != "" {
-		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
+		newCtx := eventctx.NewContextFromEvent(event, sender)
 		if p.cfg.Markdown {
 			p.replyAndRecord(newCtx, platform.MarkdownMessage(resp.Content))
 		} else {

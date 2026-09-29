@@ -73,21 +73,11 @@ func (memoryScopeKeys) UserScope(userID string) string { return userScope(userID
 // GroupScope 返回群作用域键。
 func (memoryScopeKeys) GroupScope(chatID string) string { return groupScope(chatID) }
 
-// lifecycleSpawn 在插件生命周期上下文上启动后台任务。
+// lifecycleSpawn 启动一个记忆抽取后台任务。
+//
+// 任务自身的 LLM 调用使用插件生命周期上下文（见 memoryExtractor 的
+// LifecycleCtx，带 30s 超时），插件关闭时会被取消，因此这里不需要再包一层
+// select 监听生命周期，只需 panic 兜底（后台 panic 不得终止整个进程）。
 func (r *runtimeState) lifecycleSpawn(fn func()) {
-	if r.lifecycleCtx == nil {
-		go fn()
-		return
-	}
-	go func() {
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			fn()
-		}()
-		select {
-		case <-r.lifecycleCtx.Done():
-		case <-done:
-		}
-	}()
+	goSafe("memory extract", fn)
 }

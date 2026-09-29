@@ -38,12 +38,15 @@ type Session struct {
 	CallCount int
 	ToolCount int
 
-	// turnActive / interruptCh 回合活跃标志与中断信号（用户抢占机制）。
+	// turnActive / signal 回合活跃标志与中断信号（用户抢占机制）。
 	// BeginTurn 开始回合并创建新信号；RequestInterrupt 关闭信号让进行中的
 	// 回合尽快收尾；EndTurn 清理。processWithTools 在轮次与工具之间检查。
-	turnActive   atomic.Bool
-	interruptCh  chan struct{}
-	interruptOne sync.Once
+	//
+	// signal 用 atomic.Pointer 承载：RequestInterrupt 可能来自另一条事件
+	// 协程，与回合持有者调用 EndTurn 并发，用原子指针读写避免字段本身的
+	// 数据竞争（turnActive 同为原子量）。
+	turnActive atomic.Bool
+	signal     atomic.Pointer[turnSignal]
 
 	contentCache map[string]*CachedContent `json:"-"`
 
@@ -85,6 +88,13 @@ type Session struct {
 	imageOverflowNotified bool `json:"-"`
 }
 
+// turnSignal 一次回合的中断信号：通道关闭即表示该回合被请求中断。
+// once 保证同一回合只关闭一次（多次 RequestInterrupt 幂等）。
+type turnSignal struct {
+	ch   chan struct{}
+	once sync.Once
+}
+
 // Lock 锁定会话，禁止并发访问 Messages 等可变字段。
 func (s *Session) Lock() { s.mu.Lock() }
 
@@ -110,34 +120,33 @@ func (s *Session) BeginTurn() bool {
 	if !s.turnActive.CompareAndSwap(false, true) {
 		return false
 	}
-	s.interruptCh = make(chan struct{})
-	s.interruptOne = sync.Once{}
+	s.signal.Store(&turnSignal{ch: make(chan struct{})})
 	return true
 }
 
 // EndTurn 结束回合并清理中断信号。
 func (s *Session) EndTurn() {
 	s.turnActive.Store(false)
-	s.interruptCh = nil
+	s.signal.Store(nil)
 }
 
 // RequestInterrupt 请求中断进行中的回合（非阻塞；无活跃回合时 no-op）。
 func (s *Session) RequestInterrupt() {
-	ch := s.interruptCh
-	if ch == nil {
+	sig := s.signal.Load()
+	if sig == nil {
 		return
 	}
-	s.interruptOne.Do(func() { close(ch) })
+	sig.once.Do(func() { close(sig.ch) })
 }
 
 // Interrupted 返回当前回合是否被请求中断（非阻塞）。
 func (s *Session) Interrupted() bool {
-	ch := s.interruptCh
-	if ch == nil {
+	sig := s.signal.Load()
+	if sig == nil {
 		return false
 	}
 	select {
-	case <-ch:
+	case <-sig.ch:
 		return true
 	default:
 		return false
@@ -146,23 +155,23 @@ func (s *Session) Interrupted() bool {
 
 // TurnCtx 返回随当前回合中断信号自动取消的子上下文。
 //
-// RequestInterrupt 触发时会关闭 interruptCh，从而取消返回的上下文，使
+// RequestInterrupt 触发时会关闭当前回合的信号通道，从而取消返回的上下文，使
 // 进行中的 LLM 流请求尽快中止——/ai stop 与用户新消息抢占由此对"单轮流"
 // 同样生效（此前中断只在工具轮之间的检查点生效，单轮流需等流自然结束）。
-// 未处于回合（interruptCh 为 nil，如后台总结/校验子任务）时等价于 parent。
+// 未处于回合（signal 为 nil，如后台总结/校验子任务）时等价于 parent。
 //
 // 返回的 cancel 必须在流结束（本轮结束，含出错提前返回）时调用，以回收
 // 监听 goroutine；cancel 会等待监听协程退出，不会泄漏。
 func (s *Session) TurnCtx(parent context.Context) (context.Context, context.CancelFunc) {
-	ch := s.interruptCh
-	if ch == nil {
+	sig := s.signal.Load()
+	if sig == nil {
 		return parent, func() {}
 	}
 	ctx, cancel := context.WithCancel(parent)
 	done := make(chan struct{})
 	go func() {
 		select {
-		case <-ch:
+		case <-sig.ch:
 			cancel()
 		case <-ctx.Done():
 		}

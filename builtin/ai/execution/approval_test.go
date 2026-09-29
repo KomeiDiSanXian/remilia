@@ -95,3 +95,38 @@ func TestFormatApprovalTimeout(t *testing.T) {
 	assert.Equal(t, "1 分钟", FormatApprovalTimeout(time.Minute))
 	assert.Equal(t, "2 分钟", FormatApprovalTimeout(2*time.Minute))
 }
+
+func TestApprovalManagerCancel(t *testing.T) {
+	m := NewApprovalManager()
+	r := NewApprovalRequest("u1", "c1", "danger", "")
+	m.Register(r)
+
+	// Cancel 不校验响应者，直接结束请求并关闭结果通道（等待方按拒绝处理）。
+	assert.True(t, m.Cancel(r.ID))
+	select {
+	case v, ok := <-r.Result():
+		assert.False(t, ok, "cancelled request channel should be closed")
+		assert.False(t, v)
+	default:
+		t.Fatal("cancelled request channel should be closed")
+	}
+
+	// 幂等：重复 Cancel 与事后 Resolve 都不再生效，且不再残留在 pending。
+	assert.False(t, m.Cancel(r.ID))
+	assert.False(t, m.Resolve(r.ID, "u1", true))
+	assert.Equal(t, 0, m.PendingCount())
+}
+
+// TestApprovalManagerEmptyResponderCannotResolve 固化"超时兜底不能走 Resolve"
+// 的原因：空响应者会被发起者校验拒绝，请求仍留在 pending。
+func TestApprovalManagerEmptyResponderCannotResolve(t *testing.T) {
+	m := NewApprovalManager()
+	r := NewApprovalRequest("u1", "c1", "danger", "")
+	m.Register(r)
+
+	assert.False(t, m.Resolve(r.ID, "", false))
+	assert.Equal(t, 1, m.PendingCount())
+	// Cancel 才是超时兜底应走的路径。
+	assert.True(t, m.Cancel(r.ID))
+	assert.Equal(t, 0, m.PendingCount())
+}

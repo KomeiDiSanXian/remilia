@@ -2,8 +2,10 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +29,31 @@ func newTestMemoryStore(t *testing.T, maxFacts int, minInterval time.Duration) *
 	}
 	t.Cleanup(m.Close)
 	return m
+}
+
+// TestMemoryFactsConcurrentWithAdd 让"后台抽取写入（Add）"与"回合检索读取
+// （Facts）"并发执行：Facts 必须在读锁内完成拷贝，否则会读到正被原地改写的
+// 元素（-race 下报数据竞争）。
+func TestMemoryFactsConcurrentWithAdd(t *testing.T) {
+	m := newTestMemoryStore(t, 100, time.Minute)
+	scope := userScope("u_race")
+	const rounds = 300
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			m.Add(scope, fmt.Sprintf("事实 %d", i%20))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			_ = m.Facts(scope)
+		}
+	}()
+	wg.Wait()
 }
 
 func TestMemoryStoreAddAndFacts(t *testing.T) {
