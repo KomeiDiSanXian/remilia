@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,8 +37,9 @@ type Manager struct {
 
 // serverState 单个服务器的运行状态。
 type serverState struct {
-	cfg    ServerConfig
-	prefix string
+	cfg       ServerConfig
+	prefix    string
+	refreshCh chan struct{}
 
 	mu        sync.RWMutex
 	client    *client
@@ -68,7 +72,7 @@ func NewManager(cfg *Config) (*Manager, error) {
 			prefix = "mcp_" + toolkit.SanitizeToolName(sc.Name) + "_"
 		}
 		prefix = uniquePrefix(prefix, prefixes)
-		states = append(states, &serverState{cfg: sc, prefix: prefix})
+		states = append(states, &serverState{cfg: sc, prefix: prefix, refreshCh: make(chan struct{}, 1)})
 	}
 	return &Manager{cfg: cfg, servers: states}, nil
 }
@@ -143,7 +147,7 @@ func (m *Manager) notify() {
 	}
 }
 
-// supervise 监督单个服务器：连接、列工具、监听断开、按需重连。
+// supervise 监督单个服务器：连接、列工具、监听断开与列表变化、按需重连。
 func (m *Manager) supervise(s *serverState) {
 	interval := s.cfg.reconnectInterval()
 	for {
@@ -171,15 +175,22 @@ func (m *Manager) supervise(s *serverState) {
 		if cl == nil {
 			return
 		}
-		cl.setOnChange(func() { go m.refresh(s, cl) })
-		select {
-		case <-m.ctx.Done():
-			cl.close()
-			return
-		case <-cl.closed():
-			s.setDisconnected()
-			logger.Warnf("[MCP] %s: connection closed", s.cfg.Name)
-			m.notify()
+		// 连接存续期间串行处理工具列表变化通知（与断开互斥），避免并发的
+		// 刷新把集合改来改去。
+		live := true
+		for live {
+			select {
+			case <-m.ctx.Done():
+				cl.close()
+				return
+			case <-cl.closed():
+				live = false
+				s.setDisconnected()
+				logger.Warnf("[MCP] %s: connection closed", s.cfg.Name)
+				m.notify()
+			case <-s.refreshCh:
+				m.refreshStable(s, cl)
+			}
 		}
 		if !s.cfg.reconnect() {
 			return
@@ -199,6 +210,8 @@ func (m *Manager) connectOnce(s *serverState) bool {
 		m.notify()
 		return false
 	}
+	// 变化通知在握手期间也可能到达：连接一建立就注册回调，避免漏掉早期通知。
+	cl.setOnChange(func() { m.requestRefresh(s) })
 	if err := cl.start(m.ctx, s.cfg.initTimeout()); err != nil {
 		logger.Warnf("[MCP] %s: connect failed: %v", s.cfg.Name, err)
 		cl.close()
@@ -216,27 +229,109 @@ func (m *Manager) connectOnce(s *serverState) bool {
 		m.notify()
 		return false
 	}
-	s.setConnected(cl, tools)
-	logger.Infof("[MCP] %s: connected (%d tools)", s.cfg.Name, len(tools))
-	m.notify()
+	if !s.hasTools() || sameToolSet(tools, s.currentTools()) {
+		s.setConnected(cl, tools)
+		logger.Infof("[MCP] %s: connected (%d tools)", s.cfg.Name, len(tools))
+		m.notify()
+		return true
+	}
+	// 重连后集合已变化：先恢复调用能力（用新连接），但集合要等稳定窗口确认后
+	// 再切换，避免服务器重启期间读到半截列表而推进目录代数。
+	s.setClient(cl)
+	logger.Infof("[MCP] %s: reconnected, waiting for tool list to stabilize", s.cfg.Name)
+	m.stabilize(s, cl, tools)
 	return true
 }
 
-// refresh 响应工具列表变化通知：重新拉取并通知目录。
-func (m *Manager) refresh(s *serverState, cl *client) {
+// requestRefresh 请求对该服务器做一次带稳定的刷新；突发通知会被合并
+// （通道容量为 1 且非阻塞发送）。
+func (m *Manager) requestRefresh(s *serverState) {
+	select {
+	case s.refreshCh <- struct{}{}:
+	default:
+	}
+}
+
+// refreshStable 响应工具列表变化通知：先读出候选集合，只有它在稳定窗口后
+// 仍然不变才纳入，避免服务器重启/抖动期间集合反复变化。
+func (m *Manager) refreshStable(s *serverState, cl *client) {
 	if m.ctx.Err() != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(m.ctx, s.cfg.timeout())
-	defer cancel()
-	tools, err := cl.listTools(ctx)
+	candidate, err := m.fetchTools(s, cl)
 	if err != nil {
 		logger.Warnf("[MCP] %s: refresh tools failed: %v", s.cfg.Name, err)
 		return
 	}
-	s.setConnected(cl, tools)
-	logger.Debugf("[MCP] %s: tool list refreshed (%d tools)", s.cfg.Name, len(tools))
+	if sameToolSet(candidate, s.currentTools()) {
+		return
+	}
+	m.stabilize(s, cl, candidate)
+}
+
+// stabilize 采用一份"候选"集合：等待稳定窗口后在窗口另一端复读，只有两次
+// 读到完全一致的集合才真正切换；否则交还监督循环，等下一轮继续确认收敛。
+func (m *Manager) stabilize(s *serverState, cl *client, candidate []mcpTool) {
+	if !m.waitStable(cl, s.cfg.stabilizeWindow()) {
+		return
+	}
+	confirmed, err := m.fetchTools(s, cl)
+	if err != nil {
+		logger.Warnf("[MCP] %s: confirm tools failed: %v", s.cfg.Name, err)
+		return
+	}
+	if !sameToolSet(candidate, confirmed) {
+		// 集合仍在变化：重新排队，等下一轮再确认。
+		m.requestRefresh(s)
+		return
+	}
+	s.setConnected(cl, confirmed)
+	logger.Debugf("[MCP] %s: tool list stabilized (%d tools)", s.cfg.Name, len(confirmed))
 	m.notify()
+}
+
+// fetchTools 以配置的超时拉取一次工具列表。
+func (m *Manager) fetchTools(s *serverState, cl *client) ([]mcpTool, error) {
+	ctx, cancel := context.WithTimeout(m.ctx, s.cfg.timeout())
+	defer cancel()
+	return cl.listTools(ctx)
+}
+
+// waitStable 等待稳定窗口；连接关闭或管理器停止时提前返回 false。
+func (m *Manager) waitStable(cl *client, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-m.ctx.Done():
+		return false
+	case <-cl.closed():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// sameToolSet 报告两份工具列表是否声明同一组工具。比较顺序无关，且比较完整
+// 定义（同名工具改 schema/注解也算变化）。
+func sameToolSet(a, b []mcpTool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	as := append([]mcpTool(nil), a...)
+	bs := append([]mcpTool(nil), b...)
+	sort.Slice(as, func(i, j int) bool { return as[i].Name < as[j].Name })
+	sort.Slice(bs, func(i, j int) bool { return bs[i].Name < bs[j].Name })
+	for i := range as {
+		rawA, errA := json.Marshal(as[i])
+		rawB, errB := json.Marshal(bs[i])
+		if errA != nil || errB != nil || !bytes.Equal(rawA, rawB) {
+			return false
+		}
+	}
+	return true
 }
 
 // sleep 等待一段可被关闭打断的时间；返回 false 表示已取消。
@@ -258,6 +353,28 @@ func (s *serverState) setConnected(cl *client, tools []mcpTool) {
 	s.connected = true
 	s.tools = tools
 	s.mu.Unlock()
+}
+
+// setClient 只标记连接可用、保留现有工具集合（重连时先恢复调用能力）。
+func (s *serverState) setClient(cl *client) {
+	s.mu.Lock()
+	s.client = cl
+	s.connected = true
+	s.mu.Unlock()
+}
+
+// currentTools 返回当前采用的工具集合副本。
+func (s *serverState) currentTools() []mcpTool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]mcpTool(nil), s.tools...)
+}
+
+// hasTools 报告当前是否已有采用的工具集合。
+func (s *serverState) hasTools() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.tools) > 0
 }
 
 // setDisconnected 标记断开；保留上次已知工具（软不可用）。

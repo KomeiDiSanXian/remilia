@@ -98,6 +98,10 @@ type ServerConfig struct {
 	MaxResponseBytes int64 `json:"max_response_bytes"`
 	// ReconnectInterval 初始重连间隔（默认 5s，随后指数退避，上限 60s）。
 	ReconnectInterval Duration `json:"reconnect_interval"`
+	// ToolStabilizeWindow 工具集合变化的稳定窗口（默认 2s）。收到列表变化通知
+	// 或重连后，需在该窗口之后再次读到同样的集合才切换，避免服务器重启期间
+	// 读到半截列表而反复推进目录代数。
+	ToolStabilizeWindow Duration `json:"tool_stabilize_window"`
 	// Disabled 为 true 时不启动/不连接该服务器。
 	Disabled bool `json:"disabled"`
 	// AllowInsecureHTTP 允许对回环地址使用明文 http。
@@ -148,6 +152,7 @@ const (
 	defaultReconnectInterval = 5 * time.Second
 	maxReconnectInterval     = 60 * time.Second
 	defaultMaxResponseBytes  = int64(4 << 20)
+	defaultStabilizeWindow   = 2 * time.Second
 )
 
 // timeout 返回生效的请求超时。
@@ -188,6 +193,14 @@ func (s ServerConfig) maxResponseBytes() int64 {
 		return s.MaxResponseBytes
 	}
 	return defaultMaxResponseBytes
+}
+
+// stabilizeWindow 返回生效的工具集合稳定窗口。
+func (s ServerConfig) stabilizeWindow() time.Duration {
+	if s.ToolStabilizeWindow.Std() > 0 {
+		return s.ToolStabilizeWindow.Std()
+	}
+	return defaultStabilizeWindow
 }
 
 // requireApproval 返回是否需审批（默认 true）。

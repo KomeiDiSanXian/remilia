@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +99,82 @@ func TestHTTPTransportParsesSSE(t *testing.T) {
 	}
 	if len(tools) != 1 || tools[0].Name != "ping" {
 		t.Fatalf("SSE response not parsed: %+v", tools)
+	}
+}
+
+// TestHTTPTransportReceivesServerPush 覆盖服务器经独立 GET 事件流主动推送通知：
+// 客户端在建连后打开 text/event-stream，并把推送的 tools/list_changed 交给回调。
+func TestHTTPTransportReceivesServerPush(t *testing.T) {
+	fake := newFakeServer(mcpTool{Name: "ping"})
+
+	type streamReq struct{ accept, session string }
+	streams := make(chan streamReq, 1)
+	notified := make(chan struct{}, 1)
+
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			select {
+			case streams <- streamReq{accept: r.Header.Get("Accept"), session: r.Header.Get("Mcp-Session-Id")}:
+			default:
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			<-r.Context().Done()
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Mcp-Session-Id", "sess-1")
+		resp := fake.handle(body)
+		if resp == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(resp)
+	}))
+	defer httpSrv.Close()
+
+	cfg := ServerConfig{
+		Name:              "push",
+		Transport:         "http",
+		URL:               httpSrv.URL,
+		AllowInsecureHTTP: true,
+		Timeout:           Duration(2 * time.Second),
+		Reconnect:         boolPtr(false),
+	}
+	cl, err := newClient(cfg)
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	cl.setOnChange(func() {
+		select {
+		case notified <- struct{}{}:
+		default:
+		}
+	})
+	if err := cl.start(context.Background(), 2*time.Second); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer cl.close()
+
+	select {
+	case <-notified:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server-pushed tools/list_changed was not delivered")
+	}
+	select {
+	case req := <-streams:
+		if !strings.Contains(req.accept, "text/event-stream") {
+			t.Errorf("GET stream must accept text/event-stream, got %q", req.accept)
+		}
+		if req.session != "sess-1" {
+			t.Errorf("GET stream must carry the session id, got %q", req.session)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client did not open a server-push stream")
 	}
 }

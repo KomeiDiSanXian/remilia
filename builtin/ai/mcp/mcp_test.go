@@ -59,6 +59,7 @@ func (m *memTransport) Wait() <-chan struct{} { return m.done }
 type fakeServer struct {
 	mu      sync.Mutex
 	tools   []mcpTool
+	queued  [][]mcpTool
 	handler func([]byte)
 	onCall  func(name string, args map[string]any) *callToolResult
 }
@@ -86,6 +87,14 @@ func (s *fakeServer) setTools(tools ...mcpTool) {
 	s.mu.Unlock()
 }
 
+// scriptLists 为接下来的 tools/list 调用排队固定的返回集合（逐次出队）。
+// 队列为空时回退到当前 tools。用于模拟服务器返回"半截"或反复变化的列表。
+func (s *fakeServer) scriptLists(lists ...[]mcpTool) {
+	s.mu.Lock()
+	s.queued = append(s.queued, lists...)
+	s.mu.Unlock()
+}
+
 func (s *fakeServer) notifyToolsChanged() {
 	b, _ := encodeNotification(methodToolsListChanged, nil)
 	s.push(b)
@@ -106,7 +115,13 @@ func (s *fakeServer) handle(raw []byte) []byte {
 		})
 	case methodListTools:
 		s.mu.Lock()
-		tools := append([]mcpTool(nil), s.tools...)
+		var tools []mcpTool
+		if len(s.queued) > 0 {
+			tools = append([]mcpTool(nil), s.queued[0]...)
+			s.queued = s.queued[1:]
+		} else {
+			tools = append([]mcpTool(nil), s.tools...)
+		}
 		s.mu.Unlock()
 		resp.Result, _ = json.Marshal(listToolsResult{Tools: tools})
 	case methodCallTool:
@@ -169,6 +184,8 @@ func stdioConfig(name string, tweak func(*ServerConfig)) *Config {
 		Timeout:   Duration(2 * time.Second),
 		// 初始重连间隔取小值，避免测试等待退避。
 		ReconnectInterval: Duration(10 * time.Millisecond),
+		// 稳定窗口取小值，避免测试等待。
+		ToolStabilizeWindow: Duration(20 * time.Millisecond),
 	}
 	if tweak != nil {
 		tweak(&sc)
@@ -264,6 +281,61 @@ func TestManagerRefreshesOnToolsListChanged(t *testing.T) {
 		srv.notifyToolsChanged()
 		return len(mgr.ListTools()) == 2
 	}, "refresh after tools/list_changed")
+}
+
+func TestManagerStabilizesToolListBeforeAdopting(t *testing.T) {
+	srv := newFakeServer(mcpTool{Name: "a"})
+	f := &transportFactory{server: srv}
+	installFactory(t, f)
+
+	mgr, err := NewManager(stdioConfig("srv", nil))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "initial tool list")
+
+	// 集合变化不得在稳定窗口内被立即采用。
+	srv.setTools(mcpTool{Name: "a"}, mcpTool{Name: "b"})
+	srv.notifyToolsChanged()
+	if got := len(mgr.ListTools()); got != 1 {
+		t.Fatalf("change adopted before the stabilize window: %d tools", got)
+	}
+
+	// 窗口另一端复读到同样的集合后才切换。
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 2 }, "stabilized adoption")
+}
+
+func TestManagerDoesNotAdoptJitteryToolList(t *testing.T) {
+	srv := newFakeServer(mcpTool{Name: "a"})
+	f := &transportFactory{server: srv}
+	installFactory(t, f)
+
+	mgr, err := NewManager(stdioConfig("srv", nil))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+	defer mgr.Close()
+
+	waitFor(t, func() bool { return len(mgr.ListTools()) == 1 }, "initial tool list")
+
+	// 窗口开始时读到"半截"列表，窗口另一端又变回原样：视为抖动，不切换。
+	srv.scriptLists([]mcpTool{{Name: "a"}, {Name: "b"}})
+	srv.notifyToolsChanged()
+
+	// 远大于数个稳定窗口后集合仍应保持原样（不推进目录代数）。
+	time.Sleep(300 * time.Millisecond)
+	tools := mgr.ListTools()
+	if len(tools) != 1 || tools[0].Name != "mcp_srv_a" {
+		t.Fatalf("jittery list must not be adopted, got %+v", tools)
+	}
 }
 
 func TestManagerKeepsToolsWhenDisconnected(t *testing.T) {
