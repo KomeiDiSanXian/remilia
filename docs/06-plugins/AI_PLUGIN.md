@@ -69,7 +69,9 @@ plugins:
     model: ""                     # 模型名（空 = 提供商默认）
     base_url: ""                  # 兼容端点（OpenAI 兼容 API 可指向代理/中转）
     api_key: ""
-    max_tokens: 0                 # 单次回复最大 token
+    max_tokens: 0                 # 单次回复最大 token（默认 4096；思考型模型的推理也计入该预算）
+    max_tokens_cap: 0             # 截断重试的输出预算上限（默认 8192；<= max_tokens 时关闭重试）
+    reasoning_effort: ""          # 思考程度（none/minimal/low/medium/high；空 = 不发送该字段）
     max_depth: 0                  # 工具调用最大轮数
     max_history: 0                # 保留的历史消息数
     api_timeout: ""               # LLM API 超时

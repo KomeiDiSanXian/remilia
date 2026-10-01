@@ -104,7 +104,11 @@ type ChatRequest struct {
 	Temperature float64
 	TopP        float64
 	MaxTokens   int
-	Stream      bool
+	// ReasoningEffort 思考程度（OpenAI 兼容的 reasoning_effort：
+	// none/minimal/low/medium/high）。空串表示不携带该字段，由端点决定
+	// 默认行为——不支持该字段的网关因此不受影响。
+	ReasoningEffort string
+	Stream          bool
 }
 
 // TokenUsage 一次 LLM 调用的 token 用量（由提供商响应解析；缺失时为 nil）。
@@ -117,6 +121,10 @@ type TokenUsage struct {
 	// 用于量化前缀缓存命中率（CachedTokens/PromptTokens），验证提示词
 	// 结构改动（稳定前缀长度、工具顺序）是否真的提高了复用。
 	CachedTokens int
+	// ReasoningTokens 思考型模型的推理 token 数（已计入 CompletionTokens；
+	// 提供商未单独返回时为 0）。多数端点把推理过程也算进 max_tokens 预算，
+	// 该值用于识别"推理耗尽预算、可见正文为空"的截断。
+	ReasoningTokens int
 }
 
 // ChatResponse 非流式聊天的响应。
@@ -144,12 +152,15 @@ const (
 	StreamEventError
 	// StreamEventAttachment 附件片段（模型直接输出的图片等媒体）。
 	StreamEventAttachment
+	// StreamEventReasoning 推理内容片段（思考型模型，如 DeepSeek 的
+	// reasoning_content）。编排层只用于计数与日志，不进入回复正文。
+	StreamEventReasoning
 )
 
 // StreamEvent 流式事件，由 ChatStream 通过 channel 推送。
 type StreamEvent struct {
 	Type       StreamEventType
-	Content    string               // StreamEventText 时有效
+	Content    string               // StreamEventText / StreamEventReasoning 时有效
 	ToolCall   *ToolCall            // StreamEventToolCall 时有效
 	Attachment *platform.Attachment // StreamEventAttachment 时有效
 	Err        error                // StreamEventError 时有效

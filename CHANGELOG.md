@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 AI 插件：思考型模型耗尽输出预算导致的空回复
+
+- **根因**：思考型模型（如 DeepSeek `deepseek-flash`）把推理过程也算进
+  `max_tokens`。预算被思考吃光时模型一个字的正文都不会输出，直接以
+  `finish_reason=length` 结束——而此前插件解析不到推理内容，整轮看起来就是
+  "模型什么都没返回"：v1.67.1 之前是静默无回复，之后是"AI 处理出错，请稍后再试"
+- **看得见**：OpenAI 兼容适配器解析 `delta.reasoning_content`（新增
+  `StreamEventReasoning` 事件）与 `usage.completion_tokens_details.reasoning_tokens`
+  （`TokenUsage.ReasoningTokens`）；空回复告警日志带出 `reasoning_chars` /
+  `reasoning_tokens` / `max_tokens`，指标新增
+  `ai_llm_tokens_total{type="reasoning"}`，可区分"推理耗尽预算"与"真的没话说"
+- **能恢复**：某轮被截断（`finish_reason=length`）且整轮毫无可见产出（无正文、
+  无工具调用、无附件、无发送工具输出）时，按 `max_tokens×2` 提升预算重试同一轮
+  一次，上限为新配置 `max_tokens_cap`（默认 8192；设成 `<= max_tokens` 即关闭
+  该重试）。重试仍失败时报错点明"模型思考过程耗尽了输出预算"，用户侧提示重试
+- **默认值**：`max_tokens` 默认 2048 → 4096。思考型模型的推理同样吃这个预算，
+  2048 常常连"想完"都不够（实测同一问题推理长度在 2.2k～4.1k token 之间波动）
+
+### ✨ AI 插件：新增思考程度配置 `reasoning_effort`
+
+- 新增 `plugins.ai.reasoning_effort`（对应 OpenAI 兼容的 `reasoning_effort`），
+  取值 `none` / `minimal` / `low` / `medium` / `high`；**留空表示不发送该字段**，
+  不认识它的网关不会因此被拒
+- `none` 让思考型模型不产出推理内容、直接作答：实测同一问题延迟与输出 token
+  显著下降，并彻底避开上面那类截断；`low` / `medium` / `high` 只是提示——实测
+  推理长度仍在 2.2k～4.1k 之间波动、不会稳定变短（`thinking.budget_tokens`
+  被该端点直接忽略，故未提供对应配置项）
+- 该配置透传到主回合、校验/抽取（单轮非流式）与 `/ai summary`；Anthropic 的
+  思考由 `thinking` 参数控制，配置后在启动日志中告警提示不生效
+
 ## v1.68.1 (2026-10-01)
 
 ### ✨ Wordle 默认开局随机长度、机会数按长度推导

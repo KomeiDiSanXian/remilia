@@ -3,10 +3,12 @@
 // 指标族（namespace "ai"）：
 //   - ai_llm_calls_total{model, result}       LLM 调用次数（result: ok/error/stopped）
 //   - ai_llm_latency_seconds{model}           LLM 调用耗时（含流式全时长）
-//   - ai_llm_tokens_total{model, type}        token 用量（type: prompt/completion/prompt_cached）
+//   - ai_llm_tokens_total{model, type}        token 用量（type: prompt/completion/prompt_cached/reasoning）
 //
 // prompt_cached 为命中提示词前缀缓存的输入 token 数，
 // rate(prompt_cached)/rate(prompt) 即前缀缓存命中率。
+// reasoning 为思考型模型的推理 token 数（已计入 completion），
+// rate(reasoning)/rate(completion) 接近 1 说明该端点把思考也算进输出预算。
 //   - ai_tool_calls_total{tool, result}       工具调用次数（result: ok/error）
 //   - ai_toolset_changes_total{reason}        工具集变更次数
 //     （reason: init/grow/shrink/decay；仅在集合真的变化时计数，keep 不计数）
@@ -138,6 +140,11 @@ func recordLLMCall(model string, duration time.Duration, usage *protocol.TokenUs
 		}
 		if usage.CompletionTokens > 0 {
 			llmTokens.WithLabelValues(model, "completion").Add(float64(usage.CompletionTokens))
+		}
+		// 推理 token（思考型模型单独返回时才记，已含在 completion 内），
+		// 用于区分"输出预算被思考耗尽"与真正的空回复。
+		if usage.ReasoningTokens > 0 {
+			llmTokens.WithLabelValues(model, "reasoning").Add(float64(usage.ReasoningTokens))
 		}
 		// 前缀缓存命中量（供应商返回时才记），用于计算缓存命中率
 		if usage.CachedTokens > 0 {

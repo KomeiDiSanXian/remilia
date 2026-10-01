@@ -175,14 +175,17 @@ type openaiChatMessage struct {
 }
 
 type openaiChatRequest struct {
-	Model         string              `json:"model"`
-	Messages      []openaiChatMessage `json:"messages"`
-	Tools         []OpenAITool        `json:"tools,omitempty"`
-	Temperature   float64             `json:"temperature,omitempty"`
-	TopP          float64             `json:"top_p,omitempty"`
-	MaxTokens     int                 `json:"max_tokens,omitempty"`
-	Stream        bool                `json:"stream,omitempty"`
-	StreamOptions *struct {
+	Model       string              `json:"model"`
+	Messages    []openaiChatMessage `json:"messages"`
+	Tools       []OpenAITool        `json:"tools,omitempty"`
+	Temperature float64             `json:"temperature,omitempty"`
+	TopP        float64             `json:"top_p,omitempty"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	// ReasoningEffort 思考程度（reasoning_effort）。omitempty 保证未配置时
+	// 完全不出现该字段，兼容不认识它的网关。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	Stream          bool   `json:"stream,omitempty"`
+	StreamOptions   *struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
 }
@@ -197,6 +200,19 @@ type openaiUsageBody struct {
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
+	// 思考型模型（DeepSeek 等）把推理 token 数单独放在
+	// completion_tokens_details 里（仍然计入 completion_tokens）。
+	CompletionTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+// reasoningTokens 返回推理 token 数（提供商未单独返回时为 0）。
+func (u *openaiUsageBody) reasoningTokens() int {
+	if u.CompletionTokensDetails == nil {
+		return 0
+	}
+	return u.CompletionTokensDetails.ReasoningTokens
 }
 
 // cachedPromptTokens 返回缓存命中的输入 token 数。
@@ -378,11 +394,12 @@ func attachmentFromImageURI(uri string) (platform.Attachment, bool) {
 
 func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := openaiChatRequest{
-		Model:       RequestModel(c.model, req.Model),
-		Messages:    toOpenAIMessages(req.Messages),
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
+		Model:           RequestModel(c.model, req.Model),
+		Messages:        toOpenAIMessages(req.Messages),
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		MaxTokens:       requestMaxTokens(c.maxTokens, req.MaxTokens),
+		ReasoningEffort: req.ReasoningEffort,
 	}
 	if len(req.Tools) > 0 {
 		body.Tools = ToOpenAITools(req.Tools)
@@ -475,6 +492,7 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 			PromptTokens:     openaiResp.Usage.PromptTokens,
 			CompletionTokens: openaiResp.Usage.CompletionTokens,
 			CachedTokens:     openaiResp.Usage.cachedPromptTokens(),
+			ReasoningTokens:  openaiResp.Usage.reasoningTokens(),
 		}
 	}
 
@@ -495,12 +513,13 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 	ch := make(chan StreamEvent, 64)
 
 	body := openaiChatRequest{
-		Model:       RequestModel(c.model, req.Model),
-		Messages:    toOpenAIMessages(req.Messages),
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
-		Stream:      true,
+		Model:           RequestModel(c.model, req.Model),
+		Messages:        toOpenAIMessages(req.Messages),
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		MaxTokens:       requestMaxTokens(c.maxTokens, req.MaxTokens),
+		ReasoningEffort: req.ReasoningEffort,
+		Stream:          true,
 	}
 	// 请求流式 usage 统计（OpenAI 需显式开启；不兼容的网关可通过
 	// include_usage=false 关闭，避免未知字段被拒）
@@ -580,6 +599,11 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 					Delta struct {
 						Role    string               `json:"role"`
 						Content openaiMessageContent `json:"content"`
+						// ReasoningContent 思考型模型（DeepSeek 等）的推理内容
+						// 片段，与 content 分通道流式输出：max_tokens 被推理
+						// 耗尽时只有它非空、content 始终为空。编排层只做计数
+						// 与日志，不把推理内容写进回复正文。
+						ReasoningContent string `json:"reasoning_content"`
 						// Images 部分兼容网关（如 OpenRouter）在 delta.images
 						// 字段携带模型输出的图片（content 数组之外的补充通道）。
 						Images    []openaiContentPart `json:"images"`
@@ -617,6 +641,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 					PromptTokens:     streamResp.Usage.PromptTokens,
 					CompletionTokens: streamResp.Usage.CompletionTokens,
 					CachedTokens:     streamResp.Usage.cachedPromptTokens(),
+					ReasoningTokens:  streamResp.Usage.reasoningTokens(),
 				}
 			}
 
@@ -627,6 +652,12 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			delta := streamResp.Choices[0].Delta
 			if fr := streamResp.Choices[0].FinishReason; fr != "" {
 				finishReason = fr
+			}
+
+			if rc := delta.ReasoningContent; rc != "" {
+				if !sendEvent(StreamEvent{Type: StreamEventReasoning, Content: rc}) {
+					return
+				}
 			}
 
 			if txt := delta.Content.String(); txt != "" {

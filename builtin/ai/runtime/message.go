@@ -240,7 +240,8 @@ func TruncateToolResult(result string) string {
 //   - 404: 模型名称错误或 API 地址不对
 //   - 429: 速率限制
 //   - timeout / context deadline: 请求超时（可检查网络或增大 timeout）
-//     其他: 记录详细日志后返回通用提示，避免向用户暴露可能包含
+//   - 输出预算被思考耗尽（思考型模型截断）：提示重试，token 细节见告警日志
+//   - 其他: 记录详细日志后返回通用提示，避免向用户暴露可能包含
 //     组织/计费信息的原始 API 错误体。
 func FormatAIError(err error) string {
 	msg := err.Error()
@@ -257,6 +258,10 @@ func FormatAIError(err error) string {
 		return "无法连接 API 服务器，请检查 base_url 配置"
 	case strings.Contains(msg, "no such host"):
 		return "API 域名解析失败，请检查 base_url 配置"
+	case strings.Contains(msg, "输出预算"):
+		// 思考型模型把推理过程计入 max_tokens，预算被思考耗尽时没有正文；
+		// 面向用户只提示重试，token/模型细节留在 [AI] 告警日志里。
+		return "AI 思考时间过长，本次未能生成回复，请重试"
 	default:
 		logger.Warnf("[AI] Unhandled LLM error: %v", err)
 		return "AI 处理出错，请稍后再试"

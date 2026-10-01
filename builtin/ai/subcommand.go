@@ -519,10 +519,11 @@ func (p *Plugin) doSummary(event platform.Event, sender platform.Sender, msgs []
 	})
 
 	req := &protocol.ChatRequest{
-		Model:       p.cfg.Model,
-		Messages:    filtered,
-		Temperature: p.cfg.Temperature,
-		TopP:        p.cfg.TopP,
+		Model:           p.cfg.Model,
+		Messages:        filtered,
+		Temperature:     p.cfg.Temperature,
+		TopP:            p.cfg.TopP,
+		ReasoningEffort: p.cfg.ReasoningEffort,
 	}
 
 	summaryCtx, summaryCancel := context.WithTimeout(p.lifecycleCtx, p.cfg.APITimeout)

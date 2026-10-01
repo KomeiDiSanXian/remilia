@@ -724,3 +724,70 @@ func TestProcessWithToolsStreamWithoutDoneIsError(t *testing.T) {
 		t.Errorf("expected stream-interrupted error, got %v", err)
 	}
 }
+
+// TestProcessWithToolsTruncatedCompletionRetriesWithBiggerBudget 思考型模型把
+// max_tokens 预算花在推理上、正文为空（finish_reason=length）时，应当提升输出
+// 预算重试同一轮并使用重试结果，而不是直接把"AI 处理出错"甩给用户。
+func TestProcessWithToolsTruncatedCompletionRetriesWithBiggerBudget(t *testing.T) {
+	var calls atomic.Int32
+	var budgets []int
+	p, sess, ctx := newEmptyTurnPlugin(t, func(_ context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+		budgets = append(budgets, req.MaxTokens)
+		ch := make(chan protocol.StreamEvent, 4)
+		if calls.Add(1) == 1 {
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventReasoning, Content: "想了很久"}
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventDone, FinishReason: "length",
+				Usage: &protocol.TokenUsage{CompletionTokens: 2048, ReasoningTokens: 2048}}
+			close(ch)
+			return ch, nil
+		}
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "答案是……"}
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventDone, FinishReason: "stop"}
+		close(ch)
+		return ch, nil
+	})
+	p.cfg.MaxTokens = 2048
+	p.cfg.MaxTokensCap = 8192
+
+	result, err := p.processWithTools(ctx, sess)
+	if err != nil {
+		t.Fatalf("escalated retry should succeed, got err=%v", err)
+	}
+	if result.Text != "答案是……" {
+		t.Errorf("expected retried answer, got %q", result.Text)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("expected 2 LLM calls (initial + escalated retry), got %d", got)
+	}
+	if len(budgets) != 2 || budgets[0] != 2048 || budgets[1] != 4096 {
+		t.Errorf("expected budgets [2048 4096], got %v", budgets)
+	}
+}
+
+// TestProcessWithToolsTruncatedCompletionWithoutRetryIsError 关闭截断重试
+// （max_tokens_cap <= max_tokens）时，必须报出可定位的原因，而不是笼统的
+// "空回复"——这类空回复的成因是推理耗尽输出预算。
+func TestProcessWithToolsTruncatedCompletionWithoutRetryIsError(t *testing.T) {
+	var calls atomic.Int32
+	p, sess, ctx := newEmptyTurnPlugin(t, func(_ context.Context, _ *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+		calls.Add(1)
+		ch := make(chan protocol.StreamEvent, 2)
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventReasoning, Content: "想"}
+		ch <- protocol.StreamEvent{Type: protocol.StreamEventDone, FinishReason: "length"}
+		close(ch)
+		return ch, nil
+	})
+	p.cfg.MaxTokens = 2048
+	p.cfg.MaxTokensCap = 0
+
+	result, err := p.processWithTools(ctx, sess)
+	if err == nil {
+		t.Fatalf("truncated completion without retry budget must surface an error, got result=%+v", result)
+	}
+	if !strings.Contains(err.Error(), "输出预算") {
+		t.Errorf("expected budget-exhausted error, got %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("retry must be disabled when cap <= max_tokens, got %d calls", got)
+	}
+}

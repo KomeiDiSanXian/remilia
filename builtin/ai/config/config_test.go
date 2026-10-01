@@ -13,8 +13,11 @@ func TestDefaultConfigValues(t *testing.T) {
 	if cfg.Model != "gpt-4o-mini" {
 		t.Errorf("Model: expected %q, got %q", "gpt-4o-mini", cfg.Model)
 	}
-	if cfg.MaxTokens != 2048 {
-		t.Errorf("MaxTokens: expected %d, got %d", 2048, cfg.MaxTokens)
+	if cfg.MaxTokens != 4096 {
+		t.Errorf("MaxTokens: expected %d, got %d", 4096, cfg.MaxTokens)
+	}
+	if cfg.MaxTokensCap != 8192 {
+		t.Errorf("MaxTokensCap: expected %d, got %d", 8192, cfg.MaxTokensCap)
 	}
 	if cfg.MaxDepth != 5 {
 		t.Errorf("MaxDepth: expected %d, got %d", 5, cfg.MaxDepth)

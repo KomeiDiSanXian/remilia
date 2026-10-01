@@ -292,7 +292,18 @@ messagelog:
 #     trigger_cmd: "/ai"                  # [R] AI 对话触发命令前缀；空 = 不注册命令触发
 #
 #     # —— 模型参数 ——
-#     max_tokens: 2048                    # [R] 每次请求的最大输出 token 数
+#     max_tokens: 4096                    # [R] 每次请求的最大输出 token 数（默认 4096）。思考型模型
+#                                         #     （DeepSeek reasoning 系列等）把推理过程也计入该预算，
+#                                         #     设太小会出现"思考耗尽预算、正文为空"（finish_reason=length）
+#     max_tokens_cap: 8192                # [R] 截断重试的输出预算上限。思考型模型（DeepSeek reasoning
+#                                         #     系列等）把推理过程也算进 max_tokens，预算被思考耗尽时
+#                                         #     正文为空、finish_reason=length；此时按 max_tokens×2
+#                                         #     提升预算重试一次，上限即本值（<= max_tokens 时关闭重试）
+#     reasoning_effort: ""                # [R] 思考程度（OpenAI 兼容的 reasoning_effort；空 = 不发送该字段、
+#                                         #     跟随端点默认）。none/minimal/low/medium/high；"none" 让思考型
+#                                         #     模型直接作答：延迟与输出 token 显著下降，也彻底避开"推理耗尽
+#                                         #     max_tokens、正文为空"。实测 low/medium/high 只是提示、推理长度
+#                                         #     仍会波动；Anthropic 的思考由 thinking 控制，该配置对其无效
 #     include_usage: true                 # [R] 流式请求携带 stream_options.include_usage 以统计 token 用量
 #                                         #     （OpenAI 兼容 API；个别不兼容该字段的网关可设为 false）
 #     max_depth: 5                        # [R] 工具调用的最大递归深度（防止工具循环过深）

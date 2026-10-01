@@ -9,6 +9,7 @@ package config
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -82,8 +83,32 @@ type Config struct {
 	//   - parent_id   所属服务器 ID（频道类平台）
 	//   - group_role  发送者群角色（群主/管理员/普通成员）
 	ContextFields []string `yaml:"context_fields"`
-	// MaxTokens 每次请求的最大输出 token 数。
+	// MaxTokens 每次请求的最大输出 token 数（默认 4096）。
+	//
+	// 思考型模型（DeepSeek reasoning 系列等）把推理过程也算进这个预算：
+	// 设得太小会出现"思考还没结束、预算就用完、一个字的正文都没输出"
+	// （finish_reason=length）。插件会用 max_tokens_cap 对这类截断做一次
+	// 提升预算的重试兜底，但正常回合就该给推理留出余量。
 	MaxTokens int `yaml:"max_tokens"`
+	// MaxTokensCap 输出预算截断重试的上限（默认 8192）。
+	//
+	// 思考型模型（DeepSeek reasoning 系列等）把推理过程也算进 max_tokens：
+	// 预算被思考耗尽时模型不输出正文，直接以 finish_reason=length 结束，
+	// 用户侧表现为"提问后没有任何回复"。这种截断可恢复——插件会按
+	// max_tokens×2 提升预算重试一次，上限即本值。设为 <= max_tokens
+	// 可关闭该重试（此时截断直接报错）。
+	MaxTokensCap int `yaml:"max_tokens_cap"`
+	// ReasoningEffort 思考程度（OpenAI 兼容的 reasoning_effort；空 = 不发送
+	// 该字段，跟随端点默认行为）。
+	//
+	// 取值 none / minimal / low / medium / high。"none" 让思考型模型不产出
+	// 推理内容、直接作答：延迟与输出 token 都显著下降，也彻底避开"推理耗尽
+	// max_tokens、正文为空"的截断。实测（DeepSeek 兼容端点）：none 生效、
+	// minimal 被忽略、low/medium/high 只是提示——同一问题推理长度在
+	// 2.2k～4.1k token 之间波动，并不会稳定变短；因此遇到截断优先调大
+	// max_tokens / max_tokens_cap，或直接设 none。
+	// Anthropic 的思考由 thinking 参数控制，本配置对 anthropic 提供商无效。
+	ReasoningEffort string `yaml:"reasoning_effort"`
 	// MaxDepth 工具调用的最大递归深度。
 	// 防止工具循环调用过深，默认 5。
 	MaxDepth int `yaml:"max_depth"`
@@ -322,11 +347,35 @@ const (
 	NeedActionAlways = "always"
 )
 
+// reasoning_effort 的合法取值（OpenAI 兼容端点；空串 = 不发送该字段）。
+const (
+	// ReasoningEffortNone 关闭思考，思考型模型直接作答。
+	ReasoningEffortNone = "none"
+	// ReasoningEffortMinimal 最小思考（部分端点不认识该值，会被忽略）。
+	ReasoningEffortMinimal = "minimal"
+	// ReasoningEffortLow 低思考程度（提示性，端点不保证严格遵守）。
+	ReasoningEffortLow = "low"
+	// ReasoningEffortMedium 中等思考程度。
+	ReasoningEffortMedium = "medium"
+	// ReasoningEffortHigh 高思考程度。
+	ReasoningEffortHigh = "high"
+)
+
+// validReasoningEffort 判断 reasoning_effort 取值是否合法。
+func validReasoningEffort(v string) bool {
+	switch v {
+	case ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
+		return true
+	}
+	return false
+}
+
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
 	Provider:               "openai",
 	Model:                  "gpt-4o-mini",
-	MaxTokens:              2048,
+	MaxTokens:              4096,
+	MaxTokensCap:           8192,
 	IncludeUsage:           true,
 	MaxDepth:               5,
 	MaxHistory:             20,
@@ -410,6 +459,20 @@ func Load(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetInt("max_tokens", 0); v > 0 {
 		cfg.MaxTokens = v
+	}
+	if v, ok := intOption(ctx, "max_tokens_cap"); ok {
+		if v >= 0 {
+			cfg.MaxTokensCap = v
+		} else {
+			ctx.Log.Warnf("max_tokens_cap must not be negative, ignoring %d", v)
+		}
+	}
+	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("reasoning_effort", ""))); v != "" {
+		if validReasoningEffort(v) {
+			cfg.ReasoningEffort = v
+		} else {
+			ctx.Log.Warnf("reasoning_effort must be one of none/minimal/low/medium/high, ignoring %q", v)
+		}
 	}
 	cfg.IncludeUsage = ctx.Config.GetBool("include_usage", DefaultConfig.IncludeUsage)
 	if v := ctx.Config.GetInt("max_depth", 0); v > 0 {

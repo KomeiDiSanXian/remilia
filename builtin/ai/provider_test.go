@@ -615,3 +615,120 @@ func TestAnthropicProvider_ChatStreamErrorEvent(t *testing.T) {
 		t.Errorf("expected error message %q in %q", "Overloaded", gotErr.Error())
 	}
 }
+
+// TestOpenAIProvider_ChatStreamReasoning 思考型模型（DeepSeek 等）把推理内容放在
+// reasoning_content 通道、把推理 token 数放在 completion_tokens_details：适配器
+// 必须把两者都暴露出来，否则"预算被思考耗尽、正文为空"的截断会被误判成模型
+// 无话可说，日志里也看不到任何线索。
+func TestOpenAIProvider_ChatStreamReasoning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":null,\"reasoning_content\":\"先想\"},\"index\":0}]}\n\n"))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":null,\"reasoning_content\":\"再想\"},\"index\":0}]}\n\n"))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"\",\"reasoning_content\":null},\"index\":0,\"finish_reason\":\"length\"}]}\n\n"))
+		w.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":2048,\"completion_tokens_details\":{\"reasoning_tokens\":2048}}}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{BaseURL: server.URL, APIKey: "test-key", Model: "deepseek-flash", MaxTokens: 2048}
+	prov, _ := openAIProviderForTest(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
+		Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "在吗"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+
+	var (
+		reasoning    strings.Builder
+		text         strings.Builder
+		finishReason string
+		reasoningTok int
+	)
+	for evt := range ch {
+		switch evt.Type {
+		case protocol.StreamEventReasoning:
+			reasoning.WriteString(evt.Content)
+		case protocol.StreamEventText:
+			text.WriteString(evt.Content)
+		case protocol.StreamEventError:
+			t.Fatalf("stream error: %v", evt.Err)
+		case protocol.StreamEventDone:
+			finishReason = evt.FinishReason
+			if evt.Usage != nil {
+				reasoningTok = evt.Usage.ReasoningTokens
+			}
+		}
+	}
+	if reasoning.String() != "先想再想" {
+		t.Errorf("expected reasoning %q, got %q", "先想再想", reasoning.String())
+	}
+	if text.String() != "" {
+		t.Errorf("expected no visible content, got %q", text.String())
+	}
+	if finishReason != "length" {
+		t.Errorf("expected finish_reason %q, got %q", "length", finishReason)
+	}
+	if reasoningTok != 2048 {
+		t.Errorf("expected reasoning_tokens 2048, got %d", reasoningTok)
+	}
+}
+
+// TestOpenAIProvider_ReasoningEffort 思考程度只在配置后出现在请求体里：未配置
+// （空值）时完全不发送该字段，保证不认识 reasoning_effort 的网关不被拒绝。
+func TestOpenAIProvider_ReasoningEffort(t *testing.T) {
+	bodies := make(chan string, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sent := string(body)
+		if strings.Contains(sent, `"stream":true`) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"index\":0}]}\n\n"))
+			w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"index\":0,\"finish_reason\":\"stop\"}]}\n\n"))
+			w.Write([]byte("data: [DONE]\n\n"))
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{
+					{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
+				},
+			})
+		}
+		bodies <- sent
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 100}
+	prov, _ := openAIProviderForTest(cfg)
+	msgs := []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}
+
+	ch, err := prov.ChatStream(context.Background(), &protocol.ChatRequest{
+		Messages: msgs, ReasoningEffort: "none",
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+	for range ch {
+	}
+	if body := <-bodies; !strings.Contains(body, `"reasoning_effort":"none"`) {
+		t.Errorf("expected stream payload to carry reasoning_effort, body: %s", body)
+	}
+
+	if _, err := prov.Chat(context.Background(), &protocol.ChatRequest{
+		Messages: msgs, ReasoningEffort: "high",
+	}); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if body := <-bodies; !strings.Contains(body, `"reasoning_effort":"high"`) {
+		t.Errorf("expected payload to carry reasoning_effort, body: %s", body)
+	}
+
+	if _, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: msgs}); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if body := <-bodies; strings.Contains(body, "reasoning_effort") {
+		t.Errorf("reasoning_effort must be omitted when unset, body: %s", body)
+	}
+}

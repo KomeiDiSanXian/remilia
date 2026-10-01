@@ -28,6 +28,9 @@ type Client struct {
 	TopP float64
 	// MaxTokens 单次请求的输出上限。
 	MaxTokens int
+	// ReasoningEffort 思考程度（reasoning_effort）；空 = 不携带该字段。
+	// 校验/抽取这类"短、结构化"的输出通常不需要思考，可由装配侧设 none。
+	ReasoningEffort string
 	// Prov LLM 提供商。
 	Prov protocol.Provider
 }
@@ -37,12 +40,13 @@ type Client struct {
 // tools 为已收敛好的协议层工具声明，可为空。
 func (c Client) SingleRound(ctx context.Context, model string, messages []protocol.Message, tools []protocol.ToolSpec) (*SingleRoundResult, error) {
 	req := &protocol.ChatRequest{
-		Model:       model,
-		Messages:    messages,
-		Tools:       tools,
-		Temperature: c.Temperature,
-		TopP:        c.TopP,
-		MaxTokens:   c.MaxTokens,
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
+		Temperature:     c.Temperature,
+		TopP:            c.TopP,
+		MaxTokens:       c.MaxTokens,
+		ReasoningEffort: c.ReasoningEffort,
 	}
 
 	resp, err := c.Prov.Chat(ctx, req)

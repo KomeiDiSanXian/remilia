@@ -38,10 +38,11 @@ type chatResult struct {
 // runtimeClient 组装单轮非流式 LLM 调用客户端（请求形状与调用见 builtin/ai/runtime）。
 func (p *Plugin) runtimeClient() runtime.Client {
 	return runtime.Client{
-		Temperature: p.cfg.Temperature,
-		TopP:        p.cfg.TopP,
-		MaxTokens:   p.cfg.MaxTokens,
-		Prov:        p.prov,
+		Temperature:     p.cfg.Temperature,
+		TopP:            p.cfg.TopP,
+		MaxTokens:       p.cfg.MaxTokens,
+		ReasoningEffort: p.cfg.ReasoningEffort,
+		Prov:            p.prov,
 	}
 }
 
@@ -102,6 +103,11 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// 字节一致的前缀，本回合生成的工具结果能继续被前缀缓存复用。
 	dynamicContext := p.buildDynamicContext(ctx, session)
 
+	// 输出预算：被截断且毫无可见产出时会临时提高本值重试一次。
+	maxTokens := p.cfg.MaxTokens
+	// 每个回合最多提升一次预算，避免反复重试放大思考成本。
+	budgetEscalated := false
+
 	for currentDepth < maxDepth {
 		currentDepth++
 
@@ -150,12 +156,13 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		}
 
 		req := &protocol.ChatRequest{
-			Model:       p.cfg.Model,
-			Messages:    msgs,
-			Tools:       wireSpecs(activeTools),
-			Temperature: p.cfg.Temperature,
-			TopP:        p.cfg.TopP,
-			MaxTokens:   p.cfg.MaxTokens,
+			Model:           p.cfg.Model,
+			Messages:        msgs,
+			Tools:           wireSpecs(activeTools),
+			Temperature:     p.cfg.Temperature,
+			TopP:            p.cfg.TopP,
+			MaxTokens:       maxTokens,
+			ReasoningEffort: p.cfg.ReasoningEffort,
 		}
 
 		streamCtx, cancel := context.WithTimeout(turnCtx, p.cfg.APITimeout)
@@ -174,11 +181,17 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		var streamErr error
 		doneReceived := false
 		finishReason := ""
+		// 推理内容只计数、不进入正文：思考型模型（DeepSeek 等）把推理
+		// token 也算进 max_tokens，预算被推理耗尽时正文为空而推理非空。
+		reasoningChars := 0
+		reasoningTokens := 0
 
 		for event := range streamCh {
 			switch event.Type {
 			case protocol.StreamEventText:
 				fullResponse.WriteString(event.Content)
+			case protocol.StreamEventReasoning:
+				reasoningChars += len(event.Content)
 			case protocol.StreamEventToolCall:
 				if event.ToolCall != nil && event.ToolCall.Name != "" {
 					toolCalls = append(toolCalls, *event.ToolCall)
@@ -194,6 +207,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			case protocol.StreamEventDone:
 				doneReceived = true
 				finishReason = event.FinishReason
+				if event.Usage != nil {
+					reasoningTokens = event.Usage.ReasoningTokens
+				}
 			}
 		}
 		cancel()
@@ -236,6 +252,27 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			return &chatResult{}, fmt.Errorf("chat stream: 连接中断（未收到结束事件，finish_reason=%q）", finishReason)
 		}
 
+		// 输出预算被思考过程耗尽：思考型模型还没轮到输出正文就把 max_tokens
+		// 用完，直接以 finish_reason=length 收尾，用户侧表现为"提问后没有任何
+		// 回复"。这类截断是可恢复的——提高输出预算重试同一轮即可（消息序列
+		// 尚未改动，重试等价于再发一次同样的请求）。上限由 max_tokens_cap
+		// 控制，设成 <= max_tokens 即关闭该重试。
+		//
+		// 重试不限于首轮：工具轮之后同样可能整轮被截断，而此时回合内还没有
+		// 任何可见产出（发送工具未发出内容、没有附件）。
+		if doneReceived && len(toolCalls) == 0 && responseText == "" &&
+			finishReason == finishReasonLength && cs.CapturedText == "" &&
+			len(provAttachments) == 0 && !budgetEscalated {
+			if next := escalateMaxTokens(maxTokens, p.cfg.MaxTokensCap); next > maxTokens {
+				budgetEscalated = true
+				logger.Warnf("[AI] no visible output before truncation (finish_reason=%q, "+
+					"reasoning_chars=%d, reasoning_tokens=%d, max_tokens=%d); retrying with max_tokens=%d",
+					finishReason, reasoningChars, reasoningTokens, maxTokens, next)
+				maxTokens = next
+				continue
+			}
+		}
+
 		for i := range toolCalls {
 			if toolCalls[i].ID == "" {
 				toolCalls[i].ID = fmt.Sprintf("call_%s_%d", toolCalls[i].Name, i)
@@ -263,10 +300,21 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 			attachments := runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)
 			// 首轮即空回复（无文本、无工具调用、无附件、无发送工具捕获输出）：
 			// 模型这次什么都没产出（如 finish_reason=length/content_filter，
-			// 或推理模型的正文为空）。不能当成成功的空回答静默结束，否则用户
+			// 或思考型模型的正文为空）。不能当成成功的空回答静默结束，否则用户
 			// 只看到"发了消息没反应"；报错让调用方给出可见反馈并留下日志。
+			// 仅限首轮：更深的轮次里用户可能已通过其他通道（如 create_plan 的
+			// 计划消息）收到输出，此时按空回复报错会误伤。
 			if responseText == "" && currentDepth == 1 && cs.CapturedText == "" && len(attachments) == 0 {
-				logger.Warnf("[AI] empty completion from model %q (finish_reason=%q)", p.cfg.Model, finishReason)
+				logger.Warnf("[AI] empty completion from model %q (finish_reason=%q, "+
+					"reasoning_chars=%d, reasoning_tokens=%d, max_tokens=%d)",
+					p.cfg.Model, finishReason, reasoningChars, reasoningTokens, maxTokens)
+				// 有推理产出却没有任何正文：思考型模型把 max_tokens 花在了
+				// 推理上，报错时给出可定位的原因（而非笼统的"空回复"）。
+				if finishReason == finishReasonLength && (reasoningChars > 0 || reasoningTokens > 0) {
+					return &chatResult{}, fmt.Errorf(
+						"模型思考过程耗尽了输出预算，未产出任何内容（finish_reason=length, reasoning_tokens=%d, max_tokens=%d）",
+						reasoningTokens, maxTokens)
+				}
 				return &chatResult{}, fmt.Errorf("模型未返回任何内容（空回复，finish_reason=%q）", finishReason)
 			}
 			return &chatResult{
@@ -342,6 +390,19 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 
 	return &chatResult{Text: cs.CapturedText, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)},
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+}
+
+// finishReasonLength 提供商给出的"输出被 token 上限截断"结束原因。
+const finishReasonLength = "length"
+
+// escalateMaxTokens 计算截断重试提升后的输出预算：在当前预算上翻倍，但不
+// 超过 cap。cap 不大于当前预算（或当前预算非正）时原样返回，表示不重试。
+func escalateMaxTokens(current, cap int) int {
+	if current <= 0 || cap <= current {
+		return current
+	}
+	next := min(current*2, cap)
+	return next
 }
 
 // execOneTool 执行单个工具调用（计数 + 权限 + 审批 + 执行 + 追踪）。

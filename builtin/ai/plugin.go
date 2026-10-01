@@ -108,6 +108,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
     model: "gpt-4o-mini"                  # 模型名称
     base_url: "https://api.openai.com/v1"  # API 地址
     api_key: "${AI_API_KEY}"              # API Key
+    reasoning_effort: "none"              # 思考程度（思考型模型设 none 更快更省；空 = 跟随端点默认）
     system_prompt: "你是一个有用的AI助手"   # 系统提示词`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -250,6 +251,13 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 						break
 					}
 				}
+			}
+
+			// 思考程度只作用于 OpenAI 兼容端点（reasoning_effort）；Anthropic
+			// 的思考由 thinking 参数控制，配置了也不生效，提示避免静默失效。
+			if cfg.Provider == "anthropic" && cfg.ReasoningEffort != "" {
+				ctx.Log.Warnf("[AI] reasoning_effort=%q has no effect on the anthropic provider "+
+					"(its thinking is controlled by the thinking parameter)", cfg.ReasoningEffort)
 			}
 
 			p.fsmEngine.StartCleanup(5*time.Minute, lifecycleCtx.Done())

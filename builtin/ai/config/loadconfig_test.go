@@ -29,6 +29,8 @@ func TestLoadConfigCustomValues(t *testing.T) {
 			"base_url":                  "https://api.anthropic.com",
 			"api_key":                   "sk-test",
 			"max_tokens":                4096,
+			"max_tokens_cap":            12288,
+			"reasoning_effort":          "low",
 			"max_depth":                 10,
 			"max_history":               50,
 			"temperature":               float64(0.5),
@@ -64,6 +66,12 @@ func TestLoadConfigCustomValues(t *testing.T) {
 	}
 	if result.MaxTokens != 4096 {
 		t.Errorf("expected MaxTokens 4096, got %d", result.MaxTokens)
+	}
+	if result.MaxTokensCap != 12288 {
+		t.Errorf("expected MaxTokensCap 12288, got %d", result.MaxTokensCap)
+	}
+	if result.ReasoningEffort != "low" {
+		t.Errorf("expected ReasoningEffort %q, got %q", "low", result.ReasoningEffort)
 	}
 	if result.MaxDepth != 10 {
 		t.Errorf("expected MaxDepth 10, got %d", result.MaxDepth)
