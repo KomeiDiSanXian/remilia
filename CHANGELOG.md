@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.68.1 (2026-10-01)
 
 ### ✨ Wordle 默认开局随机长度、机会数按长度推导
 
