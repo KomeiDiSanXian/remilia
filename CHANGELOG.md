@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.68.0 (2026-10-01)
 
 ### ✨ 新增 Wordle 猜词小游戏插件
 
