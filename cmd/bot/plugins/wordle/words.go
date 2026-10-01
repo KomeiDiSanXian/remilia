@@ -45,6 +45,27 @@ func IsSupportedLength(n int) bool {
 	return slices.Contains(SupportedLengths, n)
 }
 
+// PickRandomLength 在受支持的长度（4-7）中随机取一个，用于默认开局。
+func PickRandomLength() int {
+	if len(SupportedLengths) == 0 {
+		return DefaultLength
+	}
+	return SupportedLengths[rand.IntN(len(SupportedLengths))]
+}
+
+// DailyLength 由日期稳定派生每日题的单词长度。
+//
+// 这样"每日题"在长度上也不再固定为 5，而是随日期变化，
+// 但同一天所有玩家拿到的长度一致，便于对照讨论。
+func DailyLength(day string) int {
+	if len(SupportedLengths) == 0 {
+		return DefaultLength
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("wordle:length:" + day))
+	return SupportedLengths[int(h.Sum64()%uint64(len(SupportedLengths)))]
+}
+
 // WordBank 单一长度的词库。
 type WordBank struct {
 	Length  int

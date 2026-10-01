@@ -343,6 +343,73 @@ func TestParseOptions_ColorRules(t *testing.T) {
 	}
 }
 
+func TestAttemptsForGame(t *testing.T) {
+	cases := []struct{ length, boards, want int }{
+		{4, 1, 5},
+		{5, 1, 6},
+		{6, 1, 7},
+		{7, 1, 8},
+		{5, 2, 8},  // 双谜底每多一块棋盘 +2
+		{5, 4, 12}, // 四谜底会被上限截断
+		{7, 4, 12},
+	}
+	for _, tc := range cases {
+		if got := attemptsForGame(tc.length, tc.boards); got != tc.want {
+			t.Errorf("attemptsForGame(%d,%d) = %d, 期望 %d", tc.length, tc.boards, got, tc.want)
+		}
+	}
+}
+
+func TestResolveLengthAndTries(t *testing.T) {
+	p := &Plugin{}
+	// 未指定且未配置时：长度随机 4-7，次数 = 长度 + 1。
+	for range 50 {
+		l := p.resolveLength(0, ModeRandom, "2026-10-01")
+		if !IsSupportedLength(l) {
+			t.Fatalf("随机长度应为受支持值，实际 %d", l)
+		}
+		if got := p.resolveTries(0, l, 1); got != l+1 {
+			t.Fatalf("长度 %d 的默认次数 = %d, 期望 %d", l, got, l+1)
+		}
+	}
+
+	// 每日题长度按日期稳定，且显式长度优先。
+	if a, b := p.resolveLength(0, ModeDaily, "2026-10-01"), p.resolveLength(0, ModeDaily, "2026-10-01"); a != b {
+		t.Fatalf("每日题长度应稳定: %d != %d", a, b)
+	}
+	if got := p.resolveLength(6, ModeDaily, "2026-10-01"); got != 6 {
+		t.Fatalf("显式长度应优先，实际 %d", got)
+	}
+	if got := p.resolveTries(3, 7, 4); got != 3 {
+		t.Fatalf("显式次数应优先，实际 %d", got)
+	}
+
+	// 配置默认值优先于随机/推导。
+	p2 := &Plugin{cfg: config{DefaultLength: 4, DefaultTries: 9}}
+	if got := p2.resolveLength(0, ModeRandom, ""); got != 4 {
+		t.Fatalf("配置默认长度应生效，实际 %d", got)
+	}
+	if got := p2.resolveTries(0, 4, 1); got != 9 {
+		t.Fatalf("配置默认次数应生效，实际 %d", got)
+	}
+}
+
+func TestPickRandomAndDailyLength(t *testing.T) {
+	for range 50 {
+		if l := PickRandomLength(); !IsSupportedLength(l) {
+			t.Fatalf("PickRandomLength 返回非法长度 %d", l)
+		}
+	}
+	first := DailyLength("2026-10-01")
+	second := DailyLength("2026-10-01")
+	if first != second {
+		t.Fatal("DailyLength 应稳定")
+	}
+	if l := DailyLength("2026-10-02"); !IsSupportedLength(l) {
+		t.Fatalf("DailyLength 返回非法长度 %d", l)
+	}
+}
+
 func TestSessionStore_MarkExpired(t *testing.T) {
 	s := NewSessionStore(time.Minute)
 	deadline := time.Unix(1000, 0)

@@ -103,7 +103,8 @@ func New() *plugin.Descriptor {
 多谜底：--duet（2 块）/--quad（4 块）/--boards 2-4，所有棋盘共用同一串猜测，
 全部解开才算胜利。可叠加 --hard/--blind/--obscure 等大幅提高难度。
 
-默认：5 个字母、6 次机会、随机出题、群内共享对局、单谜底、无附加玩法。`,
+默认：随机 4-7 个字母、机会按长度推导（5 字母 6 次）、随机出题、群内共享对局、
+单谜底、无附加玩法。`,
 		},
 		Setup:    p.setup,
 		Teardown: p.teardown,
@@ -175,8 +176,8 @@ func (p *Plugin) setup(ctx *plugin.SetupContext) (any, error) {
 		SubCommand(command.NewDef("lang").Description("切换语言").
 			Arg("locale", "语言代码，如 zh-CN", true).Build()).
 		SubCommand(command.NewDef("help").Description("查看帮助").Build()).
-		Flag("length", "l", "单词长度（4-7，默认 5）", command.ArgTypeInt).
-		Flag("tries", "t", "答题次数（1-12，默认 6）", command.ArgTypeInt).
+		Flag("length", "l", "单词长度（4-7，默认随机）", command.ArgTypeInt).
+		Flag("tries", "t", "答题次数（1-12，默认按长度推导）", command.ArgTypeInt).
 		Flag("daily", "d", "使用每日题", command.ArgTypeBool).
 		Flag("scope", "s", "隔离维度 user|group（默认 group）", command.ArgTypeString).
 		Flag("hard", "", "困难模式：已揭示的绿/黄必须复用", command.ArgTypeBool).
@@ -228,8 +229,9 @@ func (p *Plugin) teardown(_ *plugin.TeardownContext) error {
 
 func (p *Plugin) loadConfig(ctx *plugin.SetupContext) {
 	p.cfg = config{
-		DefaultLength: DefaultLength,
-		DefaultTries:  DefaultMaxAttempts,
+		// 0 表示"未固定"：长度随机 4-7，次数按长度推导。
+		DefaultLength: 0,
+		DefaultTries:  0,
 		DefaultScope:  ScopeGroup,
 		BlitzWindow:   60 * time.Second,
 		Timezone:      "Asia/Shanghai",
@@ -267,11 +269,11 @@ func (p *Plugin) loadConfig(ctx *plugin.SetupContext) {
 	if v := ctx.Config.GetInt("blitz_seconds", 0); v > 0 {
 		p.cfg.BlitzWindow = time.Duration(v) * time.Second
 	}
-	if !IsSupportedLength(p.cfg.DefaultLength) {
-		p.cfg.DefaultLength = DefaultLength
+	if p.cfg.DefaultLength != 0 && !IsSupportedLength(p.cfg.DefaultLength) {
+		p.cfg.DefaultLength = 0
 	}
-	if p.cfg.DefaultTries < minAttempts || p.cfg.DefaultTries > maxAttempts {
-		p.cfg.DefaultTries = DefaultMaxAttempts
+	if p.cfg.DefaultTries != 0 && (p.cfg.DefaultTries < minAttempts || p.cfg.DefaultTries > maxAttempts) {
+		p.cfg.DefaultTries = 0
 	}
 }
 

@@ -60,7 +60,8 @@ func (p *Plugin) handleWordle(ctx *eventctx.Context) error {
 func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 	platformID, chatID, userID := sessionContextKeys(ctx)
 
-	length := p.cfg.DefaultLength
+	// 显式指定的长度/次数优先；未指定时长度默认随机 4-7，次数按长度推导。
+	explicitLength := 0
 	if v := strings.TrimSpace(flags["length"]); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || !IsSupportedLength(n) {
@@ -68,9 +69,9 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 				map[string]any{"Lengths": joinInts(SupportedLengths, "/")}))
 			return nil
 		}
-		length = n
+		explicitLength = n
 	}
-	tries := p.cfg.DefaultTries
+	explicitTries := 0
 	if v := strings.TrimSpace(flags["tries"]); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < minAttempts || n > maxAttempts {
@@ -78,7 +79,7 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 				map[string]any{"Min": minAttempts, "Max": maxAttempts}))
 			return nil
 		}
-		tries = n
+		explicitTries = n
 	}
 	scope := p.cfg.DefaultScope
 	if v := strings.TrimSpace(flags["scope"]); v != "" {
@@ -120,6 +121,10 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 	if rules.Has(RuleChaos) {
 		mods = pickChaos(rules)
 	}
+
+	day := p.today()
+	length := p.resolveLength(explicitLength, mode, day)
+	tries := p.resolveTries(explicitTries, length, opts.Boards)
 	if mods.Has(ModDouble) && tries < 2 {
 		tries = 2
 	}
@@ -130,7 +135,6 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 		return nil
 	}
 
-	day := p.today()
 	lockKey := dailyLockKey(platformID, chatID, userID, scope)
 	if mode == ModeDaily && p.store != nil {
 		if d, err := p.store.dailyLockDay(lockKey); err == nil && d == day {
@@ -618,9 +622,13 @@ func (p *Plugin) cmdStats(ctx *eventctx.Context) error {
 		ctx.ReplyError(fmt.Sprintf("wordle: 读取统计失败: %v", err))
 		return nil
 	}
-	name := uid
-	if uid == ctx.GetUserID() && ctx.GetDisplayName() != "" {
+	var name string
+	if n := strings.TrimSpace(st.Name); n != "" {
+		name = n
+	} else if uid == ctx.GetUserID() && ctx.GetDisplayName() != "" {
 		name = ctx.GetDisplayName()
+	} else {
+		name = shortID(uid)
 	}
 
 	var b strings.Builder
@@ -672,7 +680,7 @@ func (p *Plugin) cmdTop(ctx *eventctx.Context) error {
 		b.WriteString("\n")
 		b.WriteString(p.t(ctx, "wordle.top.row", map[string]any{
 			"Rank":   i + 1,
-			"User":   shortID(r.UserID),
+			"User":   displayUser(r.Name, r.UserID),
 			"Won":    r.Won,
 			"Played": r.Played,
 		}))
@@ -736,6 +744,10 @@ func (p *Plugin) recordParticipantStats(g *Game, ownerID, dailyDay string) {
 		if err != nil {
 			p.warnf("wordle: 读取统计失败: %v", err)
 			continue
+		}
+		// 记录/刷新昵称，让排行榜与统计展示可读名字而非平台 ID。
+		if name := strings.TrimSpace(g.Participants[uid]); name != "" {
+			st.Name = name
 		}
 		st.Record(g.Won, len(g.Guesses))
 		if g.Mode == ModeDaily {
@@ -1118,6 +1130,40 @@ func (p *Plugin) parseCountFlag(ctx *eventctx.Context, flags map[string]string, 
 	return n, true, ""
 }
 
+// resolveLength 决定本局单词长度：显式指定 > 每日题按日期稳定选取 > 配置默认 > 随机 4-7。
+func (p *Plugin) resolveLength(explicit int, mode Mode, day string) int {
+	if explicit > 0 {
+		return explicit
+	}
+	if mode == ModeDaily {
+		return DailyLength(day)
+	}
+	if IsSupportedLength(p.cfg.DefaultLength) {
+		return p.cfg.DefaultLength
+	}
+	return PickRandomLength()
+}
+
+// resolveTries 决定本局机会数：显式指定 > 配置默认 > 依据长度与棋盘数推导。
+func (p *Plugin) resolveTries(explicit, length, boards int) int {
+	if explicit > 0 {
+		return explicit
+	}
+	if p.cfg.DefaultTries >= minAttempts && p.cfg.DefaultTries <= maxAttempts {
+		return p.cfg.DefaultTries
+	}
+	return attemptsForGame(length, boards)
+}
+
+// attemptsForGame 是默认机会数的推导规则：字母数 + 1，每多一块棋盘再 +2，
+// 并夹在允许范围内。5 字母单棋盘 = 6 次，与经典 Wordle 一致。
+func attemptsForGame(length, boards int) int {
+	if boards < 1 {
+		boards = 1
+	}
+	return min(max(length+1+(boards-1)*2, minAttempts), maxAttempts)
+}
+
 // pickAnswers 为多谜底模式挑选 n 个互不相同的谜底。
 //
 // 冷门词库（--obscure）从合法输入减去常用谜底后的池中取词；
@@ -1220,6 +1266,14 @@ func shortID(id string) string {
 		return id
 	}
 	return "…" + id[len(id)-6:]
+}
+
+// displayUser 返回可读的用户标识：优先昵称，缺失时回退到短 ID。
+func displayUser(name, userID string) string {
+	if n := strings.TrimSpace(name); n != "" {
+		return n
+	}
+	return shortID(userID)
 }
 
 // normalizeLocale 把常见简写归一化为内置 locale。

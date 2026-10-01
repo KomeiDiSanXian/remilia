@@ -41,7 +41,8 @@ wordle.help: |
     --score-color 计分色：整行同色编码绿色总数，位置信息全部丢失
   多谜底：--duet（2 块）/--quad（4 块）/--boards 2-4，全部棋盘共用同一串猜测，
   全部解开才算胜利。
-  默认：5 个字母、6 次机会、随机出题、群内共享对局、单谜底、无附加玩法。
+  默认：随机 4-7 个字母、机会按长度推导（5 字母 6 次）、随机出题、群内共享对局、
+  单谜底、无附加玩法。
 wordle.mode.daily: "每日题"
 wordle.mode.random: "随机题"
 wordle.start.created: "🎯 新对局开始！{{.Length}} 个字母，{{.Tries}} 次机会（{{.Mode}}）· 玩法：{{.Rules}}"

@@ -181,9 +181,43 @@ func TestRecordParticipantStats(t *testing.T) {
 			t.Fatalf("%s 统计 = %d/%d dist[1]=%d, 期望 1/1/1",
 				uid, st.Played, st.Won, st.GuessDist[1])
 		}
+		wantName := map[string]string{"u1": "甲", "u2": "乙"}[uid]
+		if st.Name != wantName {
+			t.Fatalf("%s 昵称 = %q, 期望 %q", uid, st.Name, wantName)
+		}
 	}
 	if st, _ := s.loadStat("owner"); st.Played != 0 {
 		t.Fatal("有参与者时不应再记兜底 owner")
+	}
+}
+
+// TestStore_StatNameRoundTrip 验证昵称随统计持久化，并在排行榜中返回。
+func TestStore_StatNameRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	st, err := s.loadStat("u1")
+	if err != nil {
+		t.Fatalf("loadStat: %v", err)
+	}
+	st.Name = "小明"
+	st.Record(true, 3)
+	if err := s.saveStat(st); err != nil {
+		t.Fatalf("saveStat: %v", err)
+	}
+
+	got, err := s.loadStat("u1")
+	if err != nil {
+		t.Fatalf("loadStat: %v", err)
+	}
+	if got.Name != "小明" {
+		t.Fatalf("昵称 = %q, 期望 小明", got.Name)
+	}
+
+	recs, err := s.leaderboard(10)
+	if err != nil {
+		t.Fatalf("leaderboard: %v", err)
+	}
+	if len(recs) != 1 || recs[0].Name != "小明" {
+		t.Fatalf("排行榜应返回昵称，实际 %+v", recs)
 	}
 }
 

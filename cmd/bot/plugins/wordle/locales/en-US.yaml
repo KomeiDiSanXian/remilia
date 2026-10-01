@@ -41,7 +41,8 @@ wordle.help: |
     --score-color color the whole row by the number of greens (positions lost)
   Multi-board: --duet (2) / --quad (4) / --boards 2-4; every board shares the same
   guess stream and you win only after solving all of them.
-  Defaults: 5 letters, 6 tries, random puzzle, one shared board per chat, no extra modes.
+  Defaults: random 4-7 letters, tries derived from length (6 for 5 letters),
+  random puzzle, one shared board per chat, no extra modes.
 wordle.mode.daily: "daily"
 wordle.mode.random: "random"
 wordle.start.created: "🎯 New game! {{.Length}} letters, {{.Tries}} tries ({{.Mode}}). Modes: {{.Rules}}"

@@ -14,6 +14,8 @@ type StatRecord struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 
 	UserID string `gorm:"column:user_id;uniqueIndex:idx_wordle_stat_user;not null;size:128"`
+	// Name 是最近一次参与对局时使用的显示名（昵称）；为空时展示方回退到短 ID。
+	Name string `gorm:"size:64"`
 
 	Played     int `gorm:"not null"`
 	Won        int `gorm:"not null"`
@@ -75,6 +77,7 @@ func (GameRecord) TableName() string { return "wordle_games" }
 // Stat 内存中的用户统计。
 type Stat struct {
 	UserID       string
+	Name         string
 	Played       int
 	Won          int
 	Streak       int
@@ -131,6 +134,7 @@ func (s *store) loadStat(userID string) (*Stat, error) {
 	}
 	st := &Stat{
 		UserID:       userID,
+		Name:         rec.Name,
 		Played:       rec.Played,
 		Won:          rec.Won,
 		Streak:       rec.Streak,
@@ -151,6 +155,7 @@ func (s *store) saveStat(st *Stat) error {
 	}
 	rec := StatRecord{
 		UserID:       st.UserID,
+		Name:         st.Name,
 		Played:       st.Played,
 		Won:          st.Won,
 		Streak:       st.Streak,

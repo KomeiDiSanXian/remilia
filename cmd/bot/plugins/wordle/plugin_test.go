@@ -42,8 +42,9 @@ func TestSetup_WiresDependencies(t *testing.T) {
 	if p.sessions == nil || p.store == nil {
 		t.Fatal("Setup 后 sessions/store 不应为空")
 	}
-	if p.cfg.DefaultLength != DefaultLength || p.cfg.DefaultTries != DefaultMaxAttempts {
-		t.Fatalf("默认配置错误: %+v", p.cfg)
+	// 未配置 default_length/default_tries 时应为 0，表示"长度随机 4-7、次数按长度推导"。
+	if p.cfg.DefaultLength != 0 || p.cfg.DefaultTries != 0 {
+		t.Fatalf("默认配置应为未固定（0/0），实际 %+v", p.cfg)
 	}
 	if p.cfg.DefaultScope != ScopeGroup {
 		t.Fatalf("默认隔离维度应为 group，实际 %v", p.cfg.DefaultScope)

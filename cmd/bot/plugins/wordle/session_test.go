@@ -190,3 +190,12 @@ func TestGame_Blind(t *testing.T) {
 		t.Fatal("混沌盲猜修饰符应启用盲猜")
 	}
 }
+
+func TestDisplayUser(t *testing.T) {
+	if got := displayUser("小明", "1234567890"); got != "小明" {
+		t.Fatalf("应优先展示昵称，实际 %q", got)
+	}
+	if got := displayUser("   ", "1234567890"); got != shortID("1234567890") {
+		t.Fatalf("昵称为空应回退短 ID，实际 %q", got)
+	}
+}

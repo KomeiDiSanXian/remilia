@@ -719,8 +719,8 @@ messagelog:
 #     #      /debug /update /qqpanel /qqmenu
 #     exclude: []
 #   wordle: (所有字段 [R] 仅插件启动时读取)
-#     default_length: 5                   # [R]  默认单词长度（4-7）
-#     default_tries: 6                    # [R]  默认答题次数（1-12）
+#     default_length: 0                   # [R]  默认单词长度（4-7；0=每局随机 4-7）
+#     default_tries: 0                    # [R]  默认答题次数（1-12；0=按长度推导）
 #     default_scope: "group"              # [R]  默认隔离维度: group（群内共享）/ user（每人独立）
 #     daily: false                        # [R]  默认是否使用每日题
 #     timezone: "Asia/Shanghai"           # [R]  每日题选词与每日锁使用的时区

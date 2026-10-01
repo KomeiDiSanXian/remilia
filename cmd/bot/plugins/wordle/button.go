@@ -93,7 +93,8 @@ func (p *Plugin) handleInteraction(ctx *eventctx.Context) error {
 	case "new":
 		return p.cmdNew(ctx, nil)
 	case "guess":
-		length := p.cfg.DefaultLength
+		// 未开局时给一个通用提示长度；开局后按本局实际长度提示。
+		length := DefaultLength
 		platformID, chatID, userID := sessionContextKeys(ctx)
 		if g, ok := p.sessions.Find(platformID, chatID, userID); ok {
 			length = g.Length
