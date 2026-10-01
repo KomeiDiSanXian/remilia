@@ -718,6 +718,21 @@ messagelog:
 #     #      /mute /kick /warn /warnings /clean /rl /welcome /farewell /ar /cc
 #     #      /debug /update /qqpanel /qqmenu
 #     exclude: []
+#   wordle: (所有字段 [R] 仅插件启动时读取)
+#     default_length: 5                   # [R]  默认单词长度（4-7）
+#     default_tries: 6                    # [R]  默认答题次数（1-12）
+#     default_scope: "group"              # [R]  默认隔离维度: group（群内共享）/ user（每人独立）
+#     daily: false                        # [R]  默认是否使用每日题
+#     timezone: "Asia/Shanghai"           # [R]  每日题选词与每日锁使用的时区
+#     session_ttl: "30m"                  # [R]  空闲对局回收时间
+#     default_rules: ""                   # [R]  默认玩法（逗号分隔，可任意组合）:
+#                                         #      hard（困难）/ blitz（限时）/ chain（连锁）/
+#                                         #      hint-cost（提示消耗次数）/ chaos（混沌）/ race（抢分）/
+#                                         #      blind（盲猜）/ fog（迷雾）/ obscure（冷门词库）/ gauntlet（车轮战）/
+#                                         #      颜色玩法: invert / hit-only / near / repeat / swap-meaning /
+#                                         #      colorfog / decay / unknown / delayed / decoy / glitch / mole /
+#                                         #      hidden-key / score-color
+#     blitz_seconds: 60                   # [R]  限时模式默认单步秒数（10-600）
 
 # ====================================
 # 配置说明

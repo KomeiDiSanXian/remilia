@@ -162,3 +162,56 @@ func TestI18n_Tn_MissingKey(t *testing.T) {
 		t.Errorf("expected key fallback, got %q", got)
 	}
 }
+
+// TestI18n_MergeBytes_Additive 验证 MergeBytes 保留已有键并追加新键。
+func TestI18n_MergeBytes_Additive(t *testing.T) {
+	p := newI18nPlugin(i18n.Config{DefaultLocale: "zh-CN"})
+	if err := p.LoadBytes("zh-CN", []byte("base: \"基础\"")); err != nil {
+		t.Fatalf("LoadBytes: %v", err)
+	}
+	if err := p.MergeBytes("zh-CN", []byte("wordle.start: \"开始猜词\"")); err != nil {
+		t.Fatalf("MergeBytes: %v", err)
+	}
+	ctx := makePlainCtx()
+	if got := p.T(ctx, "base"); got != "基础" {
+		t.Errorf("MergeBytes should keep existing keys, got %q", got)
+	}
+	if got := p.T(ctx, "wordle.start"); got != "开始猜词" {
+		t.Errorf("MergeBytes should add new keys, got %q", got)
+	}
+}
+
+// TestI18n_MergeBytes_Override 验证 MergeBytes 覆盖同名键。
+func TestI18n_MergeBytes_Override(t *testing.T) {
+	p := newI18nPlugin(i18n.Config{DefaultLocale: "en"})
+	p.LoadBytes("en", []byte("greet: \"hello\""))
+	if err := p.MergeBytes("en", []byte("greet: \"hi\"")); err != nil {
+		t.Fatalf("MergeBytes: %v", err)
+	}
+	if got := p.T(makePlainCtx(), "greet"); got != "hi" {
+		t.Errorf("MergeBytes should override existing keys, got %q", got)
+	}
+}
+
+// TestI18n_MergeBytes_CreatesLocale 验证 MergeBytes 可为不存在的 locale 建包。
+func TestI18n_MergeBytes_CreatesLocale(t *testing.T) {
+	p := newI18nPlugin(i18n.Config{DefaultLocale: "en", Fallback: "en"})
+	if err := p.MergeBytes("ja", []byte("wordle.start: \"ワードル\"")); err != nil {
+		t.Fatalf("MergeBytes: %v", err)
+	}
+	if got := p.Tf("ja", "wordle.start", nil); got != "ワードル" {
+		t.Errorf("expected merged ja bundle, got %q", got)
+	}
+}
+
+// TestI18n_MergeBytes_InvalidYAML 验证非法 YAML 返回错误且不污染已有语言包。
+func TestI18n_MergeBytes_InvalidYAML(t *testing.T) {
+	p := newI18nPlugin(i18n.Config{DefaultLocale: "en"})
+	p.LoadBytes("en", []byte("greet: \"hello\""))
+	if err := p.MergeBytes("en", []byte("greet: [unclosed")); err == nil {
+		t.Fatal("expected error for invalid yaml")
+	}
+	if got := p.T(makePlainCtx(), "greet"); got != "hello" {
+		t.Errorf("failed merge must not mutate existing bundle, got %q", got)
+	}
+}

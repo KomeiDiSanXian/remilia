@@ -62,6 +62,9 @@ type bundle struct {
 type Plugin struct {
 	cfg     Config
 	bundles sync.Map // locale -> *bundle
+	// writeMu 串行化语言包写入（Load / Merge），保证"读旧 map + 写新 map"
+	// 的 copy-on-write 合并不会并发丢失更新。读取路径无锁。
+	writeMu sync.Mutex
 	// tmplCache 预编译模板缓存，key 为 "locale\x00msgKey"，避免重复 Parse 开销
 	tmplCache *lru.Cache[string, *template.Template]
 	// userLocales 持久化用户语言偏好，key 为 userID
@@ -184,15 +187,70 @@ func (p *Plugin) LoadFile(locale, path string) error {
 
 // LoadBytes 从 YAML 字节加载 locale 翻译
 // 加载新语言包时清除该 locale 下的模板缓存，确保缓存一致性
+//
+// 语义为"整体替换"：该 locale 原有的翻译键会被丢弃。
+// 插件想向已有语言包追加自己的键，请使用 [Plugin.MergeBytes]。
 func (p *Plugin) LoadBytes(locale string, data []byte) error {
 	var msgs map[string]string
 	if err := yaml.Unmarshal(data, &msgs); err != nil {
 		return fmt.Errorf("i18n: parse yaml for %s: %w", locale, err)
 	}
+	p.writeMu.Lock()
 	p.bundles.Store(locale, &bundle{locale: locale, msgs: msgs})
+	p.writeMu.Unlock()
 	// 清除该 locale 的模板缓存（语言包变更后旧缓存失效）
 	p.evictLocaleCache(locale)
 	logger.Debugf("[i18n] Loaded locale %s (%d messages)", locale, len(msgs))
+	return nil
+}
+
+// Merge 从 YAML 文件增量合并指定 locale 的翻译，已存在的同名键被覆盖。
+//
+// 与 [Plugin.LoadBytes] 的整包替换不同，Merge 保留该 locale 下不属于本次
+// 文件的键，因此多个插件可以各自向同一 locale 贡献语言包：
+//
+//	// wordle 插件在 Setup 中注入自带文案
+//	//go:embed locales/*.yaml
+//	var localesFS embed.FS
+//
+//	data, _ := localesFS.ReadFile("locales/zh-CN.yaml")
+//	_ = i18nSvc.MergeBytes("zh-CN", data)
+//
+// 键名建议使用插件名前缀（如 "wordle.start"）避免跨插件冲突。
+func (p *Plugin) Merge(locale, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("i18n: read %s: %w", path, err)
+	}
+	return p.MergeBytes(locale, data)
+}
+
+// MergeBytes 从 YAML 字节增量合并指定 locale 的翻译，已存在的同名键被覆盖。
+//
+// 实现采用 copy-on-write：读取旧 bundle 后构造全新的 map 再整体替换，
+// 读取方（[Plugin.T]/[Plugin.Tf]）无需加锁即可看到一致的语言包快照。
+// 写入由 writeMu 串行化，避免并发合并丢失更新。
+func (p *Plugin) MergeBytes(locale string, data []byte) error {
+	var msgs map[string]string
+	if err := yaml.Unmarshal(data, &msgs); err != nil {
+		return fmt.Errorf("i18n: parse yaml for %s: %w", locale, err)
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	p.writeMu.Lock()
+	merged := make(map[string]string, len(msgs)+16)
+	if existing, ok := p.bundles.Load(locale); ok {
+		maps.Copy(merged, existing.(*bundle).msgs)
+	}
+	maps.Copy(merged, msgs)
+	p.bundles.Store(locale, &bundle{locale: locale, msgs: merged})
+	p.writeMu.Unlock()
+
+	// 被覆盖的键其模板缓存已失效，简化处理为清空该 locale 的缓存。
+	p.evictLocaleCache(locale)
+	logger.Debugf("[i18n] Merged %d message(s) into locale %s", len(msgs), locale)
 	return nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/customcommands"
 	"github.com/KomeiDiSanXian/remilia/builtin/dev/debug"
+	"github.com/KomeiDiSanXian/remilia/builtin/i18n"
 	"github.com/KomeiDiSanXian/remilia/builtin/job"
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
 	"github.com/KomeiDiSanXian/remilia/builtin/knowledgebase"
@@ -56,6 +57,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/websearch"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/wordle"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -134,6 +136,7 @@ func (a *app) setupPlugins() {
 		cdPlugin.Descriptor(),
 
 		// 数据、统计与调度
+		i18n.New(i18n.Config{DefaultLocale: "zh-CN", Fallback: "zh-CN"}),
 		sp.Descriptor(),
 		auditlog.New(),
 		statistics.New(statistics.WithStore(dataDir + "/db/statistics.db")),
@@ -169,6 +172,7 @@ func (a *app) setupPlugins() {
 		dice.New(),
 		coc.New(),
 		dnd.New(),
+		wordle.New(),
 
 		// QQ 平台能力（指令面板 / 自定义菜单）
 		qqpanel.New(),

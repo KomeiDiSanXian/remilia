@@ -1,0 +1,143 @@
+wordle.help: |
+  Wordle guessing game
+  Usage:
+    /wordle [--length 4-7] [--tries N] [--daily] [--scope user|group]   start a classic game
+    /wordle [--duet|--quad|--boards N]   multi-board: N boards share one guess stream
+    /wordle [--hard] [--blind] [--fog[=N]] [--obscure] [--gauntlet]   harder modes
+    /wordle [--blitz[=sec]] [--chain] [--hint-cost] [--chaos] [--race]   other modes
+    /wordle guess <word>         submit a guess
+    /wordle giveup               give up and reveal the answer
+    /wordle hint [type]          hint: letter(default) / exclude / vowels / repeat
+    /wordle board                resend the current board
+    /wordle rules                show this game's modes and progress
+    /wordle stats [@user]        show statistics
+    /wordle top                  leaderboard
+    /wordle lang <locale>        switch language (zh-CN / en-US)
+  Modes (freely combinable):
+    --hard       revealed green/yellow letters must be reused
+    --blind      yellow is shown as gray; only exact positions turn green
+    --fog        keep only the last N rows (default 1, max 4)
+    --obscure    draw answers from low-frequency words only
+    --gauntlet   chain mode loses one try per solved word (floor 2)
+    --blitz      countdown per move, timeout loses (default 60s)
+    --chain      solve one word and immediately get the next
+    --hint-cost  each hint costs one try
+    --chaos      start with random modifiers (blind/no-repeat/double/nohint)
+    --race       score by contribution (group scope only)
+  Color modes (freely stackable; they only change what you see, never the result):
+    --invert     swap green (correct) and gray (absent)
+    --hit-only   merge green into yellow; all position info is lost
+    --near       teal: the letter is in the answer within ±1 of its true spot
+    --repeat     purple: the answer has multiple copies of this letter
+    --swap-meaning randomly swap the meaning of green/yellow per game
+    --colorfog[=N] keep at most N colored tiles per row (default 2)
+    --decay[=N]  keep colors only in the last N rows (default 2)
+    --unknown[=N] hide N random tiles per row as a neutral "?" (default 1)
+    --delayed[=N] the newest N rows show no color yet (default 1)
+    --decoy[=N]  lie about N gray tiles per row, showing them as yellow (default 1)
+    --glitch     flip one random tile color per row
+    --mole       one random position always shows green for the whole game
+    --hidden-key do not color the keyboard
+    --score-color color the whole row by the number of greens (positions lost)
+  Multi-board: --duet (2) / --quad (4) / --boards 2-4; every board shares the same
+  guess stream and you win only after solving all of them.
+  Defaults: 5 letters, 6 tries, random puzzle, one shared board per chat, no extra modes.
+wordle.mode.daily: "daily"
+wordle.mode.random: "random"
+wordle.start.created: "🎯 New game! {{.Length}} letters, {{.Tries}} tries ({{.Mode}}). Modes: {{.Rules}}"
+wordle.start.bad_blitz: "Blitz seconds must be between {{.Min}} and {{.Max}}"
+wordle.error.chain_daily: "Chain mode cannot be combined with the daily puzzle"
+wordle.error.race_needs_group: "Race mode requires a group-scoped game (--scope group)"
+wordle.error.hard_position: "Hard mode: position {{.Position}} must keep the letter you already solved"
+wordle.error.hard_letter: "Hard mode: you must reuse the revealed letter \"{{.Letter}}\""
+wordle.result.timeout: "⏱️ Time is up! The answer was \"{{.Answer}}\"."
+wordle.chain.advanced: "🔗 Chain x{{.Chain}}! Next word ({{.Tries}} tries)."
+wordle.chain.badge: "CHAIN x{{.Wins}}"
+wordle.blitz.badge: "BLITZ {{.Secs}}s"
+wordle.hint.unknown: "Hint type must be one of {{.Kinds}}"
+wordle.hint.disabled: "Hints are disabled in this game"
+wordle.hint.exclude: "💡 Hint: the letter \"{{.Letter}}\" is not in the answer"
+wordle.hint.vowels: "💡 Hint: the answer has {{.Count}} vowel(s)"
+wordle.hint.repeat.none: "💡 Hint: the answer has no repeated letters"
+wordle.hint.repeat.some: "💡 Hint: the answer has repeated letters ({{.Count}} extra)"
+wordle.rules.line: "🧩 {{.Rules}}"
+wordle.rules.classic: "classic rules"
+wordle.rules.title: "🧩 Current modes: {{.Rules}}"
+wordle.rules.none: "No game in progress"
+wordle.rules.chain: "🔗 Chain: word #{{.Index}} · solved {{.Wins}}"
+wordle.rules.list: "Available modes:\n{{.List}}"
+wordle.rules.modifier_list: "Chaos modifiers:\n{{.List}}"
+wordle.rule.hard: "Hard mode: revealed green/yellow letters must be reused"
+wordle.rule.blitz: "Blitz mode: countdown per move, timeout loses"
+wordle.rule.chain: "Chain mode: solve one and immediately get the next"
+wordle.rule.hint-cost: "Each hint costs one try"
+wordle.rule.chaos: "Start with 1-2 random modifiers"
+wordle.rule.race: "Score by contribution (group scope only)"
+wordle.rule.blind: "Blind: yellow is shown as gray, only exact positions turn green"
+wordle.rule.fog: "Fog: keep only the last few rows, older rows are hidden"
+wordle.rule.obscure: "Obscure: draw answers from low-frequency words only"
+wordle.rule.gauntlet: "Gauntlet: chain mode loses one try per solved word (floor 2)"
+wordle.rule.invert: "Invert: swap green (correct) and gray (absent)"
+wordle.rule.hit-only: "Hit-only: merge green into yellow, all position info is lost"
+wordle.rule.near: "Near (teal): the letter is in the answer within ±1 of its true spot"
+wordle.rule.repeat: "Repeat (purple): the answer has multiple copies of this letter"
+wordle.rule.swap-meaning: "Swap meaning: randomly swap green/yellow per game"
+wordle.rule.colorfog: "Color budget: keep at most N colored tiles per row"
+wordle.rule.decay: "Decay: keep colors only in the last N rows"
+wordle.rule.unknown: "Unknown: hide a few random tiles per row as a neutral \"?\""
+wordle.rule.delayed: "Delayed: the newest few rows show no color yet"
+wordle.rule.decoy: "Decoy: lie about a few gray tiles per row as yellow"
+wordle.rule.glitch: "Glitch: flip one random tile color per row"
+wordle.rule.mole: "Mole: one random position always shows green"
+wordle.rule.hidden-key: "Hide the keyboard colors"
+wordle.rule.score-color: "Score color: color the whole row by green count, positions lost"
+wordle.mod.blind: "Blind: yellow is shown as gray"
+wordle.mod.norepeat: "The answer has no repeated letters"
+wordle.mod.double: "Each guess costs 2 tries"
+wordle.mod.nohint: "Hints are disabled"
+wordle.race.line: "🏁 Contributions: {{.Entries}}"
+wordle.race.entry: "{{.User}} +{{.Score}}"
+wordle.start.already_running: "⚠️ A game is already running; keep guessing or type /wordle giveup."
+wordle.start.bad_length: "Length must be one of {{.Lengths}}"
+wordle.start.bad_tries: "Tries must be between {{.Min}} and {{.Max}}"
+wordle.start.bad_scope: "Scope must be group or user"
+wordle.start.bad_fog: "Fog rows must be between {{.Min}} and {{.Max}}"
+wordle.start.bad_boards: "Board count must be between {{.Min}} and {{.Max}}"
+wordle.start.bad_range: "Parameter {{.Flag}} must be between {{.Min}} and {{.Max}}"
+wordle.start.daily_used: "You already started today's daily puzzle; come back tomorrow ({{.Day}})"
+wordle.start.bank_unavailable: "No word bank for {{.Length}}-letter words yet"
+wordle.error.not_started: "No game in progress; type /wordle to start"
+wordle.error.usage_guess: "Usage: /wordle guess <{{.Length}}-letter word>"
+wordle.error.length: "Expected {{.Length}} letters, got {{.Got}}"
+wordle.error.not_alpha: "Letters only, please"
+wordle.error.not_in_dict: "\"{{.Word}}\" is not in the word list"
+wordle.error.repeat: "\"{{.Word}}\" has already been guessed"
+wordle.error.finished: "This game is over; type /wordle to start a new one"
+wordle.error.unknown_subcommand: "Unknown subcommand \"{{.Sub}}\"; type /wordle help"
+wordle.status.line: "📏 {{.Length}} letters · {{.Remaining}}/{{.Tries}} tries left · {{.Mode}}"
+wordle.result.win: "🎉 Solved in {{.Attempts}} tries!"
+wordle.result.win_multi: "🎉 Solved all {{.Boards}} words in {{.Attempts}} tries!"
+wordle.result.lose: "💀 Out of tries; the answer was \"{{.Answer}}\"."
+wordle.result.giveup: "🏳️ Gave up; the answer was \"{{.Answer}}\"."
+wordle.hint.revealed: "💡 Hint: letter {{.Position}} is \"{{.Letter}}\""
+wordle.hint.none: "No more letters to reveal"
+wordle.hint.used_up: "No hints left"
+wordle.board.none: "No game in progress"
+wordle.stats.title: "📊 {{.User}}'s Wordle stats"
+wordle.stats.body: "Played {{.Played}} · Won {{.Won}} · Win rate {{.Rate}}%\nCurrent streak {{.Streak}} · Best streak {{.Best}}"
+wordle.stats.dist.title: "Guess distribution:"
+wordle.stats.dist.fail: "Failed  {{.Count}}"
+wordle.stats.dist.row: "{{.Attempts}} tries  {{.Count}}"
+wordle.top.title: "🏆 Wordle leaderboard (by wins)"
+wordle.top.empty: "No records yet"
+wordle.top.row: "{{.Rank}}. {{.User}} — {{.Won}} wins / {{.Played}} games"
+wordle.lang.set: "Language switched to {{.Locale}}"
+wordle.lang.usage: "Usage: /wordle lang <{{.Locales}}>"
+wordle.lang.unknown: "Unsupported locale {{.Locale}}; available: {{.Locales}}"
+wordle.button.guess: "Guess"
+wordle.button.hint: "Hint"
+wordle.button.giveup: "Give up"
+wordle.button.board: "Board"
+wordle.button.new: "New game"
+wordle.button.rules: "Modes"
+wordle.button.guess_tip: "Reply with /wordle guess <{{.Length}}-letter word> to submit your guess"
