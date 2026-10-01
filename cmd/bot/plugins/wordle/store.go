@@ -22,7 +22,8 @@ type StatRecord struct {
 	Streak     int `gorm:"not null"`
 	BestStreak int `gorm:"not null"`
 
-	// GuessDist 猜中所需次数的分布 JSON，下标 0 表示失败局数。
+	// GuessDist 猜中所需次数的分布 JSON，下标 0 表示失败局数，
+	// 下标 1..maxAttempts 对应首次猜中的猜测次数。
 	GuessDist string `gorm:"type:text"`
 	// LastDailyDay 最后一次参与每日题的日期（YYYY-MM-DD）。
 	LastDailyDay string `gorm:"size:16"`
@@ -82,7 +83,7 @@ type Stat struct {
 	Won          int
 	Streak       int
 	BestStreak   int
-	GuessDist    [8]int // 下标 0 = 失败，1..7 = 首次猜中的次数
+	GuessDist    [maxAttempts + 1]int // 下标 0 = 失败，1..maxAttempts = 首次猜中的次数
 	LastDailyDay string
 }
 
@@ -107,8 +108,16 @@ func (s *Stat) Record(won bool, attempts int) {
 	if s.Streak > s.BestStreak {
 		s.BestStreak = s.Streak
 	}
-	idx := min(max(attempts, 1), 7)
+	idx := min(max(attempts, 1), maxAttempts)
 	s.GuessDist[idx]++
+}
+
+// WinRate 返回胜率（百分比）；无对局时为 0。
+func (r StatRecord) WinRate() float64 {
+	if r.Played == 0 {
+		return 0
+	}
+	return float64(r.Won) / float64(r.Played) * 100
 }
 
 // store 基于 storage 插件（GORM/SQLite）的持久化实现。
@@ -224,10 +233,18 @@ func (s *store) recordGame(g *Game, userID string, durationMs int64) error {
 	return s.db.Create(&rec)
 }
 
-// leaderboard 返回胜场数最高的前 limit 名。
-func (s *store) leaderboard(limit int) ([]StatRecord, error) {
+// leaderboard 返回胜率最高的前 limit 名。
+//
+// 只统计 played >= minGames 的玩家，避免"只打了一两局全胜"挤掉长期玩家；
+// 排序按胜率而非总胜场，避免靠刷局数（例如长时间连锁）霸榜。
+func (s *store) leaderboard(limit, minGames int) ([]StatRecord, error) {
 	var recs []StatRecord
-	if err := s.db.Order("won desc").Limit(limit).Find(&recs); err != nil {
+	if err := s.db.Where("played >= ?", max(minGames, 1)).
+		Order("CAST(won AS REAL) / played DESC").
+		Order("won DESC").
+		Order("user_id ASC").
+		Limit(limit).
+		Find(&recs); err != nil {
 		return nil, err
 	}
 	return recs, nil

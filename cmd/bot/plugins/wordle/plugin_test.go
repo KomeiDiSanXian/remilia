@@ -49,6 +49,9 @@ func TestSetup_WiresDependencies(t *testing.T) {
 	if p.cfg.DefaultScope != ScopeGroup {
 		t.Fatalf("默认隔离维度应为 group，实际 %v", p.cfg.DefaultScope)
 	}
+	if p.cfg.MaxFreeHints != 2 {
+		t.Fatalf("默认免费提示上限应为 2，实际 %d", p.cfg.MaxFreeHints)
+	}
 
 	// 语言包已在 Setup 中合并进 i18n。
 	if got := svc.Tf(localeZH, "wordle.button.guess", nil); got == "" || got == "wordle.button.guess" {

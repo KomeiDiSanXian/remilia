@@ -41,6 +41,58 @@ func TestRenderBoard_Invalid(t *testing.T) {
 	}
 }
 
+func TestBoardRows_Window(t *testing.T) {
+	finite := &Game{Length: 5, MaxAttempts: 6}
+	if rows, off := boardRows(finite); rows != 6 || off != 0 {
+		t.Fatalf("有限机会 rows=%d offset=%d, 期望 6/0", rows, off)
+	}
+	empty := &Game{Length: 5, Unlimited: true}
+	if rows, off := boardRows(empty); rows != minUnlimitedRows || off != 0 {
+		t.Fatalf("空无限局 rows=%d offset=%d, 期望 %d/0", rows, off, minUnlimitedRows)
+	}
+	many := &Game{Length: 5, Unlimited: true, Guesses: make([]Guess, 40)}
+	rows, off := boardRows(many)
+	if rows != maxUnlimitedRows {
+		t.Fatalf("无限局行数上限应为 %d，实际 %d", maxUnlimitedRows, rows)
+	}
+	if off+rows != len(many.Guesses)+1 {
+		t.Fatalf("窗口应覆盖最新一行: offset=%d rows=%d", off, rows)
+	}
+}
+
+// TestRenderBoardText_UnlimitedWindow 验证无限机会只绘制最近的滑动窗口，
+// 且最新一行始终可见、窗口外的旧行不再绘制。
+func TestRenderBoardText_UnlimitedWindow(t *testing.T) {
+	g := &Game{
+		ID:        "u1",
+		Length:    5,
+		Unlimited: true,
+		Answers:   []string{"crane"},
+		Solved:    []bool{false},
+	}
+	for i := range 20 {
+		w := strings.Repeat(string(rune('a'+i)), 5)
+		if i == 19 {
+			w = "crane"
+		}
+		g.Guesses = append(g.Guesses, Guess{Word: w, Marks: Evaluate("crane", w)})
+	}
+	v := gameBoardView(g)
+	if v.MaxAttempts != maxUnlimitedRows || v.RowOffset == 0 {
+		t.Fatalf("无限局应使用滑动窗口: rows=%d offset=%d", v.MaxAttempts, v.RowOffset)
+	}
+	if !strings.Contains(v.Title, "INF") {
+		t.Fatalf("无限局标题应含 INF，实际 %q", v.Title)
+	}
+	text := renderBoardText(v)
+	if !strings.Contains(text, "CRANE") {
+		t.Fatalf("最新一行应可见:\n%s", text)
+	}
+	if strings.Contains(text, "AAAAA") {
+		t.Fatalf("窗口外的旧行不应绘制:\n%s", text)
+	}
+}
+
 func TestRenderBoard_MultiBoard(t *testing.T) {
 	guesses := []Guess{
 		{

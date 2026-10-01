@@ -26,6 +26,12 @@ type config struct {
 	DefaultDaily  bool
 	// DefaultRules 是未显式指定玩法开关时默认启用的规则集合。
 	DefaultRules RuleSet
+	// MaxFreeHints 是未启用 --hint-cost 时每局可用的免费提示次数；
+	// 0 表示禁用免费提示（启用 --hint-cost 时提示按次数计费、不受此上限约束）。
+	MaxFreeHints int
+	// CountUnlimited 决定无限机会（--unlimited）对局是否计入战绩与排行榜。
+	// 默认 false：无限局只作为练习局留有历史记录。
+	CountUnlimited bool
 	// BlitzWindow 是限时模式默认的单步时限。
 	BlitzWindow time.Duration
 	Timezone    string
@@ -59,7 +65,7 @@ func New() *plugin.Descriptor {
 			HelpText: `Wordle 猜词小游戏
 
 用法：
-  /wordle [--length 4-7] [--tries 次数] [--daily] [--scope user|group]  开始经典对局
+  /wordle [--length 4-7] [--tries 次数] [--unlimited] [--daily] [--scope user|group]  开始经典对局
   /wordle [--duet|--quad|--boards N]  多谜底同屏：N 块棋盘共享猜测
   /wordle [--hard] [--blind] [--fog[=N]] [--obscure] [--gauntlet]  更难的玩法
   /wordle [--blitz[=秒]] [--chain] [--hint-cost] [--chaos] [--race]  其他玩法
@@ -75,12 +81,16 @@ func New() *plugin.Descriptor {
 玩法（可任意组合）：
   --hard       困难模式：已揭示的绿/黄字母必须复用
   --blind      盲猜：黄色按灰色显示，只有位置正确的字母才显示绿色
+               （盲猜下困难模式只锁绿格，不再强制复用看不见的黄色字母）
   --fog        迷雾：只保留最近 N 行判定（默认 1 行，最多 4 行）
   --obscure    冷门词库：谜底只从低频词中抽取，显著提高难度
-  --gauntlet   车轮战：连锁模式下每解出一题就少一次机会（下限 2）
+  --gauntlet   车轮战：连锁模式下每解出一题就少一次机会（下限按单次消耗折算）
   --blitz      限时模式：每次作答有倒计时，超时判负（默认 60 秒）
+               （群维度下是全群共享的一个倒计时，任何人猜一次都会重置）
   --chain      连锁模式：猜中后自动进入下一题，直到失败
-  --hint-cost  提示消耗一次机会
+  --hint-cost  提示消耗一次机会（未启用时每局仅有少量免费提示，次数随词长收紧）
+  --unlimited  无限机会：猜测不再消耗机会、永不判负；默认只作为练习局，
+               不计入战绩与排行榜（也不能与 --tries / --gauntlet / --hint-cost 同用）
   --chaos      混沌模式：开局随机附加盲猜/禁重复字母/双倍消耗/禁提示
   --race       抢分模式：群内按解谜贡献计分（仅群维度）
 
@@ -100,10 +110,17 @@ func New() *plugin.Descriptor {
   --hidden-key  隐藏键盘颜色
   --score-color 计分色：整行同色编码绿色总数，位置信息全部丢失
 
+颜色玩法的 N 会按词长自动收紧（最多到「词长-1」），避免整行失效或全遮。
+
 多谜底：--duet（2 块）/--quad（4 块）/--boards 2-4，所有棋盘共用同一串猜测，
 全部解开才算胜利。可叠加 --hard/--blind/--obscure 等大幅提高难度。
 
-默认：随机 4-7 个字母、机会按长度推导（5 字母 6 次）、随机出题、群内共享对局、
+群维度：全部群成员共享同一块棋盘与同一份提示额度；放弃只能由发起者操作，
+防止路人一句话终止对局。每日题的词长与词库由日期固定，不能再叠加
+--length / --obscure，保证所有人拿到同一道题。
+
+默认：随机 4-7 个字母、机会以经典 6 次为下限随长度递增（5 字母 6 次）、随机出题、
+群内共享对局、
 单谜底、无附加玩法。`,
 		},
 		Setup:    p.setup,
@@ -158,7 +175,11 @@ func (p *Plugin) setup(ctx *plugin.SetupContext) (any, error) {
 				for _, g := range p.sessions.MarkExpired(timeNow()) {
 					p.finalize(g)
 				}
-				p.sessions.Sweep()
+				// 弃局（超时未结束就被回收）同样按失败结算，防止挂机逃避败场。
+				for _, g := range p.sessions.Sweep() {
+					g.Finished, g.Won = true, false
+					p.finalize(g)
+				}
 			}
 		}
 	})
@@ -177,7 +198,8 @@ func (p *Plugin) setup(ctx *plugin.SetupContext) (any, error) {
 			Arg("locale", "语言代码，如 zh-CN", true).Build()).
 		SubCommand(command.NewDef("help").Description("查看帮助").Build()).
 		Flag("length", "l", "单词长度（4-7，默认随机）", command.ArgTypeInt).
-		Flag("tries", "t", "答题次数（1-12，默认按长度推导）", command.ArgTypeInt).
+		Flag("tries", "t", "答题次数（1-14，默认按长度推导）", command.ArgTypeInt).
+		Flag("unlimited", "", "无限机会（练习局，默认不计入战绩）", command.ArgTypeBool).
 		Flag("daily", "d", "使用每日题", command.ArgTypeBool).
 		Flag("scope", "s", "隔离维度 user|group（默认 group）", command.ArgTypeString).
 		Flag("hard", "", "困难模式：已揭示的绿/黄必须复用", command.ArgTypeBool).
@@ -233,6 +255,7 @@ func (p *Plugin) loadConfig(ctx *plugin.SetupContext) {
 		DefaultLength: 0,
 		DefaultTries:  0,
 		DefaultScope:  ScopeGroup,
+		MaxFreeHints:  2,
 		BlitzWindow:   60 * time.Second,
 		Timezone:      "Asia/Shanghai",
 		TTL:           30 * time.Minute,
@@ -269,6 +292,10 @@ func (p *Plugin) loadConfig(ctx *plugin.SetupContext) {
 	if v := ctx.Config.GetInt("blitz_seconds", 0); v > 0 {
 		p.cfg.BlitzWindow = time.Duration(v) * time.Second
 	}
+	if v := ctx.Config.GetInt("max_free_hints", p.cfg.MaxFreeHints); v >= 0 {
+		p.cfg.MaxFreeHints = min(v, maxAttempts)
+	}
+	p.cfg.CountUnlimited = ctx.Config.GetBool("count_unlimited", p.cfg.CountUnlimited)
 	if p.cfg.DefaultLength != 0 && !IsSupportedLength(p.cfg.DefaultLength) {
 		p.cfg.DefaultLength = 0
 	}

@@ -56,7 +56,9 @@ type boardView struct {
 	Badges      []string
 	Length      int
 	MaxAttempts int
-	Guesses     []Guess
+	// RowOffset 是棋盘首行对应的猜测下标；无限机会只画最近窗口时会大于 0。
+	RowOffset int
+	Guesses   []Guess
 	// Boards 是棋盘（谜底）数量，>=1；大于 1 时按网格并排渲染。
 	Boards int
 	// Solved 标记每个棋盘是否已解出，用于在棋盘标题上标注。
@@ -73,6 +75,19 @@ type boardView struct {
 	KeyStates map[rune]Mark
 }
 
+// boardRows 返回棋盘应绘制的行数与首行对应的猜测下标。
+//
+// 有限机会按"可猜次数"绘制；无限机会只画"已猜 + 1"行的滑动窗口（6-12 行），
+// 既避免图片高度随猜测数无限增长，又保证最新几行始终可见。
+func boardRows(g *Game) (rows, offset int) {
+	if !g.Unlimited {
+		return max(g.MaxGuesses(), 1), 0
+	}
+	rows = min(max(len(g.Guesses)+1, minUnlimitedRows), maxUnlimitedRows)
+	offset = max(len(g.Guesses)+1-rows, 0)
+	return rows, offset
+}
+
 // gameBoardView 从对局构造渲染视图。
 func gameBoardView(g *Game) boardView {
 	// CHAIN 用带连击数的动态徽标，避免与静态标签重复。
@@ -86,11 +101,20 @@ func gameBoardView(g *Game) boardView {
 		badges = append(badges, fmt.Sprintf("CHAIN x%d", g.ChainWins))
 	}
 	badges = append(badges, g.Modifiers.Labels()...)
+	// 棋盘按"可猜次数"绘制：COSTx2 下机会数减半，避免画出永远用不到的空行；
+	// 无限机会只画最近的行窗口，标题用 ASCII 的 INF 代替次数。
+	rows, offset := boardRows(g)
+	title := fmt.Sprintf("WORDLE %dx%d", g.Length, rows)
+	if g.Unlimited {
+		title = fmt.Sprintf("WORDLE %dxINF", g.Length)
+		badges = append(badges, "INF")
+	}
 	v := boardView{
-		Title:       fmt.Sprintf("WORDLE %dx%d", g.Length, g.MaxAttempts),
+		Title:       title,
 		Badges:      badges,
 		Length:      g.Length,
-		MaxAttempts: g.MaxAttempts,
+		MaxAttempts: rows,
+		RowOffset:   offset,
 		Guesses:     g.Guesses,
 		Boards:      g.BoardCount(),
 		Solved:      g.Solved,
@@ -270,6 +294,7 @@ func renderBoard(v boardView) ([]byte, error) {
 		}
 		tileTop := by + labelH
 		for r := 0; r < v.MaxAttempts; r++ {
+			ri := r + v.RowOffset
 			for c := 0; c < v.Length; c++ {
 				x := bx + padX + float64(c)*(tileSize+tileGap)
 				y := tileTop + float64(r)*(tileSize+tileGap)
@@ -280,13 +305,13 @@ func renderBoard(v boardView) ([]byte, error) {
 					gg     Guess
 					filled bool
 				)
-				if r >= fogFrom && r < len(v.Guesses) {
-					gg = v.Guesses[r]
+				if ri >= fogFrom && ri < len(v.Guesses) {
+					gg = v.Guesses[ri]
 					if runes := []rune(gg.Word); c < len(runes) {
 						letter = runes[c]
 						filled = true
 					}
-					style = v.tileStyleAt(r, bi, c, gg)
+					style = v.tileStyleAt(ri, bi, c, gg)
 				}
 
 				fill := colEmpty
@@ -379,11 +404,12 @@ func renderBoardText(v boardView) string {
 			b.WriteByte('\n')
 		}
 		for i := 0; i < v.MaxAttempts; i++ {
-			if i >= fogFrom && i < len(v.Guesses) {
-				gg := v.Guesses[i]
+			gi := i + v.RowOffset
+			if gi >= fogFrom && gi < len(v.Guesses) {
+				gg := v.Guesses[gi]
 				b.WriteString(strings.ToUpper(gg.Word))
 				b.WriteByte('\n')
-				styles := v.rowStyles(i, bi, gg)
+				styles := v.rowStyles(gi, bi, gg)
 				for _, st := range styles {
 					b.WriteString(styleEmoji(st))
 				}

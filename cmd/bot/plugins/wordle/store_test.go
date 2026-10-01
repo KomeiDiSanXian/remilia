@@ -71,7 +71,7 @@ func TestStore_SaveStatUpdatesInPlace(t *testing.T) {
 			t.Fatalf("saveStat: %v", err)
 		}
 	}
-	recs, err := s.leaderboard(10)
+	recs, err := s.leaderboard(10, 1)
 	if err != nil {
 		t.Fatalf("leaderboard: %v", err)
 	}
@@ -86,23 +86,40 @@ func TestStore_SaveStatUpdatesInPlace(t *testing.T) {
 func TestStore_LeaderboardOrder(t *testing.T) {
 	s := newTestStore(t)
 	for _, c := range []struct {
-		user string
-		wins int
-	}{{"a", 1}, {"b", 5}, {"c", 3}} {
+		user   string
+		wins   int
+		losses int
+	}{
+		{"grinder", 30, 10}, // 75%
+		{"sniper", 3, 0},    // 100%，但局数太少
+		{"steady", 18, 2},   // 90%
+	} {
 		st := &Stat{UserID: c.user}
 		for i := 0; i < c.wins; i++ {
 			st.Record(true, 1)
+		}
+		for i := 0; i < c.losses; i++ {
+			st.Record(false, 0)
 		}
 		if err := s.saveStat(st); err != nil {
 			t.Fatalf("saveStat: %v", err)
 		}
 	}
-	recs, err := s.leaderboard(10)
+	// 最少 5 局：sniper 因局数不足落榜，其余按胜率排序 steady(90%) > grinder(75%)。
+	recs, err := s.leaderboard(10, 5)
 	if err != nil {
 		t.Fatalf("leaderboard: %v", err)
 	}
-	if len(recs) != 3 || recs[0].UserID != "b" || recs[1].UserID != "c" {
+	if len(recs) != 2 || recs[0].UserID != "steady" || recs[1].UserID != "grinder" {
 		t.Fatalf("排行榜排序错误: %+v", recs)
+	}
+	// 门槛降到 1 局时，100% 的 sniper 应排第一，说明排的是胜率而非胜场。
+	recs, err = s.leaderboard(10, 1)
+	if err != nil {
+		t.Fatalf("leaderboard: %v", err)
+	}
+	if len(recs) != 3 || recs[0].UserID != "sniper" {
+		t.Fatalf("低门槛下应按胜率排序: %+v", recs)
 	}
 }
 
@@ -212,7 +229,7 @@ func TestStore_StatNameRoundTrip(t *testing.T) {
 		t.Fatalf("昵称 = %q, 期望 小明", got.Name)
 	}
 
-	recs, err := s.leaderboard(10)
+	recs, err := s.leaderboard(10, 1)
 	if err != nil {
 		t.Fatalf("leaderboard: %v", err)
 	}

@@ -1,7 +1,7 @@
 wordle.help: |
   Wordle 猜词游戏
   用法：
-    /wordle [--length 4-7] [--tries 次数] [--daily] [--scope user|group]  开始经典对局
+    /wordle [--length 4-7] [--tries 次数] [--unlimited] [--daily] [--scope user|group]  开始经典对局
     /wordle [--duet|--quad|--boards N]  多谜底同屏：N 块棋盘共享猜测
     /wordle [--hard] [--blind] [--fog[=N]] [--obscure] [--gauntlet]  更难的玩法
     /wordle [--blitz[=秒]] [--chain] [--hint-cost] [--chaos] [--race]  其他玩法
@@ -16,12 +16,16 @@ wordle.help: |
   玩法（可任意组合）：
     --hard       困难模式：已揭示的绿/黄字母必须复用
     --blind      盲猜：黄色按灰色显示，只有位置正确的字母才显示绿色
+                 （盲猜下困难模式只锁绿格，不再强制复用看不见的黄色字母）
     --fog        迷雾：只保留最近 N 行判定（默认 1 行，最多 4 行）
     --obscure    冷门词库：谜底只从低频词中抽取，显著提高难度
-    --gauntlet   车轮战：连锁模式下每解出一题就少一次机会（下限 2）
+    --gauntlet   车轮战：连锁模式下每解出一题就少一次机会（下限按单次消耗折算）
     --blitz      限时模式：每次作答有倒计时，超时判负（默认 60 秒）
+                 （群维度下是全群共享的一个倒计时，任何人猜一次都会重置）
     --chain      连锁模式：猜中后自动进入下一题，直到失败
     --hint-cost  提示消耗一次机会
+    --unlimited  无限机会：猜测不消耗机会、永不判负；默认只作为练习局不计入战绩与排行榜
+                 （不能与 --tries / --gauntlet / --hint-cost 同用）
     --chaos      混沌模式：开局随机附加盲猜/禁重复字母/双倍消耗/禁提示
     --race       抢分模式：群内按解谜贡献计分（仅群维度）
   颜色玩法（可任意叠加，只影响显示、不改变胜负判定）：
@@ -39,13 +43,18 @@ wordle.help: |
     --mole       内鬼：每局随机一个位置永远显示为绿色
     --hidden-key 隐藏键盘颜色
     --score-color 计分色：整行同色编码绿色总数，位置信息全部丢失
+  颜色玩法的 N 会按词长自动收紧（最多到「词长-1」），避免整行失效或全遮。
   多谜底：--duet（2 块）/--quad（4 块）/--boards 2-4，全部棋盘共用同一串猜测，
   全部解开才算胜利。
-  默认：随机 4-7 个字母、机会按长度推导（5 字母 6 次）、随机出题、群内共享对局、
+  群维度：全部群成员共享同一块棋盘，提示额度也是共享的；放弃只能由发起者操作，
+  防止路人一句话终止对局。
+  每日题：词长与词库由日期固定，不能再叠加 --length / --obscure，保证所有人题目一致。
+  默认：随机 4-7 个字母、机会以经典 6 次为下限随长度递增（5 字母 6 次）、随机出题、群内共享对局、
   单谜底、无附加玩法。
 wordle.mode.daily: "每日题"
 wordle.mode.random: "随机题"
 wordle.start.created: "🎯 新对局开始！{{.Length}} 个字母，{{.Tries}} 次机会（{{.Mode}}）· 玩法：{{.Rules}}"
+wordle.start.created_unlimited: "🎯 新对局开始！{{.Length}} 个字母，无限机会（{{.Mode}}）· 玩法：{{.Rules}}"
 wordle.start.bad_blitz: "限时秒数需在 {{.Min}}-{{.Max}} 之间"
 wordle.error.chain_daily: "连锁模式不能与每日题同时使用"
 wordle.error.race_needs_group: "抢分模式需要群维度对局（--scope group）"
@@ -77,7 +86,7 @@ wordle.rule.race: "群内按解谜贡献计分（仅群维度）"
 wordle.rule.blind: "盲猜：黄色按灰色显示，只有位置正确的字母才显示绿色"
 wordle.rule.fog: "迷雾：只保留最近若干行判定，更早的行不再显示"
 wordle.rule.obscure: "冷门词库：谜底只从低频词中抽取，显著提高难度"
-wordle.rule.gauntlet: "车轮战：连锁每解出一题就少一次机会（下限 2）"
+wordle.rule.gauntlet: "车轮战：连锁每解出一题就少一次机会（下限按单次消耗折算）"
 wordle.rule.invert: "反转：绿（正确）与灰（不存在）互换显示"
 wordle.rule.hit-only: "只留命中：绿+黄合并为黄，位置信息全部丢失"
 wordle.rule.near: "邻近色（青）：字母在谜底中且与真实位置相差 ±1"
@@ -98,13 +107,14 @@ wordle.mod.double: "每次猜测消耗 2 次机会"
 wordle.mod.nohint: "本局禁用提示"
 wordle.race.line: "🏁 贡献榜：{{.Entries}}"
 wordle.race.entry: "{{.User}} +{{.Score}}"
-wordle.start.already_running: "⚠️ 当前已有进行中的对局，继续猜或输入 /wordle giveup 放弃。"
+wordle.start.already_running: "⚠️ 当前已有进行中的对局，继续 /wordle guess 猜词；群维度下由发起者输入 /wordle giveup 放弃。"
 wordle.start.bad_length: "长度需为 {{.Lengths}} 之一"
 wordle.start.bad_tries: "答题次数需在 {{.Min}}-{{.Max}} 之间"
 wordle.start.bad_scope: "隔离维度需为 group 或 user"
 wordle.start.bad_fog: "迷雾可见行数需在 {{.Min}}-{{.Max}} 之间"
 wordle.start.bad_boards: "棋盘数量需在 {{.Min}}-{{.Max}} 之间"
 wordle.start.bad_range: "参数 {{.Flag}} 需在 {{.Min}}-{{.Max}} 之间"
+wordle.start.unlimited_conflict: "无限机会不能与 {{.Flag}} 同时使用"
 wordle.start.daily_used: "今日的每日题已经开过了，明天再来（{{.Day}}）"
 wordle.start.bank_unavailable: "暂不支持 {{.Length}} 个字母的词库"
 wordle.error.not_started: "当前没有进行中的对局，输入 /wordle 开始"
@@ -114,8 +124,12 @@ wordle.error.not_alpha: "只能输入英文字母"
 wordle.error.not_in_dict: "「{{.Word}}」不在词库中"
 wordle.error.repeat: "「{{.Word}}」已经猜过了"
 wordle.error.finished: "本局已结束，输入 /wordle 开始新的一局"
+wordle.error.giveup_owner_only: "群维度对局只能由发起者放弃；其他人可继续猜测或查看棋盘"
+wordle.error.hint_participant_only: "群维度共享对局只允许发起者或已参与者使用提示"
+wordle.error.daily_fixed: "每日题的词长与词库由日期固定，不能叠加 --length / --obscure"
 wordle.error.unknown_subcommand: "未知子命令「{{.Sub}}」，输入 /wordle help 查看用法"
 wordle.status.line: "📏 {{.Length}} 字母 · 剩余 {{.Remaining}}/{{.Tries}} 次 · {{.Mode}}"
+wordle.status.line_unlimited: "📏 {{.Length}} 字母 · 机会 ∞（练习局，不计战绩）· {{.Mode}}"
 wordle.result.win: "🎉 猜中了！用了 {{.Attempts}} 次。"
 wordle.result.win_multi: "🎉 全部 {{.Boards}} 个谜底都猜中了！共用了 {{.Attempts}} 次。"
 wordle.result.lose: "💀 次数用尽，答案是「{{.Answer}}」。"
@@ -123,15 +137,16 @@ wordle.result.giveup: "🏳️ 已放弃，答案是「{{.Answer}}」。"
 wordle.hint.revealed: "💡 提示：第 {{.Position}} 个字母是「{{.Letter}}」"
 wordle.hint.none: "没有更多可提示的字母了"
 wordle.hint.used_up: "提示已用完"
+wordle.hint.limit: "本局免费提示已用完（上限 {{.Max}} 次）；如需继续，请用 --hint-cost 开局"
 wordle.board.none: "当前没有进行中的对局"
 wordle.stats.title: "📊 {{.User}} 的 Wordle 统计"
 wordle.stats.body: "对局 {{.Played}} · 胜 {{.Won}} · 胜率 {{.Rate}}%\n当前连胜 {{.Streak}} · 最长连胜 {{.Best}}"
 wordle.stats.dist.title: "猜中次数分布："
 wordle.stats.dist.fail: "未猜中  {{.Count}}"
 wordle.stats.dist.row: "{{.Attempts}} 次  {{.Count}}"
-wordle.top.title: "🏆 Wordle 排行榜（按胜场）"
-wordle.top.empty: "还没有任何记录"
-wordle.top.row: "{{.Rank}}. {{.User}} — 胜 {{.Won}} / {{.Played}}"
+wordle.top.title: "🏆 Wordle 排行榜（按胜率，至少 {{.Min}} 局）"
+wordle.top.empty: "还没有满足上榜条件（至少 {{.Min}} 局）的记录"
+wordle.top.row: "{{.Rank}}. {{.User}} — 胜率 {{.Rate}}%（{{.Won}}/{{.Played}}）"
 wordle.lang.set: "已将语言切换为 {{.Locale}}"
 wordle.lang.usage: "用法：/wordle lang <{{.Locales}}>"
 wordle.lang.unknown: "不支持的语言 {{.Locale}}，可选：{{.Locales}}"

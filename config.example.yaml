@@ -731,10 +731,14 @@ messagelog:
 #     exclude: []
 #   wordle: (所有字段 [R] 仅插件启动时读取)
 #     default_length: 0                   # [R]  默认单词长度（4-7；0=每局随机 4-7）
-#     default_tries: 0                    # [R]  默认答题次数（1-12；0=按长度推导）
+#     default_tries: 0                    # [R]  默认答题次数（1-14；0=按长度推导）
 #     default_scope: "group"              # [R]  默认隔离维度: group（群内共享）/ user（每人独立）
 #     daily: false                        # [R]  默认是否使用每日题
 #     timezone: "Asia/Shanghai"           # [R]  每日题选词与每日锁使用的时区
+#     max_free_hints: 2                   # [R]  每局免费提示次数上限（0=禁用；--hint-cost 不受此限；
+#                                         #      会按词长收紧：4 字母最多 1 次）
+#     count_unlimited: false              # [R]  无限机会（--unlimited）对局是否计入战绩与排行榜
+#                                         #      （默认 false：只留历史记录，按练习局处理）
 #     session_ttl: "30m"                  # [R]  空闲对局回收时间
 #     default_rules: ""                   # [R]  默认玩法（逗号分隔，可任意组合）:
 #                                         #      hard（困难）/ blitz（限时）/ chain（连锁）/

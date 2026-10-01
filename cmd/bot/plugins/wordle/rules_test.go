@@ -103,14 +103,36 @@ func TestCheckHardMode(t *testing.T) {
 	}
 }
 
-func TestBlindMarks(t *testing.T) {
-	marks := []Mark{Correct, Present, Absent}
-	got := blindMarks(marks)
-	if got[0] != Correct || got[1] != Absent || got[2] != Absent {
-		t.Fatalf("盲猜应把黄色降级为灰色，实际 %v", got)
+// TestCheckHardMode_Blind 验证盲猜与困难模式的交互：
+// 盲猜把黄色藏成灰色，玩家无从得知该复用哪些字母，因此不再强制字母复用
+// （否则硬性错误提示反而会泄漏字母）；绿格锁位仍然生效。
+func TestCheckHardMode_Blind(t *testing.T) {
+	base := func(blind bool) *Game {
+		rules := RuleHard
+		if blind {
+			rules |= RuleBlind
+		}
+		return &Game{
+			Length:  5,
+			Answers: []string{"crane"},
+			Rules:   rules,
+			// eaten 相对 crane 的判定为 黄,黄,灰,灰,黄，必复用字母为 e/a/n。
+			Guesses: []Guess{{Word: "eaten", Marks: Evaluate("crane", "eaten")}},
+		}
 	}
-	if marks[1] != Present {
-		t.Fatal("不应修改原切片")
+	// brisk 不含 e/a/n，非盲猜下应判为缺少必复用字母。
+	if v := checkHardMode(base(false), []rune("brisk")); v.OK() {
+		t.Fatal("非盲猜下缺少必复用字母应判违规")
+	}
+	if v := checkHardMode(base(true), []rune("brisk")); !v.OK() {
+		t.Fatalf("盲猜下不应强制复用不可见的黄色字母，实际 %+v", v)
+	}
+
+	// 盲猜下绿格锁位不受影响：已全绿的 crane 之后必须保持每个位置。
+	g := base(true)
+	g.Guesses = append(g.Guesses, Guess{Word: "crane", Marks: Evaluate("crane", "crane")})
+	if v := checkHardMode(g, []rune("slate")); v.Position != 1 {
+		t.Fatalf("盲猜下绿格仍应锁位，期望位置 1 违规，实际 %+v", v)
 	}
 }
 
@@ -145,6 +167,42 @@ func TestGame_AttemptCostAndRemaining(t *testing.T) {
 	}
 	if !g.OutOfAttempts() {
 		t.Fatal("剩余 1 < 消耗 2 应判为无次数")
+	}
+}
+
+func TestGame_Unlimited(t *testing.T) {
+	g := &Game{Length: 5, MaxAttempts: 6, Unlimited: true}
+	g.Used = 100
+	if g.OutOfAttempts() {
+		t.Fatal("无限机会不应判为无次数")
+	}
+	if g.Remaining() != 0 || g.MaxGuesses() != 0 || g.RemainingGuesses() != 0 {
+		t.Fatalf("无限机会的剩余/上限哨兵应为 0，实际 %d/%d/%d",
+			g.Remaining(), g.MaxGuesses(), g.RemainingGuesses())
+	}
+	g.Finished = true
+	if g.OutOfAttempts() {
+		t.Fatal("已结束的无限局也不应判为无次数")
+	}
+}
+
+func TestUnlimitedConflict(t *testing.T) {
+	if got := unlimitedConflict(map[string]string{"unlimited": "true"}); got != "" {
+		t.Fatalf("单独 --unlimited 不应冲突，实际 %q", got)
+	}
+	cases := []struct {
+		flags map[string]string
+		want  string
+	}{
+		{map[string]string{"unlimited": "true", "tries": "6"}, "tries"},
+		{map[string]string{"unlimited": "true", "gauntlet": "true"}, "gauntlet"},
+		{map[string]string{"unlimited": "true", "hint-cost": ""}, "hint-cost"},
+		{map[string]string{"tries": "6"}, ""},
+	}
+	for _, c := range cases {
+		if got := unlimitedConflict(c.flags); got != c.want {
+			t.Fatalf("unlimitedConflict(%v) = %q, 期望 %q", c.flags, got, c.want)
+		}
 	}
 }
 
@@ -345,13 +403,13 @@ func TestParseOptions_ColorRules(t *testing.T) {
 
 func TestAttemptsForGame(t *testing.T) {
 	cases := []struct{ length, boards, want int }{
-		{4, 1, 5},
-		{5, 1, 6},
+		{4, 1, 6},
+		{5, 1, 6}, // 经典 Wordle：5 字母 6 次
 		{6, 1, 7},
 		{7, 1, 8},
 		{5, 2, 8},  // 双谜底每多一块棋盘 +2
-		{5, 4, 12}, // 四谜底会被上限截断
-		{7, 4, 12},
+		{5, 4, 12}, // 四谜底：6 + 3*2
+		{7, 4, 14}, // 上限 14，保证 7 字母四谜底不会被截断
 	}
 	for _, tc := range cases {
 		if got := attemptsForGame(tc.length, tc.boards); got != tc.want {
@@ -362,14 +420,14 @@ func TestAttemptsForGame(t *testing.T) {
 
 func TestResolveLengthAndTries(t *testing.T) {
 	p := &Plugin{}
-	// 未指定且未配置时：长度随机 4-7，次数 = 长度 + 1。
+	// 未指定且未配置时：长度随机 4-7，次数以经典 6 次为下限随长度递增。
 	for range 50 {
 		l := p.resolveLength(0, ModeRandom, "2026-10-01")
 		if !IsSupportedLength(l) {
 			t.Fatalf("随机长度应为受支持值，实际 %d", l)
 		}
-		if got := p.resolveTries(0, l, 1); got != l+1 {
-			t.Fatalf("长度 %d 的默认次数 = %d, 期望 %d", l, got, l+1)
+		if want := max(l+1, DefaultMaxAttempts); p.resolveTries(0, l, 1) != want {
+			t.Fatalf("长度 %d 的默认次数 = %d, 期望 %d", l, p.resolveTries(0, l, 1), want)
 		}
 	}
 

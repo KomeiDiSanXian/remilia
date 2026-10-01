@@ -33,11 +33,17 @@ var SupportedLengths = []int{4, 5, 6, 7}
 const (
 	// DefaultLength 默认单词长度。
 	DefaultLength = 5
-	// DefaultMaxAttempts 默认答题次数。
+	// DefaultMaxAttempts 经典 Wordle 的答题次数，也是默认机会数的下限。
 	DefaultMaxAttempts = 6
 	// minAttempts / maxAttempts 用户可指定的答题次数范围。
 	minAttempts = 1
-	maxAttempts = 12
+	// maxAttempts 取 14：4 块棋盘 × 7 字母时推导值为 8 + 3*2 = 14，
+	// 保证"每多一块棋盘 +2"的补偿不会被上限截断。
+	maxAttempts = 14
+	// minUnlimitedRows / maxUnlimitedRows 是无限机会（--unlimited）棋盘绘制的行窗口：
+	// 只画"已猜 + 1"行并限制在 6-12 行，避免图片高度随猜测数无限增长。
+	minUnlimitedRows = 6
+	maxUnlimitedRows = 12
 )
 
 // IsSupportedLength 报告给定长度是否有随包词库可用。
@@ -69,8 +75,8 @@ func DailyLength(day string) int {
 // WordBank 单一长度的词库。
 type WordBank struct {
 	Length  int
-	answers []string            // 谜底池（加载时已去重）
-	obscure []string            // 冷门谜底池 = 合法输入 - 常用谜底（已排序，保证每日题稳定）
+	answers []string            // 谜底池（加载时已去重，并剔除人名/地名等专有名词）
+	obscure []string            // 冷门谜底池（词库文件预筛的"不常见但真实"单词，已排序）
 	allowed map[string]struct{} // 合法输入集合（含全部谜底）
 }
 
@@ -101,6 +107,28 @@ func readWordBank(length int) (*WordBank, error) {
 	if err != nil {
 		return nil, err
 	}
+	excluded, err := readWordSet("words/excluded.txt")
+	if err != nil {
+		return nil, err
+	}
+	// 屏蔽词（人名/地名/月份/粗俗词等）不参与出题，但仍可作为合法猜测。
+	answers = rejectWords(answers, excluded)
+	if len(answers) == 0 {
+		return nil, fmt.Errorf("wordle: 词库 answers_%d 过滤后为空", length)
+	}
+	// 冷门池来自独立词表（ENABLE ∩ 3.0 ≤ Zipf < 3.6），已剔除专有名词与粗俗词，
+	// 但仍需过滤屏蔽表，并保证不与常用谜底重叠。
+	obscure, err := readWordList(fmt.Sprintf("words/obscure_%d.txt", length), length)
+	if err != nil {
+		return nil, err
+	}
+	answerSet := make(map[string]struct{}, len(answers))
+	for _, w := range answers {
+		answerSet[w] = struct{}{}
+	}
+	obscure = rejectWords(obscure, excluded)
+	obscure = rejectWords(obscure, answerSet)
+	slices.Sort(obscure)
 	set := make(map[string]struct{}, len(allowed)+len(answers))
 	for _, w := range allowed {
 		set[w] = struct{}{}
@@ -108,18 +136,41 @@ func readWordBank(length int) (*WordBank, error) {
 	for _, w := range answers {
 		set[w] = struct{}{} // 谜底必须总能被猜出
 	}
-	answerSet := make(map[string]struct{}, len(answers))
-	for _, w := range answers {
-		answerSet[w] = struct{}{}
+	for _, w := range obscure {
+		set[w] = struct{}{} // 冷门谜底也必须总能被猜出
 	}
-	obscure := make([]string, 0, len(set)-len(answers))
-	for w := range set {
-		if _, isAnswer := answerSet[w]; !isAnswer {
-			obscure = append(obscure, w)
+	return &WordBank{Length: length, answers: answers, obscure: obscure, allowed: set}, nil
+}
+
+// rejectWords 返回 words 中不在 blocked 里的词，保持原有顺序。
+func rejectWords(words []string, blocked map[string]struct{}) []string {
+	if len(blocked) == 0 {
+		return words
+	}
+	out := make([]string, 0, len(words))
+	for _, w := range words {
+		if _, bad := blocked[w]; bad {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// readWordSet 读取"每行一个词"的集合文件（用于 excluded.txt 屏蔽表）。
+func readWordSet(name string) (map[string]struct{}, error) {
+	data, err := wordsFS.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("wordle: 读取词表 %s: %w", name, err)
+	}
+	out := make(map[string]struct{}, 4096)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		w := strings.ToLower(strings.TrimSpace(line))
+		if w != "" {
+			out[w] = struct{}{}
 		}
 	}
-	slices.Sort(obscure)
-	return &WordBank{Length: length, answers: answers, obscure: obscure, allowed: set}, nil
+	return out, nil
 }
 
 func readWordList(name string, length int) ([]string, error) {

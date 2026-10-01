@@ -93,16 +93,38 @@ func TestSessionStore_Sweep(t *testing.T) {
 	s.Put("k", &Game{UpdatedAt: base})
 
 	s.now = func() time.Time { return base.Add(30 * time.Second) }
-	if n := s.Sweep(); n != 0 {
-		t.Fatalf("未超时不应清理，清理了 %d", n)
+	if got := s.Sweep(); len(got) != 0 {
+		t.Fatalf("未超时不应清理，清理了 %d", len(got))
 	}
 
 	s.now = func() time.Time { return base.Add(2 * time.Minute) }
-	if n := s.Sweep(); n != 1 {
-		t.Fatalf("超时应清理 1 个，实际 %d", n)
+	abandoned := s.Sweep()
+	if len(abandoned) != 1 {
+		t.Fatalf("超时应清理 1 个，实际 %d", len(abandoned))
 	}
 	if s.Len() != 0 {
 		t.Fatal("清理后会话表应为空")
+	}
+	// 未结束的对局应作为"弃局"返回，供调用方补记一次失败。
+	if abandoned[0].Finished {
+		t.Fatal("返回的弃局不应已标记为结束")
+	}
+}
+
+// TestSessionStore_SweepSkipsFinished 验证已结束的对局只做内存回收、
+// 不会被当作弃局再次结算。
+func TestSessionStore_SweepSkipsFinished(t *testing.T) {
+	s := NewSessionStore(time.Minute)
+	base := time.Now()
+	s.now = func() time.Time { return base }
+	s.Put("f", &Game{UpdatedAt: base, Finished: true})
+
+	s.now = func() time.Time { return base.Add(2 * time.Minute) }
+	if got := s.Sweep(); len(got) != 0 {
+		t.Fatalf("已结束的对局不应作为弃局返回，实际 %d", len(got))
+	}
+	if s.Len() != 0 {
+		t.Fatal("已结束的对局也应被回收")
 	}
 }
 
@@ -197,5 +219,25 @@ func TestDisplayUser(t *testing.T) {
 	}
 	if got := displayUser("   ", "1234567890"); got != shortID("1234567890") {
 		t.Fatalf("昵称为空应回退短 ID，实际 %q", got)
+	}
+}
+
+// TestGame_CanUseHint 验证免费提示上限与 --hint-cost 的交互：
+// 默认受上限约束，启用 hint-cost 后不再受上限约束（改为每次消耗机会）。
+func TestGame_CanUseHint(t *testing.T) {
+	g := &Game{}
+	if !g.CanUseHint(2) {
+		t.Fatal("未使用提示时应可用")
+	}
+	g.HintsUsed = 2
+	if g.CanUseHint(2) {
+		t.Fatal("达到免费上限后应不可用")
+	}
+	if !g.CanUseHint(3) {
+		t.Fatal("提高上限后应恢复可用")
+	}
+	g.Rules = RuleHintCost
+	if !g.CanUseHint(0) {
+		t.Fatal("启用 hint-cost 后不应再受免费上限约束")
 	}
 }

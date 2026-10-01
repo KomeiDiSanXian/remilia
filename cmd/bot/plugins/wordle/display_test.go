@@ -74,6 +74,30 @@ func TestHitOnly(t *testing.T) {
 	}
 }
 
+func TestApplyBlind(t *testing.T) {
+	styles := []TileStyle{StyleCorrect, StylePresent, StyleAbsent}
+	applyBlind(styles)
+	if styles[0] != StyleCorrect || styles[1] != StyleAbsent || styles[2] != StyleAbsent {
+		t.Fatalf("盲猜应只把黄色降级为灰色，实际 %v", styles)
+	}
+}
+
+// TestDisplayStyles_BlindKeepsTrueMarks 验证盲猜只改写显示样式，
+// 不改写逻辑真值 Marks（胜负判定与困难模式校验都依赖真值）。
+func TestDisplayStyles_BlindKeepsTrueMarks(t *testing.T) {
+	marks := Evaluate("crane", "eaten")
+	g := newDisplayGame(RuleBlind, Guess{Word: "eaten", Marks: marks})
+	got := displayStyles(g)[0][0]
+	for i, s := range got {
+		if marks[i] == Present && s != StyleAbsent {
+			t.Fatalf("位置 %d 的黄色应显示为灰，实际 %v", i, s)
+		}
+	}
+	if marks[0] != Present {
+		t.Fatal("displayStyles 不应改写真值 Marks")
+	}
+}
+
 func TestHashedIndices(t *testing.T) {
 	a := hashedIndices("seed", 3, 10)
 	b := hashedIndices("seed", 3, 10)

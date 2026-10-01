@@ -96,6 +96,11 @@ func displayStyles(g *Game) [][][]TileStyle {
 			}
 
 			answer := g.AnswerAt(bi)
+			// 盲猜：把黄色降级为灰色。只影响显示，Guess.Marks 的真值保持不变，
+			// 胜负判定与困难模式校验仍基于真实判定。
+			if g.blind() {
+				applyBlind(styles)
+			}
 			if g.Rules.Has(RuleRepeat) {
 				applyRepeat(styles, word, answer)
 			}
@@ -174,6 +179,15 @@ func keyStyles(g *Game, styles [][][]TileStyle) map[rune]TileStyle {
 }
 
 // ─── 单条规则的颜色变换 ────────────────────────────────────────────────────────
+
+// applyBlind 把"存在但位置不对"（黄）降级为灰色，用于盲猜（--blind / ModBlind）。
+func applyBlind(styles []TileStyle) {
+	for i, st := range styles {
+		if st == StylePresent {
+			styles[i] = StyleAbsent
+		}
+	}
+}
 
 // applyNear 把"存在但位置不对"且与真实位置相邻的字母升级为青色。
 func applyNear(styles []TileStyle, word []rune, answer string) {

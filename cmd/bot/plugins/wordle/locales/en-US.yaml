@@ -1,7 +1,7 @@
 wordle.help: |
   Wordle guessing game
   Usage:
-    /wordle [--length 4-7] [--tries N] [--daily] [--scope user|group]   start a classic game
+    /wordle [--length 4-7] [--tries N] [--unlimited] [--daily] [--scope user|group]   start a classic game
     /wordle [--duet|--quad|--boards N]   multi-board: N boards share one guess stream
     /wordle [--hard] [--blind] [--fog[=N]] [--obscure] [--gauntlet]   harder modes
     /wordle [--blitz[=sec]] [--chain] [--hint-cost] [--chaos] [--race]   other modes
@@ -16,12 +16,18 @@ wordle.help: |
   Modes (freely combinable):
     --hard       revealed green/yellow letters must be reused
     --blind      yellow is shown as gray; only exact positions turn green
+                 (under blind, hard mode only locks greens and no longer forces
+                  reusing yellows you cannot see)
     --fog        keep only the last N rows (default 1, max 4)
     --obscure    draw answers from low-frequency words only
-    --gauntlet   chain mode loses one try per solved word (floor 2)
+    --gauntlet   chain mode loses one try per solved word (floor scales with cost)
     --blitz      countdown per move, timeout loses (default 60s)
+                 (in group scope the timer is shared; any guess resets it)
     --chain      solve one word and immediately get the next
     --hint-cost  each hint costs one try
+    --unlimited  unlimited guesses: never run out, never lose; practice only, not
+                 counted in stats/leaderboard (cannot combine with --tries /
+                 --gauntlet / --hint-cost)
     --chaos      start with random modifiers (blind/no-repeat/double/nohint)
     --race       score by contribution (group scope only)
   Color modes (freely stackable; they only change what you see, never the result):
@@ -39,13 +45,19 @@ wordle.help: |
     --mole       one random position always shows green for the whole game
     --hidden-key do not color the keyboard
     --score-color color the whole row by the number of greens (positions lost)
+  The N of color modes is clamped to "length - 1" so a row is never fully hidden.
   Multi-board: --duet (2) / --quad (4) / --boards 2-4; every board shares the same
   guess stream and you win only after solving all of them.
-  Defaults: random 4-7 letters, tries derived from length (6 for 5 letters),
+  Group scope: all members share one board and one hint budget; only the starter
+  may give up, so a passer-by cannot end the game for everyone.
+  Daily: the length and word pool are fixed by the date; --length / --obscure
+  cannot be combined with it, so everyone gets the same puzzle.
+  Defaults: random 4-7 letters, tries start at the classic 6 and grow with length (6 for 5 letters),
   random puzzle, one shared board per chat, no extra modes.
 wordle.mode.daily: "daily"
 wordle.mode.random: "random"
 wordle.start.created: "🎯 New game! {{.Length}} letters, {{.Tries}} tries ({{.Mode}}). Modes: {{.Rules}}"
+wordle.start.created_unlimited: "🎯 New game! {{.Length}} letters, unlimited guesses ({{.Mode}}). Modes: {{.Rules}}"
 wordle.start.bad_blitz: "Blitz seconds must be between {{.Min}} and {{.Max}}"
 wordle.error.chain_daily: "Chain mode cannot be combined with the daily puzzle"
 wordle.error.race_needs_group: "Race mode requires a group-scoped game (--scope group)"
@@ -77,7 +89,7 @@ wordle.rule.race: "Score by contribution (group scope only)"
 wordle.rule.blind: "Blind: yellow is shown as gray, only exact positions turn green"
 wordle.rule.fog: "Fog: keep only the last few rows, older rows are hidden"
 wordle.rule.obscure: "Obscure: draw answers from low-frequency words only"
-wordle.rule.gauntlet: "Gauntlet: chain mode loses one try per solved word (floor 2)"
+wordle.rule.gauntlet: "Gauntlet: chain mode loses one try per solved word (floor scales with cost)"
 wordle.rule.invert: "Invert: swap green (correct) and gray (absent)"
 wordle.rule.hit-only: "Hit-only: merge green into yellow, all position info is lost"
 wordle.rule.near: "Near (teal): the letter is in the answer within ±1 of its true spot"
@@ -98,13 +110,14 @@ wordle.mod.double: "Each guess costs 2 tries"
 wordle.mod.nohint: "Hints are disabled"
 wordle.race.line: "🏁 Contributions: {{.Entries}}"
 wordle.race.entry: "{{.User}} +{{.Score}}"
-wordle.start.already_running: "⚠️ A game is already running; keep guessing or type /wordle giveup."
+wordle.start.already_running: "⚠️ A game is already running; keep guessing with /wordle guess (in group scope only the starter can /wordle giveup)."
 wordle.start.bad_length: "Length must be one of {{.Lengths}}"
 wordle.start.bad_tries: "Tries must be between {{.Min}} and {{.Max}}"
 wordle.start.bad_scope: "Scope must be group or user"
 wordle.start.bad_fog: "Fog rows must be between {{.Min}} and {{.Max}}"
 wordle.start.bad_boards: "Board count must be between {{.Min}} and {{.Max}}"
 wordle.start.bad_range: "Parameter {{.Flag}} must be between {{.Min}} and {{.Max}}"
+wordle.start.unlimited_conflict: "Unlimited guesses cannot be combined with {{.Flag}}"
 wordle.start.daily_used: "You already started today's daily puzzle; come back tomorrow ({{.Day}})"
 wordle.start.bank_unavailable: "No word bank for {{.Length}}-letter words yet"
 wordle.error.not_started: "No game in progress; type /wordle to start"
@@ -114,8 +127,12 @@ wordle.error.not_alpha: "Letters only, please"
 wordle.error.not_in_dict: "\"{{.Word}}\" is not in the word list"
 wordle.error.repeat: "\"{{.Word}}\" has already been guessed"
 wordle.error.finished: "This game is over; type /wordle to start a new one"
+wordle.error.giveup_owner_only: "In group scope only the starter can give up; others may keep guessing"
+wordle.error.hint_participant_only: "In group scope only the starter or a participant may use a hint"
+wordle.error.daily_fixed: "The daily puzzle fixes its length and word pool; --length / --obscure cannot be combined with it"
 wordle.error.unknown_subcommand: "Unknown subcommand \"{{.Sub}}\"; type /wordle help"
 wordle.status.line: "📏 {{.Length}} letters · {{.Remaining}}/{{.Tries}} tries left · {{.Mode}}"
+wordle.status.line_unlimited: "📏 {{.Length}} letters · ∞ tries (practice, unranked) · {{.Mode}}"
 wordle.result.win: "🎉 Solved in {{.Attempts}} tries!"
 wordle.result.win_multi: "🎉 Solved all {{.Boards}} words in {{.Attempts}} tries!"
 wordle.result.lose: "💀 Out of tries; the answer was \"{{.Answer}}\"."
@@ -123,15 +140,16 @@ wordle.result.giveup: "🏳️ Gave up; the answer was \"{{.Answer}}\"."
 wordle.hint.revealed: "💡 Hint: letter {{.Position}} is \"{{.Letter}}\""
 wordle.hint.none: "No more letters to reveal"
 wordle.hint.used_up: "No hints left"
+wordle.hint.limit: "Free hints are used up this game (max {{.Max}}); start with --hint-cost to keep hinting"
 wordle.board.none: "No game in progress"
 wordle.stats.title: "📊 {{.User}}'s Wordle stats"
 wordle.stats.body: "Played {{.Played}} · Won {{.Won}} · Win rate {{.Rate}}%\nCurrent streak {{.Streak}} · Best streak {{.Best}}"
 wordle.stats.dist.title: "Guess distribution:"
 wordle.stats.dist.fail: "Failed  {{.Count}}"
 wordle.stats.dist.row: "{{.Attempts}} tries  {{.Count}}"
-wordle.top.title: "🏆 Wordle leaderboard (by wins)"
-wordle.top.empty: "No records yet"
-wordle.top.row: "{{.Rank}}. {{.User}} — {{.Won}} wins / {{.Played}} games"
+wordle.top.title: "🏆 Wordle leaderboard (by win rate, {{.Min}}+ games)"
+wordle.top.empty: "No qualifying records yet (at least {{.Min}} games)"
+wordle.top.row: "{{.Rank}}. {{.User}} — {{.Rate}}% ({{.Won}}/{{.Played}})"
 wordle.lang.set: "Language switched to {{.Locale}}"
 wordle.lang.usage: "Usage: /wordle lang <{{.Locales}}>"
 wordle.lang.unknown: "Unsupported locale {{.Locale}}; available: {{.Locales}}"

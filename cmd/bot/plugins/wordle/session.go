@@ -68,8 +68,9 @@ type Game struct {
 	Score map[string]int
 	// Participants 本局参与者，userID -> 显示名。
 	//
-	// 群维度共享棋盘的协作局里，发起者与每个提交过合法猜测的人都会计入，
-	// 结算时各自记一次战绩。
+	// 只有"提交过合法猜测"的人才会计入（发起、提示、放弃都不算），结算时每人各
+	// 记一次战绩。这样群维度协作局里发起者也必须真正参与才能拿到胜利，路人与
+	// 只点提示的人不会白捡战绩。
 	Participants map[string]string
 	ID           string
 	Platform     string
@@ -86,10 +87,15 @@ type Game struct {
 	Excluded    []rune
 	Length      int
 	MaxAttempts int
+	// Unlimited 标记无限机会（--unlimited）：猜测不消耗机会、永不判负，
+	// 默认也只作为练习局记录历史、不计入战绩与排行榜。
+	Unlimited bool
 	// BlitzWindow 限时模式下每次作答的时限。
 	BlitzWindow time.Duration
 	// Used 已消耗的作答次数（提示经济与 COSTx2 都会累加）。
 	Used int
+	// HintsUsed 本局已使用的提示次数（用于免费提示上限；连锁换题后重置）。
+	HintsUsed int
 	// ChainIndex 连锁模式当前进行到第几题（0 起）。
 	ChainIndex int
 	// ChainWins 连锁模式已连续解出的题数。
@@ -215,6 +221,9 @@ func (g *Game) LinkStart() time.Time {
 
 // OutOfAttempts 报告剩余次数是否已不足以再猜一次。
 func (g *Game) OutOfAttempts() bool {
+	if g.Unlimited {
+		return false
+	}
 	return g.Remaining() < g.AttemptCost()
 }
 
@@ -225,7 +234,8 @@ func (g *Game) Expired(now time.Time) bool {
 
 // Remaining 返回剩余可猜次数。
 func (g *Game) Remaining() int {
-	if g.Finished {
+	// 无限机会没有"剩余次数"的概念，返回 0；展示层请改用 [Game.Unlimited]。
+	if g.Finished || g.Unlimited {
 		return 0
 	}
 	if n := g.MaxAttempts - g.Used; n > 0 {
@@ -234,8 +244,43 @@ func (g *Game) Remaining() int {
 	return 0
 }
 
+// MaxGuesses 返回本局最多可以提交的猜测次数（按每次猜测的消耗折算）。
+//
+// COSTx2 修饰符下每次猜测消耗 2 次机会，因此"可猜次数"是次数上限的一半；
+// 状态栏展示可猜次数比展示原始次数更直观，也避免"剩余 6/6 却只能猜 3 次"的误导。
+func (g *Game) MaxGuesses() int {
+	if g.Unlimited {
+		return 0
+	}
+	cost := g.AttemptCost()
+	if cost <= 0 {
+		cost = 1
+	}
+	return g.MaxAttempts / cost
+}
+
+// RemainingGuesses 返回本局还可提交的猜测次数（按消耗折算）。
+func (g *Game) RemainingGuesses() int {
+	cost := g.AttemptCost()
+	if cost <= 0 {
+		cost = 1
+	}
+	return g.Remaining() / cost
+}
+
 // HintsAllowed 报告本局是否允许使用提示。
 func (g *Game) HintsAllowed() bool { return !g.Modifiers.Has(ModNoHint) }
+
+// CanUseHint 报告当前是否还能再用一次提示。
+//
+// 启用 --hint-cost（RuleHintCost）时每次提示都消耗机会，因此始终可用；
+// 否则受 maxFree 次免费提示上限约束，避免逐格揭示直接白嫖胜利。
+func (g *Game) CanUseHint(maxFree int) bool {
+	if g.Rules.Has(RuleHintCost) {
+		return true
+	}
+	return g.HintsUsed < maxFree
+}
 
 // AddScore 累加某位玩家在本局的贡献分。
 func (g *Game) AddScore(userID string, delta int) {
@@ -283,6 +328,7 @@ func (g *Game) advanceChain(answers []string) {
 	g.Revealed = nil
 	g.Excluded = nil
 	g.Used = 0
+	g.HintsUsed = 0
 	g.Participants = make(map[string]string, 4)
 	g.Score = nil
 	g.Won = false
@@ -293,7 +339,8 @@ func (g *Game) advanceChain(answers []string) {
 		g.Deadline = g.LinkStartedAt.Add(g.BlitzWindow)
 	}
 	if g.Rules.Has(RuleGauntlet) {
-		g.MaxAttempts = max(g.MaxAttempts-1, 2)
+		// 机会下限按单次猜测的消耗折算，避免 COSTx2 时"下限 2"被消耗 2 后只剩 1 次猜测。
+		g.MaxAttempts = max(g.MaxAttempts-1, 2*g.AttemptCost())
 	}
 }
 
@@ -424,19 +471,25 @@ func (s *SessionStore) Len() int {
 	return len(s.games)
 }
 
-// Sweep 清理空闲超时的对局，返回清理数量。
-func (s *SessionStore) Sweep() int {
+// Sweep 清理空闲超时的对局，并返回其中"尚未结束"的对局。
+//
+// 未结束就被回收意味着玩家弃局：调用方需要把它们结算为失败，否则只要挂机
+// 就能逃掉一次败场、把胜率刷高。已结束的对局直接丢弃即可。
+func (s *SessionStore) Sweep() []*Game {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cutoff := s.now().Add(-s.ttl)
-	removed := 0
+	var abandoned []*Game
 	for k, g := range s.games {
-		if g.UpdatedAt.Before(cutoff) {
-			delete(s.games, k)
-			removed++
+		if !g.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		delete(s.games, k)
+		if !g.Finished {
+			abandoned = append(abandoned, g)
 		}
 	}
-	return removed
+	return abandoned
 }
 
 // MarkExpired 把已超时的限时对局标记为失败并返回，供调用方结算统计。

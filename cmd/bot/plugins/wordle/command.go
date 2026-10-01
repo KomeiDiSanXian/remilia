@@ -101,6 +101,25 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 		return nil
 	}
 	rules := opts.Rules
+	unlimited := flagOn(flags, "unlimited")
+	if unlimited {
+		if bad := unlimitedConflict(flags); bad != "" {
+			ctx.ReplyError(p.t(ctx, "wordle.start.unlimited_conflict",
+				map[string]any{"Flag": "--" + bad}))
+			return nil
+		}
+		// 来自 default_rules 的冲突静默降级：无限机会下 gauntlet 与 hint-cost 失去意义。
+		rules &^= RuleGauntlet | RuleHintCost
+	}
+	if mode == ModeDaily {
+		// 每日题的词长由日期稳定派生、词库固定为常用池，保证所有玩家拿到同一道题；
+		// 显式指定会破坏"可对答案"的前提，直接报错；来自 default_rules 的冲突静默降级。
+		if explicitLength > 0 || flagOn(flags, "obscure") {
+			ctx.ReplyError(p.t(ctx, "wordle.error.daily_fixed"))
+			return nil
+		}
+		rules &^= RuleObscure
+	}
 	if rules.Has(RuleChain) && mode == ModeDaily {
 		// 只有用户显式要求时才报错；来自 default_rules 的冲突静默降级。
 		if flagOn(flags, "chain") {
@@ -125,8 +144,13 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 	day := p.today()
 	length := p.resolveLength(explicitLength, mode, day)
 	tries := p.resolveTries(explicitTries, length, opts.Boards)
-	if mods.Has(ModDouble) && tries < 2 {
-		tries = 2
+	if mods.Has(ModDouble) {
+		// COSTx2 下每次猜测消耗 2 次机会：至少保留一次可猜，并把奇数上限补成偶数，
+		// 否则最后 1 次机会永远凑不满一次猜测、白白浪费。
+		tries = max(tries, 2)
+		if tries%2 != 0 {
+			tries = min(tries+1, maxAttempts)
+		}
 	}
 
 	key := SessionKey(platformID, chatID, userID, scope)
@@ -162,12 +186,13 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 		BlitzWindow:   opts.Blitz,
 		Length:        length,
 		MaxAttempts:   tries,
+		Unlimited:     unlimited,
 		FogRows:       opts.FogRows,
-		ColorFog:      opts.ColorFog,
-		DecayRows:     opts.Decay,
-		UnknownCells:  opts.Unknown,
-		DecoyCells:    opts.Decoy,
-		DelayedRows:   opts.Delayed,
+		ColorFog:      clampCells(opts.ColorFog, length),
+		DecayRows:     clampRows(opts.Decay, tries),
+		UnknownCells:  clampCells(opts.Unknown, length),
+		DecoyCells:    clampCells(opts.Decoy, length),
+		DelayedRows:   clampRows(opts.Delayed, tries),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		LinkStartedAt: now,
@@ -181,7 +206,6 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 		g.Answers = pickAnswers(bank, rules, mods, opts.Boards)
 	}
 	g.Solved = make([]bool, len(g.Answers))
-	g.AddParticipant(userID, ctx.GetDisplayName())
 	p.sessions.Put(key, g)
 	if mode == ModeDaily && p.store != nil {
 		if err := p.store.setDailyLock(lockKey, day); err != nil {
@@ -189,9 +213,13 @@ func (p *Plugin) cmdNew(ctx *eventctx.Context, flags map[string]string) error {
 		}
 	}
 
-	p.replyBoard(ctx, g, p.t(ctx, "wordle.start.created", map[string]any{
+	startKey := "wordle.start.created"
+	if unlimited {
+		startKey = "wordle.start.created_unlimited"
+	}
+	p.replyBoard(ctx, g, p.t(ctx, startKey, map[string]any{
 		"Length": length,
-		"Tries":  tries,
+		"Tries":  triesLabel(unlimited, tries),
 		"Mode":   p.modeLabel(ctx, mode),
 		"Rules":  p.ruleSummary(ctx, g),
 	}))
@@ -269,15 +297,18 @@ func (p *Plugin) cmdGuess(ctx *eventctx.Context, words []string) error {
 			}
 		}
 
-		before := g.SolvedPositionsOf(0)
+		// 记录各棋盘在本猜测前已解锁的位置，供抢分模式统计新增贡献。
+		beforeBoards := make([]map[int]bool, g.BoardCount())
+		for bi := range beforeBoards {
+			beforeBoards[bi] = g.SolvedPositionsOf(bi)
+		}
 		// 多谜底模式下同一次猜测对每块棋盘各判定一次；已解出的棋盘也继续判定，
 		// 让棋盘保留后续行（渲染时以 SOLVED 标注），无需为每块棋盘单独存序列。
 		boards := make([][]Mark, g.BoardCount())
 		for bi := range boards {
+			// 盲猜只在渲染层降级黄色（见 displayStyles），这里保留真实判定，
+			// 让胜负判定与困难模式校验都基于真值。
 			marks := Evaluate(g.AnswerAt(bi), word)
-			if g.blind() {
-				marks = blindMarks(marks)
-			}
 			boards[bi] = marks
 			if allCorrect(marks) && bi < len(g.Solved) {
 				g.Solved[bi] = true
@@ -292,8 +323,12 @@ func (p *Plugin) cmdGuess(ctx *eventctx.Context, words []string) error {
 			g.Deadline = now.Add(g.BlitzWindow)
 		}
 		if g.Rules.Has(RuleRace) {
-			gain := raceGain(before, boards[0])
-			if allCorrect(boards[0]) {
+			// 多谜底时累加每块棋盘新解锁的绿色位置，避免只统计第一块棋盘。
+			gain := 0
+			for bi := range boards {
+				gain += raceGain(beforeBoards[bi], boards[bi])
+			}
+			if g.AllSolved() {
 				gain += raceWinBonus
 			}
 			g.AddScore(ctx.GetUserID(), gain)
@@ -329,7 +364,7 @@ func (p *Plugin) cmdGuess(ctx *eventctx.Context, words []string) error {
 			if p.startChainLink(game) {
 				notice = p.t(ctx, "wordle.chain.advanced", map[string]any{
 					"Chain": game.ChainWins,
-					"Tries": game.MaxAttempts,
+					"Tries": triesLabel(game.Unlimited, game.MaxAttempts),
 				})
 			}
 		}
@@ -344,20 +379,30 @@ func (p *Plugin) cmdGiveup(ctx *eventctx.Context) error {
 	var (
 		game   *Game
 		gaveUp bool
+		denied bool
 	)
 	found := p.sessions.UpdateFound(platformID, chatID, userID, func(g *Game) {
 		game = g
 		if g.Finished {
 			return
 		}
+		// 群维度是共享棋盘：放弃会让全群一起记负，因此只允许发起者终止，
+		// 避免路人一句话把别人的对局与战绩一起毁掉。
+		if !canEndGame(ctx, g) {
+			denied = true
+			return
+		}
 		g.Finished = true
 		g.Won = false
-		g.AddParticipant(ctx.GetUserID(), ctx.GetDisplayName())
 		g.UpdatedAt = timeNow()
 		gaveUp = true
 	})
 	if !found || game == nil {
 		ctx.ReplyError(p.t(ctx, "wordle.error.not_started"))
+		return nil
+	}
+	if denied {
+		ctx.ReplyError(p.t(ctx, "wordle.error.giveup_owner_only"))
 		return nil
 	}
 	if !gaveUp {
@@ -389,10 +434,16 @@ func (p *Plugin) cmdHint(ctx *eventctx.Context, args []string) error {
 		game   *Game
 		notice string
 		ended  bool
+		denied bool
 	)
 	found := p.sessions.UpdateFound(platformID, chatID, userID, func(g *Game) {
 		game = g
 		if g.Finished {
+			return
+		}
+		// 群维度共享提示额度：只允许发起者或已参与者使用，避免路人随手烧光额度。
+		if !canUseGroupGame(ctx, g) {
+			denied = true
 			return
 		}
 		now := timeNow()
@@ -406,14 +457,20 @@ func (p *Plugin) cmdHint(ctx *eventctx.Context, args []string) error {
 			notice = p.t(ctx, "wordle.hint.disabled")
 			return
 		}
+		// 未启用 --hint-cost 时限制免费提示次数，避免逐格揭示直接白嫖胜利；
+		// 启用后每次提示都消耗机会，便不再设上限。
+		hintCap := freeHintCap(g.Length, p.cfg.MaxFreeHints)
+		if !g.CanUseHint(hintCap) {
+			notice = p.t(ctx, "wordle.hint.limit", map[string]any{"Max": hintCap})
+			return
+		}
 		text := p.hintOf(ctx, g, kind)
 		if text == "" {
 			notice = p.t(ctx, "wordle.hint.none")
 			return
 		}
 		notice = text
-		// 使用提示同样视为参与本局。
-		g.AddParticipant(ctx.GetUserID(), ctx.GetDisplayName())
+		g.HintsUsed++
 		g.UpdatedAt = now
 		if g.Rules.Has(RuleBlitz) {
 			g.Deadline = now.Add(g.BlitzWindow)
@@ -429,6 +486,10 @@ func (p *Plugin) cmdHint(ctx *eventctx.Context, args []string) error {
 	})
 	if !found || game == nil {
 		ctx.ReplyError(p.t(ctx, "wordle.error.not_started"))
+		return nil
+	}
+	if denied {
+		ctx.ReplyError(p.t(ctx, "wordle.error.hint_participant_only"))
 		return nil
 	}
 	if game.Finished && !ended {
@@ -564,12 +625,7 @@ func (p *Plugin) cmdRules(ctx *eventctx.Context) error {
 	var b strings.Builder
 	b.WriteString(p.t(ctx, "wordle.rules.title", map[string]any{"Rules": p.ruleSummary(ctx, g)}))
 	b.WriteString("\n")
-	b.WriteString(p.t(ctx, "wordle.status.line", map[string]any{
-		"Length":    g.Length,
-		"Remaining": g.Remaining(),
-		"Tries":     g.MaxAttempts,
-		"Mode":      p.modeLabel(ctx, g.Mode),
-	}))
+	b.WriteString(p.statusLine(ctx, g))
 	if g.Rules.Has(RuleChain) {
 		b.WriteString("\n")
 		b.WriteString(p.t(ctx, "wordle.rules.chain", map[string]any{
@@ -659,23 +715,23 @@ func (p *Plugin) cmdStats(ctx *eventctx.Context) error {
 	return nil
 }
 
-// cmdTop 展示全局排行榜（按胜场数）。
+// cmdTop 展示全局排行榜（按胜率，仅统计达到最少对局数的玩家）。
 func (p *Plugin) cmdTop(ctx *eventctx.Context) error {
 	if p.store == nil {
 		ctx.ReplyText(p.t(ctx, "wordle.top.empty"))
 		return nil
 	}
-	recs, err := p.store.leaderboard(10)
+	recs, err := p.store.leaderboard(topLimit, minLeaderboardGames)
 	if err != nil {
 		ctx.ReplyError(fmt.Sprintf("wordle: 读取排行榜失败: %v", err))
 		return nil
 	}
 	if len(recs) == 0 {
-		ctx.ReplyText(p.t(ctx, "wordle.top.empty"))
+		ctx.ReplyText(p.t(ctx, "wordle.top.empty", map[string]any{"Min": minLeaderboardGames}))
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString(p.t(ctx, "wordle.top.title"))
+	b.WriteString(p.t(ctx, "wordle.top.title", map[string]any{"Min": minLeaderboardGames}))
 	for i, r := range recs {
 		b.WriteString("\n")
 		b.WriteString(p.t(ctx, "wordle.top.row", map[string]any{
@@ -683,6 +739,7 @@ func (p *Plugin) cmdTop(ctx *eventctx.Context) error {
 			"User":   displayUser(r.Name, r.UserID),
 			"Won":    r.Won,
 			"Played": r.Played,
+			"Rate":   fmt.Sprintf("%.0f", r.WinRate()),
 		}))
 	}
 	ctx.ReplyText(b.String())
@@ -712,9 +769,9 @@ func (p *Plugin) cmdLang(ctx *eventctx.Context, args []string) error {
 
 // finalize 结算一题：为每位参与者各记一次战绩，并写入一条对局历史。
 //
-// 群维度共享棋盘时参与者可能有多人（发起者 + 每次合法猜测/提示/放弃者），
-// 胜负共享，因此每人各记一次统计。历史表仍只写一条（归属发起者 OwnerID），
-// 避免把同一份猜测序列按参与人数重复存储。
+// 群维度共享棋盘时参与者可能有多人（每个提交过合法猜测的人），胜负共享，
+// 因此每人各记一次统计；只发起/只提示/只放弃的人不记战绩。历史表仍只写一条
+// （归属发起者 OwnerID），避免把同一份猜测序列按参与人数重复存储。
 //
 // 连锁模式下每一题都单独结算，因此本函数可能在同一个 Game 上被多次调用。
 func (p *Plugin) finalize(g *Game) {
@@ -734,8 +791,14 @@ func (p *Plugin) finalize(g *Game) {
 
 // recordParticipantStats 为每位参与者各记一次战绩（胜负共享）。
 //
-// ownerID 是兜底参与者：参与者集合为空时（例如旧数据或异常路径）至少记一次。
+// Participants 只包含提交过合法猜测的人；ownerID 是兜底参与者，参与者集合为
+// 空时（例如发起后直接放弃、或历史数据）至少记一次，避免该局完全不入账。
 func (p *Plugin) recordParticipantStats(g *Game, ownerID, dailyDay string) {
+	// 无限机会对局默认只作为练习局：仍写历史记录，但不计入战绩与排行榜，
+	// 否则会显著抬高胜率（可通过 count_unlimited 配置放开）。
+	if g.Unlimited && !p.cfg.CountUnlimited {
+		return
+	}
 	if len(g.Participants) == 0 {
 		g.AddParticipant(ownerID, "")
 	}
@@ -798,14 +861,25 @@ func (p *Plugin) replyBoard(ctx *eventctx.Context, g *Game, notice string) {
 	}
 }
 
-// statusText 组合提示语、规则行与状态行。
-func (p *Plugin) statusText(ctx *eventctx.Context, g *Game, notice string) string {
-	status := p.t(ctx, "wordle.status.line", map[string]any{
+// statusLine 返回本局状态行；无限机会用专门文案（不显示剩余次数）。
+func (p *Plugin) statusLine(ctx *eventctx.Context, g *Game) string {
+	if g.Unlimited {
+		return p.t(ctx, "wordle.status.line_unlimited", map[string]any{
+			"Length": g.Length,
+			"Mode":   p.modeLabel(ctx, g.Mode),
+		})
+	}
+	return p.t(ctx, "wordle.status.line", map[string]any{
 		"Length":    g.Length,
-		"Remaining": g.Remaining(),
-		"Tries":     g.MaxAttempts,
+		"Remaining": g.RemainingGuesses(),
+		"Tries":     g.MaxGuesses(),
 		"Mode":      p.modeLabel(ctx, g.Mode),
 	})
+}
+
+// statusText 组合提示语、规则行与状态行。
+func (p *Plugin) statusText(ctx *eventctx.Context, g *Game, notice string) string {
+	status := p.statusLine(ctx, g)
 	if extra := p.ruleLine(ctx, g); extra != "" {
 		status = extra + "\n" + status
 	}
@@ -829,6 +903,9 @@ func (p *Plugin) ruleLine(ctx *eventctx.Context, g *Game) string {
 	}
 	if g.Rules.Has(RuleChain) {
 		parts = append(parts, p.t(ctx, "wordle.chain.badge", map[string]any{"Wins": g.ChainWins}))
+	}
+	if g.Unlimited {
+		parts = append(parts, "∞")
 	}
 	if g.Rules.Has(RuleBlitz) && !g.Finished && !g.Deadline.IsZero() {
 		secs := max(int(g.Deadline.Sub(timeNow()).Seconds()), 0)
@@ -903,6 +980,33 @@ func dailyLockKey(platformID, chatID, userID string, scope Scope) string {
 	return "chat:" + platformID + ":" + chatID
 }
 
+// canEndGame 报告调用者是否有权终止对局。
+//
+// 用户维度各玩各的，谁都能放弃自己的对局；群维度是共享棋盘，放弃会让所有
+// 参与者一起记负，因此只允许发起者终止。
+func canEndGame(ctx *eventctx.Context, g *Game) bool {
+	return g.Scope != ScopeGroup || ctx.GetUserID() == g.OwnerID
+}
+
+// canUseGroupGame 报告调用者是否有权操作共享对局（主要是提示额度）。
+//
+// 群维度下提示额度是全群共享的，允许发起者与已参与者使用即可，避免路人
+// 白嫖或恶意把额度烧光；用户维度不设限制。
+func canUseGroupGame(ctx *eventctx.Context, g *Game) bool {
+	if g.Scope != ScopeGroup {
+		return true
+	}
+	uid := ctx.GetUserID()
+	if uid == "" {
+		return false
+	}
+	if uid == g.OwnerID {
+		return true
+	}
+	_, ok := g.Participants[uid]
+	return ok
+}
+
 // targetUserID 返回统计目标：优先消息中第一个非机器人自身的 @ 提及。
 func targetUserID(ctx *eventctx.Context) string {
 	if ev := ctx.GetPlatformEvent(); ev != nil {
@@ -945,6 +1049,10 @@ const (
 	maxDelayRows = 8
 	// raceWinBonus 抢分模式下提交制胜一猜的额外加分。
 	raceWinBonus = 3
+	// topLimit 排行榜展示条数。
+	topLimit = 10
+	// minLeaderboardGames 上榜所需的最少对局数，避免"只打一两局全胜"霸榜。
+	minLeaderboardGames = 10
 	// hintKinds 是 /wordle hint 支持的提示类型（用于提示文案）。
 	hintKinds = "letter / exclude / vowels / repeat"
 )
@@ -1155,13 +1263,75 @@ func (p *Plugin) resolveTries(explicit, length, boards int) int {
 	return attemptsForGame(length, boards)
 }
 
-// attemptsForGame 是默认机会数的推导规则：字母数 + 1，每多一块棋盘再 +2，
-// 并夹在允许范围内。5 字母单棋盘 = 6 次，与经典 Wordle 一致。
+// unlimitedConflict 返回与 --unlimited 冲突的开关名（无冲突时返回空串）。
+//
+// 无限机会会让"每解一题少一次机会"（gauntlet）与"提示消耗一次机会"（hint-cost）
+// 失去意义，后者更会让提示变成无限免费，因此三者互斥。
+func unlimitedConflict(flags map[string]string) string {
+	if !flagOn(flags, "unlimited") {
+		return ""
+	}
+	if _, ok := flags["tries"]; ok {
+		return "tries"
+	}
+	if flagOn(flags, "gauntlet") {
+		return "gauntlet"
+	}
+	if flagOn(flags, "hint-cost") {
+		return "hint-cost"
+	}
+	return ""
+}
+
+// triesLabel 返回机会数的展示文本；无限机会统一显示为 "∞"。
+func triesLabel(unlimited bool, tries int) any {
+	if unlimited {
+		return "∞"
+	}
+	return tries
+}
+
+// attemptsForGame 是默认机会数的推导规则：以经典 Wordle 的 6 次为下限，字母每多一个再 +1，
+// 每多一块棋盘再 +2，并夹在允许范围内。
+//
+// 4 字母 = 6 次、5 字母 = 6 次（经典 Wordle）、6 字母 = 7 次、7 字母 = 8 次。
+// 字母越少，每次猜测提供的信息越少，所以短词也保底 6 次，避免短词反而更难。
 func attemptsForGame(length, boards int) int {
 	if boards < 1 {
 		boards = 1
 	}
-	return min(max(length+1+(boards-1)*2, minAttempts), maxAttempts)
+	base := max(length+1, DefaultMaxAttempts)
+	return min(max(base+(boards-1)*2, minAttempts), maxAttempts)
+}
+
+// clampCells 把"每行作用格数"收紧到词长范围内。
+//
+// 参数范围是 1..7，但 4 字母时 --colorfog=4 等于无效果、--unknown=4 会遮住整行；
+// 收紧到 length-1 后保证参数始终有实际作用且不会整行失效。
+func clampCells(v, length int) int {
+	if v <= 0 {
+		return 0
+	}
+	return min(v, max(1, length-1))
+}
+
+// clampRows 把"作用于最近 N 行"的参数收紧到本局可猜次数内（至少保留一行可读）。
+func clampRows(v, tries int) int {
+	if v <= 0 {
+		return 0
+	}
+	return min(v, max(1, tries-1))
+}
+
+// freeHintCap 按词长收紧免费提示上限。
+//
+// 一次提示直接揭示一个字母位置，固定 2 次在 4 字母上等于白送一半答案，
+// 而 7 字母只有 2/7；收紧后各长度的免费收益大致相当（4→1，5 及以上沿用配置值）。
+func freeHintCap(length, configured int) int {
+	if configured <= 0 {
+		return 0
+	}
+	return min(configured, max(1, length-3))
 }
 
 // pickAnswers 为多谜底模式挑选 n 个互不相同的谜底。

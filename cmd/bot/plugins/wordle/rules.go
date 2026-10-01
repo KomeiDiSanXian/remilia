@@ -336,12 +336,17 @@ func checkHardMode(g *Game, guess []rune) HardViolation {
 		}
 	}
 
+	// 盲猜把黄色隐藏成灰色，玩家无从得知哪些字母"曾经出现过"；此时仍强制
+	// 复用会既不可能完成、又通过硬性错误提示反过来泄漏字母。因此盲猜下只保留
+	// "绿格锁位"（绿色仍然可见），跳过字母复用约束。
 	required := make(map[rune]struct{}, 8)
-	for _, prev := range g.Guesses {
-		pr := []rune(prev.Word)
-		for i, mk := range prev.Marks {
-			if mk == Present && i < len(pr) {
-				required[pr[i]] = struct{}{}
+	if !g.blind() {
+		for _, prev := range g.Guesses {
+			pr := []rune(prev.Word)
+			for i, mk := range prev.Marks {
+				if mk == Present && i < len(pr) {
+					required[pr[i]] = struct{}{}
+				}
 			}
 		}
 	}
@@ -356,19 +361,6 @@ func checkHardMode(g *Game, guess []rune) HardViolation {
 		}
 	}
 	return HardViolation{}
-}
-
-// blindMarks 把黄色（Present）降级为灰色（Absent），用于盲猜修饰符。
-func blindMarks(marks []Mark) []Mark {
-	out := make([]Mark, len(marks))
-	for i, m := range marks {
-		if m == Present {
-			out[i] = Absent
-			continue
-		}
-		out[i] = m
-	}
-	return out
 }
 
 // raceGain 统计本次猜测新解锁的绿色位置数（用于抢分模式）。
