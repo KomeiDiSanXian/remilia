@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.69.0 (2026-10-03)
 
 ### 🎵 新插件 Songdle 猜音游曲目小游戏（Maidle 风格）
 
