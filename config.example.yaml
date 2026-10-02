@@ -748,6 +748,20 @@ messagelog:
 #                                         #      colorfog / decay / unknown / delayed / decoy / glitch / mole /
 #                                         #      hidden-key / score-color
 #     blitz_seconds: 60                   # [R]  限时模式默认单步秒数（10-600）
+#   songdle: (所有字段 [R] 仅插件启动时读取)
+#     default_tries: 12                   # [R]  默认探测 / 猜测次数（>=1）
+#     max_tries: 30                       # [R]  允许的探测 / 猜测次数上限（--tries 的最大值）
+#     default_scope: "group"              # [R]  默认隔离维度: group（群内共享）/ user（每人独立）
+#     default_type: ""                    # [R]  默认曲目类型筛选: ""（不限）/ SD / DX
+#     default_genre: ""                   # [R]  默认流派筛选（子串匹配，如 东方）
+#     daily: false                        # [R]  默认是否使用每日题
+#     artist: false                       # [R]  默认是否开局公布曲师（降低难度）
+#     songs_file: ""                      # [R]  自备曲目 JSON 路径（优先于 songs_url 与内置数据）
+#     alias_file: ""                      # [R]  自备别名 JSON 路径（优先于 alias_url 与内置数据）
+#     songs_url: ""                       # [R]  远端曲目 JSON URL（优先于内置数据）
+#     alias_url: ""                       # [R]  远端别名 JSON URL（优先于内置数据）
+#     timezone: "Asia/Shanghai"           # [R]  每日题选曲使用的时区
+#     session_ttl: "30m"                  # [R]  空闲对局回收时间
 
 # ====================================
 # 配置说明

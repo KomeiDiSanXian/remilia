@@ -1,0 +1,193 @@
+package songdle
+
+import (
+	"slices"
+	"testing"
+)
+
+// testSongsJSON / testAliasJSON 是命令与逻辑测试共用的最小曲库。
+const testSongsJSON = `{
+  "1": {"id":"1","title":"Halcyon","artist":"sasakure.UK","genre":"流行&动漫","type":"DX","version":"maimai DX","bpm":155,"masds":13.5,"maslevel":"13+","mascharter":"X","masbreak":5,"expds":11.0,"explevel":"11","expcharter":"Y"},
+  "2": {"id":"2","title":"True Love Song","artist":"Kai","genre":"舞萌","type":"SD","version":"maimai","bpm":150,"masds":12.4,"maslevel":"12","mascharter":"Z","masbreak":6,"expds":10.2,"explevel":"10","expcharter":"W"},
+  "3": {"id":"3","title":"Future","artist":"★STAR GUiTAR [cover]","genre":"流行&动漫","type":"SD","version":"maimai","bpm":130,"masds":10.7,"maslevel":"10+","mascharter":"Q","masbreak":9,"expds":9.5,"explevel":"9","expcharter":"E"}
+}`
+
+const testAliasJSON = `[
+  {"SongID":2,"Name":"true love song","Alias":["true love song","真爱歌","糖糖"]},
+  {"SongID":3,"Name":"future","Alias":["future","未来","ftr"]}
+]`
+
+// newTestPool 用最小曲库构建 Pool，测试里用固定下标访问曲目。
+func newTestPool(t *testing.T) *Pool {
+	t.Helper()
+	p, err := buildPool([]byte(testSongsJSON), []byte(testAliasJSON))
+	if err != nil {
+		t.Fatalf("buildPool: %v", err)
+	}
+	return p
+}
+
+// trackByID 从池中按 ID 取曲目，找不到时直接失败。
+func trackByID(t *testing.T, p *Pool, id string) Track {
+	t.Helper()
+	for _, tr := range p.All() {
+		if tr.ID == id {
+			return tr
+		}
+	}
+	t.Fatalf("曲库中找不到 ID %q", id)
+	return Track{}
+}
+
+func TestNormalizeTitle(t *testing.T) {
+	cases := map[string]string{
+		"Night of Nights":    "nightofnights",
+		"  Stay   With  Me ": "staywithme",
+		"":                   "",
+		"Ｆｕｔｕｒｅ":             "ｆｕｔｕｒｅ",
+	}
+	for in, want := range cases {
+		if got := normalizeTitle(in); got != want {
+			t.Errorf("normalizeTitle(%q) = %q, 期望 %q", in, got, want)
+		}
+	}
+}
+
+func TestBuildPoolMergesAliases(t *testing.T) {
+	p := newTestPool(t)
+	if p.Len() != 3 {
+		t.Fatalf("曲目数 = %d, 期望 3", p.Len())
+	}
+	tr := trackByID(t, p, "2")
+	if len(tr.Aliases) != 3 {
+		t.Fatalf("别名应被去重并保留 3 个，实际 %v", tr.Aliases)
+	}
+	if !tr.Matches("糖糖") || !tr.Matches("真爱歌") {
+		t.Errorf("别名应可命中 True Love Song，实际 %v", tr.Aliases)
+	}
+}
+
+func TestTrackMatches(t *testing.T) {
+	tr := Track{Title: "True Love Song", Aliases: []string{"糖糖", "真爱歌"}}
+	for _, guess := range []string{"true love song", "TRUE LOVE SONG", "糖糖", " 真爱歌 "} {
+		if !tr.Matches(guess) {
+			t.Errorf("%q 应命中", guess)
+		}
+	}
+	if tr.Matches("未来") {
+		t.Error("无关别名不应命中")
+	}
+	if tr.Matches("") {
+		t.Error("空猜测不应命中")
+	}
+}
+
+func TestPoolFilter(t *testing.T) {
+	p := newTestPool(t)
+	if got := p.Filter(Filter{Type: "DX"}); len(got) != 1 || got[0].ID != "1" {
+		t.Fatalf("按 DX 过滤应只剩 Halcyon，实际 %+v", titles(got))
+	}
+	if got := p.Filter(Filter{Genre: "流行"}); len(got) != 2 {
+		t.Fatalf("按流派「流行」过滤应有 2 首，实际 %+v", titles(got))
+	}
+	if got := p.Filter(Filter{Type: "SD", Genre: "舞萌"}); len(got) != 1 || got[0].ID != "2" {
+		t.Fatalf("组合过滤应只剩 True Love Song，实际 %+v", titles(got))
+	}
+	if got := p.Filter(Filter{Type: "DX", Genre: "舞萌"}); len(got) != 0 {
+		t.Fatalf("无交集时应为空，实际 %+v", titles(got))
+	}
+}
+
+func TestPoolPickAndDaily(t *testing.T) {
+	p := newTestPool(t)
+	for range 10 {
+		got, err := p.Pick(Filter{})
+		if err != nil {
+			t.Fatalf("Pick: %v", err)
+		}
+		if got.ID == "" {
+			t.Fatal("Pick 返回空曲目")
+		}
+	}
+	if _, err := p.Pick(Filter{Type: "DX", Genre: "舞萌"}); err == nil {
+		t.Fatal("空池应返回错误")
+	}
+
+	a, err := p.PickDaily(Filter{}, "2026-10-02|")
+	if err != nil {
+		t.Fatalf("PickDaily: %v", err)
+	}
+	b, err := p.PickDaily(Filter{}, "2026-10-02|")
+	if err != nil {
+		t.Fatalf("PickDaily: %v", err)
+	}
+	if a.ID != b.ID {
+		t.Fatalf("同一 seed 的每日题应稳定: %s != %s", a.ID, b.ID)
+	}
+}
+
+func TestPoolCounts(t *testing.T) {
+	p := newTestPool(t)
+	types := p.TypeCounts()
+	if len(types) != 2 {
+		t.Fatalf("类型统计应有 SD / DX 两项，实际 %+v", types)
+	}
+	if types[0].Tag != "SD" || types[0].Count != 2 {
+		t.Errorf("SD 应为首项且计数 2，实际 %+v", types)
+	}
+	genres := p.GenreCounts()
+	if len(genres) != 2 || genres[0].Tag != "流行&动漫" || genres[0].Count != 2 {
+		t.Errorf("流派统计错误: %+v", genres)
+	}
+	var empty Pool
+	if empty.Len() != 0 || empty.All() != nil {
+		t.Error("空池应安全返回零值")
+	}
+}
+
+func TestEmbeddedPoolLoads(t *testing.T) {
+	p, err := loadPool(poolOptions{})
+	if err != nil {
+		t.Fatalf("加载内置曲库失败: %v", err)
+	}
+	if p.Len() < 1000 {
+		t.Fatalf("内置曲库曲目数 = %d, 期望 >= 1000", p.Len())
+	}
+	var found bool
+	for _, tr := range p.All() {
+		if tr.Matches("真爱歌") {
+			found = true
+			if tr.Title != "True Love Song" {
+				t.Errorf("别名「真爱歌」应命中 True Love Song，实际 %q", tr.Title)
+			}
+			if tr.MasDS <= 0 || tr.BPM <= 0 {
+				t.Errorf("内置曲目应带有定数与 BPM: %+v", tr)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("内置别名「真爱歌」应能命中曲目")
+	}
+	// 曲库按 ID 排序登记，保证索引稳定。
+	if !slices.IsSortedFunc(p.All(), func(a, b Track) int {
+		switch {
+		case a.ID < b.ID:
+			return -1
+		case a.ID > b.ID:
+			return 1
+		default:
+			return 0
+		}
+	}) {
+		t.Error("曲库应按 ID 排序")
+	}
+}
+
+func titles(tracks []Track) []string {
+	out := make([]string, len(tracks))
+	for i, t := range tracks {
+		out[i] = t.Title
+	}
+	return out
+}

@@ -53,6 +53,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dnd"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/sauce"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/songdle"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/starrail"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
@@ -173,6 +174,7 @@ func (a *app) setupPlugins() {
 		coc.New(),
 		dnd.New(),
 		wordle.New(),
+		songdle.New(),
 
 		// QQ 平台能力（指令面板 / 自定义菜单）
 		qqpanel.New(),

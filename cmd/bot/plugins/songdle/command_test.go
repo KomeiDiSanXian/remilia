@@ -1,0 +1,323 @@
+package songdle
+
+import (
+	"testing"
+	"time"
+
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
+)
+
+// newCmdCtx 构造一个群消息事件上下文（平台 qq），内容为完整命令文本。
+func newCmdCtx(content, chatID, userID string) *eventctx.Context {
+	evt := platform.NewSyntheticEvent(
+		platform.EventKindGroupMessage,
+		content,
+		platform.WithSyntheticPlatform("qq"),
+		platform.WithSyntheticChat(platform.ChatInfo{ID: chatID, IsGroup: true}),
+		platform.WithSyntheticSender(platform.UserInfo{ID: userID, DisplayName: userID}),
+	)
+	return eventctx.NewContextFromEvent(evt, &platform.NoopSender{})
+}
+
+// testPlugin 构造一个不依赖 i18n/storage 的插件实例（t 回退为 key 本身）。
+func testPlugin(t *testing.T) *Plugin {
+	t.Helper()
+	return &Plugin{
+		pool:     newTestPool(t),
+		sessions: NewSessionStore(30 * time.Minute),
+		cfg: config{
+			DefaultTries: defaultTries,
+			MaxTries:     defaultMaxTries,
+			DefaultScope: ScopeGroup,
+		},
+		location: time.UTC,
+	}
+}
+
+// probeTarget 是命令测试用的固定谜底。
+var commandTarget = Track{
+	ID: "3", Title: "Future", Artist: "★STAR GUiTAR [cover]", Genre: "流行&动漫",
+	Type: "SD", Version: "maimai", BPM: 130, MasDS: 10.7, MasBreak: 9,
+	Aliases: []string{"未来", "ftr"},
+}
+
+// putGame 直接放入一局群维度对局，便于用固定谜底做确定性测试。
+func putGame(t *testing.T, p *Plugin, chatID, userID string, target Track, max int) *Game {
+	t.Helper()
+	now := timeNow()
+	g := &Game{
+		ID:           "test",
+		Platform:     "qq",
+		ChatID:       chatID,
+		OwnerID:      userID,
+		OwnerName:    userID,
+		Scope:        ScopeGroup,
+		Mode:         ModeRandom,
+		Target:       target,
+		MaxAttempts:  max,
+		Participants: make(map[string]string, 2),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	p.sessions.Put(SessionKey("qq", chatID, "", ScopeGroup), g)
+	return g
+}
+
+func groupGame(t *testing.T, p *Plugin, chatID string) *Game {
+	t.Helper()
+	g, ok := p.sessions.Get(SessionKey("qq", chatID, "", ScopeGroup))
+	if !ok {
+		t.Fatal("应存在群维度对局")
+	}
+	return g
+}
+
+func TestCommandStartCreatesGame(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Target.Title == "" {
+		t.Fatal("开局应选定谜底")
+	}
+	if g.OwnerID != "u1" || g.Scope != ScopeGroup {
+		t.Errorf("对局元信息错误: owner=%q scope=%v", g.OwnerID, g.Scope)
+	}
+	if g.MaxAttempts != defaultTries {
+		t.Errorf("默认次数 = %d, 期望 %d", g.MaxAttempts, defaultTries)
+	}
+	if len(g.Probes) != 0 || g.Finished {
+		t.Error("开局不应有探测记录或结束")
+	}
+}
+
+func TestCommandStartRejectsBadTries(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle --tries 999", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if p.sessions.Len() != 0 {
+		t.Fatal("非法次数不应创建对局")
+	}
+}
+
+func TestCommandStartTypeFilter(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle --type DX", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Target.Type != "DX" {
+		t.Fatalf("--type DX 应只出 DX 曲目，实际 %q", g.Target.Type)
+	}
+}
+
+func TestCommandStartRevealArtist(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle --artist", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); !g.RevealArtist {
+		t.Error("--artist 应标记公布曲师")
+	}
+}
+
+func TestCommandProbeShorthand(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle 曲师 ★STAR GUiTAR [cover]", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Attempts() != 1 {
+		t.Fatalf("探测应消耗 1 次，实际 %d", g.Attempts())
+	}
+	if g.Probes[0].Attr != AttrArtist || g.Probes[0].Mark != Match {
+		t.Fatalf("曲师应判定命中，实际 %+v", g.Probes[0])
+	}
+	if g.Finished {
+		t.Error("元数据命中不应结束对局")
+	}
+}
+
+func TestCommandProbeSubcommand(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle probe bpm 100", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Attempts() != 1 || g.Probes[0].Attr != AttrBPM {
+		t.Fatalf("probe 子命令应记录 BPM 探测，实际 %+v", g.Probes)
+	}
+	if g.Probes[0].Dir != DirUp {
+		t.Errorf("BPM 100 应提示谜底更高，实际 %v", g.Probes[0].Dir)
+	}
+}
+
+func TestCommandProbeRepeat(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	for range 2 {
+		if err := p.handleSongdle(newCmdCtx("/songdle bpm 130", "chat1", "u1")); err != nil {
+			t.Fatalf("handleSongdle: %v", err)
+		}
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 1 {
+		t.Fatalf("重复探测不应增加次数，实际 %d", g.Attempts())
+	}
+}
+
+func TestCommandProbeBadValue(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle bpm abc", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 0 {
+		t.Fatalf("非法取值不应消耗次数，实际 %d", g.Attempts())
+	}
+}
+
+func TestCommandTitleGuessWins(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle 歌名 future", "chat1", "u2")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if !g.Finished || !g.Won {
+		t.Fatalf("猜中曲名后应获胜: finished=%v won=%v", g.Finished, g.Won)
+	}
+	if g.Attempts() != 1 {
+		t.Errorf("猜测次数 = %d, 期望 1", g.Attempts())
+	}
+	if g.Participants["u2"] == "" {
+		t.Error("提交猜测者应计入参与者")
+	}
+}
+
+func TestCommandTitleAliasWins(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle 未来", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); !g.Finished || !g.Won {
+		t.Fatalf("用俗称猜中应获胜: finished=%v won=%v", g.Finished, g.Won)
+	}
+}
+
+// TestCommandTitleAttributeAlias 验证 name / song 这类属性别名会被当作曲名直猜。
+func TestCommandTitleAttributeAlias(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle name Future", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); !g.Finished || !g.Won {
+		t.Fatalf("name 别名应作为曲名直猜并获胜: finished=%v won=%v", g.Finished, g.Won)
+	}
+}
+
+func TestCommandPartialTitleDoesNotWin(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+
+	if err := p.handleSongdle(newCmdCtx("/songdle 歌名 fut", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Finished {
+		t.Fatal("部分匹配不应结束对局")
+	}
+	if g.Probes[0].Mark != Close {
+		t.Errorf("fut 应为 Close，实际 %v", g.Probes[0].Mark)
+	}
+}
+
+func TestCommandTitleGuessLoses(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 1)
+	if err := p.handleSongdle(newCmdCtx("/songdle 歌名 nope", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); !g.Finished || g.Won {
+		t.Fatalf("用尽次数应判负: finished=%v won=%v", g.Finished, g.Won)
+	}
+}
+
+func TestCommandGiveupOnlyOwner(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+	g := groupGame(t, p, "chat1")
+
+	if err := p.handleSongdle(newCmdCtx("/songdle giveup", "chat1", "u2")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g.Finished {
+		t.Fatal("非发起者不应能放弃群内共享对局")
+	}
+
+	if err := p.handleSongdle(newCmdCtx("/songdle giveup", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if !g.Finished || g.Won {
+		t.Fatalf("发起者放弃后应判负: finished=%v won=%v", g.Finished, g.Won)
+	}
+}
+
+func TestCommandNotStarted(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle 曲师 Kai", "chat1", "u1")); err != nil {
+		t.Fatalf("未开局时探测不应报错: %v", err)
+	}
+	if err := p.handleSongdle(newCmdCtx("/songdle board", "chat1", "u1")); err != nil {
+		t.Fatalf("未开局时查看提示板不应报错: %v", err)
+	}
+	if p.sessions.Len() != 0 {
+		t.Fatal("未开局时不应创建对局")
+	}
+}
+
+func TestCommandDailyDeterministic(t *testing.T) {
+	p1 := testPlugin(t)
+	p1.cfg.DefaultDaily = true
+	if err := p1.handleSongdle(newCmdCtx("/songdle --daily", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g1 := groupGame(t, p1, "chat1")
+
+	p2 := testPlugin(t)
+	p2.cfg.DefaultDaily = true
+	if err := p2.handleSongdle(newCmdCtx("/songdle --daily", "chat2", "u2")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g2 := groupGame(t, p2, "chat2")
+
+	if g1.Target.ID != g2.Target.ID {
+		t.Fatalf("每日题应稳定: %s != %s", g1.Target.Title, g2.Target.Title)
+	}
+	if !g1.Daily || g1.Mode != ModeDaily {
+		t.Error("每日题应标记 Daily/ModeDaily")
+	}
+}
+
+func TestCommandPool(t *testing.T) {
+	p := testPlugin(t)
+	if err := p.handleSongdle(newCmdCtx("/songdle pool", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if p.sessions.Len() != 0 {
+		t.Fatal("pool 不应创建对局")
+	}
+}

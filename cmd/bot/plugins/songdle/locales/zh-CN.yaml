@@ -1,0 +1,117 @@
+songdle.help: |
+  猜音游曲目小游戏（Songdle / Maidle 风格）
+  用法：
+    /songdle [--tries N] [--type SD|DX|all] [--genre 关键词] [--daily] [--artist]  开始新的一局
+    /songdle 曲师 <名字>          探测曲师（也可写 /songdle probe 曲师 <名字>）
+    /songdle 流派 <关键词>        探测流派
+    /songdle 类型 SD|DX           探测谱面类型
+    /songdle 版本 <版本名>        探测版本
+    /songdle bpm <数值>           探测 BPM（会提示 ↑/↓）
+    /songdle 定数 <数值>          探测 MASTER 定数（会提示 ↑/↓）
+    /songdle 绝赞 <数值>          探测绝赞数（会提示 ↑/↓）
+    /songdle 歌名 <曲名或俗称>    提交最终答案（猜中即获胜）
+    /songdle board                重新发送提示板
+    /songdle giveup               放弃并公布答案
+    /songdle pool                 查看曲库规模与分类
+    /songdle stats [@用户]        查看战绩
+    /songdle top                  查看排行榜
+    /songdle lang <语言>          切换语言（zh-CN / en-US）
+    /songdle help                 查看帮助
+  玩法：
+    机器人随机选一首 maimai（舞萌DX）曲目，并把曲名完全涂黑（只给长度）。
+    每次探测消耗 1 次机会，机器人给出红黄绿判定：
+      🟩 完全正确   🟨 接近 / 部分匹配   ⬜ 不对
+      ↑ 谜底比所猜更高   ↓ 谜底比所猜更低（仅数值项）
+    可探测属性：曲师、流派、类型、版本、BPM、MASTER 定数、绝赞数。
+    最后用 /songdle 歌名 <曲名> 提交答案，命中曲名或俗称即获胜，次数用尽判负。
+  选项：
+    --tries N      探测次数上限（默认 12）
+    --type 类型    只出 SD / DX 的曲目（默认 all）
+    --genre 关键词  只出该流派（子串匹配，如 东方 / VOCALOID）
+    --scope 维度   隔离维度 user|group（默认群内共享一局）
+    --daily        每日题：同一天同一筛选条件下所有人拿到同一首
+    --artist       开局即公布曲师，降低难度
+  曲库：
+    内置 maimai 曲目与别名数据（约 1100 首），可用 plugins.songdle 的
+    songs_file / alias_file 指向自备数据集，或 songs_url / alias_url 从远端拉取。
+songdle.mode.daily: "每日题"
+songdle.mode.random: "随机题"
+songdle.start.created: "🎵 新的一局开始！{{.Mode}} · 共 {{.Tries}} 次机会{{if .Type}} · 类型 {{.Type}}{{end}}{{if .Genre}} · 流派 {{.Genre}}{{end}}"
+songdle.start.already_running: "⚠️ 已经有一局在进行中，先把它玩完或 /songdle giveup 吧"
+songdle.start.bad_tries: "探测次数需在 {{.Min}}-{{.Max}} 之间"
+songdle.start.bad_scope: "隔离维度只能是 user 或 group"
+songdle.start.bad_type: "曲目类型只能是 SD、DX 或 all"
+songdle.start.empty_pool: "这个筛选条件下没有可用曲目{{if .Type}}（类型 {{.Type}}）{{end}}{{if .Genre}}（流派 {{.Genre}}）{{end}}，换个 --type / --genre 试试"
+songdle.start.daily_done: "今天的每日题已经开过了，明天再来吧"
+songdle.board.header: "🎵 猜音游曲目 · {{.Mode}} · 第 {{.Attempts}}/{{.Max}} 次"
+songdle.board.masked: "🎯 谜底：{{.Mask}}（{{.Len}} 字）"
+songdle.board.clues_title: "线索："
+songdle.board.history_title: "猜测记录："
+songdle.board.no_probes: "还没有任何探测，发送 /songdle 曲师 <名字> 或 /songdle bpm 150 开始吧"
+songdle.board.legend_img: "命中=绿色 · 接近=黄色 · 不对=灰色 · ↑ 谜底更高 · ↓ 谜底更低"
+songdle.clue.known: "{{.Mark}} {{.Label}}：{{.Value}}"
+songdle.clue.range: "{{.Mark}} {{.Label}}：{{.Range}}"
+songdle.clue.range_both: "{{.Lo}} ~ {{.Hi}} 之间"
+songdle.clue.range_lo: "大于 {{.Lo}}"
+songdle.clue.range_hi: "小于 {{.Hi}}"
+songdle.clue.excluded: "{{.Mark}} {{.Label}}：不是 {{.Values}}"
+songdle.clue.unknown: "⬜ {{.Label}}：未探测"
+songdle.probe.line: "{{.Mark}} {{.Label}} {{.Value}}{{.Arrow}}"
+songdle.answer: "🎵 答案：{{.Answer}}"
+songdle.attr.title: "曲名"
+songdle.attr.artist: "曲师"
+songdle.attr.genre: "流派"
+songdle.attr.type: "类型"
+songdle.attr.version: "版本"
+songdle.attr.bpm: "BPM"
+songdle.attr.const: "定数"
+songdle.attr.break: "绝赞"
+songdle.mark.match: "命中"
+songdle.mark.close: "接近"
+songdle.mark.miss: "不是"
+songdle.mark.unknown: "未探测"
+songdle.table.attribute: "属性"
+songdle.table.value: "取值"
+songdle.table.verdict: "判定"
+songdle.table.index: "#"
+songdle.probe.win: "🎉 猜中了！共用了 {{.Attempts}} 次"
+songdle.probe.lose: "💀 次数用完了，本局失败"
+songdle.probe.title_close: "❌ 不是这首，但很接近 · 还剩 {{.Remaining}} 次"
+songdle.probe.title_miss: "❌ 不是这首 · 还剩 {{.Remaining}} 次"
+songdle.probe.recorded: "📝 已记录 · 还剩 {{.Remaining}} 次"
+songdle.probe.repeat: "这个已经探测过了：{{.Attr}} {{.Value}}"
+songdle.probe.bad_value: "{{.Attr}} 的取值「{{.Value}}」无法识别，换个格式试试"
+songdle.probe.usage: "用法：/songdle <属性> <取值>，属性可选：{{.Attrs}}"
+songdle.probe.bad_attr: "未知属性「{{.Value}}」，可用属性：{{.Attrs}}"
+songdle.error.not_started: "还没有进行中的对局，发送 /songdle 开始一局吧"
+songdle.error.already_finished: "本局已经结束了，发送 /songdle 开始新的一局"
+songdle.error.usage_guess: "用法：/songdle 歌名 <曲名或俗称>"
+songdle.giveup.denied: "群共享对局只能由发起者放弃"
+songdle.giveup.done: "🏳️ 已放弃本局"
+songdle.pool.total: "📚 曲库共 {{.Total}} 首，可探测：{{.Attrs}}"
+songdle.pool.row: "· {{.Name}}：{{.Count}} 首"
+songdle.pool.empty: "曲库为空"
+songdle.stats.title: "📊 {{.User}} 的战绩"
+songdle.stats.body: "对局 {{.Played}} · 猜中 {{.Won}} · 胜率 {{.Rate}}%\n连胜 {{.Streak}} · 最高连胜 {{.Best}} · 最少次数 {{.Fewest}}"
+songdle.stats.dist.title: "猜中所需次数分布："
+songdle.stats.dist.fail: "失败：{{.Count}}"
+songdle.stats.dist.row: "第 {{.Attempts}} 次猜中：{{.Count}}"
+songdle.stats.unavailable: "storage 不可用，战绩功能已关闭"
+songdle.stats.error: "读取战绩失败：{{.Error}}"
+songdle.top.title: "🏆 排行榜（至少 {{.Min}} 局，按胜率）"
+songdle.top.row: "{{.Rank}}. {{.User}} · {{.Rate}}%（{{.Won}}/{{.Played}}）· 最少 {{.Best}} 次"
+songdle.top.empty: "还没有人达到 {{.Min}} 局"
+songdle.top.unavailable: "storage 不可用，排行榜已关闭"
+songdle.top.error: "读取排行榜失败：{{.Error}}"
+songdle.lang.usage: "用法：/songdle lang <语言>（可选：{{.Locales}}）"
+songdle.lang.unknown: "不支持的语言 {{.Locale}}，可选：{{.Locales}}"
+songdle.lang.set: "✅ 语言已切换为 {{.Locale}}"
+songdle.button.title: "猜曲名"
+songdle.button.title_tip: "发送 /songdle 歌名 <曲名或俗称> 提交最终答案"
+songdle.button.bpm: "猜 BPM"
+songdle.button.bpm_tip: "发送 /songdle bpm <数值> 探测 BPM"
+songdle.button.artist: "猜曲师"
+songdle.button.artist_tip: "发送 /songdle 曲师 <名字> 探测曲师"
+songdle.button.giveup: "放弃"
+songdle.button.board: "提示板"
+songdle.button.new: "新一局"
