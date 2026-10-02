@@ -105,8 +105,8 @@ func TestAttributeHelpers(t *testing.T) {
 	if AttrArtist.Numeric() || AttrTitle.Numeric() {
 		t.Error("非数值属性不应报告 Numeric")
 	}
-	if len(ClueAttributes) != 7 {
-		t.Errorf("可探测属性应为 7 项，实际 %d", len(ClueAttributes))
+	if len(ClueAttributes) != 8 {
+		t.Errorf("可探测属性应为 8 项，实际 %d", len(ClueAttributes))
 	}
 }
 
@@ -220,5 +220,114 @@ func TestFormatDS(t *testing.T) {
 	}
 	if got := formatDS(0); got != "—" {
 		t.Errorf("formatDS(0) = %q, 期望占位符", got)
+	}
+}
+
+// compareTarget 是 Compare / TrackGuess 测试用的固定谜底。
+var compareTarget = Track{
+	ID: "3", Title: "Future", Artist: "sasakure.UK", Genre: "流行&动漫",
+	Type: "SD", Version: "舞萌DX2024", BPM: 130, MasCharter: "Q", MasDS: 10.7, MasBreak: 9,
+}
+
+func TestVersionCompare(t *testing.T) {
+	cases := []struct {
+		target, guess string
+		wantMark      Mark
+		wantDir       Dir
+	}{
+		{"舞萌DX2024", "舞萌DX2024", Match, DirNone},
+		{"舞萌DX2024", "舞萌DX2023", Close, DirUp},   // 相邻且谜底更新
+		{"舞萌DX2024", "舞萌DX2025", Close, DirDown}, // 相邻且谜底更旧
+		{"舞萌DX2024", "舞萌DX2022", Miss, DirUp},    // 相隔过远
+		{"舞萌DX2024", "maimai", Miss, DirUp},      // 跨大版本
+		{"maimai DX", "maimai", Close, DirNone},  // 未知版本回退包含匹配
+		{"", "舞萌DX2024", Miss, DirNone},          // 空版本不比较
+	}
+	for _, c := range cases {
+		mark, dir := versionCompare(c.target, c.guess)
+		if mark != c.wantMark || dir != c.wantDir {
+			t.Errorf("versionCompare(%q,%q) = %v/%v, 期望 %v/%v",
+				c.target, c.guess, mark, dir, c.wantMark, c.wantDir)
+		}
+	}
+}
+
+func TestCompareColumns(t *testing.T) {
+	cells := Compare(compareTarget, compareTarget)
+	if len(cells) != len(GuessColumns) {
+		t.Fatalf("列数 = %d, 期望 %d", len(cells), len(GuessColumns))
+	}
+	for i, c := range cells {
+		if c.Attr != GuessColumns[i] {
+			t.Errorf("第 %d 列属性 = %v, 期望 %v", i, c.Attr, GuessColumns[i])
+		}
+		if c.Mark != Match {
+			t.Errorf("猜中自身时 %v 列应为 Match，实际 %v", c.Attr, c.Mark)
+		}
+	}
+
+	tg := TrackGuess{Track: compareTarget, Cells: cells}
+	if !tg.Solved() {
+		t.Error("猜中自身应判为已解出")
+	}
+	if c, ok := tg.Cell(AttrTitle); !ok || c.Value != "Future" {
+		t.Errorf("曲名列应为 Future，实际 %+v ok=%v", c, ok)
+	}
+	if _, ok := tg.Cell(Attribute(200)); ok {
+		t.Error("不存在的列应返回 ok=false")
+	}
+}
+
+func TestCompareMarksAndDirections(t *testing.T) {
+	target := compareTarget
+	guess := Track{
+		ID: "9", Title: "Other", Artist: "sasakure", Genre: "舞萌",
+		Type: "dx", Version: "舞萌DX2025", BPM: 100, MasCharter: "Q", MasDS: 10.2, MasBreak: 4,
+	}
+	cells := Compare(target, guess)
+	byAttr := func(a Attribute) Cell {
+		t.Helper()
+		for _, c := range cells {
+			if c.Attr == a {
+				return c
+			}
+		}
+		t.Fatalf("缺少 %v 列", a)
+		return Cell{}
+	}
+
+	if c := byAttr(AttrTitle); c.Mark != Miss || c.Value != "Other" {
+		t.Errorf("不同曲名应为 Miss 且展示猜测值，实际 %+v", c)
+	}
+	if c := byAttr(AttrType); c.Mark != Miss || c.Value != "DX" {
+		t.Errorf("类型应归一化为大写，实际 %+v", c)
+	}
+	if c := byAttr(AttrArtist); c.Mark != Close {
+		t.Errorf("曲师包含应为 Close，实际 %+v", c)
+	}
+	if c := byAttr(AttrGenre); c.Mark != Miss {
+		t.Errorf("无关流派应为 Miss，实际 %+v", c)
+	}
+	if c := byAttr(AttrVersion); c.Mark != Close || c.Dir != DirDown {
+		t.Errorf("相邻版本且所猜更新应为 Close/↓，实际 %+v", c)
+	}
+	if c := byAttr(AttrBPM); c.Mark != Miss || c.Dir != DirUp || c.Value != "100" {
+		t.Errorf("BPM 100 应 Miss/↑，实际 %+v", c)
+	}
+	if c := byAttr(AttrConst); c.Mark != Close || c.Dir != DirUp || c.Value != "10.2" {
+		t.Errorf("定数 10.2 应 Close/↑，实际 %+v", c)
+	}
+	if c := byAttr(AttrBreak); c.Mark != Miss || c.Dir != DirUp {
+		t.Errorf("绝赞 4 应 Miss/↑，实际 %+v", c)
+	}
+}
+
+func TestTrackGuessSolvedWithoutTitle(t *testing.T) {
+	if (TrackGuess{}).Solved() {
+		t.Error("空猜测不应判为已解出")
+	}
+	tg := TrackGuess{Cells: []Cell{{Attr: AttrArtist, Mark: Match}}}
+	if tg.Solved() {
+		t.Error("缺少曲名列不应判为已解出")
 	}
 }

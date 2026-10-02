@@ -211,7 +211,7 @@ func (s *store) setDailyLock(key, day string) error {
 
 // recordGame 写入一局历史记录。
 func (s *store) recordGame(g *Game, userID string, durationMs int64) error {
-	probes, err := json.Marshal(probeTrail(g.Probes))
+	probes, err := json.Marshal(append(probeTrail(g.Probes), guessTrail(g.Guesses)...))
 	if err != nil {
 		return err
 	}
@@ -253,6 +253,15 @@ func probeTrail(probes []Probe) []string {
 	out := make([]string, len(probes))
 	for i, p := range probes {
 		out[i] = p.Attr.String() + "=" + p.Value
+	}
+	return out
+}
+
+// guessTrail 把猜曲目序列序列化为 "guess=曲名" 文本。
+func guessTrail(guesses []TrackGuess) []string {
+	out := make([]string, len(guesses))
+	for i, gt := range guesses {
+		out[i] = "guess=" + gt.Track.Title
 	}
 	return out
 }

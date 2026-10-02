@@ -2,6 +2,7 @@ package songdle
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -190,4 +191,107 @@ func titles(tracks []Track) []string {
 		out[i] = t.Title
 	}
 	return out
+}
+
+func TestPoolByID(t *testing.T) {
+	p := newTestPool(t)
+	if tr, ok := p.ByID("2"); !ok || tr.Title != "True Love Song" {
+		t.Fatalf("ByID(2) = %+v,%v", tr, ok)
+	}
+	if tr, ok := p.ByID("  3 "); !ok || tr.Title != "Future" {
+		t.Errorf("ByID 应忽略首尾空白，实际 %+v,%v", tr, ok)
+	}
+	if _, ok := p.ByID("999"); ok {
+		t.Error("不存在的 ID 不应命中")
+	}
+	var empty *Pool
+	if _, ok := empty.ByID("1"); ok {
+		t.Error("空池不应命中")
+	}
+}
+
+func TestPoolMatchExact(t *testing.T) {
+	p := newTestPool(t)
+	cases := []struct {
+		query string
+		id    string
+	}{
+		{"2", "2"},              // 曲目 ID
+		{"true love song", "2"}, // 完全同名（忽略大小写）
+		{"TRUE LOVE SONG", "2"}, // 完全同名（全大写）
+		{" 糖糖 ", "2"},           // 完全同别名（含空白）
+		{"未来", "3"},             // 完全同别名
+		{"Future", "3"},         // 曲名精确匹配
+	}
+	for _, c := range cases {
+		res := p.Match(c.query)
+		if !res.Exact {
+			t.Errorf("Match(%q) 应为精确匹配，实际 %+v", c.query, res)
+			continue
+		}
+		if len(res.Candidates) != 1 || res.Candidates[0].ID != c.id {
+			t.Errorf("Match(%q) 候选 = %+v, 期望 ID %q", c.query, titles(res.Candidates), c.id)
+		}
+	}
+}
+
+func TestPoolMatchFuzzyAndEmpty(t *testing.T) {
+	p := newTestPool(t)
+	res := p.Match("fut")
+	if res.Exact {
+		t.Error("包含匹配不应标为精确")
+	}
+	if len(res.Candidates) != 1 || res.Candidates[0].ID != "3" {
+		t.Fatalf("Match(fut) 候选 = %+v", titles(res.Candidates))
+	}
+	if got := p.Match("zzz"); len(got.Candidates) != 0 || got.Exact {
+		t.Errorf("无匹配应返回空，实际 %+v", got)
+	}
+	if got := p.Match("  "); len(got.Candidates) != 0 {
+		t.Errorf("空查询应返回空，实际 %+v", got)
+	}
+	if got := p.Match("x"); len(got.Candidates) != 0 {
+		t.Errorf("单字符查询过于宽泛，应被忽略，实际 %+v", titles(got.Candidates))
+	}
+	var empty *Pool
+	if got := empty.Match("x"); len(got.Candidates) != 0 || got.Exact {
+		t.Errorf("空池 Match 应返回零值，实际 %+v", got)
+	}
+}
+
+func TestPoolMatchSameTitleSDDX(t *testing.T) {
+	const data = `{
+  "1": {"id":"1","title":"Twin","artist":"A","type":"SD","version":"maimai","bpm":100,"masds":10,"masbreak":1},
+  "10001": {"id":"10001","title":"Twin","artist":"A","type":"DX","version":"maimai","bpm":100,"masds":10.5,"masbreak":1}
+}`
+	p, err := buildPool([]byte(data), nil)
+	if err != nil {
+		t.Fatalf("buildPool: %v", err)
+	}
+	res := p.Match("twin")
+	if !res.Exact || len(res.Candidates) != 2 {
+		t.Fatalf("同名 SD/DX 应作为精确候选一并返回，实际 %+v", res)
+	}
+	if res.Candidates[0].Key() != res.Candidates[1].Key() {
+		t.Error("同名候选应有相同的 Key")
+	}
+}
+
+func TestCapCandidatesDedupAndTruncate(t *testing.T) {
+	mk := func(id string) Track { return Track{ID: id, Title: "T" + id} }
+	bucket := make([]Track, 0, maxMatchCandidates+8)
+	for i := range maxMatchCandidates + 8 {
+		bucket = append(bucket, mk(strconv.Itoa(i)))
+	}
+	got := capCandidates(bucket, []Track{mk("0"), mk("1")})
+	if len(got) != maxMatchCandidates {
+		t.Fatalf("候选应截断到 %d，实际 %d", maxMatchCandidates, len(got))
+	}
+	seen := make(map[string]bool, len(got))
+	for _, tr := range got {
+		if seen[tr.ID] {
+			t.Errorf("候选应按 ID 去重，出现重复 %q", tr.ID)
+		}
+		seen[tr.ID] = true
+	}
 }

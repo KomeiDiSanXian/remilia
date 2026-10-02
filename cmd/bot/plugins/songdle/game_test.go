@@ -159,3 +159,68 @@ func TestModeString(t *testing.T) {
 		t.Error("Scope.String 映射错误")
 	}
 }
+
+func TestSubmitGuessWin(t *testing.T) {
+	target := compareTarget
+	g := newTestGame(target, 5)
+	tg := TrackGuess{Track: target, Cells: Compare(target, target)}
+	if !g.SubmitGuess(tg, time.Now()) {
+		t.Fatal("猜中谜底应判胜")
+	}
+	if !g.Finished || !g.Won {
+		t.Fatalf("应结束且获胜: finished=%v won=%v", g.Finished, g.Won)
+	}
+	if g.Attempts() != 1 || g.Remaining() != 0 {
+		t.Errorf("次数统计错误: attempts=%d remaining=%d", g.Attempts(), g.Remaining())
+	}
+	if !g.HasGuessed(target) {
+		t.Error("已猜过的曲目应被记录")
+	}
+}
+
+func TestSubmitGuessLose(t *testing.T) {
+	target := compareTarget
+	other := Track{ID: "9", Title: "Other", Type: "DX", Version: "maimai", BPM: 100}
+	g := newTestGame(target, 2)
+	tg := TrackGuess{Track: other, Cells: Compare(target, other)}
+	if g.SubmitGuess(tg, time.Now()) {
+		t.Fatal("猜错不应判胜")
+	}
+	if g.Finished || g.Remaining() != 1 {
+		t.Fatalf("第一次猜错后应继续: finished=%v remaining=%d", g.Finished, g.Remaining())
+	}
+	g.SubmitGuess(tg, time.Now())
+	if !g.Finished || g.Won {
+		t.Fatalf("用尽次数应判负: finished=%v won=%v", g.Finished, g.Won)
+	}
+}
+
+func TestAttemptsCountsProbesAndGuesses(t *testing.T) {
+	target := compareTarget
+	g := newTestGame(target, 5)
+	g.Submit(mustProbe(t, target, AttrBPM, "100"), time.Now())
+	other := Track{ID: "9", Title: "Other"}
+	g.SubmitGuess(TrackGuess{Track: other, Cells: Compare(target, other)}, time.Now())
+	if g.Attempts() != 2 {
+		t.Fatalf("探测 + 猜曲目应共消耗 2 次，实际 %d", g.Attempts())
+	}
+	if g.Remaining() != 3 {
+		t.Errorf("剩余次数 = %d, 期望 3", g.Remaining())
+	}
+}
+
+func TestHasGuessed(t *testing.T) {
+	target := compareTarget
+	g := newTestGame(target, 5)
+	guessed := Track{ID: "9", Title: "Other"}
+	g.SubmitGuess(TrackGuess{Track: guessed}, time.Now())
+	if !g.HasGuessed(guessed) {
+		t.Error("同 ID 应判为已猜过")
+	}
+	if g.HasGuessed(Track{ID: "10", Title: "Other"}) {
+		t.Error("不同 ID 不应判为已猜过")
+	}
+	if g.HasGuessed(Track{Title: "Other"}) {
+		t.Error("缺少 ID 的曲目不应判为已猜过")
+	}
+}

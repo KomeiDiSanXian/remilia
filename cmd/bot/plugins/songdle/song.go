@@ -221,6 +221,7 @@ func buildPool(songsData, aliasData []byte) (*Pool, error) {
 	p := &Pool{
 		genres: make(map[string]int),
 		types:  make(map[string]int),
+		index:  make(map[string]int, len(raw)),
 	}
 	for _, id := range ids {
 		r := raw[id]
@@ -250,6 +251,7 @@ func buildPool(songsData, aliasData []byte) (*Pool, error) {
 			RemCharter: r.RemCharter,
 			Aliases:    dedupeStrings(aliases[key]),
 		}
+		p.index[key] = len(p.tracks)
 		p.tracks = append(p.tracks, t)
 		if t.Genre != "" {
 			p.genres[t.Genre]++
@@ -297,6 +299,8 @@ type Pool struct {
 	tracks []Track
 	genres map[string]int
 	types  map[string]int
+	// index 是曲目 ID 到 tracks 下标的索引，用于按 ID 解析玩家输入。
+	index map[string]int
 }
 
 // Len 返回曲库曲目总数。
@@ -327,6 +331,119 @@ func (p *Pool) Filter(f Filter) []Track {
 		}
 	}
 	return out
+}
+
+// maxMatchCandidates 限制一次查询返回的候选数量，避免刷屏。
+const maxMatchCandidates = 12
+
+// ByID 按曲目 ID 精确查找。
+func (p *Pool) ByID(id string) (Track, bool) {
+	if p == nil {
+		return Track{}, false
+	}
+	i, ok := p.index[strings.TrimSpace(id)]
+	if !ok {
+		return Track{}, false
+	}
+	return p.tracks[i], true
+}
+
+// MatchResult 是一次玩家输入的解析结果。
+type MatchResult struct {
+	// Exact 为真表示候选都来自精确匹配（曲目 ID / 完全同名 / 完全同别名），
+	// 可以直接作为一次猜测；为假表示只是包含匹配的「你是不是想找」建议，
+	// 不应据此判定胜负，也不会消耗次数。
+	Exact bool
+	// Candidates 是按贴合程度排序的候选曲目，最多 [maxMatchCandidates] 首。
+	Candidates []Track
+}
+
+// Match 把玩家的自由输入解析为候选曲目，按贴合程度排序：
+// 精确 ID → 完全同名 → 完全同别名；都没有命中时退化为包含匹配的建议。
+//
+// 同名 / 同别名的歧义（如同一首歌的 SD 与 DX 谱面共用曲名）会一并返回，
+// 由调用方决定是判定「猜中谜底」还是提示玩家改用 ID 指定。
+func (p *Pool) Match(query string) MatchResult {
+	if p == nil {
+		return MatchResult{}
+	}
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return MatchResult{}
+	}
+	if isDigits(q) {
+		if t, ok := p.ByID(q); ok {
+			return MatchResult{Exact: true, Candidates: []Track{t}}
+		}
+	}
+	key := normalizeTitle(q)
+	if key == "" {
+		return MatchResult{}
+	}
+
+	var exactTitle, exactAlias, fuzzy []Track
+	for _, t := range p.tracks {
+		switch {
+		case t.Key() == key:
+			exactTitle = append(exactTitle, t)
+		case hasAlias(t, key):
+			exactAlias = append(exactAlias, t)
+		case fuzzyTitle(t, key):
+			fuzzy = append(fuzzy, t)
+		}
+	}
+	if len(exactTitle)+len(exactAlias) > 0 {
+		return MatchResult{Exact: true, Candidates: capCandidates(exactTitle, exactAlias)}
+	}
+	return MatchResult{Candidates: capCandidates(fuzzy)}
+}
+
+// capCandidates 按顺序拼接候选桶并截断到 [maxMatchCandidates]，同时按 ID 去重。
+func capCandidates(buckets ...[]Track) []Track {
+	out := make([]Track, 0, maxMatchCandidates)
+	seen := make(map[string]struct{}, maxMatchCandidates)
+	for _, bucket := range buckets {
+		for _, t := range bucket {
+			if len(out) >= maxMatchCandidates {
+				return out
+			}
+			if _, ok := seen[t.ID]; ok {
+				continue
+			}
+			seen[t.ID] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// hasAlias 报告曲目是否拥有与归一化键完全一致的别名。
+func hasAlias(t Track, key string) bool {
+	return slices.ContainsFunc(t.Aliases, func(a string) bool { return normalizeTitle(a) == key })
+}
+
+// fuzzyTitle 报告查询串是否是曲名 / 别名的子串；过短的查询不参与模糊匹配。
+func fuzzyTitle(t Track, key string) bool {
+	if len([]rune(key)) < 2 {
+		return false
+	}
+	if containsEither(t.Key(), key) {
+		return true
+	}
+	return slices.ContainsFunc(t.Aliases, func(a string) bool { return containsEither(normalizeTitle(a), key) })
+}
+
+// isDigits 报告字符串是否只由 ASCII 数字组成。
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Pick 从筛选后的曲库里随机抽取一首。

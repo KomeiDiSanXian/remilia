@@ -38,8 +38,8 @@ func (p *Plugin) handleSongdle(ctx *eventctx.Context) error {
 	switch head {
 	case "new", "start", "开局", "开始":
 		return p.cmdNew(ctx, parsed.Flags)
-	case "guess", "g", "answer", "title", "歌名", "曲名", "标题":
-		return p.cmdTitle(ctx, args[1:])
+	case "guess", "g", "answer", "title", "猜", "猜曲", "歌名", "曲名", "标题":
+		return p.cmdGuess(ctx, args[1:])
 	case "probe", "p", "ask", "探测", "查":
 		return p.cmdProbe(ctx, args[1:])
 	case "board", "b", "面板", "提示", "提示板":
@@ -60,11 +60,11 @@ func (p *Plugin) handleSongdle(ctx *eventctx.Context) error {
 	}
 	if attr, ok := ParseAttribute(args[0]); ok {
 		if attr == AttrTitle {
-			return p.cmdTitle(ctx, args[1:])
+			return p.cmdGuess(ctx, args[1:])
 		}
 		return p.cmdProbeAttr(ctx, attr, args[1:])
 	}
-	return p.cmdTitle(ctx, args)
+	return p.cmdGuess(ctx, args)
 }
 
 // cmdNew 开始新的一局。
@@ -198,7 +198,7 @@ func (p *Plugin) cmdProbe(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	if attr == AttrTitle {
-		return p.cmdTitle(ctx, args[1:])
+		return p.cmdGuess(ctx, args[1:])
 	}
 	return p.cmdProbeAttr(ctx, attr, args[1:])
 }
@@ -213,14 +213,137 @@ func (p *Plugin) cmdProbeAttr(ctx *eventctx.Context, attr Attribute, args []stri
 	return p.submitProbe(ctx, attr, value)
 }
 
-// cmdTitle 提交最终答案（曲名或俗称）。
-func (p *Plugin) cmdTitle(ctx *eventctx.Context, args []string) error {
-	title := strings.TrimSpace(strings.Join(args, " "))
-	if title == "" {
+// cmdGuess 猜一首曲目：把输入（曲名 / 别名 / 曲目 ID）解析成曲库里的一首，
+// 与谜底逐列对比后回一整行提示；猜中谜底即获胜。
+//
+// 解析不到、或匹配到多首不同曲目时不消耗次数，只给出候选，方便玩家改用 ID。
+func (p *Plugin) cmdGuess(ctx *eventctx.Context, args []string) error {
+	query := strings.TrimSpace(strings.Join(args, " "))
+	if query == "" {
 		ctx.ReplyError(p.t(ctx, "songdle.error.usage_guess"))
 		return nil
 	}
-	return p.submitProbe(ctx, AttrTitle, title)
+	platformID, chatID, userID := sessionContextKeys(ctx)
+	var (
+		game      *Game
+		notice    string
+		attempted bool
+	)
+	found := p.sessions.UpdateFound(platformID, chatID, userID, func(g *Game) {
+		game = g
+		if g.Finished {
+			notice = p.t(ctx, "songdle.error.already_finished")
+			return
+		}
+		res := p.pool.Match(query)
+		if len(res.Candidates) == 0 {
+			notice = p.t(ctx, "songdle.guess.not_found", map[string]any{"Query": query})
+			return
+		}
+		// 只有精确匹配（ID / 完全同名 / 完全同别名）才算一次猜测；
+		// 包含匹配只作为「你是不是想找」提示，不判胜负也不消耗次数。
+		if !res.Exact {
+			notice = p.t(ctx, "songdle.guess.suggest", map[string]any{
+				"Query":      query,
+				"Candidates": p.candidateList(ctx, res.Candidates),
+			})
+			return
+		}
+		guess, ambiguous := resolveGuess(res.Candidates, g.Target, g.Filter)
+		if len(ambiguous) > 0 {
+			notice = p.t(ctx, "songdle.guess.ambiguous", map[string]any{
+				"Query":      query,
+				"Candidates": p.candidateList(ctx, ambiguous),
+			})
+			return
+		}
+		if g.HasGuessed(guess) {
+			notice = p.t(ctx, "songdle.guess.repeat", map[string]any{"Title": guess.Title})
+			return
+		}
+		tg := TrackGuess{Track: guess, Cells: Compare(g.Target, guess)}
+		g.AddParticipant(userID, ctx.GetDisplayName())
+		finished := g.SubmitGuess(tg, timeNow())
+		attempted = true
+		notice = p.guessNotice(ctx, g, finished)
+	})
+	if !found {
+		ctx.ReplyError(p.t(ctx, "songdle.error.not_started"))
+		return nil
+	}
+	if !attempted {
+		ctx.ReplyText(notice)
+		return nil
+	}
+	if game.Finished {
+		p.finalize(game)
+	}
+	p.replyBoard(ctx, game, notice)
+	return nil
+}
+
+// resolveGuess 决定玩家到底猜的是哪一首曲目。
+//
+// 谜底本身出现在候选里时直接判中（曲名相同即算猜对，不必区分 SD / DX 谱面）；
+// 候选只有一首、或都只是同一首歌的不同谱面时取其中一首；否则返回候选列表，
+// 由调用方提示玩家改用 ID 指定。
+func resolveGuess(cands []Track, target Track, filter Filter) (Track, []Track) {
+	for _, t := range cands {
+		if t.ID != "" && t.ID == target.ID {
+			return t, nil
+		}
+	}
+	if len(cands) == 1 {
+		return cands[0], nil
+	}
+	key := cands[0].Key()
+	for _, t := range cands[1:] {
+		if t.Key() != key {
+			return Track{}, cands
+		}
+	}
+	return preferTrack(cands, filter), nil
+}
+
+// preferTrack 在同一首歌的多个谱面（SD / DX）中挑一个代表：
+// 优先本局筛选的谱面类型，其次 DX，最后取第一首。
+func preferTrack(cands []Track, filter Filter) Track {
+	if filter.Type != "" {
+		for _, t := range cands {
+			if strings.EqualFold(t.Type, filter.Type) {
+				return t
+			}
+		}
+	}
+	for _, t := range cands {
+		if strings.EqualFold(t.Type, "DX") {
+			return t
+		}
+	}
+	return cands[0]
+}
+
+// candidateList 把候选曲目渲染成多行提示。
+func (p *Plugin) candidateList(ctx *eventctx.Context, cands []Track) string {
+	lines := make([]string, 0, len(cands))
+	for _, t := range cands {
+		lines = append(lines, p.t(ctx, "songdle.guess.candidate", map[string]any{
+			"ID": t.ID, "Title": t.Title, "Type": t.Type, "Version": t.Version,
+		}))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// guessNotice 生成本次猜曲目的结果提示语。
+func (p *Plugin) guessNotice(ctx *eventctx.Context, g *Game, finished bool) string {
+	switch {
+	case g.Won:
+		return p.t(ctx, "songdle.probe.win", map[string]any{"Attempts": g.Attempts()})
+	case finished:
+		return p.t(ctx, "songdle.probe.lose")
+	default:
+		return p.t(ctx, "songdle.guess.miss", map[string]any{"Remaining": g.Remaining()})
+	}
 }
 
 // submitProbe 把一次属性 / 曲名猜测提交进当前对局，并发送更新后的提示板。
@@ -274,10 +397,6 @@ func (p *Plugin) probeNotice(ctx *eventctx.Context, g *Game, pr Probe, finished 
 		return p.t(ctx, "songdle.probe.win", map[string]any{"Attempts": g.Attempts()})
 	case finished:
 		return p.t(ctx, "songdle.probe.lose")
-	case pr.Attr == AttrTitle && pr.Mark == Close:
-		return p.t(ctx, "songdle.probe.title_close", map[string]any{"Remaining": g.Remaining()})
-	case pr.Attr == AttrTitle:
-		return p.t(ctx, "songdle.probe.title_miss", map[string]any{"Remaining": g.Remaining()})
 	default:
 		return p.t(ctx, "songdle.probe.recorded", map[string]any{"Remaining": g.Remaining()})
 	}

@@ -75,6 +75,8 @@ const (
 	AttrVersion
 	// AttrBPM BPM。
 	AttrBPM
+	// AttrCharter MASTER 谱师。
+	AttrCharter
 	// AttrConst MASTER 定数。
 	AttrConst
 	// AttrBreak 绝赞数。
@@ -82,7 +84,10 @@ const (
 )
 
 // ClueAttributes 是除曲名外按展示顺序排列的可探测属性。
-var ClueAttributes = []Attribute{AttrArtist, AttrGenre, AttrType, AttrVersion, AttrBPM, AttrConst, AttrBreak}
+var ClueAttributes = []Attribute{AttrArtist, AttrGenre, AttrType, AttrVersion, AttrBPM, AttrCharter, AttrConst, AttrBreak}
+
+// GuessColumns 是「猜曲目」对比表的列顺序：先曲名，再按可读性排列各属性。
+var GuessColumns = []Attribute{AttrTitle, AttrVersion, AttrType, AttrGenre, AttrArtist, AttrBPM, AttrCharter, AttrConst, AttrBreak}
 
 // String 返回属性的英文标识（配置 / 内部用）。
 func (a Attribute) String() string {
@@ -99,6 +104,8 @@ func (a Attribute) String() string {
 		return "version"
 	case AttrBPM:
 		return "bpm"
+	case AttrCharter:
+		return "charter"
 	case AttrConst:
 		return "const"
 	case AttrBreak:
@@ -126,6 +133,8 @@ var attrAliases = map[string]Attribute{
 	"type": AttrType, "类型": AttrType, "谱面类型": AttrType,
 	"version": AttrVersion, "ver": AttrVersion, "版本": AttrVersion,
 	"bpm": AttrBPM, "speed": AttrBPM, "速度": AttrBPM,
+	"charter": AttrCharter, "mascharter": AttrCharter, "designer": AttrCharter,
+	"谱师": AttrCharter, "谱面师": AttrCharter,
 	"const": AttrConst, "ds": AttrConst, "constant": AttrConst,
 	"定数": AttrConst, "常数": AttrConst,
 	"break": AttrBreak, "brakes": AttrBreak, "breaks": AttrBreak,
@@ -195,6 +204,8 @@ func MakeProbe(target Track, attr Attribute, raw string) (Probe, error) {
 			t, g := float64(target.BPM), float64(n)
 			pr.Mark, pr.Dir = numberMark(t, g, max(float64(bpmCloseAbs), t*bpmCloseRatio), 0)
 		}
+	case AttrCharter:
+		pr.Mark = nameMark(normalizeTitle(target.MasCharter), normalizeTitle(raw))
 	case AttrConst:
 		f, err := strconv.ParseFloat(raw, 64)
 		if err != nil || f <= 0 {
@@ -379,4 +390,133 @@ func formatDS(v float64) string {
 		return "—"
 	}
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// ─── 猜整首曲目的逐列对比 ────────────────────────────────────────────────────────
+
+// Cell 是「猜曲目」对比表中的一个单元格。
+type Cell struct {
+	Attr  Attribute
+	Value string
+	Mark  Mark
+	Dir   Dir
+}
+
+// TrackGuess 是一次「猜整首曲目」的记录：玩家给出的曲目 + 与谜底逐列对比的结果。
+type TrackGuess struct {
+	Track Track
+	Cells []Cell
+}
+
+// Solved 报告这次猜测是否命中谜底：曲名列判绿即获胜。
+func (tg TrackGuess) Solved() bool {
+	c, ok := tg.Cell(AttrTitle)
+	return ok && c.Mark == Match
+}
+
+// Cell 返回指定属性对应的单元格；该列不存在时 ok 为 false。
+func (tg TrackGuess) Cell(attr Attribute) (Cell, bool) {
+	for _, c := range tg.Cells {
+		if c.Attr == attr {
+			return c, true
+		}
+	}
+	return Cell{}, false
+}
+
+// Compare 按 [GuessColumns] 的顺序逐列比较猜测曲目与谜底。
+func Compare(target, guess Track) []Cell {
+	cells := make([]Cell, 0, len(GuessColumns))
+	for _, attr := range GuessColumns {
+		value, mark, dir := compareAttr(target, guess, attr)
+		cells = append(cells, Cell{Attr: attr, Value: value, Mark: mark, Dir: dir})
+	}
+	return cells
+}
+
+// compareAttr 比较单个属性，返回猜测值、判定与方向。
+func compareAttr(target, guess Track, attr Attribute) (string, Mark, Dir) {
+	switch attr {
+	case AttrTitle:
+		if guess.ID != "" && guess.ID == target.ID {
+			return guess.Title, Match, DirNone
+		}
+		return guess.Title, Miss, DirNone
+	case AttrVersion:
+		mark, dir := versionCompare(target.Version, guess.Version)
+		return guess.Version, mark, dir
+	case AttrType:
+		return strings.ToUpper(guess.Type), textMark(strings.ToUpper(target.Type), strings.ToUpper(guess.Type)), DirNone
+	case AttrGenre:
+		return guess.Genre, textMark(normalizeTitle(target.Genre), normalizeTitle(guess.Genre)), DirNone
+	case AttrArtist:
+		return guess.Artist, nameMark(normalizeTitle(target.Artist), normalizeTitle(guess.Artist)), DirNone
+	case AttrBPM:
+		mark, dir := numberMark(float64(target.BPM), float64(guess.BPM),
+			max(float64(bpmCloseAbs), float64(target.BPM)*bpmCloseRatio), 0)
+		return strconv.Itoa(guess.BPM), mark, dir
+	case AttrCharter:
+		return guess.MasCharter, nameMark(normalizeTitle(target.MasCharter), normalizeTitle(guess.MasCharter)), DirNone
+	case AttrConst:
+		mark, dir := dsMark(target.MasDS, guess.MasDS)
+		return formatDS(guess.MasDS), mark, dir
+	case AttrBreak:
+		mark, dir := numberMark(float64(target.MasBreak), float64(guess.MasBreak), breakCloseDiff, 0)
+		return strconv.Itoa(guess.MasBreak), mark, dir
+	default:
+		return "", Miss, DirNone
+	}
+}
+
+// versionOrder 是 maimai 版本从旧到新的顺序，用于判断新旧方向与是否相邻。
+//
+// 国服把「x.5」小版本并入年度版本，因此这里用本地化后的中文年度名。
+var versionOrder = []string{
+	"maimai", "maimai PLUS", "maimai GreeN", "maimai GreeN PLUS",
+	"maimai ORANGE", "maimai ORANGE PLUS", "maimai PiNK", "maimai PiNK PLUS",
+	"maimai MURASAKi", "maimai MURASAKi PLUS", "maimai MiLK", "MiLK PLUS",
+	"maimai FiNALE",
+	"舞萌DX", "舞萌DX2021", "舞萌DX2022", "舞萌DX2023", "舞萌DX2024", "舞萌DX2025", "舞萌DX2026",
+}
+
+// versionRank 返回版本在 [versionOrder] 中的序号；未知版本 ok 为 false。
+func versionRank(v string) (int, bool) {
+	n := normalizeTitle(v)
+	if n == "" {
+		return 0, false
+	}
+	for i, name := range versionOrder {
+		if normalizeTitle(name) == n {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// versionCompare 比较两个版本：相同 → 绿；相邻 → 黄；其余 → 灰。
+// 方向箭头表示谜底比所猜更新（↑）还是更旧（↓）。
+func versionCompare(target, guess string) (Mark, Dir) {
+	t, g := normalizeTitle(target), normalizeTitle(guess)
+	if t == "" || g == "" {
+		return Miss, DirNone
+	}
+	if t == g {
+		return Match, DirNone
+	}
+	tr, tok := versionRank(target)
+	gr, gok := versionRank(guess)
+	if tok && gok {
+		dir := DirDown
+		if tr > gr {
+			dir = DirUp
+		}
+		if math.Abs(float64(tr-gr)) == 1 {
+			return Close, dir
+		}
+		return Miss, dir
+	}
+	if m := versionMark(target, guess); m != Miss {
+		return m, DirNone
+	}
+	return Miss, DirNone
 }

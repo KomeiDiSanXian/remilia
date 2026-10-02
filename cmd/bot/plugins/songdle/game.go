@@ -68,7 +68,9 @@ type Game struct {
 	Target Track
 	// Probes 依次保存每次属性猜测及其结果。
 	Probes []Probe
-	// MaxAttempts 是本局可用的猜测次数（每次属性猜测各消耗 1 次）。
+	// Guesses 依次保存每次「猜整首曲目」及其逐列对比结果。
+	Guesses []TrackGuess
+	// MaxAttempts 是本局可用的猜测次数（每次探测或猜曲目各消耗 1 次）。
 	MaxAttempts int
 	// RevealArtist 为真时开局即公布曲师（更简单的玩法）。
 	RevealArtist bool
@@ -86,27 +88,37 @@ type Game struct {
 	recorded bool
 }
 
-// Attempts 返回已进行的猜测次数。
-func (g *Game) Attempts() int { return len(g.Probes) }
+// Attempts 返回已进行的猜测次数（属性探测 + 猜曲目）。
+func (g *Game) Attempts() int { return len(g.Probes) + len(g.Guesses) }
 
 // Remaining 返回剩余猜测次数；已结束的对局返回 0。
 func (g *Game) Remaining() int {
 	if g.Finished {
 		return 0
 	}
-	if n := g.MaxAttempts - len(g.Probes); n > 0 {
+	if n := g.MaxAttempts - g.Attempts(); n > 0 {
 		return n
 	}
 	return 0
 }
 
 // OutOfAttempts 报告是否已用尽猜测次数。
-func (g *Game) OutOfAttempts() bool { return len(g.Probes) >= g.MaxAttempts }
+func (g *Game) OutOfAttempts() bool { return g.Attempts() >= g.MaxAttempts }
 
 // HasProbed 报告同属性同取值是否已经猜过（避免重复浪费次数）。
 func (g *Game) HasProbed(p Probe) bool {
 	for _, x := range g.Probes {
 		if x.Attr == p.Attr && normalizeTitle(x.Value) == normalizeTitle(p.Value) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasGuessed 报告某首曲目是否已经猜过（避免重复浪费次数）。
+func (g *Game) HasGuessed(t Track) bool {
+	for _, x := range g.Guesses {
+		if t.ID != "" && x.Track.ID == t.ID {
 			return true
 		}
 	}
@@ -133,6 +145,20 @@ func (g *Game) Submit(p Probe, now time.Time) bool {
 	g.Probes = append(g.Probes, p)
 	g.UpdatedAt = now
 	if p.Attr == AttrTitle && p.Mark == Match {
+		g.Finished, g.Won = true, true
+		return true
+	}
+	if g.OutOfAttempts() {
+		g.Finished, g.Won = true, false
+	}
+	return false
+}
+
+// SubmitGuess 记录一次「猜整首曲目」并返回是否猜中。次数用尽即判负。
+func (g *Game) SubmitGuess(tg TrackGuess, now time.Time) bool {
+	g.Guesses = append(g.Guesses, tg)
+	g.UpdatedAt = now
+	if tg.Solved() {
 		g.Finished, g.Won = true, true
 		return true
 	}

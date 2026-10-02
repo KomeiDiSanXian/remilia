@@ -229,7 +229,7 @@ func TestCommandTitleAttributeAlias(t *testing.T) {
 	}
 }
 
-func TestCommandPartialTitleDoesNotWin(t *testing.T) {
+func TestCommandPartialTitleSuggests(t *testing.T) {
 	p := testPlugin(t)
 	putGame(t, p, "chat1", "u1", commandTarget, 10)
 
@@ -238,17 +238,17 @@ func TestCommandPartialTitleDoesNotWin(t *testing.T) {
 	}
 	g := groupGame(t, p, "chat1")
 	if g.Finished {
-		t.Fatal("部分匹配不应结束对局")
+		t.Fatal("模糊匹配只是建议，不应结束对局")
 	}
-	if g.Probes[0].Mark != Close {
-		t.Errorf("fut 应为 Close，实际 %v", g.Probes[0].Mark)
+	if g.Attempts() != 0 {
+		t.Errorf("模糊匹配不应消耗次数，实际 %d", g.Attempts())
 	}
 }
 
 func TestCommandTitleGuessLoses(t *testing.T) {
 	p := testPlugin(t)
 	putGame(t, p, "chat1", "u1", commandTarget, 1)
-	if err := p.handleSongdle(newCmdCtx("/songdle 歌名 nope", "chat1", "u1")); err != nil {
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 True Love Song", "chat1", "u1")); err != nil {
 		t.Fatalf("handleSongdle: %v", err)
 	}
 	if g := groupGame(t, p, "chat1"); !g.Finished || g.Won {
@@ -319,5 +319,117 @@ func TestCommandPool(t *testing.T) {
 	}
 	if p.sessions.Len() != 0 {
 		t.Fatal("pool 不应创建对局")
+	}
+}
+
+func TestCommandGuessByIDWins(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 10)
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 3", "chat1", "u2")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if !g.Finished || !g.Won {
+		t.Fatalf("用 ID 猜中应获胜: finished=%v won=%v", g.Finished, g.Won)
+	}
+	if len(g.Guesses) != 1 || g.Guesses[0].Track.ID != "3" || !g.Guesses[0].Solved() {
+		t.Fatalf("应记录一次猜中，实际 %+v", g.Guesses)
+	}
+	if c, ok := g.Guesses[0].Cell(AttrTitle); !ok || c.Mark != Match {
+		t.Errorf("曲名列应判定命中，实际 %+v ok=%v", c, ok)
+	}
+	if g.Participants["u2"] == "" {
+		t.Error("提交猜测者应计入参与者")
+	}
+}
+
+func TestCommandGuessMissConsumesAttempt(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 5)
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 True Love Song", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if g.Finished {
+		t.Fatal("还有剩余次数时不应结束")
+	}
+	if len(g.Guesses) != 1 || g.Attempts() != 1 {
+		t.Fatalf("猜错应记录并消耗一次，实际 guesses=%d attempts=%d", len(g.Guesses), g.Attempts())
+	}
+	if c, _ := g.Guesses[0].Cell(AttrTitle); c.Mark != Miss {
+		t.Errorf("非谜底曲名列应为 Miss，实际 %v", c.Mark)
+	}
+}
+
+func TestCommandGuessRepeatDoesNotConsume(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 5)
+	for range 2 {
+		if err := p.handleSongdle(newCmdCtx("/songdle 猜 True Love Song", "chat1", "u1")); err != nil {
+			t.Fatalf("handleSongdle: %v", err)
+		}
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 1 {
+		t.Fatalf("重复猜测不应增加次数，实际 %d", g.Attempts())
+	}
+}
+
+func TestCommandGuessNotFoundDoesNotConsume(t *testing.T) {
+	p := testPlugin(t)
+	putGame(t, p, "chat1", "u1", commandTarget, 5)
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 zzzzz", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 0 {
+		t.Fatalf("查无此曲不应消耗次数，实际 %d", g.Attempts())
+	}
+}
+
+// TestCommandGuessAmbiguousAlias 验证同一俗称对应多首不同曲目时只给候选、不消耗次数。
+func TestCommandGuessAmbiguousAlias(t *testing.T) {
+	const songs = `{
+  "1": {"id":"1","title":"Alpha","artist":"A","type":"SD","version":"maimai","bpm":100,"masds":10,"masbreak":1},
+  "2": {"id":"2","title":"Beta","artist":"B","type":"SD","version":"maimai","bpm":120,"masds":11,"masbreak":2},
+  "3": {"id":"3","title":"Future","artist":"B","type":"SD","version":"maimai","bpm":130,"masds":10.7,"masbreak":9}
+}`
+	const aliases = `[
+  {"SongID":1,"Alias":["shared"]},
+  {"SongID":2,"Alias":["shared"]}
+]`
+	pool, err := buildPool([]byte(songs), []byte(aliases))
+	if err != nil {
+		t.Fatalf("buildPool: %v", err)
+	}
+	p := &Plugin{pool: pool, sessions: NewSessionStore(30 * time.Minute), location: time.UTC}
+	putGame(t, p, "chat1", "u1", commandTarget, 5)
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 shared", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 0 || len(g.Guesses) != 0 {
+		t.Fatalf("歧义俗称不应消耗次数，实际 attempts=%d guesses=%d", g.Attempts(), len(g.Guesses))
+	}
+}
+
+// TestResolveGuess 覆盖「猜的是哪一首」的判定：谜底优先、单候选、同名多谱面、真歧义。
+func TestResolveGuess(t *testing.T) {
+	twinSD := Track{ID: "1", Title: "Twin", Type: "SD"}
+	twinDX := Track{ID: "10001", Title: "Twin", Type: "DX"}
+	other := Track{ID: "2", Title: "Other"}
+	target := Track{ID: "3", Title: "Future"}
+
+	if got, amb := resolveGuess([]Track{twinSD, target, twinDX}, target, Filter{}); got.ID != target.ID || amb != nil {
+		t.Errorf("谜底在候选中应直接返回谜底，实际 %+v amb=%v", got, amb)
+	}
+	if got, amb := resolveGuess([]Track{other}, target, Filter{}); got.ID != "2" || amb != nil {
+		t.Errorf("单候选应直接采用，实际 %+v amb=%v", got, amb)
+	}
+	if got, amb := resolveGuess([]Track{twinSD, twinDX}, target, Filter{}); got.ID != "10001" || amb != nil {
+		t.Errorf("同名多谱面应优先 DX，实际 %+v amb=%v", got, amb)
+	}
+	if got, amb := resolveGuess([]Track{twinSD, twinDX}, target, Filter{Type: "SD"}); got.ID != "1" || amb != nil {
+		t.Errorf("应优先匹配本局筛选类型，实际 %+v amb=%v", got, amb)
+	}
+	if got, amb := resolveGuess([]Track{twinSD, other}, target, Filter{}); got.ID != "" || len(amb) != 2 {
+		t.Errorf("不同曲目应返回歧义候选，实际 %+v amb=%v", got, amb)
 	}
 }

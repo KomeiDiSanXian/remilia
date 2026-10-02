@@ -36,8 +36,8 @@ func TestRenderBoardEmpty(t *testing.T) {
 	ctx := newCmdCtx("/songdle", "chat1", "u1")
 	g := &Game{Target: Track{Title: "Future"}, MaxAttempts: 10}
 	out := p.renderBoard(ctx, g, "")
-	if !strings.Contains(out, "还没有任何探测") {
-		t.Errorf("空提示板应引导玩家探测，实际输出:\n%s", out)
+	if !strings.Contains(out, "还没有开始") {
+		t.Errorf("空提示板应引导玩家开始，实际输出:\n%s", out)
 	}
 }
 
@@ -167,5 +167,165 @@ func TestRenderBoardImageProducesPNG(t *testing.T) {
 	}
 	if !bytes.HasPrefix(img, []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("输出应为 PNG，实际前 8 字节：% x", img[:min(8, len(img))])
+	}
+}
+
+func TestEllipsize(t *testing.T) {
+	if got := ellipsize("Future", 100, gridFontSize); got != "Future" {
+		t.Errorf("短文本不应截断，实际 %q", got)
+	}
+	if got := ellipsize("", 100, gridFontSize); got != "" {
+		t.Errorf("空文本应原样返回，实际 %q", got)
+	}
+	if got := ellipsize("abcdefghijklmnop", 40, gridFontSize); !strings.HasSuffix(got, "…") {
+		t.Errorf("超宽 ASCII 应截断并补省略号，实际 %q", got)
+	}
+	if got := ellipsize("这一首曲名相当长需要被截断显示", 60, gridFontSize); !strings.HasSuffix(got, "…") {
+		t.Errorf("超宽中文应截断并补省略号，实际 %q", got)
+	}
+	if got := ellipsize("abc", 0, gridFontSize); got != "abc" {
+		t.Errorf("maxPx<=0 应原样返回，实际 %q", got)
+	}
+}
+
+func TestArrowSuffix(t *testing.T) {
+	cases := []struct {
+		attr Attribute
+		dir  Dir
+		want string
+	}{
+		{AttrBPM, DirUp, " ↑"},
+		{AttrConst, DirDown, " ↓"},
+		{AttrVersion, DirUp, " ↑"},
+		{AttrArtist, DirUp, ""}, // 文本列不带方向
+		{AttrBPM, DirNone, ""},
+	}
+	for _, c := range cases {
+		if got := arrowSuffix(c.attr, c.dir); got != c.want {
+			t.Errorf("arrowSuffix(%v,%v) = %q, 期望 %q", c.attr, c.dir, got, c.want)
+		}
+	}
+}
+
+// gridTarget / gridGuess 是猜曲目对比表渲染测试用的固定谜底与猜测。
+var (
+	gridTarget = Track{
+		ID: "1", Title: "Future", Artist: "sasakure.UK", Genre: "流行&动漫",
+		Type: "SD", Version: "舞萌DX2024", BPM: 130, MasCharter: "Q", MasDS: 10.7, MasBreak: 9,
+	}
+	gridGuess = Track{
+		ID: "2", Title: "Other", Artist: "X", Genre: "舞萌", Type: "DX",
+		Version: "舞萌DX2025", BPM: 100, MasCharter: "Y", MasDS: 10.2, MasBreak: 4,
+	}
+)
+
+func TestGuessTableRow(t *testing.T) {
+	p := &Plugin{i18n: newI18nPlugin(t)}
+	ctx := newCmdCtx("/songdle", "chat1", "u1")
+	row := p.guessTableRow(ctx, TrackGuess{Track: gridGuess, Cells: Compare(gridTarget, gridGuess)})
+	if len(row.Cells) != len(GuessColumns)+2 {
+		t.Fatalf("单元行应含 %d 列（含两侧缩进），实际 %d", len(GuessColumns)+2, len(row.Cells))
+	}
+	if row.Cells[0].Text != "" || row.Cells[len(row.Cells)-1].Text != "" {
+		t.Error("首尾应为缩进空单元格")
+	}
+	for i, attr := range GuessColumns {
+		cell := row.Cells[i+1]
+		if cell.Width != gridColWidth(attr) {
+			t.Errorf("%v 列宽 = %d, 期望 %d", attr, cell.Width, gridColWidth(attr))
+		}
+		if cell.Bg.A == 0 {
+			t.Errorf("%v 列应带色块底色", attr)
+		}
+	}
+	if got := row.Cells[1].Text; got != "Other" {
+		t.Errorf("曲名列应展示猜测曲名，实际 %q", got)
+	}
+	// BPM 列索引：缩进 + Title/Version/Type/Genre/Artist 之后。
+	bpm := row.Cells[6].Text
+	if !strings.Contains(bpm, "100") || !strings.HasSuffix(bpm, "↑") {
+		t.Errorf("BPM 猜低应展示数值并带 ↑，实际 %q", bpm)
+	}
+}
+
+func TestBoardImageRowsWithGuesses(t *testing.T) {
+	p := &Plugin{i18n: newI18nPlugin(t)}
+	ctx := newCmdCtx("/songdle", "chat1", "u1")
+	g := &Game{Target: gridTarget, MaxAttempts: 10, Mode: ModeRandom}
+	g.SubmitGuess(TrackGuess{Track: gridGuess, Cells: Compare(gridTarget, gridGuess)}, time.Now())
+
+	rows := p.boardImageRows(ctx, g, "")
+	var (
+		sawHeader bool
+		sawGuess  bool
+		tableRows int
+		joined    strings.Builder
+	)
+	for _, row := range rows {
+		line := row.Text
+		for _, cell := range row.Cells {
+			line += cell.Text
+			if cell.Text == "Other" {
+				sawGuess = true
+			}
+		}
+		if len(row.Cells) >= 3 {
+			tableRows++
+		}
+		if strings.Contains(line, "曲名") && strings.Contains(line, "BPM") {
+			sawHeader = true
+		}
+		joined.WriteString(line)
+	}
+	if !sawHeader {
+		t.Error("应渲染猜曲目对比表表头")
+	}
+	if !sawGuess {
+		t.Error("应渲染本次猜测的曲名单元格")
+	}
+	if tableRows < 2 {
+		t.Errorf("应有表头与数据行，实际 %d 行", tableRows)
+	}
+	if strings.Contains(joined.String(), "未探测") {
+		t.Error("已有猜曲目、未探测时不应再渲染空的线索表")
+	}
+	for _, r := range joined.String() {
+		if isUnsupportedGraphic(r) {
+			t.Errorf("图片文本含字体可能缺失的字符 U+%04X %q", r, r)
+		}
+	}
+}
+
+// TestGuessTableRowEllipsizesTitle 验证过长的曲名不会撑破单元格。
+func TestGuessTableRowEllipsizesTitle(t *testing.T) {
+	p := &Plugin{i18n: newI18nPlugin(t)}
+	ctx := newCmdCtx("/songdle", "chat1", "u1")
+	target := Track{ID: "1", Title: "Future", Version: "舞萌DX2024", Type: "SD"}
+	long := Track{
+		ID: "9", Title: strings.Repeat("很长的曲名", 8),
+		Version: "舞萌DX2024", Type: "SD",
+	}
+	row := p.guessTableRow(ctx, TrackGuess{Track: long, Cells: Compare(target, long)})
+	if title := row.Cells[1].Text; !strings.HasSuffix(title, "…") {
+		t.Errorf("超长曲名应截断，实际 %q", title)
+	}
+}
+
+func TestRenderBoardImageWithGuessesProducesPNG(t *testing.T) {
+	if textimage.SystemCJKFontPath() == "" {
+		t.Skip("系统未安装 CJK 字体，跳过图片渲染测试")
+	}
+	p := &Plugin{i18n: newI18nPlugin(t)}
+	ctx := newCmdCtx("/songdle", "chat1", "u1")
+	g := &Game{Target: gridTarget, MaxAttempts: 10, Mode: ModeRandom}
+	g.SubmitGuess(TrackGuess{Track: gridGuess, Cells: Compare(gridTarget, gridGuess)}, time.Now())
+	g.SubmitGuess(TrackGuess{Track: gridTarget, Cells: Compare(gridTarget, gridTarget)}, time.Now())
+
+	img, err := p.renderBoardImage(ctx, g, "❌ 不是这首 · 还剩 8 次")
+	if err != nil {
+		t.Fatalf("renderBoardImage: %v", err)
+	}
+	if !bytes.HasPrefix(img, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("输出应为 PNG，实际前 8 字节： % x", img[:min(8, len(img))])
 	}
 }
