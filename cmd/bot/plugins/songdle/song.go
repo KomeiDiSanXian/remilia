@@ -371,10 +371,12 @@ func (p *Pool) Match(query string) MatchResult {
 	if q == "" {
 		return MatchResult{}
 	}
-	if isDigits(q) {
-		if t, ok := p.ByID(q); ok {
+	// 显式 ID（#123 / id:123）强制按曲目 ID 解析，用于消解数字简写的歧义。
+	if id, ok := explicitID(q); ok {
+		if t, found := p.ByID(id); found {
 			return MatchResult{Exact: true, Candidates: []Track{t}}
 		}
+		return MatchResult{}
 	}
 	key := normalizeTitle(q)
 	if key == "" {
@@ -393,9 +395,42 @@ func (p *Pool) Match(query string) MatchResult {
 		}
 	}
 	if len(exactTitle)+len(exactAlias) > 0 {
-		return MatchResult{Exact: true, Candidates: capCandidates(exactTitle, exactAlias)}
+		cands := capCandidates(exactTitle, exactAlias)
+		// 纯数字输入可能既是一条曲目 ID，又恰好是某首歌的曲名 / 俗称：
+		// 把 ID 对应曲目也并入候选，交给「谜底在候选里就判中」的逻辑处理；
+		// 若候选里都不含谜底，调用方会提示玩家改用 #ID 精确指定。
+		if isDigits(q) {
+			if idTrack, ok := p.ByID(q); ok {
+				cands = capCandidates([]Track{idTrack}, cands)
+			}
+		}
+		return MatchResult{Exact: true, Candidates: cands}
+	}
+	if isDigits(q) {
+		if t, ok := p.ByID(q); ok {
+			return MatchResult{Exact: true, Candidates: []Track{t}}
+		}
 	}
 	return MatchResult{Candidates: capCandidates(fuzzy)}
+}
+
+// explicitID 解析显式曲目 ID 写法：#123 / id:123，返回去掉前缀后的数字串。
+// 不是该形式时 ok 为 false，交由普通的曲名 / 俗称匹配处理。
+func explicitID(q string) (string, bool) {
+	s := strings.TrimSpace(q)
+	switch {
+	case strings.HasPrefix(s, "#"):
+		s = s[1:]
+	case strings.HasPrefix(strings.ToLower(s), "id:"):
+		s = s[3:]
+	default:
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if !isDigits(s) {
+		return "", false
+	}
+	return s, true
 }
 
 // capCandidates 按顺序拼接候选桶并截断到 [maxMatchCandidates]，同时按 ID 去重。

@@ -2,7 +2,7 @@ songdle.help: |
   Guess-the-rhythm-game-track (Songdle / Maidle style)
   Usage:
     /songdle [--tries N] [--type SD|DX|all] [--genre text] [--daily] [--artist]  start a round
-    /songdle guess <title|alias|id>  guess a track and compare every attribute (correct wins)
+    /songdle guess <title|alias|#id>  guess a track and compare every attribute (correct wins)
     /songdle artist <name>        probe the artist (also /songdle probe artist <name>)
     /songdle genre <text>         probe the genre
     /songdle type SD|DX           probe the chart type
@@ -20,12 +20,13 @@ songdle.help: |
     /songdle help                 show this help
   How to play:
     The bot picks a random maimai track and blacks out its title (only the length is shown).
-    Guessing a whole track (by title, alias or ID) is the main loop: the bot compares it
-    with the answer column by column:
+    Guessing a whole track (by title, alias or #id) is the main loop: the bot compares
+    it with the answer column by column:
       🟩 exact   🟨 close   ⬜ no match
       ↑ answer is newer / higher   ↓ answer is older / lower (version and numeric columns)
-    An exact title or alias wins; running out of tries loses. When a title matches several
-    charts, follow the hint and use the track ID. Single attributes can still be probed:
+    An exact title or alias wins; running out of tries loses. A bare number is read as both
+    a track ID and a title / alias: if the answer is among the candidates it wins, otherwise
+    the bot asks you to use /songdle guess #<id>. Single attributes can still be probed:
     artist, genre, type, version, BPM, chart designer, constant, breaks.
   Options:
     --tries N      max guesses (default 12)
@@ -52,11 +53,11 @@ songdle.board.masked: "🎯 Answer: {{.Mask}} ({{.Len}} chars)"
 songdle.board.clues_title: "Clues:"
 songdle.board.guesses_title: "Guesses:"
 songdle.board.history_title: "Probe history:"
-songdle.board.no_probes: "Nothing yet — send /songdle guess <title|alias|id> or /songdle artist <name> to start"
+songdle.board.no_probes: "Nothing yet — send /songdle guess <title|alias|#id> or /songdle artist <name> to start"
 songdle.board.legend_img: "exact=green · close=yellow · no match=gray · ↑ answer newer/higher · ↓ older/lower"
-songdle.guess.not_found: "No track matches \"{{.Query}}\". Try another title / alias, or use the track ID"
+songdle.guess.not_found: "No track matches \"{{.Query}}\". Try another title / alias, or use /songdle guess #<id>"
 songdle.guess.suggest: "No exact match. Did you mean:\n{{.Candidates}}"
-songdle.guess.ambiguous: "\"{{.Query}}\" matches several tracks — please use the ID:\n{{.Candidates}}"
+songdle.guess.ambiguous: "\"{{.Query}}\" matches several tracks — please use /songdle guess #<id>:\n{{.Candidates}}"
 songdle.guess.candidate: "  #{{.ID}} · {{.Title}} ({{.Type}} · {{.Version}})"
 songdle.guess.repeat: "Already guessed \"{{.Title}}\". Try another track"
 songdle.guess.miss: "❌ Not this one · {{.Remaining}} tries left"
@@ -97,7 +98,7 @@ songdle.probe.usage: "Usage: /songdle <attribute> <value>, attributes: {{.Attrs}
 songdle.probe.bad_attr: "Unknown attribute \"{{.Value}}\". Available: {{.Attrs}}"
 songdle.error.not_started: "No round in progress. Send /songdle to start"
 songdle.error.already_finished: "This round is over. Send /songdle to start a new one"
-songdle.error.usage_guess: "Usage: /songdle guess <title|alias|track ID>"
+songdle.error.usage_guess: "Usage: /songdle guess <title|alias|#track ID>"
 songdle.giveup.denied: "Only the starter can end a group-shared round"
 songdle.giveup.done: "🏳️ Round abandoned"
 songdle.pool.total: "📚 Song pool: {{.Total}} tracks · probe-able: {{.Attrs}}"
@@ -119,10 +120,12 @@ songdle.lang.usage: "Usage: /songdle lang <locale> (available: {{.Locales}})"
 songdle.lang.unknown: "Unsupported locale {{.Locale}}. Available: {{.Locales}}"
 songdle.lang.set: "✅ Language switched to {{.Locale}}"
 songdle.button.title: "Guess track"
-songdle.button.title_tip: "Send /songdle guess <title|alias|ID> to guess a track"
-songdle.button.bpm: "Guess BPM"
+songdle.button.title_tip: "Send /songdle guess <title|alias|#id> to guess a track"
+songdle.button.guess_id: "Guess by ID"
+songdle.button.guess_id_tip: "Send /songdle guess #<id> to pick a track by its ID"
+songdle.button.bpm: "Probe BPM"
 songdle.button.bpm_tip: "Send /songdle bpm <number> to probe BPM"
-songdle.button.artist: "Guess artist"
+songdle.button.artist: "Probe artist"
 songdle.button.artist_tip: "Send /songdle artist <name> to probe the artist"
 songdle.button.giveup: "Give up"
 songdle.button.board: "Board"

@@ -433,3 +433,36 @@ func TestResolveGuess(t *testing.T) {
 		t.Errorf("不同曲目应返回歧义候选，实际 %+v amb=%v", got, amb)
 	}
 }
+
+// TestCommandGuessNumericCollision 验证数字同时命中 ID 与俗称时先提示、再用 #ID 精确消歧。
+func TestCommandGuessNumericCollision(t *testing.T) {
+	const songs = `{
+  "9": {"id":"9","title":"Nine","artist":"A","type":"SD","version":"maimai","bpm":100,"masds":10,"masbreak":1},
+  "302": {"id":"302","title":"Other","artist":"B","type":"SD","version":"maimai","bpm":120,"masds":11,"masbreak":2},
+  "7": {"id":"7","title":"Seven","artist":"C","type":"SD","version":"maimai","bpm":140,"masds":12,"masbreak":3}
+}`
+	const aliases = `[{"SongID":302,"Alias":["9"]}]`
+	pool, err := buildPool([]byte(songs), []byte(aliases))
+	if err != nil {
+		t.Fatalf("buildPool: %v", err)
+	}
+	p := &Plugin{pool: pool, sessions: NewSessionStore(30 * time.Minute), location: time.UTC}
+	putGame(t, p, "chat1", "u1", Track{ID: "7", Title: "Seven"}, 5)
+
+	// 谜底（7）不在候选里 → 歧义提示，不消耗次数。
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 9", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	if g := groupGame(t, p, "chat1"); g.Attempts() != 0 || len(g.Guesses) != 0 {
+		t.Fatalf("歧义数字不应消耗次数，实际 attempts=%d guesses=%d", g.Attempts(), len(g.Guesses))
+	}
+
+	// 用 #ID 精确指定别名对应的曲目 302 → 消耗一次并猜错（谜底是 7）。
+	if err := p.handleSongdle(newCmdCtx("/songdle 猜 #302", "chat1", "u1")); err != nil {
+		t.Fatalf("handleSongdle: %v", err)
+	}
+	g := groupGame(t, p, "chat1")
+	if len(g.Guesses) != 1 || g.Guesses[0].Track.ID != "302" {
+		t.Fatalf("显式 ID 应精确指定 302，实际 %+v", g.Guesses)
+	}
+}

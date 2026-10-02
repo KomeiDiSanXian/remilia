@@ -351,6 +351,8 @@ type boardImageCell struct {
 	// Bg 非零值时作为单元格填充色（Alpha > 0 生效），用于 Wordle 式色块。
 	Bg   color.RGBA
 	Size float64
+	// Center 为真时单元格文本水平居中，让表头与色块内的取值对齐。
+	Center bool
 }
 
 // boardImageRow 是提示板图片里的一行。
@@ -408,6 +410,8 @@ func (p *Plugin) guessTableHeader(ctx *eventctx.Context) []boardImageRow {
 			Width: gridColWidth(attr),
 			Color: imgGray,
 			Size:  gridFontSize,
+			// 与数据单元格一样居中，否则表头会贴着列左边、和数据错位。
+			Center: true,
 		})
 	}
 	return []boardImageRow{tableRow(cells...), {Divider: true}}
@@ -420,11 +424,12 @@ func (p *Plugin) guessTableRow(ctx *eventctx.Context, tg TrackGuess) boardImageR
 		width := gridColWidth(c.Attr)
 		text := emojiSafe(strings.TrimSpace(c.Value)) + arrowSuffix(c.Attr, c.Dir)
 		cells = append(cells, boardImageCell{
-			Text:  ellipsize(text, width-16, gridFontSize),
-			Width: width,
-			Color: gridTextColor(c.Mark),
-			Bg:    gridBgColor(c.Mark),
-			Size:  gridFontSize,
+			Text:   ellipsize(text, width-16, gridFontSize),
+			Width:  width,
+			Color:  gridTextColor(c.Mark),
+			Bg:     gridBgColor(c.Mark),
+			Size:   gridFontSize,
+			Center: true,
 		})
 	}
 	return tableRow(cells...)
@@ -609,6 +614,9 @@ func (p *Plugin) renderBoardImage(ctx *eventctx.Context, g *Game, notice string)
 			if cell.Size > 0 {
 				opts = append(opts, textimage.WithFontSize(cell.Size))
 			}
+			if cell.Center {
+				opts = append(opts, textimage.WithAlign(textimage.AlignCenter))
+			}
 			if cell.Bg.A > 0 {
 				opts = append(opts,
 					textimage.WithBgColor(cell.Bg),
@@ -659,9 +667,16 @@ func (p *Plugin) buttons(ctx *eventctx.Context, g *Game) []platform.Button {
 			Row:     1,
 		},
 		{
-			ID:      buttonPrefix + "bpm",
-			Label:   p.t(ctx, "songdle.button.bpm"),
-			Command: "/songdle bpm ",
+			ID:      buttonPrefix + "guess_id",
+			Label:   p.t(ctx, "songdle.button.guess_id"),
+			Command: "/songdle 猜 #",
+			Style:   platform.ButtonStyleSecondary,
+			Row:     1,
+		},
+		{
+			ID:      buttonPrefix + "board",
+			Label:   p.t(ctx, "songdle.button.board"),
+			Command: "/songdle board",
 			Style:   platform.ButtonStyleSecondary,
 			Row:     1,
 		},
@@ -670,20 +685,20 @@ func (p *Plugin) buttons(ctx *eventctx.Context, g *Game) []platform.Button {
 			Label:   p.t(ctx, "songdle.button.artist"),
 			Command: "/songdle 曲师 ",
 			Style:   platform.ButtonStyleSecondary,
-			Row:     1,
+			Row:     2,
+		},
+		{
+			ID:      buttonPrefix + "bpm",
+			Label:   p.t(ctx, "songdle.button.bpm"),
+			Command: "/songdle bpm ",
+			Style:   platform.ButtonStyleSecondary,
+			Row:     2,
 		},
 		{
 			ID:      buttonPrefix + "giveup",
 			Label:   p.t(ctx, "songdle.button.giveup"),
 			Command: "/songdle giveup",
 			Style:   platform.ButtonStyleDanger,
-			Row:     2,
-		},
-		{
-			ID:      buttonPrefix + "board",
-			Label:   p.t(ctx, "songdle.button.board"),
-			Command: "/songdle board",
-			Style:   platform.ButtonStyleSecondary,
 			Row:     2,
 		},
 	}

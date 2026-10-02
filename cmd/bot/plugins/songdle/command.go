@@ -597,6 +597,9 @@ func (p *Plugin) handleInteraction(ctx *eventctx.Context) error {
 	case "title":
 		ctx.ReplyText(p.t(ctx, "songdle.button.title_tip"))
 		return nil
+	case "guess_id":
+		ctx.ReplyText(p.t(ctx, "songdle.button.guess_id_tip"))
+		return nil
 	case "bpm":
 		ctx.ReplyText(p.t(ctx, "songdle.button.bpm_tip"))
 		return nil

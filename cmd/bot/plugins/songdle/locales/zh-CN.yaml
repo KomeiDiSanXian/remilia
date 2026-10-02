@@ -2,7 +2,7 @@ songdle.help: |
   猜音游曲目小游戏（Songdle / Maidle 风格）
   用法：
     /songdle [--tries N] [--type SD|DX|all] [--genre 关键词] [--daily] [--artist]  开始新的一局
-    /songdle 猜 <曲名|俗称|ID>    猜一首曲目，返回整行属性对比（猜中即获胜）
+    /songdle 猜 <曲名|俗称|#ID>  猜一首曲目，返回整行属性对比（猜中即获胜）
     /songdle 曲师 <名字>          探测曲师（也可写 /songdle probe 曲师 <名字>）
     /songdle 流派 <关键词>        探测流派
     /songdle 类型 SD|DX           探测谱面类型
@@ -20,10 +20,11 @@ songdle.help: |
     /songdle help                 查看帮助
   玩法：
     机器人随机选一首 maimai（舞萌DX）曲目，并把曲名完全涂黑（只给长度）。
-    推荐直接猜曲目（曲名 / 俗称 / ID 都行），机器人会把猜的这首与谜底逐列对比：
+    推荐直接猜曲目：曲名、俗称、曲目 ID 都行，机器人会把猜的这首与谜底逐列对比：
       🟩 完全一致   🟨 接近   ⬜ 不匹配
       ↑ 谜底比所猜更新 / 更高   ↓ 谜底比所猜更旧 / 更低（版本与数值列）
-    猜中曲名或俗称即获胜，次数用尽判负；匹配到多首同名曲目时按提示改用 ID。
+    猜中曲名或俗称即获胜，次数用尽判负。纯数字输入会同时按「曲目 ID」和
+    「曲名 / 俗称」解析：谜底在候选里就直接判中，否则提示改用 /songdle 猜 #<ID> 精确指定。
     想缩小范围也可以逐项探测单个属性，可探测：曲师、流派、类型、版本、BPM、谱师、定数、绝赞。
   选项：
     --tries N      猜测次数上限（默认 12）
@@ -49,11 +50,11 @@ songdle.board.masked: "🎯 谜底：{{.Mask}}（{{.Len}} 字）"
 songdle.board.clues_title: "线索："
 songdle.board.guesses_title: "猜测对比："
 songdle.board.history_title: "猜测记录："
-songdle.board.no_probes: "还没有开始，发送 /songdle 猜 <曲名|俗称|ID> 或 /songdle 曲师 <名字> 开始吧"
+songdle.board.no_probes: "还没有开始，发送 /songdle 猜 <曲名|俗称|#ID> 或 /songdle 曲师 <名字> 开始吧"
 songdle.board.legend_img: "命中=绿色 · 接近=黄色 · 不对=灰色 · ↑ 谜底更新/更高 · ↓ 谜底更旧/更低"
-songdle.guess.not_found: "没有找到匹配「{{.Query}}」的曲目，换个曲名 / 俗称，或用曲目 ID 试试"
+songdle.guess.not_found: "没有找到匹配「{{.Query}}」的曲目，换个曲名 / 俗称，或用 /songdle 猜 #<ID> 指定"
 songdle.guess.suggest: "没有精确匹配，你是不是想找：\n{{.Candidates}}"
-songdle.guess.ambiguous: "「{{.Query}}」匹配到多首曲目，请改用 ID：\n{{.Candidates}}"
+songdle.guess.ambiguous: "「{{.Query}}」匹配到多首曲目，请改用 /songdle 猜 #<ID> 指定：\n{{.Candidates}}"
 songdle.guess.candidate: "  #{{.ID}} · {{.Title}}（{{.Type}} · {{.Version}}）"
 songdle.guess.repeat: "已经猜过「{{.Title}}」了，换一首吧"
 songdle.guess.miss: "❌ 不是这首 · 还剩 {{.Remaining}} 次"
@@ -94,7 +95,7 @@ songdle.probe.usage: "用法：/songdle <属性> <取值>，属性可选：{{.At
 songdle.probe.bad_attr: "未知属性「{{.Value}}」，可用属性：{{.Attrs}}"
 songdle.error.not_started: "还没有进行中的对局，发送 /songdle 开始一局吧"
 songdle.error.already_finished: "本局已经结束了，发送 /songdle 开始新的一局"
-songdle.error.usage_guess: "用法：/songdle 猜 <曲名|俗称|曲目ID>"
+songdle.error.usage_guess: "用法：/songdle 猜 <曲名|俗称|#曲目ID>"
 songdle.giveup.denied: "群共享对局只能由发起者放弃"
 songdle.giveup.done: "🏳️ 已放弃本局"
 songdle.pool.total: "📚 曲库共 {{.Total}} 首，可探测：{{.Attrs}}"
@@ -116,10 +117,12 @@ songdle.lang.usage: "用法：/songdle lang <语言>（可选：{{.Locales}}）"
 songdle.lang.unknown: "不支持的语言 {{.Locale}}，可选：{{.Locales}}"
 songdle.lang.set: "✅ 语言已切换为 {{.Locale}}"
 songdle.button.title: "猜曲目"
-songdle.button.title_tip: "发送 /songdle 猜 <曲名|俗称|ID> 猜一首曲目"
-songdle.button.bpm: "猜 BPM"
+songdle.button.title_tip: "发送 /songdle 猜 <曲名|俗称|#ID> 猜一首曲目"
+songdle.button.guess_id: "按 ID 猜"
+songdle.button.guess_id_tip: "发送 /songdle 猜 #<曲目ID> 精确指定一首曲目"
+songdle.button.bpm: "探测 BPM"
 songdle.button.bpm_tip: "发送 /songdle bpm <数值> 探测 BPM"
-songdle.button.artist: "猜曲师"
+songdle.button.artist: "探测曲师"
 songdle.button.artist_tip: "发送 /songdle 曲师 <名字> 探测曲师"
 songdle.button.giveup: "放弃"
 songdle.button.board: "提示板"

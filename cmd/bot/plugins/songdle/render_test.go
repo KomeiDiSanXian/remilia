@@ -237,6 +237,9 @@ func TestGuessTableRow(t *testing.T) {
 		if cell.Bg.A == 0 {
 			t.Errorf("%v 列应带色块底色", attr)
 		}
+		if !cell.Center {
+			t.Errorf("%v 列应居中，才能与表头对齐", attr)
+		}
 	}
 	if got := row.Cells[1].Text; got != "Other" {
 		t.Errorf("曲名列应展示猜测曲名，实际 %q", got)
@@ -308,6 +311,25 @@ func TestGuessTableRowEllipsizesTitle(t *testing.T) {
 	row := p.guessTableRow(ctx, TrackGuess{Track: long, Cells: Compare(target, long)})
 	if title := row.Cells[1].Text; !strings.HasSuffix(title, "…") {
 		t.Errorf("超长曲名应截断，实际 %q", title)
+	}
+}
+
+// TestGuessTableHeaderCentered 保证表头与数据单元格一样居中、列宽一致，避免错位。
+func TestGuessTableHeaderCentered(t *testing.T) {
+	p := &Plugin{i18n: newI18nPlugin(t)}
+	ctx := newCmdCtx("/songdle", "chat1", "u1")
+	rows := p.guessTableHeader(ctx)
+	if len(rows) == 0 || len(rows[0].Cells) != len(GuessColumns)+2 {
+		t.Fatalf("表头行数或列数异常: %+v", rows)
+	}
+	for i, attr := range GuessColumns {
+		cell := rows[0].Cells[i+1]
+		if !cell.Center {
+			t.Errorf("表头 %v 列应居中，才能与数据单元格对齐", attr)
+		}
+		if cell.Width != gridColWidth(attr) {
+			t.Errorf("表头 %v 列宽 = %d, 期望 %d", attr, cell.Width, gridColWidth(attr))
+		}
 	}
 }
 

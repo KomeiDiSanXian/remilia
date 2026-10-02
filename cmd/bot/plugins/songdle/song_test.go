@@ -295,3 +295,54 @@ func TestCapCandidatesDedupAndTruncate(t *testing.T) {
 		seen[tr.ID] = true
 	}
 }
+
+func TestPoolMatchExplicitID(t *testing.T) {
+	p := newTestPool(t)
+	if got := p.Match("#2"); !got.Exact || len(got.Candidates) != 1 || got.Candidates[0].ID != "2" {
+		t.Errorf("Match(#2) 应为 ID 2，实际 %+v", titles(got.Candidates))
+	}
+	if got := p.Match("id:3"); len(got.Candidates) != 1 || got.Candidates[0].ID != "3" {
+		t.Errorf("Match(id:3) 应为 ID 3，实际 %+v", titles(got.Candidates))
+	}
+	if got := p.Match("ID:  3 "); len(got.Candidates) != 1 || got.Candidates[0].ID != "3" {
+		t.Errorf("显式 ID 应忽略大小写与空白，实际 %+v", titles(got.Candidates))
+	}
+	if got := p.Match("#999"); len(got.Candidates) != 0 {
+		t.Errorf("不存在的显式 ID 应返回空，实际 %+v", titles(got.Candidates))
+	}
+	if got := p.Match("#abc"); len(got.Candidates) != 0 {
+		t.Errorf("#abc 不是合法 ID，不应命中，实际 %+v", titles(got.Candidates))
+	}
+}
+
+// TestPoolMatchNumericCollision 验证「数字既是曲目 ID 又是别名」时返回并集，
+// 由上层「谜底在候选里就判中」的逻辑消歧，必要时再用 #ID 精确指定。
+func TestPoolMatchNumericCollision(t *testing.T) {
+	const data = `{
+  "9": {"id":"9","title":"Nine","artist":"A","type":"SD","version":"maimai","bpm":100,"masds":10,"masbreak":1},
+  "302": {"id":"302","title":"Other","artist":"B","type":"SD","version":"maimai","bpm":120,"masds":11,"masbreak":2}
+}`
+	const aliases = `[{"SongID":302,"Alias":["9"]}]`
+	p, err := buildPool([]byte(data), []byte(aliases))
+	if err != nil {
+		t.Fatalf("buildPool: %v", err)
+	}
+	res := p.Match("9")
+	if !res.Exact {
+		t.Fatalf("数字冲突应仍为精确匹配，实际 %+v", res)
+	}
+	ids := make([]string, 0, len(res.Candidates))
+	for _, c := range res.Candidates {
+		ids = append(ids, c.ID)
+	}
+	slices.Sort(ids)
+	if len(ids) != 2 || ids[0] != "302" || ids[1] != "9" {
+		t.Fatalf("Match(9) 应同时包含 ID 9 与别名 9 的曲目，实际 %v", ids)
+	}
+	if got := p.Match("#9"); len(got.Candidates) != 1 || got.Candidates[0].ID != "9" {
+		t.Errorf("Match(#9) 应精确到 ID 9，实际 %v", titles(got.Candidates))
+	}
+	if got := p.Match("#302"); len(got.Candidates) != 1 || got.Candidates[0].ID != "302" {
+		t.Errorf("Match(#302) 应精确到 ID 302，实际 %v", titles(got.Candidates))
+	}
+}

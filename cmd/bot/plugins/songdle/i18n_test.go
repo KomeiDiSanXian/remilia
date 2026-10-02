@@ -84,6 +84,8 @@ var localeKeys = []string{
 	"songdle.lang.set",
 	"songdle.button.title",
 	"songdle.button.title_tip",
+	"songdle.button.guess_id",
+	"songdle.button.guess_id_tip",
 	"songdle.button.bpm",
 	"songdle.button.bpm_tip",
 	"songdle.button.artist",
