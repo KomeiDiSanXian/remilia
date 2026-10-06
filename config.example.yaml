@@ -762,6 +762,11 @@ messagelog:
 #     alias_url: ""                       # [R]  远端别名 JSON URL（优先于内置数据）
 #     timezone: "Asia/Shanghai"           # [R]  每日题选曲使用的时区
 #     session_ttl: "30m"                  # [R]  空闲对局回收时间
+#   dealornodeal: (所有字段 [R] 仅插件启动时读取)
+#     default_scope: "user"               # [R]  默认维度: user（单人独立，默认）/ group（群投票）
+#     cases: 26                           # [R]  默认箱数（6-30；非 26 时自动生成奖金表与轮次）
+#     currency: "$"                       # [R]  金额前缀（图片只绘制 ASCII，请用 ASCII 前缀）
+#     session_ttl: "30m"                  # [R]  空闲对局回收时间（1m-24h，越界按边界处理）
 
 # ====================================
 # 配置说明

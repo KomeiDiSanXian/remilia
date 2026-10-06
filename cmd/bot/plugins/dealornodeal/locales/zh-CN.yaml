@@ -1,0 +1,112 @@
+dond.help: |
+  成交不成交（Deal or No Deal）— 箱子里的虚拟奖金
+
+  用法：
+    /dond [--scope user|group] [--cases N]   开始一局（默认单人、26 箱，N 取 6-30）
+    /dond pick <箱号|random>     选定自己的箱子
+    /dond open <箱号...>         打开一个或多个箱子（可空格分隔，按钮可补全命令）
+    /dond deal / nodeal          成交 / 不成交（群维度为投票）
+    /dond resolve                群投票局提前结算当前报价（仅发起者）
+    /dond swap / keep            仅剩两箱时交换 / 保留自己的箱子
+    /dond board                  重新发送当前阶段图片
+    /dond rules                  查看玩法说明
+    /dond quit                   放弃本局（仅发起者）
+    /dond lang <语言>            切换语言（zh-CN / en-US）
+
+  玩法：
+    开局 26 个箱子各藏一笔虚拟奖金，你选定一个作为自己的箱子。
+    之后按轮次打开其余箱子揭示奖金；每轮结束后银行家按剩余箱子的
+    期望值给出报价，你可以成交拿走报价，或不成交继续开箱。
+    最后只剩两个箱子时可以选择交换，随后揭晓自己箱子的真实奖金。
+    奖金为局内虚拟数值，不落库、不计排行榜。
+
+  维度：
+    --scope user   单人局（默认）：只有发起者能操作。
+    --scope group  群投票局：群内任何人都能开箱；报价采用投票，
+                   同意成交的票数超过参与者半数即成交，
+                   也可用 /dond resolve 提前结算。
+
+dond.rules: |
+  成交不成交 · 玩法说明
+  1. 26 个箱子各藏一笔奖金（$1 ~ $1,000,000），开局随机分配。
+  2. 先选定一个箱子作为自己的，再按轮次打开其余箱子。
+  3. 每轮开满后银行家按剩余箱子期望值报价，你选择成交或继续。
+  4. 仅剩两个箱子时可交换，最后揭晓你箱子里的真实奖金。
+
+dond.start.running: "本会话已有一局进行中。发送 /dond board 查看当前进度，或先 /dond quit 放弃。"
+dond.start.bad_scope: "维度需为 user 或 group，当前填的是「{{.Scope}}」。"
+dond.start.bad_cases: "箱数需在 {{.Min}}-{{.Max}} 之间。"
+dond.start.created_single: "🎁 新的一局开始！请用 /dond pick <箱号> 选定你自己的箱子（1-{{.Cases}}）。"
+dond.start.created_group: "🎁 群投票局开始！群内任何人都可以用 /dond pick <箱号> 选箱（1-{{.Cases}}），报价阶段投票决定成交。"
+
+dond.pick.prompt: "请用 /dond pick <箱号> 选定你的箱子（1-{{.Cases}}），或 /dond pick random 随机选。"
+dond.pick.bad: "箱号需在 1-{{.Cases}} 之间。"
+dond.pick.done: "📦 你选定了 {{.Case}} 号箱。本轮请打开 {{.Left}} 个箱子，使用 /dond open <箱号>。"
+dond.pick.random_done: "📦 随机为你选定了 {{.Case}} 号箱。本轮请打开 {{.Left}} 个箱子，使用 /dond open <箱号>。"
+
+dond.open.prompt: "本轮还需要打开 {{.Left}} 个箱子，使用 /dond open <箱号>（可一次开多个，如 /dond open 1 23 15）。"
+dond.open.phase: "现在不是开箱阶段，请先查看 /dond board。"
+dond.open.bad: "箱号需在 1-{{.Cases}} 之间。"
+dond.open.opened: "{{.Case}} 号箱已经打开过了，换一个吧。"
+dond.open.own: "这是你自己的箱子（{{.Case}} 号），不能打开。"
+dond.open.done: "📦 打开 {{.Case}} 号箱：{{.Value}}。本轮还需打开 {{.Left}} 个。"
+dond.open.batch: "📦 打开了 {{.Count}} 个箱子：{{.List}}。本轮还需打开 {{.Left}} 个。"
+dond.open.batch_filled: "📦 打开了 {{.Count}} 个箱子：{{.List}}。本轮已开满，银行家正在报价。"
+dond.open.batch_skipped: "已跳过：{{.List}}"
+dond.open.skip.opened: "已打开"
+dond.open.skip.own: "自己的箱子"
+dond.open.skip.bad: "超出范围"
+dond.open.skip.notnum: "非数字"
+dond.open.skip.round_full: "本轮已开满"
+
+dond.offer.header: "💼 银行家报价：{{.Offer}}（第 {{.Round}}/{{.Rounds}} 轮）"
+dond.offer.hint_single: "使用 /dond deal 成交拿走报价，或 /dond nodeal 继续开箱。"
+dond.offer.hint_group: "群内投票：/dond deal 同意成交，/dond nodeal 继续；同意票超过参与者半数即成交，也可 /dond resolve 提前结算。"
+dond.offer.vote_cast: "已记录你的选择（{{.Choice}}）。当前 成交 {{.Deal}} · 继续 {{.NoDeal}}"
+dond.offer.vote_closed: "报价已经结算，请查看 /dond board。"
+dond.offer.resolved_deal: "💰 多数选择成交，带走 {{.Offer}}。"
+dond.offer.resolved_nodeal: "➡️ 多数选择继续，不成交。"
+dond.offer.no_vote: "还没有人投票。"
+dond.offer.final: "这是最后一轮报价，成交或不成交后进入最终抉择。"
+
+dond.deal.done: "💰 成交！你带走了 {{.Offer}}。"
+dond.nodeal.next: "➡️ 不成交，进入第 {{.Round}} 轮：请打开 {{.Left}} 个箱子。"
+dond.nodeal.final: "➡️ 不成交。现在只剩两个箱子，使用 /dond swap 交换，或 /dond keep 保留自己的箱子。"
+
+dond.final.prompt: "最后一步：使用 /dond swap 交换剩下的那个箱子，或 /dond keep 保留自己的箱子。"
+dond.final.swap: "🔄 你选择了交换。"
+dond.final.keep: "🔒 你选择了保留自己的箱子。"
+
+dond.result.dealt: "🎉 本局结束：你成交带走了 {{.Amount}}（自己箱子里其实是 {{.Own}}）。"
+dond.result.reveal: "🎉 本局结束：你带走了 {{.Amount}}。"
+dond.result.quit: "本局已放弃。"
+
+dond.board.none: "本会话还没有进行中的对局，发送 /dond 开始一局。"
+dond.quit.denied: "只有发起者可以放弃本局。"
+dond.quit.done: "本局已放弃。"
+dond.resolve.denied: "只有发起者可以提前结算当前报价。"
+dond.not_owner: "这是 {{.Owner}} 发起的单人局，你不能操作；可以发送 /dond 开始自己的对局。"
+
+dond.lang.done: "语言已切换为 {{.Locale}}。"
+dond.lang.usage: "可用语言：{{.Locales}}。"
+dond.unknown_sub: "未知子命令「{{.Sub}}」。发送 /dond rules 查看用法。"
+dond.error.generic: "操作失败：{{.Err}}"
+
+dond.button.pick: "选箱"
+dond.button.pick_random: "随机选箱"
+dond.button.open: "开箱"
+dond.button.open_tip: "输入本轮要开的箱号，可一次填多个：/dond open 1 23 15"
+dond.button.board: "面板"
+dond.button.rules: "规则"
+dond.button.deal: "成交"
+dond.button.nodeal: "继续"
+dond.button.swap: "交换"
+dond.button.keep: "保留"
+dond.button.new: "再来一局"
+dond.button.resolve: "结算"
+
+dond.stage.pick: "选定你的箱子"
+dond.stage.opening: "本轮还需开 {{.Left}} 箱"
+dond.stage.offer: "银行家报价"
+dond.stage.final: "交换或保留"
+dond.stage.finished: "本局结束"

@@ -1,0 +1,112 @@
+dond.help: |
+  Deal or No Deal — virtual prize money in the briefcases
+
+  Usage:
+    /dond [--scope user|group] [--cases N]   Start a game (default: solo, 26 cases; N is 6-30)
+    /dond pick <n|random>        Pick your own case
+    /dond open <n...>            Open one or more cases (space-separated; buttons autocomplete)
+    /dond deal / nodeal          Deal / No deal (a vote in group scope)
+    /dond resolve                Settle the current offer vote early (starter only)
+    /dond swap / keep            With two cases left: swap / keep your case
+    /dond board                  Resend the current stage image
+    /dond rules                  Show the rules
+    /dond quit                   Abandon the game (starter only)
+    /dond lang <locale>          Switch language (zh-CN / en-US)
+
+  How it works:
+    26 cases each hide a virtual prize. Pick one as yours, then open the
+    others round by round. After each round the banker offers a price based
+    on the expected value of the remaining cases: deal to take it, or keep
+    playing. With two cases left you may swap, then your case is revealed.
+    All money is in-game only — nothing is persisted and there is no ladder.
+
+  Scope:
+    --scope user   Solo (default): only the starter can act.
+    --scope group  Group vote: anyone may open cases; the offer is a vote,
+                   and a strict majority of participants deals.
+                   /dond resolve settles the vote early.
+
+dond.rules: |
+  Deal or No Deal · Rules
+  1. 26 cases hide $1 - $1,000,000, shuffled at the start.
+  2. Pick one as your own, then open the others round by round.
+  3. After each round the banker offers a price; deal or keep playing.
+  4. With two cases left you may swap; finally your case is revealed.
+
+dond.start.running: "A game is already running here. Send /dond board to see it, or /dond quit to abandon."
+dond.start.bad_scope: "Scope must be user or group, got \"{{.Scope}}\"."
+dond.start.bad_cases: "Case count must be between {{.Min}} and {{.Max}}."
+dond.start.created_single: "🎁 New game! Use /dond pick <n> to choose your case (1-{{.Cases}})."
+dond.start.created_group: "🎁 Group-vote game! Anyone can use /dond pick <n> (1-{{.Cases}}); the offer is decided by vote."
+
+dond.pick.prompt: "Use /dond pick <n> to choose your case (1-{{.Cases}}), or /dond pick random."
+dond.pick.bad: "Case number must be between 1 and {{.Cases}}."
+dond.pick.done: "📦 You picked case {{.Case}}. Open {{.Left}} case(s) this round with /dond open <n>."
+dond.pick.random_done: "📦 Randomly picked case {{.Case}} for you. Open {{.Left}} case(s) this round with /dond open <n>."
+
+dond.open.prompt: "{{.Left}} case(s) left to open this round. Use /dond open <n> (multiple allowed, e.g. /dond open 1 23 15)."
+dond.open.phase: "Not the opening phase now; check /dond board."
+dond.open.bad: "Case number must be between 1 and {{.Cases}}."
+dond.open.opened: "Case {{.Case}} is already open, pick another."
+dond.open.own: "That is your own case ({{.Case}}); you cannot open it."
+dond.open.done: "📦 Opened case {{.Case}}: {{.Value}}. {{.Left}} more this round."
+dond.open.batch: "📦 Opened {{.Count}} case(s): {{.List}}. {{.Left}} more this round."
+dond.open.batch_filled: "📦 Opened {{.Count}} case(s): {{.List}}. Round complete — the banker is calling."
+dond.open.batch_skipped: "Skipped: {{.List}}"
+dond.open.skip.opened: "already open"
+dond.open.skip.own: "your own case"
+dond.open.skip.bad: "out of range"
+dond.open.skip.notnum: "not a number"
+dond.open.skip.round_full: "round already full"
+
+dond.offer.header: "💼 Banker offers {{.Offer}} (round {{.Round}}/{{.Rounds}})"
+dond.offer.hint_single: "Use /dond deal to take it, or /dond nodeal to keep playing."
+dond.offer.hint_group: "Vote: /dond deal to accept, /dond nodeal to continue; a strict majority deals. /dond resolve settles early."
+dond.offer.vote_cast: "Vote recorded ({{.Choice}}). Deal {{.Deal}} · No deal {{.NoDeal}}."
+dond.offer.vote_closed: "The offer is already settled; see /dond board."
+dond.offer.resolved_deal: "💰 Majority dealt: you take {{.Offer}}."
+dond.offer.resolved_nodeal: "➡️ Majority continues: no deal."
+dond.offer.no_vote: "No votes yet."
+dond.offer.final: "This is the final offer; after it comes the last choice."
+
+dond.deal.done: "💰 Deal! You take {{.Offer}}."
+dond.nodeal.next: "➡️ No deal. Round {{.Round}}: open {{.Left}} case(s)."
+dond.nodeal.final: "➡️ No deal. Two cases left: /dond swap to swap, or /dond keep to keep yours."
+
+dond.final.prompt: "Final step: /dond swap to take the other case, or /dond keep to keep yours."
+dond.final.swap: "🔄 You swapped."
+dond.final.keep: "🔒 You kept your case."
+
+dond.result.dealt: "🎉 Game over: you dealt for {{.Amount}} (your case actually held {{.Own}})."
+dond.result.reveal: "🎉 Game over: you take {{.Amount}}."
+dond.result.quit: "Game abandoned."
+
+dond.board.none: "No game running here. Send /dond to start one."
+dond.quit.denied: "Only the starter can abandon this game."
+dond.quit.done: "Game abandoned."
+dond.resolve.denied: "Only the starter can settle the offer early."
+dond.not_owner: "This is a solo game started by {{.Owner}}; you cannot act. Send /dond to start your own."
+
+dond.lang.done: "Language switched to {{.Locale}}."
+dond.lang.usage: "Available locales: {{.Locales}}."
+dond.unknown_sub: "Unknown subcommand \"{{.Sub}}\". Send /dond rules for usage."
+dond.error.generic: "Action failed: {{.Err}}"
+
+dond.button.pick: "Pick"
+dond.button.pick_random: "Random"
+dond.button.open: "Open"
+dond.button.open_tip: "Type the case numbers for this round, several at once: /dond open 1 23 15"
+dond.button.board: "Board"
+dond.button.rules: "Rules"
+dond.button.deal: "Deal"
+dond.button.nodeal: "No deal"
+dond.button.swap: "Swap"
+dond.button.keep: "Keep"
+dond.button.new: "New game"
+dond.button.resolve: "Resolve"
+
+dond.stage.pick: "Pick your case"
+dond.stage.opening: "{{.Left}} case(s) left to open"
+dond.stage.offer: "Banker offer"
+dond.stage.final: "Swap or keep"
+dond.stage.finished: "Game over"

@@ -43,6 +43,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/anime"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/bilibili"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/css"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/dealornodeal"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/fortune"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/genshin"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/iss"
@@ -175,6 +176,7 @@ func (a *app) setupPlugins() {
 		dnd.New(),
 		wordle.New(),
 		songdle.New(),
+		dealornodeal.New(),
 
 		// QQ 平台能力（指令面板 / 自定义菜单）
 		qqpanel.New(),
