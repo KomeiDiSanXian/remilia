@@ -474,14 +474,12 @@ func (p *Plugin) replyStage(ctx *eventctx.Context, g *Game, notice string) {
 	caps := ctx.GetPlatformCapabilities()
 
 	// QQ 的按钮消息以卡片渲染，卡片正文里的换行会被部分客户端显示成字面量
-	// 「<br/>」。说明文案本身是纯文本，拆成「图片+按钮（首行摘要）」与「独立
-	// 纯文本说明」两条消息，换行在纯文本消息里即可正常显示。
-	if head, body := splitNotice(notice); body != "" &&
-		ctx.GetEventPlatform() == "qq" &&
+	// 「<br/>」。说明文案本身是纯文本、不依赖 Markdown 换行，这里把换行折叠成
+	// 单行，既避开该渲染问题又保持单条消息。
+	if ctx.GetEventPlatform() == "qq" &&
 		caps.Has(platform.CapMarkdown) && len(btns) > 0 {
-		msg.Markdown = head
+		msg.Markdown = collapseLines(notice)
 		ctx.Reply(msg)
-		ctx.ReplyText(notice)
 		return
 	}
 
@@ -498,13 +496,20 @@ func (p *Plugin) replyStage(ctx *eventctx.Context, g *Game, notice string) {
 	}
 }
 
-// splitNotice 把说明文案拆成首行摘要与其余多行内容。
-// 单行文案的 body 为空；命令层据此决定是否需要额外补发纯文本消息。
-func splitNotice(notice string) (head, body string) {
-	if before, after, ok := strings.Cut(notice, "\n"); ok {
-		return strings.TrimSpace(before), strings.TrimSpace(after)
+// collapseLines 把多行说明折叠成单行（行间以空格分隔），用于 QQ 按钮卡片：
+// 卡片正文里的换行会被部分客户端渲染成字面量「<br/>」。空行与行首尾空白会被丢弃。
+func collapseLines(notice string) string {
+	if !strings.ContainsAny(notice, "\r\n") {
+		return notice
 	}
-	return strings.TrimSpace(notice), ""
+	lines := strings.Split(strings.ReplaceAll(notice, "\r\n", "\n"), "\n")
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if s := strings.TrimSpace(line); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // stageViewFor 把对局转换为渲染视图。

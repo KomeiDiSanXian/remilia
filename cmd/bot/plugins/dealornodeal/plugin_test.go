@@ -80,20 +80,20 @@ func TestClampSessionTTL(t *testing.T) {
 	}
 }
 
-func TestSplitNotice(t *testing.T) {
+func TestCollapseLines(t *testing.T) {
 	cases := []struct {
-		in         string
-		head, body string
+		in   string
+		want string
 	}{
-		{"single", "single", ""},
-		{"head\nbody", "head", "body"},
-		{"head\n\nbody", "head", "body"},
-		{" head \n body ", "head", "body"},
+		{"single", "single"},
+		{"head\nbody", "head body"},
+		{"head\n\nbody", "head body"},
+		{" head \n body ", "head body"},
+		{"head\r\nbody", "head body"},
 	}
 	for _, c := range cases {
-		head, body := splitNotice(c.in)
-		if head != c.head || body != c.body {
-			t.Errorf("splitNotice(%q) = (%q, %q), 期望 (%q, %q)", c.in, head, body, c.head, c.body)
+		if got := collapseLines(c.in); got != c.want {
+			t.Errorf("collapseLines(%q) = %q, 期望 %q", c.in, got, c.want)
 		}
 	}
 }
