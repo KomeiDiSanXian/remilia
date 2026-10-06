@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.71.0 (2026-10-06)
 
 ### 💼 新插件 Deal or No Deal 成交不成交（开箱猜奖金小游戏）
 
