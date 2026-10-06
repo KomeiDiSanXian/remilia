@@ -467,10 +467,24 @@ func (p *Plugin) replyStage(ctx *eventctx.Context, g *Game, notice string) {
 	}
 
 	msg := platform.ImageDataMessage(data, "dond.png", "image/png")
-	if btns := p.buttons(ctx, g); len(btns) > 0 {
+	btns := p.buttons(ctx, g)
+	if len(btns) > 0 {
 		msg = msg.WithButtons(btns...)
 	}
 	caps := ctx.GetPlatformCapabilities()
+
+	// QQ 的按钮消息以卡片渲染，卡片正文里的换行会被部分客户端显示成字面量
+	// 「<br/>」。说明文案本身是纯文本，拆成「图片+按钮（首行摘要）」与「独立
+	// 纯文本说明」两条消息，换行在纯文本消息里即可正常显示。
+	if head, body := splitNotice(notice); body != "" &&
+		ctx.GetEventPlatform() == "qq" &&
+		caps.Has(platform.CapMarkdown) && len(btns) > 0 {
+		msg.Markdown = head
+		ctx.Reply(msg)
+		ctx.ReplyText(notice)
+		return
+	}
+
 	switch {
 	case caps.Has(platform.CapMarkdown):
 		msg.Markdown = notice
@@ -482,6 +496,15 @@ func (p *Plugin) replyStage(ctx *eventctx.Context, g *Game, notice string) {
 		ctx.Reply(msg)
 		ctx.ReplyText(notice)
 	}
+}
+
+// splitNotice 把说明文案拆成首行摘要与其余多行内容。
+// 单行文案的 body 为空；命令层据此决定是否需要额外补发纯文本消息。
+func splitNotice(notice string) (head, body string) {
+	if before, after, ok := strings.Cut(notice, "\n"); ok {
+		return strings.TrimSpace(before), strings.TrimSpace(after)
+	}
+	return strings.TrimSpace(notice), ""
 }
 
 // stageViewFor 把对局转换为渲染视图。

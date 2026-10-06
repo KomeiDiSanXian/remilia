@@ -79,3 +79,21 @@ func TestClampSessionTTL(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitNotice(t *testing.T) {
+	cases := []struct {
+		in         string
+		head, body string
+	}{
+		{"single", "single", ""},
+		{"head\nbody", "head", "body"},
+		{"head\n\nbody", "head", "body"},
+		{" head \n body ", "head", "body"},
+	}
+	for _, c := range cases {
+		head, body := splitNotice(c.in)
+		if head != c.head || body != c.body {
+			t.Errorf("splitNotice(%q) = (%q, %q), 期望 (%q, %q)", c.in, head, body, c.head, c.body)
+		}
+	}
+}

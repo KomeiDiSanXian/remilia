@@ -2,7 +2,9 @@ package dealornodeal
 
 import (
 	"bytes"
+	"fmt"
 	"image/png"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +64,37 @@ func TestRenderStage_Invalid(t *testing.T) {
 	}
 	if _, err := renderStage(stageView{Values: []int64{1, 2}}); err == nil {
 		t.Fatal("Opened 与 Values 长度不符应返回错误")
+	}
+}
+
+// TestRenderStageText_RevealsAllAtFinish 结算阶段应揭晓全部箱子的金额，
+// 而不是只显示对局中已经打开的那几个。
+func TestRenderStageText_RevealsAllAtFinish(t *testing.T) {
+	withDeterministicRNG(t)
+	g := NewGame(Options{})
+	if err := g.Pick(1); err != nil {
+		t.Fatalf("Pick: %v", err)
+	}
+	if err := openWholeRound(g); err != nil {
+		t.Fatalf("openWholeRound: %v", err)
+	}
+	if err := g.Deal(); err != nil {
+		t.Fatalf("Deal: %v", err)
+	}
+
+	view := (&Plugin{}).stageViewFor(g)
+	if view.Phase != PhaseFinished {
+		t.Fatalf("阶段 = %v, 期望 finished", view.Phase)
+	}
+	txt := renderStageText(view)
+	for i, val := range g.Values {
+		token := fmt.Sprintf("[%d:%s]", i+1, shortMoney(val, "$"))
+		if i == g.OwnCase {
+			token = fmt.Sprintf("[%d:YOU %s]", i+1, shortMoney(val, "$"))
+		}
+		if !strings.Contains(txt, token) {
+			t.Errorf("结算文本缺少 %s：\n%s", token, txt)
+		}
 	}
 }
 

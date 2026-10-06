@@ -182,9 +182,11 @@ func renderStage(v stageView) ([]byte, error) {
 
 	// 左侧箱子网格。
 	bodyTop := bannerTop + bannerH + 16
+	// 对局结束后揭晓全部箱子：未打开的箱子也显示金额。
+	reveal := v.Phase == PhaseFinished
 	elim := map[int64]int{}
 	for i, opened := range v.Opened {
-		if opened {
+		if opened || reveal {
 			elim[v.Values[i]]++
 		}
 	}
@@ -194,13 +196,14 @@ func renderStage(v stageView) ([]byte, error) {
 		y := bodyTop + float64(r)*(tileH+tileGap)
 		opened := v.Opened[i]
 		isOwn := i == v.OwnCase
+		shown := opened || reveal
 
 		fill := colTile
 		border := colTileBorde
 		switch {
 		case isOwn:
 			fill, border = colOwn, colOwn
-		case opened:
+		case shown:
 			fill, border = colOpened, colBorder
 		}
 		dc.SetColor(fill)
@@ -211,8 +214,18 @@ func renderStage(v stageView) ([]byte, error) {
 		dc.DrawRoundedRectangle(x, y, tileW, tileH, 8)
 		dc.Stroke()
 
-		if opened && !isOwn {
-			draw(shortMoney(v.Values[i], cur), 12, x+tileW/2, y+tileH/2, 0.5, 0.5, colOpenedVal)
+		if shown {
+			// 揭晓金额时保留箱号（左上角小字），避免金额把箱号抹掉。
+			numCol := colMuted
+			valCol := colOpenedVal
+			if isOwn {
+				numCol, valCol = colOwnText, colOwnText
+			}
+			draw(strconv.Itoa(i+1), 10, x+7, y+11, 0, 0.5, numCol)
+			draw(shortMoney(v.Values[i], cur), 13, x+tileW/2, y+tileH/2-2, 0.5, 0.5, valCol)
+			if isOwn {
+				draw("YOU", 9, x+tileW/2, y+tileH-9, 0.5, 0.5, colOwnText)
+			}
 			continue
 		}
 		numCol := colText
@@ -285,14 +298,18 @@ func renderStageText(v stageView) string {
 	var b strings.Builder
 	b.WriteString(bannerText(v, cur))
 	b.WriteString("\n")
+	reveal := v.Phase == PhaseFinished
 	for i, val := range v.Values {
 		if i > 0 {
 			b.WriteString("  ")
 		}
+		shown := v.Opened[i] || reveal
 		switch {
+		case i == v.OwnCase && shown:
+			fmt.Fprintf(&b, "[%d:YOU %s]", i+1, shortMoney(val, cur))
 		case i == v.OwnCase:
 			fmt.Fprintf(&b, "[%d:YOU]", i+1)
-		case v.Opened[i]:
+		case shown:
 			fmt.Fprintf(&b, "[%d:%s]", i+1, shortMoney(val, cur))
 		default:
 			fmt.Fprintf(&b, "[%d]", i+1)
