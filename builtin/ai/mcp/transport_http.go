@@ -63,11 +63,16 @@ func newHTTPTransport(cfg ServerConfig) (*httpTransport, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 事件流客户端：共享底层拨号（同一 SSRF/TLS 防护）但不设整体超时；
+	// 单独的 Transport 上加 ResponseHeaderTimeout——否则 slowloris 型服务器
+	// 可让 openStream 的请求无限挂起。
+	streamTransport := hc.Transport.(*http.Transport).Clone()
+	streamTransport.ResponseHeaderTimeout = 15 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 	return &httpTransport{
 		cfg:          cfg,
 		client:       hc,
-		streamClient: &http.Client{Transport: hc.Transport, CheckRedirect: hc.CheckRedirect},
+		streamClient: &http.Client{Transport: streamTransport, CheckRedirect: hc.CheckRedirect},
 		baseCtx:      ctx,
 		baseCancel:   cancel,
 	}, nil
@@ -89,6 +94,11 @@ func (t *httpTransport) SetProtocolVersion(v string) {
 }
 
 // Send 发送一条报文并把收到的响应交给回调。
+//
+// 响应既可能是单条 JSON，也可能是 SSE 事件流。SSE 流按规范可以长期保持
+// 打开（长任务工具逐步推送）——把它读满到 EOF 会被 client.Timeout 整体
+// 击杀，长任务调用必然超时失败。因此流式响应逐事件增量消费，收到响应
+// 形态的报文（带 id 无 method）即收尾返回。
 func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	req, err := t.newPost(ctx, msg)
 	if err != nil {
@@ -100,12 +110,23 @@ func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	}
 	defer resp.Body.Close()
 
-	if newSID := resp.Header.Get("Mcp-Session-Id"); newSID != "" {
-		t.mu.Lock()
-		t.sessionID = newSID
-		t.mu.Unlock()
+	// 会话 id 只在成功响应上采纳：错误响应（如 400 带过期/伪造的会话头）
+	// 若被采纳，后续所有请求都会带错会话 id 永久 404。
+	if resp.StatusCode/100 == 2 {
+		if newSID := resp.Header.Get("Mcp-Session-Id"); newSID != "" {
+			t.mu.Lock()
+			t.sessionID = newSID
+			t.mu.Unlock()
+		}
 	}
 	limit := t.cfg.maxResponseBytes()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+		return fmt.Errorf("mcp: %s: http %d: %s", t.cfg.Name, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		return t.consumeSSEUntilResponse(resp.Body)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return fmt.Errorf("mcp: %s: read response: %w", t.cfg.Name, err)
@@ -113,14 +134,7 @@ func (t *httpTransport) Send(ctx context.Context, msg []byte) error {
 	if int64(len(body)) > limit {
 		return fmt.Errorf("mcp: %s: response exceeds %d bytes", t.cfg.Name, limit)
 	}
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("mcp: %s: http %d: %s", t.cfg.Name, resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		t.dispatchSSE(body)
-	} else {
-		t.dispatch(body)
-	}
+	t.dispatch(body)
 	// 握手流程：会话已建立，尽力打开服务器推送通道（仅一次）。无状态流程没有
 	// 独立的 GET 事件流，变更通知经 subscriptions/listen 到达。
 	if t.version() != StatelessProtocolVersion {
@@ -285,8 +299,14 @@ func (t *httpTransport) openStream() error {
 		return fmt.Errorf("mcp: %s: stream request: %w", t.cfg.Name, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
+	// 只有"明确不支持推送"（404/405）才永久退出事件流重连；401/429/5xx 是
+	// 瞬时故障，一次抖动就关闭通知通道会让 tools/list_changed 静默丢失。
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 		return errStreamUnsupported
+	}
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("mcp: %s: http %d: %s", t.cfg.Name, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		return errStreamUnsupported
@@ -308,11 +328,46 @@ func (t *httpTransport) dispatch(msg []byte) {
 	}
 }
 
-// dispatchSSE 解析一整段 SSE 事件流（响应内嵌的那类）。
-func (t *httpTransport) dispatchSSE(body []byte) {
-	if err := t.consumeSSE(bytes.NewReader(body)); err != nil {
-		logger.Debugf("[MCP] %s: parse sse response: %v", t.cfg.Name, err)
+// consumeSSEUntilResponse 增量消费一条可能长期打开的 SSE 响应流，
+// 直到投递出响应形态的报文（带 id 无 method）或流结束。
+// 收到响应即返回 nil——调用方（client.call）的等待通道已被投递填充，
+// 无需等流自然收尾；流内后续事件（若有）随之丢弃。
+func (t *httpTransport) consumeSSEUntilResponse(r io.Reader) error {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), int(t.cfg.maxResponseBytes())+1)
+	var data bytes.Buffer
+	flush := func(done *bool) {
+		if data.Len() == 0 {
+			return
+		}
+		payload := bytes.TrimSpace(data.Bytes())
+		data.Reset()
+		if len(payload) == 0 {
+			return
+		}
+		t.dispatch(payload)
+		var env rpcEnvelope
+		if json.Unmarshal(payload, &env) == nil && env.ID != nil && env.Method == "" {
+			*done = true
+		}
 	}
+	done := false
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" {
+			flush(&done)
+			if done {
+				return nil
+			}
+			continue
+		}
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			data.WriteString(after)
+			data.WriteByte('\n')
+		}
+	}
+	flush(&done)
+	return sc.Err()
 }
 
 // consumeSSE 增量解析 SSE 事件流：每个事件由若干 data: 行组成，空行分隔。

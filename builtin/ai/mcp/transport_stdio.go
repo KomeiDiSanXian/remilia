@@ -39,6 +39,12 @@ func newStdioTransport(cfg ServerConfig) (*stdioTransport, error) {
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
+	// WaitDelay：进程退出/被杀后管道读落点的兜底时限——没有它，一个
+	// 不退出也不写 EOF 的子进程会让 Close 永久阻塞在 cmd.Wait。
+	cmd.WaitDelay = 2 * time.Second
+	if attr := stdioSysProcAttr(); attr != nil {
+		cmd.SysProcAttr = attr
+	}
 	return &stdioTransport{cfg: cfg, cmd: cmd, done: make(chan struct{})}, nil
 }
 
@@ -94,6 +100,10 @@ func (t *stdioTransport) readLoop(handler func([]byte)) {
 }
 
 // Send 写入一条报文（换行分帧）。
+//
+// 写操作须受 ctx 管控：子进程停止消费 stdin 时管道缓冲填满，一次阻塞的
+// Write 永远不返回（外层 context.WithTimeout 打不断已开始的阻塞写，
+// 调用协程与在途请求由此泄漏）。写入放进协程，超时/断连时关闭传输解锁。
 func (t *stdioTransport) Send(ctx context.Context, msg []byte) error {
 	if t.in == nil {
 		return fmt.Errorf("mcp: %s: transport not started", t.cfg.Name)
@@ -105,10 +115,25 @@ func (t *stdioTransport) Send(ctx context.Context, msg []byte) error {
 		return ctx.Err()
 	default:
 	}
-	if _, err := t.in.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("mcp: %s: write: %w", t.cfg.Name, err)
+	writeDone := make(chan error, 1)
+	go func() {
+		defer close(writeDone)
+		if _, err := t.in.Write(append(msg, '\n')); err != nil {
+			writeDone <- fmt.Errorf("mcp: %s: write: %w", t.cfg.Name, err)
+			return
+		}
+		writeDone <- nil
+	}()
+	select {
+	case err := <-writeDone:
+		return err
+	case <-t.done:
+		return fmt.Errorf("mcp: %s: transport closed", t.cfg.Name)
+	case <-ctx.Done():
+		// 写不出去（子进程卡死）：关闭传输终止子进程，避免写协程永久阻塞。
+		_ = t.Close()
+		return ctx.Err()
 	}
-	return nil
 }
 
 // SendStream 发送一条报文并等待它开启的长连流结束（实现 [Transport]）。
@@ -128,7 +153,7 @@ func (t *stdioTransport) SendStream(ctx context.Context, msg []byte) error {
 	}
 }
 
-// Close 关闭输入并终止子进程（Windows 下连同进程树）。
+// Close 关闭输入并终止子进程（Windows 下连同进程树；Unix 下终止整个进程组）。
 func (t *stdioTransport) Close() error {
 	t.closeOnce.Do(func() {
 		if t.in != nil {
@@ -145,7 +170,12 @@ func (t *stdioTransport) Close() error {
 // Wait 在读取循环结束时关闭（连接断开）。
 func (t *stdioTransport) Wait() <-chan struct{} { return t.done }
 
-// killProcessTree 终止进程；Windows 下连带子进程树。
+// killProcessTree 终止进程及其派生进程。
+// 平台细节见 transport_stdio_unix.go / transport_stdio_windows.go：
+// Unix 走进程组 SIGKILL（Setpgid 让子进程自成组长，-pid 命中组内全部成员——
+// 孙进程如 npx 派生的 node）；Windows 走 taskkill /T 连并进程树。
+// 只杀直接子进程会让孤儿孙进程存活并持有 stdout 写端，读取循环永远等不到
+// EOF，连接状态永久"假活"。
 func killProcessTree(pid int) {
 	if runtime.GOOS == "windows" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -154,6 +184,8 @@ func killProcessTree(pid int) {
 		if err := exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", fmt.Sprint(pid)).Run(); err == nil {
 			return
 		}
+	} else if err := killProcessGroup(pid); err == nil {
+		return
 	}
 	if p, err := os.FindProcess(pid); err == nil {
 		_ = p.Kill()

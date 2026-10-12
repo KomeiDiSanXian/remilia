@@ -258,7 +258,13 @@ func (c *client) call(ctx context.Context, method string, params any) (raw json.
 // 自行分配 id，故单独暴露。
 func (c *client) nextRequestID() int64 { return c.nextID.Add(1) }
 
-// handleMessage 处理一条入站报文：响应交给等待方，通知就地处理。
+// handleMessage 处理一条入站报文：响应交给等待方，服务器主动请求回错误响应，
+// 通知就地处理。
+//
+// 判定必须区分"响应"与"服务器发起的请求"：JSON-RPC 2.0 里服务器主动请求
+// （如 sampling/createMessage）同样带 id。只看 id 会把服务器的请求参数当作
+// 空结果投给等待中的调用（id 撞号时造成静默数据损坏），不撞号则被丢弃，
+// 服务器会永久挂起等待。
 func (c *client) handleMessage(raw []byte) {
 	var env rpcEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
@@ -266,11 +272,24 @@ func (c *client) handleMessage(raw []byte) {
 		return
 	}
 	if env.ID != nil {
+		if env.Method != "" {
+			// 服务器主动请求：本客户端不支持任何 server→client 能力，
+			// 按规范回 method not found，避免对端挂起等待。
+			c.replyServerRequestError(*env.ID)
+			return
+		}
 		c.mu.Lock()
 		ch := c.pending[*env.ID]
 		c.mu.Unlock()
 		if ch != nil {
-			ch <- rpcResponse{ID: env.ID, Result: env.Result, Error: env.Error}
+			// 非阻塞投递：同一 id 的重复响应（如 SSE 双通道重复投递或服务器
+			// bug）在缓冲满时直接丢弃，绝不能阻塞读取循环——否则该连接上
+			// 所有后续响应/通知全部停摆。
+			select {
+			case ch <- rpcResponse{ID: env.ID, Result: env.Result, Error: env.Error}:
+			default:
+				logger.Debugf("[MCP] %s: duplicate response for id %d dropped", c.cfg.Name, *env.ID)
+			}
 		}
 		return
 	}
@@ -290,6 +309,25 @@ func (c *client) handleMessage(raw []byte) {
 			recordRPCNotification(c.cfg.Name, env.Method)
 		}
 		logger.Debugf("[MCP] %s: notification %q ignored", c.cfg.Name, env.Method)
+	}
+}
+
+// replyServerRequestError 对服务器主动发起的请求回一个 method-not-found 错误
+// 响应，并尽力发送；发送失败仅记日志（连接即将失效时对端可自行恢复）。
+func (c *client) replyServerRequestError(id int64) {
+	resp := rpcResponse{
+		JSONRPC: jsonrpcVersion,
+		ID:      &id,
+		Error:   &rpcError{Code: -32601, Message: "method not found: server requests are not supported by this client"},
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return
+	}
+	sendCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.tr.Send(sendCtx, data); err != nil {
+		logger.Debugf("[MCP] %s: failed to reply to server request id %d: %v", c.cfg.Name, id, err)
 	}
 }
 

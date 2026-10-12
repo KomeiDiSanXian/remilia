@@ -67,9 +67,14 @@ func NewManager(cfg *Config) (*Manager, error) {
 		if err := validateServer(cfg, sc); err != nil {
 			return nil, err
 		}
-		prefix := sc.ToolPrefix
-		if prefix == "" {
+		// 自定义前缀同样净化：注册表入库时会对最终名做 SanitizeToolName，
+		// 若绑定表记的"原始前缀"与净化结果不一致（如含空格），同步/下线
+		// 按前缀差集对不上号，下线的 MCP 工具会永久残留在目录里。
+		var prefix string
+		if sc.ToolPrefix == "" {
 			prefix = "mcp_" + toolkit.SanitizeToolName(sc.Name) + "_"
+		} else {
+			prefix = toolkit.SanitizeToolName(sc.ToolPrefix) + "_"
 		}
 		prefix = uniquePrefix(prefix, prefixes)
 		states = append(states, &serverState{cfg: sc, prefix: prefix, refreshCh: make(chan struct{}, 1)})

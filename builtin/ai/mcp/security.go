@@ -76,6 +76,8 @@ func commandAllowed(allow []string, cmd string) bool {
 }
 
 // checkHTTPURL 校验 http 传输地址：协议、明文限制与 IP 级别 SSRF 防护。
+// allowInsecureHTTP 的语义是"允许明文 http，且仅限回环地址"——开启后也不
+// 得连公网/局域网明文（此前只查 scheme，一个开关就把任意公网明文放行了）。
 func checkHTTPURL(raw string, allowInsecure, allowPrivate bool) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -93,6 +95,9 @@ func checkHTTPURL(raw string, allowInsecure, allowPrivate bool) (*url.URL, error
 	}
 	// 地址为字面 IP 时直接校验；主机名在连接时（拨号前）按解析结果校验。
 	if ip := net.ParseIP(host); ip != nil {
+		if u.Scheme == "http" && !ip.IsLoopback() {
+			return nil, fmt.Errorf("plain http is restricted to loopback addresses, got %s", ip)
+		}
 		if err := forbidIP(ip, allowInsecure, allowPrivate); err != nil {
 			return nil, err
 		}
@@ -120,6 +125,17 @@ func forbidIP(ip net.IP, allowLoopback, allowPrivate bool) error {
 	return nil
 }
 
+// dialIPCheck 拨号前对目标 IP 的校验：SSRF 防护 + 明文 http 的回环限制。
+func dialIPCheck(ip net.IP, s ServerConfig, plainHTTP bool) error {
+	if err := forbidIP(ip, s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
+		return err
+	}
+	if plainHTTP && !ip.IsLoopback() {
+		return fmt.Errorf("plain http is restricted to loopback addresses, got %s", ip)
+	}
+	return nil
+}
+
 // newHTTPClient 构造始终校验 TLS 的客户端，并在拨号前按解析出的 IP 做 SSRF
 // 防护（直接连接已校验的 IP，抵御 DNS rebinding）。
 func newHTTPClient(s ServerConfig) (*http.Client, error) {
@@ -135,13 +151,16 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 	}
 
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	// plainHTTP：该服务器的 URL 是明文 http（allow_insecure_http 已放行）。
+	// 明文 http 仍要限制在回环地址，防止一个开关把任意公网明文放行。
+	plainHTTP := strings.HasPrefix(strings.ToLower(s.URL), "http://")
 	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, err
 		}
 		if ip := net.ParseIP(host); ip != nil {
-			if err := forbidIP(ip, s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
+			if err := dialIPCheck(ip, s, plainHTTP); err != nil {
 				return nil, err
 			}
 			return dialer.DialContext(ctx, network, addr)
@@ -151,7 +170,7 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 			return nil, err
 		}
 		for _, resolved := range ips {
-			if err := forbidIP(resolved.IP, s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
+			if err := dialIPCheck(resolved.IP, s, plainHTTP); err != nil {
 				return nil, err
 			}
 		}
@@ -196,6 +215,8 @@ func loadCACertPool(file string) (*x509.CertPool, error) {
 }
 
 // buildEnv 构造子进程环境：白名单基础变量 + 显式声明的变量。
+// 无 "=" 的条目是畸形 env（Windows/Unix 语义不一致），跳过；
+// 重复键按 extra 覆盖白名单透传（map 去重，保持最后写入者胜出）。
 func buildEnv(extra, allow []string) []string {
 	allowed := make(map[string]struct{}, len(baseEnvAllowlist)+len(allow))
 	for _, k := range baseEnvAllowlist {
@@ -205,21 +226,35 @@ func buildEnv(extra, allow []string) []string {
 		allowed[strings.ToUpper(strings.TrimSpace(k))] = struct{}{}
 	}
 
-	out := make([]string, 0, len(baseEnvAllowlist)+len(extra))
+	extraKVs := make(map[string]string)
+	for _, kv := range extra {
+		if strings.TrimSpace(kv) == "" {
+			continue
+		}
+		key, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			// 无 "=" 的条目成不了合法环境项，跳过（避免下游平台歧义）。
+			continue
+		}
+		extraKVs[key] = expandEnv(kv)
+	}
+	seen := make(map[string]struct{}, len(extraKVs))
+	out := make([]string, 0, len(baseEnvAllowlist)+len(extraKVs))
 	for _, kv := range os.Environ() {
 		key, _, ok := strings.Cut(kv, "=")
 		if !ok {
 			continue
 		}
+		if _, override := extraKVs[key]; override {
+			continue
+		}
 		if _, ok := allowed[strings.ToUpper(key)]; ok {
+			seen[key] = struct{}{}
 			out = append(out, kv)
 		}
 	}
-	for _, kv := range extra {
-		if strings.TrimSpace(kv) == "" {
-			continue
-		}
-		out = append(out, expandEnv(kv))
+	for _, kv := range extraKVs {
+		out = append(out, kv)
 	}
 	return out
 }

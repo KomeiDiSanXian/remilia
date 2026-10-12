@@ -382,7 +382,9 @@ func TestManagerMaterializesToolsAndExecutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if got := res.Flatten(); got != "result for search" {
+	// 结果文本必须既完整送达、又带外部来源标记（内容隔离，见 provider.go）。
+	if got := res.Flatten(); !strings.Contains(got, "result for search") ||
+		!strings.Contains(got, "外部工具 github 返回的数据") {
 		t.Fatalf("flattened result = %q", got)
 	}
 }
@@ -586,7 +588,9 @@ func TestStatelessSessionConnectsExecutesAndSubscribes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if got := res.Flatten(); got != "result for search" {
+	// 结果文本必须既完整送达、又带外部来源标记（内容隔离，见 provider.go）。
+	if got := res.Flatten(); !strings.Contains(got, "result for search") ||
+		!strings.Contains(got, "外部工具 stateless 返回的数据") {
 		t.Fatalf("flattened result = %q", got)
 	}
 	if meta := srv.lastMeta(methodCallTool); meta == nil || meta[metaProtocolVersion] != StatelessProtocolVersion {
@@ -845,15 +849,15 @@ func TestConvertCallResultPreservesRichParts(t *testing.T) {
 	}}
 	res.StructuredContent = json.RawMessage(`{"k":1}`)
 
-	got, err := convertCallResult(res)
+	got, err := convertCallResult("srv", res)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
 	if len(got.Parts) != 4 {
 		t.Fatalf("expected 4 parts, got %d", len(got.Parts))
 	}
-	if got.Parts[0].Kind != toolkit.ResultText || got.Parts[0].Text != "hello" {
-		t.Errorf("text part = %+v", got.Parts[0])
+	if !strings.Contains(got.Parts[0].Text, "hello") || !strings.Contains(got.Parts[0].Text, "外部工具 srv 返回的数据") {
+		t.Errorf("text part must carry content + source tag = %+v", got.Parts[0])
 	}
 	if got.Parts[1].Kind != toolkit.ResultImage || string(got.Parts[1].Data) != "img" {
 		t.Errorf("image part = %+v", got.Parts[1])
@@ -867,12 +871,12 @@ func TestConvertCallResultPreservesRichParts(t *testing.T) {
 }
 
 func TestConvertCallResultIsErrorBecomesError(t *testing.T) {
-	_, err := convertCallResult(&callToolResult{
+	_, err := convertCallResult("srv", &callToolResult{
 		IsError: true,
 		Content: []contentItem{{Type: "text", Text: "boom"}},
 	})
-	if err == nil || err.Error() != "boom" {
-		t.Fatalf("isError must become an error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), "数据结束") {
+		t.Fatalf("isError must keep the payload with source tag, got %v", err)
 	}
 }
 

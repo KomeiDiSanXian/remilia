@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,11 +21,11 @@ import (
 func TestHTTPTransportRoundTrip(t *testing.T) {
 	fake := newFakeServer(mcpTool{Name: "ping", Description: "ping"})
 
-	var sawSession bool
+	var sawSession atomic.Bool
 	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if r.Header.Get("Mcp-Session-Id") != "" {
-			sawSession = true
+			sawSession.Store(true)
 		}
 		w.Header().Set("Mcp-Session-Id", "sess-1")
 		resp := fake.handle(body)
@@ -58,7 +59,7 @@ func TestHTTPTransportRoundTrip(t *testing.T) {
 	if tool.Name != "mcp_h_ping" || tool.Source != toolkit.MCPSource("h") {
 		t.Fatalf("unexpected tool: %+v", tool)
 	}
-	if !sawSession {
+	if !sawSession.Load() {
 		t.Error("session id from the server must be echoed on subsequent requests")
 	}
 
