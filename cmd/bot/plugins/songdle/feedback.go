@@ -149,9 +149,9 @@ func ParseAttribute(s string) (Attribute, bool) {
 
 // Probe 一次针对某个属性的猜测及其结果。
 type Probe struct {
-	Attr   Attribute
 	Raw    string // 玩家原始输入
 	Value  string // 归一化后的展示值
+	Attr   Attribute
 	Mark   Mark
 	Dir    Dir
 	Solved bool // 是否为命中谜底曲名的猜测
@@ -396,8 +396,8 @@ func formatDS(v float64) string {
 
 // Cell 是「猜曲目」对比表中的一个单元格。
 type Cell struct {
-	Attr  Attribute
 	Value string
+	Attr  Attribute
 	Mark  Mark
 	Dir   Dir
 }

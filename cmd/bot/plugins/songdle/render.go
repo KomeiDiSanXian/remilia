@@ -360,11 +360,11 @@ type boardImageCell struct {
 // Cells 为空时按整行文本渲染；否则按表格行渲染。
 type boardImageRow struct {
 	Text    string
-	Size    float64
-	Color   color.RGBA
-	Gap     int // 行前额外间距（像素）
-	Divider bool
 	Cells   []boardImageCell
+	Size    float64
+	Gap     int // 行前额外间距（像素）
+	Color   color.RGBA
+	Divider bool
 }
 
 // tableRow 给单元格两侧补上与画布内边距等宽的空单元格，让表格对齐正文缩进。

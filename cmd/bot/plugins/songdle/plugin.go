@@ -27,23 +27,23 @@ var timeNow = time.Now
 
 // config 插件运行配置（来自 config.yaml 的 plugins.songdle 段）。
 type config struct {
-	// DefaultTries 默认探测次数；MaxTries 允许的上限。
-	DefaultTries int
-	MaxTries     int
-	DefaultScope Scope
 	// DefaultType / DefaultGenre 是默认曲库筛选条件（SD/DX 与流派子串）。
 	DefaultType  string
 	DefaultGenre string
-	DefaultDaily bool
-	// RevealArtist 为真时开局即公布曲师。
-	RevealArtist bool
 	// SongsFile / AliasFile 优先于对应 URL，URL 优先于内置数据。
 	SongsFile string
 	AliasFile string
 	SongsURL  string
 	AliasURL  string
 	Timezone  string
-	TTL       time.Duration
+	// DefaultTries 默认探测次数；MaxTries 允许的上限。
+	DefaultTries int
+	MaxTries     int
+	TTL          time.Duration
+	DefaultScope Scope
+	DefaultDaily bool
+	// RevealArtist 为真时开局即公布曲师。
+	RevealArtist bool
 }
 
 // Plugin 「猜音游曲目」插件实例。

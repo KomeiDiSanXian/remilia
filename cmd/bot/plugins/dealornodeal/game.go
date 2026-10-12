@@ -176,14 +176,18 @@ var (
 //
 // 所有可变字段都在 SessionStore 的锁内访问，命令层通过 UpdateFound 串行修改。
 type Game struct {
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// Participants 是本局参与者，userID -> 显示名。
+	Participants map[string]string
+	// Votes 是群投票局中各成员对当前报价的投票：userID -> 是否成交。
+	Votes    map[string]bool
 	ID       string
 	Platform string
 	ChatID   string
 	// OwnerID / OwnerName 是发起者（群投票局的成交结算与退出权限归其所有）。
 	OwnerID   string
 	OwnerName string
-	Scope     Scope
-
 	// Values 是每个箱子（下标 = 箱号-1）的奖金，开局洗牌后固定。
 	Values []int64
 	// Opened 标记每个箱子是否已打开。
@@ -192,32 +196,23 @@ type Game struct {
 	Schedule []int
 	// OwnCase 是玩家选定的箱子下标；未选定时为 -1。
 	OwnCase int
-
-	Phase Phase
 	// Round 是当前轮次下标（0 起）。
 	Round int
 	// OpenedThisRound / ToOpenThisRound 是本轮已开/需开箱数。
 	OpenedThisRound int
 	ToOpenThisRound int
-
 	// Offer 是当前银行家报价；OfferReady 表示当前报价尚未被处理。
-	Offer      int64
+	Offer int64
+	// Won 是最终带走的奖金（成交价或自己箱子的真实值）。
+	Won        int64
+	Scope      Scope
+	Phase      Phase
 	OfferReady bool
 	// Dealt 表示玩家已接受报价。
 	Dealt bool
-	// Won 是最终带走的奖金（成交价或自己箱子的真实值）。
-	Won int64
 	// Swapped 记录最终抉择是否选择了交换。
-	Swapped bool
-
-	// Participants 是本局参与者，userID -> 显示名。
-	Participants map[string]string
-	// Votes 是群投票局中各成员对当前报价的投票：userID -> 是否成交。
-	Votes map[string]bool
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Finished  bool
+	Swapped  bool
+	Finished bool
 }
 
 // Options 是创建对局的参数。

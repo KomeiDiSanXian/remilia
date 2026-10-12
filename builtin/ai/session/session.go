@@ -27,17 +27,44 @@ import (
 //   - ToolCount: 当前会话累计的工具调用次数（跨回合累加，随会话持久化）
 //   - contentCache: 附件二进制内容的内存缓存（按 URL key，限本轮会话有效，不持久化）
 type Session struct {
-	mu        sync.Mutex
-	turnMu    sync.Mutex
-	ID        string
-	UserID    string
-	ChatID    string
-	Messages  []protocol.Message
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	signal       atomic.Pointer[turnSignal]
+	contentCache map[string]*CachedContent `json:"-"`
+	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
+	selCache *SelectionCache `json:"-"`
+	// toolSet 会话级工具集稳定状态（json:"-" 不持久化，重启后重新收敛）。
+	// 用于抑制工具集抖动——tools 是请求前缀的前段，集合一变其后的
+	// 历史全部失去前缀缓存（策略见 builtin/ai/decision/stabilize.go，
+	// 状态定义见本包 cache.go）。
+	toolSet *ToolSetState `json:"-"`
+	// toolFailures 各工具在本会话中的连续失败次数（json:"-" 不持久化）。
+	// 用于工具执行的重试预算与反思引导；成功执行后归零。
+	toolFailures map[string]int `json:"-"`
+	// plan 当前任务计划。经 Record.Plan 持久化，跨重启继续执行
+	// （json:"-" 只表示不参与 Session 的直接 JSON 序列化，不代表不落库，
+	//  见 record.go 的 ToRecord/ToSession）。
+	// 由 create_plan 创建、update_plan_step 更新；每轮 LLM 调用前注入。
+	plan *Plan `json:"-"`
+	// ragCache 历史消息检索缓存（json:"-" 不持久化）。
+	ragCache *RAGCache `json:"-"`
+	// pendingImage 群聊"先发图再发字"的未消费图片（json:"-" 不持久化）。
+	// 纯图片消息（无实质文本、未 @、未引用）到达时记录，等待窗口内文字
+	// 合并为一条多模态消息；窗口超时或下一条已处理消息到达时清除。
+	pendingImage *PendingImageState `json:"-"`
+	ID           string
+	UserID       string
+	ChatID       string
+	Messages     []protocol.Message
+	// trace 工具调用追踪（json:"-" 不持久化，诊断用途）。
+	trace     []ToolTraceEntry `json:"-"`
 	CallCount int
 	ToolCount int
-
+	// planAutoRounds 当前计划已后台自动推进的轮次（json:"-" 不持久化）。
+	// 用户发新消息或 create_plan 时重置；planAutoStopped 为无进度停止标记。
+	planAutoRounds int `json:"-"`
+	mu             sync.Mutex
+	turnMu         sync.Mutex
 	// turnActive / signal 回合活跃标志与中断信号（用户抢占机制）。
 	// BeginTurn 开始回合并创建新信号；RequestInterrupt 关闭信号让进行中的
 	// 回合尽快收尾；EndTurn 清理。processWithTools 在轮次与工具之间检查。
@@ -46,49 +73,11 @@ type Session struct {
 	// 协程，与回合持有者调用 EndTurn 并发，用原子指针读写避免字段本身的
 	// 数据竞争（turnActive 同为原子量）。
 	turnActive atomic.Bool
-	signal     atomic.Pointer[turnSignal]
-
 	// deleted 删除墓碑（json:"-" 不持久化）：Delete 在移出缓存时置位，
 	// 让仍在进行的回合收尾时跳过 SaveLocked 的整记录 upsert，避免把
 	// "/ai clear" 静默撤销（消息删了又回来）。
-	deleted atomic.Bool
-
-	contentCache map[string]*CachedContent `json:"-"`
-
-	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
-	selCache *SelectionCache `json:"-"`
-
-	// toolSet 会话级工具集稳定状态（json:"-" 不持久化，重启后重新收敛）。
-	// 用于抑制工具集抖动——tools 是请求前缀的前段，集合一变其后的
-	// 历史全部失去前缀缓存（策略见 builtin/ai/decision/stabilize.go，
-	// 状态定义见本包 cache.go）。
-	toolSet *ToolSetState `json:"-"`
-
-	// toolFailures 各工具在本会话中的连续失败次数（json:"-" 不持久化）。
-	// 用于工具执行的重试预算与反思引导；成功执行后归零。
-	toolFailures map[string]int `json:"-"`
-
-	// plan 当前任务计划。经 Record.Plan 持久化，跨重启继续执行
-	// （json:"-" 只表示不参与 Session 的直接 JSON 序列化，不代表不落库，
-	//  见 record.go 的 ToRecord/ToSession）。
-	// 由 create_plan 创建、update_plan_step 更新；每轮 LLM 调用前注入。
-	plan *Plan `json:"-"`
-
-	// ragCache 历史消息检索缓存（json:"-" 不持久化）。
-	ragCache *RAGCache `json:"-"`
-
-	// trace 工具调用追踪（json:"-" 不持久化，诊断用途）。
-	trace []ToolTraceEntry `json:"-"`
-
-	// planAutoRounds 当前计划已后台自动推进的轮次（json:"-" 不持久化）。
-	// 用户发新消息或 create_plan 时重置；planAutoStopped 为无进度停止标记。
-	planAutoRounds  int  `json:"-"`
+	deleted         atomic.Bool
 	planAutoStopped bool `json:"-"`
-
-	// pendingImage 群聊"先发图再发字"的未消费图片（json:"-" 不持久化）。
-	// 纯图片消息（无实质文本、未 @、未引用）到达时记录，等待窗口内文字
-	// 合并为一条多模态消息；窗口超时或下一条已处理消息到达时清除。
-	pendingImage *PendingImageState `json:"-"`
 	// imageOverflowNotified 本次会话是否已提示过图片数量超限（json:"-" 不持久化）。
 	imageOverflowNotified bool `json:"-"`
 }

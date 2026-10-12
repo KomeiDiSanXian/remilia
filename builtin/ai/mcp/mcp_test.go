@@ -73,19 +73,19 @@ func (m *memTransport) Close() error {
 func (m *memTransport) Wait() <-chan struct{} { return m.done }
 
 type fakeServer struct {
-	mu           sync.Mutex
+	handler      func([]byte)
+	onCall       func(name string, args map[string]any) *callToolResult
+	protoVersion string
 	tools        []mcpTool
 	queued       [][]mcpTool
-	protoVersion string
-	stateless    bool
 	// discoverVersions 是 server/discover 声明支持的版本；为空表示只支持无状态版本。
 	discoverVersions []string
+	requests         []string
+	metas            []map[string]any
+	mu               sync.Mutex
+	stateless        bool
 	// rejectVersion 让服务器以 UnsupportedProtocolVersionError 拒绝所请求的版本。
 	rejectVersion bool
-	handler       func([]byte)
-	onCall        func(name string, args map[string]any) *callToolResult
-	requests      []string
-	metas         []map[string]any
 }
 
 func newFakeServer(tools ...mcpTool) *fakeServer { return &fakeServer{tools: tools} }

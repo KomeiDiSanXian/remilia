@@ -87,9 +87,6 @@ type Game struct {
 	Excluded    []rune
 	Length      int
 	MaxAttempts int
-	// Unlimited 标记无限机会（--unlimited）：猜测不消耗机会、永不判负，
-	// 默认也只作为练习局记录历史、不计入战绩与排行榜。
-	Unlimited bool
 	// BlitzWindow 限时模式下每次作答的时限。
 	BlitzWindow time.Duration
 	// Used 已消耗的作答次数（提示经济与 COSTx2 都会累加）。
@@ -114,8 +111,11 @@ type Game struct {
 	DelayedRows int
 	// Rules 本局启用的玩法修饰符（零值 = 经典规则）。
 	Rules RuleSet
-	Scope Scope
-	Mode  Mode
+	// Unlimited 标记无限机会（--unlimited）：猜测不消耗机会、永不判负，
+	// 默认也只作为练习局记录历史、不计入战绩与排行榜。
+	Unlimited bool
+	Scope     Scope
+	Mode      Mode
 	// Modifiers 混沌模式抽到的修饰符。
 	Modifiers Modifier
 	Finished  bool

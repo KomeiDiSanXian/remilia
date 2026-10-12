@@ -20,22 +20,22 @@ var timeNow = time.Now
 
 // config 插件运行配置（来自 config.yaml 的 plugins.wordle 段）。
 type config struct {
+	Timezone      string
 	DefaultLength int
 	DefaultTries  int
-	DefaultScope  Scope
-	DefaultDaily  bool
-	// DefaultRules 是未显式指定玩法开关时默认启用的规则集合。
-	DefaultRules RuleSet
 	// MaxFreeHints 是未启用 --hint-cost 时每局可用的免费提示次数；
 	// 0 表示禁用免费提示（启用 --hint-cost 时提示按次数计费、不受此上限约束）。
 	MaxFreeHints int
+	// BlitzWindow 是限时模式默认的单步时限。
+	BlitzWindow time.Duration
+	TTL         time.Duration
+	// DefaultRules 是未显式指定玩法开关时默认启用的规则集合。
+	DefaultRules RuleSet
+	DefaultScope Scope
+	DefaultDaily bool
 	// CountUnlimited 决定无限机会（--unlimited）对局是否计入战绩与排行榜。
 	// 默认 false：无限局只作为练习局留有历史记录。
 	CountUnlimited bool
-	// BlitzWindow 是限时模式默认的单步时限。
-	BlitzWindow time.Duration
-	Timezone    string
-	TTL         time.Duration
 }
 
 // Plugin Wordle 插件实例。

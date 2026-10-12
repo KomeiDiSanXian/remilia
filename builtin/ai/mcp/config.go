@@ -60,6 +60,8 @@ type ServerConfig struct {
 	// —— 安全策略（作为登记进 AI 动作策略的输入）——
 	// RequireApproval 该服务器工具是否需审批（默认 true）。显式 false 才关闭。
 	RequireApproval *bool `json:"require_approval"`
+	// Reconnect 连接断开后是否自动重连；nil 表示默认开启（true）。
+	Reconnect *bool `json:"reconnect"`
 	// Name 服务器名（用于来源标识与模型函数名限定）。
 	Name string `json:"name"`
 	// Transport 传输类型："stdio" 或 "http"。
@@ -108,8 +110,6 @@ type ServerConfig struct {
 	AllowInsecureHTTP bool `json:"allow_insecure_http"`
 	// AllowPrivateNetworks 允许连接私网地址（默认拒绝，仅 https 公网）。
 	AllowPrivateNetworks bool `json:"allow_private_networks"`
-	// Reconnect 连接断开后是否自动重连；nil 表示默认开启（true）。
-	Reconnect *bool `json:"reconnect"`
 	// AlwaysRequireApproval 任意审批模式下都强制审批。
 	AlwaysRequireApproval bool `json:"always_require_approval"`
 	// AllowStateless 允许优先尝试无状态流程（2026-07-28 起：没有握手与会话，

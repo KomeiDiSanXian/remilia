@@ -8,6 +8,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -118,8 +119,8 @@ func BuildReplyJudgeWindow(entries []ChatWindowEntry, maxRunes int) string {
 		return ""
 	}
 	var b strings.Builder
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
+	for _, e := range slices.Backward(entries) {
+
 		if e.Bot {
 			b.WriteString("机器人: ")
 		} else {

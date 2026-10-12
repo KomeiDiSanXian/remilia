@@ -64,27 +64,23 @@ func newFace(size float64) (font.Face, error) {
 
 // stageView 是渲染一张阶段图片所需的全部数据（纯 ASCII 标签）。
 type stageView struct {
-	Phase Phase
+	// Currency 是金额前缀，默认 "$"。
+	Currency string
+	Values   []int64
+	Opened   []bool
 	// Round / Rounds 是 1 起的当前轮次与总轮次。
 	Round  int
 	Rounds int
-
-	Values []int64
-	Opened []bool
 	// OwnCase 是 0 起的自己箱子下标；-1 表示未选。
-	OwnCase int
-
-	Offer      int64
-	OfferReady bool
-
+	OwnCase         int
+	Offer           int64
 	Remaining       int
 	ToOpenThisRound int
-
-	Won     int64
-	Dealt   bool
-	Swapped bool
-	// Currency 是金额前缀，默认 "$"。
-	Currency string
+	Won             int64
+	Phase           Phase
+	OfferReady      bool
+	Dealt           bool
+	Swapped         bool
 }
 
 // renderStage 把对局渲染为 PNG 图片：顶部阶段横幅，左侧箱子网格，右侧奖金面板。
