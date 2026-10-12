@@ -86,6 +86,11 @@ func agentStateInventory() []agentStateItem {
 			Note:    "回合活跃标志与中断信号：用户抢占/停止生成",
 		},
 		{
+			Name: "session_deleted", Class: agentStateSessionMemory,
+			Session: []string{"deleted"},
+			Note:    "删除墓碑：Delete 后在途回合收尾不再把会话写回存储",
+		},
+		{
 			Name: "tool_set_stability", Class: agentStateSessionMemory,
 			Session: []string{"toolSet"},
 			Note:    "工具集稳定状态（sticky 并集与闲置衰减），抑制 ToolSet 抖动",

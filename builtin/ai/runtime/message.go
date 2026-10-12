@@ -5,6 +5,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -225,7 +226,12 @@ func StripBinaryParts(m protocol.Message) protocol.Message {
 }
 
 // TruncateToolResult 截断过长的工具结果，按 rune 截断避免劈开多字节字符。
+// 先按字节长度粗判（超限必然 > MaxToolResultLen 个 rune）再全量转 rune，
+// 避免热路径上每个结果都做一次 O(4n) 的全量 rune 切片分配。
 func TruncateToolResult(result string) string {
+	if len(result) <= MaxToolResultLen {
+		return result
+	}
 	runes := []rune(result)
 	if len(runes) <= MaxToolResultLen {
 		return result
@@ -235,7 +241,8 @@ func TruncateToolResult(result string) string {
 
 // FormatAIError 将 provider 返回的错误转换为用户友好的提示。
 //
-// 常见错误映射：
+// 常见错误映射（优先按结构化错误精确匹配，避免对错误串做子串匹配——
+// 此前 "401"/"404"/"429" 会被错误串里的请求 ID、时间戳误触发）：
 //   - 401: API Key 无效或未配置
 //   - 404: 模型名称错误或 API 地址不对
 //   - 429: 速率限制
@@ -245,14 +252,18 @@ func TruncateToolResult(result string) string {
 //     组织/计费信息的原始 API 错误体。
 func FormatAIError(err error) string {
 	msg := err.Error()
+	if apiErr, ok := errors.AsType[*protocol.APIError](err); ok {
+		switch apiErr.StatusCode {
+		case 401, 403:
+			return "API 认证失败，请检查 api_key 配置"
+		case 404:
+			return "API 地址或模型名称错误，请检查 base_url 和 model 配置"
+		case 429:
+			return "请求过于频繁，请稍后再试"
+		}
+	}
 	switch {
-	case strings.Contains(msg, "401"):
-		return "API 认证失败，请检查 api_key 配置"
-	case strings.Contains(msg, "404"):
-		return "API 地址或模型名称错误，请检查 base_url 和 model 配置"
-	case strings.Contains(msg, "429"):
-		return "请求过于频繁，请稍后再试"
-	case strings.Contains(msg, "context deadline exceeded"):
+	case strings.Contains(msg, "context deadline exceeded"), strings.Contains(msg, "context canceled"):
 		return "请求超时，请检查网络连接或增大超时配置"
 	case strings.Contains(msg, "connection refused"):
 		return "无法连接 API 服务器，请检查 base_url 配置"
@@ -262,6 +273,10 @@ func FormatAIError(err error) string {
 		// 思考型模型把推理过程计入 max_tokens，预算被思考耗尽时没有正文；
 		// 面向用户只提示重试，token/模型细节留在 [AI] 告警日志里。
 		return "AI 思考时间过长，本次未能生成回复，请重试"
+	case strings.Contains(msg, "超过最大工具调用深度"):
+		// 任务复杂度超出多轮工具循环预算，不是基础设施故障；
+		// 引导简化任务比"稍后再试"更有用。
+		return "任务过于复杂，未能完成：请把任务拆成小步，或直接告诉我一步要做什么"
 	default:
 		logger.Warnf("[AI] Unhandled LLM error: %v", err)
 		return "AI 处理出错，请稍后再试"

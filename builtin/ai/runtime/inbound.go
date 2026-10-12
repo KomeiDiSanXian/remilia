@@ -126,13 +126,19 @@ func InferPartType(mimeType string) protocol.ContentPartType {
 }
 
 // InferAudioFormat 从 MIME 类型推断 OpenAI input_audio format。
+// 白名单与 OpenAI input_audio 支持的格式一致（wav/mp3/pcm）：超出白名单的
+// 类型在真 API 上只会 400，识别出来也发不出去。无法识别返回空串，调用方
+// 丢弃该附件并在消息级给用户可见反馈（不做多余的格式猜测）。
 func InferAudioFormat(mimeType string) string {
-	switch mimeType {
+	// 规范化：小写 + 去掉 "; codecs=..." 参数部分。
+	base, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(mimeType)), ";")
+	base = strings.TrimSpace(base)
+	switch base {
 	case "audio/wav", "audio/wave", "audio/x-wav":
 		return "wav"
 	case "audio/mpeg", "audio/mp3":
 		return "mp3"
-	case "audio/L16", "audio/l16":
+	case "audio/l16", "audio/pcm":
 		return "pcm"
 	default:
 		return ""

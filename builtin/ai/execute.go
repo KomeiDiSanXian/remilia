@@ -104,11 +104,39 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Rich: tool.ExecuteRich, Record: recordToolCall}.Invoke(callerCtx)
 }
 
+// ctxKeySkillStack 技能调用栈（Skill 互相注入形成的嵌套链）在 context 中的键。
+type ctxKeySkillStack struct{}
+
+// skillCallStack 从 ctx 取技能调用栈集合（无调用链时为 nil）。
+func skillCallStack(ctx context.Context) map[string]bool {
+	stack, _ := ctx.Value(ctxKeySkillStack{}).(map[string]bool)
+	return stack
+}
+
+// withSkillCallStack 把 name 压入技能调用栈并返回新 ctx（独立拷贝，不改原 map）。
+func withSkillCallStack(ctx context.Context, name string) context.Context {
+	old := skillCallStack(ctx)
+	next := make(map[string]bool, len(old)+1)
+	for k := range old {
+		next[k] = true
+	}
+	next[name] = true
+	return context.WithValue(ctx, ctxKeySkillStack{}, next)
+}
+
 // executeSkill 执行一个 Skill 的内部工具调用循环。
 //
 // 使用自己的 Prompt 和 Tools 做最多 SkillMaxDepth 轮的非流式 LLM 调用。
 // 不持久化到 session，纯函数式。
+//
+// 递归防护：调用栈经 context 传递。嵌套只重置本技能内部轮数计数，
+// 两个互引的系统技能（A 注入 B、B 注入 A）会 A→B→A→… 无界嵌套直到
+// 60s 超时兜底，期间每层用量记账 + token 白烧；已在栈中的技能直接
+// 拒绝执行，模型看到错误便改走其他路径。
 func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map[string]any) (string, error) {
+	if skillCallStack(ctx)[skill.Name] {
+		return "", fmt.Errorf("技能 %q 递归调用被阻止：它已在当前调用链中，请检查技能对其他技能的引用", skill.Name)
+	}
 	// 记账归属：以技能自身的 owner + name 为键，嵌套调用同样按被执行的技能计数。
 	p.skillReg.IncrementUsage(skill.OwnerID, skill.Name)
 
@@ -125,7 +153,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 	if skillTimeout <= 0 {
 		skillTimeout = 60 * time.Second
 	}
-	skillCtx, cancel := context.WithTimeout(ctx, skillTimeout)
+	skillCtx, cancel := context.WithTimeout(withSkillCallStack(ctx, skill.Name), skillTimeout)
 	defer cancel()
 
 	for depth := 0; depth < p.cfg.SkillMaxDepth; depth++ {

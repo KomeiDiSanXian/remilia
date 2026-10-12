@@ -6,6 +6,9 @@
 package ai
 
 import (
+	"context"
+	"time"
+
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
@@ -22,6 +25,15 @@ func (p *Plugin) verifier() runtime.Verifier {
 		APITimeout:  p.cfg.APITimeout,
 		MaxRetry:    p.cfg.VerifyMaxRetries,
 	}
+}
+
+// effectiveVerifyTimeout 返回校验调用的外层预算：单次校验内部还有
+// APITimeout 超时，外层给两倍余量避免"超时套超时"把评审误杀。
+func (p *Plugin) effectiveVerifyTimeout() time.Duration {
+	if p.cfg.APITimeout > 0 {
+		return 2 * p.cfg.APITimeout
+	}
+	return 2 * 60 * time.Second
 }
 
 // generateVerified 生成回答并通过校验器校验：
@@ -48,7 +60,15 @@ func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Sessio
 			return result, nil
 		}
 
-		v, verr := verifier.Verify(ctx.Context(), originalQuery, result.Text)
+		// 校验上下文必须独立于事件 ctx 派生：processWithTools 返回时
+		// restoreDeadline 已把 std ctx 恢复为原始事件 ctx，其 30s 全局
+		// deadline 在多轮工具循环后早已过期——用它调 Verify 会立刻
+		// deadline exceeded，校验静默失效（只记 Debug 日志）。后台路径
+		// （continuePlan）的 ctx 恢复后是 Background，校验正常，两条路径
+		// 行为不一致即此因。这里从 Background 派生，让校验拥有完整预算。
+		vctx, vcancel := context.WithTimeout(context.Background(), p.effectiveVerifyTimeout())
+		v, verr := verifier.Verify(vctx, originalQuery, result.Text)
+		vcancel()
 		if verr != nil {
 			logger.Debugf("[AI] Answer verification failed, skipping: %v", verr)
 			return result, nil
@@ -63,7 +83,10 @@ func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Sessio
 		}
 		logger.Debugf("[AI] Answer verification failed, regenerating (%d/%d): %s",
 			attempt+1, verifier.MaxRetries(), v.Reason)
-		p.sm.AppendMessage(session, protocol.Message{
+		// 修正指令与反思/重规划指令同回合处理：NoPersist 追加，
+		// 由 processWithTools 的 defer SaveSession 统一落库。每条各写一次库
+		// 是写放大，且会让指令永久占据历史窗口。
+		p.sm.AppendMessageNoPersist(session, protocol.Message{
 			Role:     protocol.RoleUser,
 			Internal: true,
 			Content:  runtime.BuildVerifyRetryMessage(v.Reason),

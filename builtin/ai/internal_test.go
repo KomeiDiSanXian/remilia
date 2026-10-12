@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -38,22 +39,29 @@ func TestIsCommandMessage(t *testing.T) {
 
 func TestFormatAIError(t *testing.T) {
 	tests := []struct {
-		err  string
+		err  error
 		want string
 	}{
-		{"API returned 401", "API 认证失败，请检查 api_key 配置"},
-		{"error 401", "API 认证失败，请检查 api_key 配置"},
-		{"API returned 404", "API 地址或模型名称错误，请检查 base_url 和 model 配置"},
-		{"error 429", "请求过于频繁，请稍后再试"},
-		{"context deadline exceeded", "请求超时，请检查网络连接或增大超时配置"},
-		{"connection refused", "无法连接 API 服务器，请检查 base_url 配置"},
-		{"no such host", "API 域名解析失败，请检查 base_url 配置"},
-		{"unknown error", "AI 处理出错，请稍后再试"},
+		// 结构化 APIError：精确按状态码映射。
+		{&protocol.APIError{StatusCode: 401, Body: "invalid key"}, "API 认证失败，请检查 api_key 配置"},
+		{&protocol.APIError{StatusCode: 403, Body: "forbidden"}, "API 认证失败，请检查 api_key 配置"},
+		{&protocol.APIError{StatusCode: 404, Body: "model not found"}, "API 地址或模型名称错误，请检查 base_url 和 model 配置"},
+		{&protocol.APIError{StatusCode: 429, Body: "rate limited"}, "请求过于频繁，请稍后再试"},
+		// 500 也会被重试后上抛，落通用文案（避免对原始错误体 Leaky 展示）。
+		{&protocol.APIError{StatusCode: 500, Body: "internal"}, "AI 处理出错，请稍后再试"},
+		{errors.New("context deadline exceeded"), "请求超时，请检查网络连接或增大超时配置"},
+		{errors.New("connection refused"), "无法连接 API 服务器，请检查 base_url 配置"},
+		{errors.New("no such host"), "API 域名解析失败，请检查 base_url 配置"},
+		// 子串误匹配防护：错误文本里的"1404"/时间戳不再触发状态码映射。
+		{errors.New("failed at 1404 units in 401ms"), "AI 处理出错，请稍后再试"},
+		// 工具深度超限的专门文案。
+		{errors.New("超过最大工具调用深度 (5)"), "任务过于复杂，未能完成：请把任务拆成小步，或直接告诉我一步要做什么"},
+		{errors.New("unknown error"), "AI 处理出错，请稍后再试"},
 	}
-	for _, tt := range tests {
-		err := runtime.FormatAIError(errFromString(tt.err))
+	for i, tt := range tests {
+		err := runtime.FormatAIError(tt.err)
 		if err != tt.want {
-			t.Errorf("runtime.FormatAIError(%q) = %q, want %q", tt.err, err, tt.want)
+			t.Errorf("case %d: runtime.FormatAIError(%v) = %q, want %q", i, tt.err, err, tt.want)
 		}
 	}
 }
@@ -246,11 +254,3 @@ func TestBuildHealthProbeURL(t *testing.T) {
 		}
 	}
 }
-
-// Helpers
-
-type errString string
-
-func (e errString) Error() string { return string(e) }
-
-func errFromString(s string) error { return errString(s) }

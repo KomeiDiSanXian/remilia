@@ -58,10 +58,13 @@ func RunCommand(origCtx *eventctx.Context, toolName string, args map[string]any,
 		return "", errors.New("当前上下文缺少平台事件，无法触发真实命令")
 	}
 
+	// 参数校验失败时必须让模型可见，而不是静默丢参继续执行裸命令——
+	// 否则模型无法感知参数被丢弃，只会反复重试或向用户编造结果。
 	if rawArgs, ok := args["arguments"].(string); ok && rawArgs != "" {
-		if IsSafeCommandArg(rawArgs) {
-			pattern += " " + rawArgs
+		if !IsSafeCommandArg(rawArgs) {
+			return "", fmt.Errorf("动作 %q 的参数含控制字符或超出长度限制，已拒绝执行；请检查参数内容后重试", toolName)
 		}
+		pattern += " " + rawArgs
 	}
 
 	evt := platform.NewSyntheticEvent(

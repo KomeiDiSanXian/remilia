@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -414,66 +415,31 @@ func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatRespons
 }
 
 func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*ChatResponse, error) {
-	chatCtx := ctx
-	timeout := c.apiTimeout
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-	var cancel context.CancelFunc
-	chatCtx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-chatCtx.Done():
-				return nil, chatCtx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
-			}
-		}
-
-		httpReq, err := http.NewRequestWithContext(chatCtx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(payload))
+	resp, err := executeWithRetry(ctx, c.maxRetries, c.apiTimeout, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("ai: create request: %w", err)
 		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("ai: http request: %w", err)
-			continue
-		}
-
-		result, err := c.processOpenAIResponse(resp)
-		if err != nil {
-			resp.Body.Close()
-			lastErr = err
-			if resp.StatusCode < 500 {
-				return nil, lastErr
-			}
-			continue
-		}
-		resp.Body.Close()
-		return result, nil
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		return req, nil
+	}, c.httpClient)
+	if err != nil {
+		return nil, err
 	}
-
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("ai: unexpected retry exit")
+	defer resp.Body.Close()
+	return c.processOpenAIResponse(resp)
 }
 
 // processOpenAIResponse 处理 OpenAI 非流式响应，不关闭 resp.Body。
 func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse, error) {
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}
 	}
 
 	var openaiResp openaiChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&openaiResp); err != nil {
 		return nil, fmt.Errorf("ai: decode response: %w", err)
 	}
 
@@ -556,8 +522,8 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
-			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))})
+			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+			sendEvent(StreamEvent{Type: StreamEventError, Err: &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}})
 			return
 		}
 
@@ -571,11 +537,20 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			if !strings.HasPrefix(line, "data: ") {
+			// SSE 规范允许 "data: payload"（带空格）与 "data:payload"（冒号
+			// 后无空格）两种写法；只认前者会整流丢弃个别自建网关的输出。
+			data, ok := strings.CutPrefix(line, "data: ")
+			if !ok {
+				rest, noSpaceOK := strings.CutPrefix(line, "data:")
+				if !noSpaceOK {
+					continue
+				}
+				data = rest
+			}
+			data = strings.TrimSpace(data)
+			if data == "" {
 				continue
 			}
-
-			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
 				if len(pendingToolCalls) > 0 {
 					tcs, err := ParseOpenAIToolCalls(pendingToolCalls)
@@ -623,6 +598,9 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			}
 
 			if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
+				// 静默 continue 会把"兼容网关吐出的非 JSON 片段"（如错误页
+				// 片段混入流）变成不可查的黑洞，至少留下一行日志。
+				logger.Debugf("[AI] skip non-JSON stream line: %v", err)
 				continue
 			}
 
@@ -708,46 +686,20 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 	return ch, nil
 }
 
-// doStreamRequest 执行流式 HTTP 请求，并在传输错误或 5xx 响应时按
-// maxRetries 配置重试。每次重试都重建请求体（http.Request.Body 是一次性读取的）。
+// doStreamRequest 执行流式 HTTP 请求，并在传输错误、429 限流或 5xx 响应时
+// 按 maxRetries 配置重试（见 retry.go executeWithRetry）。
 // 4xx 等客户端错误不重试，交由调用方以错误事件处理。
 func (c *openaiClient) doStreamRequest(ctx context.Context, url string, payload []byte) (*http.Response, error) {
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
-			}
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+	return executeWithRetry(ctx, c.maxRetries, c.apiTimeout, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("ai: create request: %w", err)
 		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Accept", "text/event-stream")
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("ai: http request: %w", err)
-			continue
-		}
-		if resp.StatusCode >= 500 {
-			errBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			lastErr = fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
-			continue
-		}
-		return resp, nil
-	}
-
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("ai: unexpected retry exit")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		return req, nil
+	}, c.httpClient)
 }
 
 // mergeOrAppendToolCall 合并流式分片传来的工具调用。

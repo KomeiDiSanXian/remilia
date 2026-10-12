@@ -286,7 +286,7 @@ func TestDecideToolInvocationSingleSource(t *testing.T) {
 		}
 		ctx, _ := newApprovalTestContext("u1")
 
-		d := p.decideToolInvocation(ctx, protocol.ToolCall{Name: "protected_tool"})
+		d := p.decideToolInvocation(ctx, nil, protocol.ToolCall{Name: "protected_tool"})
 		assert.False(t, d.allowed)
 		assert.Contains(t, d.rejectText, "需要权限")
 		assert.Error(t, d.err, "权限拒绝属失败，计入重试预算")
@@ -301,7 +301,7 @@ func TestDecideToolInvocationSingleSource(t *testing.T) {
 		}
 		ctx, _ := newApprovalTestContext("u1")
 
-		d := p.decideToolInvocation(ctx, protocol.ToolCall{Name: "plain_tool"})
+		d := p.decideToolInvocation(ctx, nil, protocol.ToolCall{Name: "plain_tool"})
 		assert.True(t, d.allowed)
 		assert.False(t, d.sendToGranted, "嵌套 Skill 防护依赖未授权的 sender")
 		assert.Empty(t, d.rejectText)
@@ -316,7 +316,7 @@ func TestDecideToolInvocationSingleSource(t *testing.T) {
 		}
 		ctx, _ := newApprovalTestContext("u1")
 
-		d := p.decideToolInvocation(ctx, protocol.ToolCall{Name: catalog.SendToToolName})
+		d := p.decideToolInvocation(ctx, nil, protocol.ToolCall{Name: catalog.SendToToolName})
 		assert.False(t, d.allowed)
 		assert.Contains(t, d.rejectText, "已被用户拒绝执行")
 		assert.NoError(t, d.err, "用户拒绝不消耗重试预算")
@@ -353,7 +353,7 @@ func TestSendToGrantBoundToDeclarativePolicy(t *testing.T) {
 
 			done := make(chan toolInvocationDecision, 1)
 			go func() {
-				done <- p.decideToolInvocation(ctx, protocol.ToolCall{Name: "risky"})
+				done <- p.decideToolInvocation(ctx, nil, protocol.ToolCall{Name: "risky"})
 			}()
 
 			var id string

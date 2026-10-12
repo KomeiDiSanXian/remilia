@@ -269,7 +269,8 @@ func TestMergeOrAppendToolCall(t *testing.T) {
 // 角色约束，二者共同决定"逐轮变化的尾部内容"必须用 user 角色承载：
 //   - 数组内的 system 消息被整条丢弃（只有首条 system 进入顶级 system 字段），
 //     因此尾部追加的 system（如执行计划）对 Claude 完全不可见；
-//   - 尾部的 user 消息会保留成独立的一轮，内容完整送达。
+//   - 尾部的 user 消息与相邻 user 轮合并为一条消息（API 硬性要求 roles 严格
+//     交替，连续两条 user 会被 400 拒绝），内容以 text block 完整送达。
 //
 // 这是 processWithTools 用 user 角色注入执行计划（而非 system）的依据。
 func TestAnthropicDropsMidArraySystemButKeepsUserTail(t *testing.T) {
@@ -291,14 +292,54 @@ func TestAnthropicDropsMidArraySystemButKeepsUserTail(t *testing.T) {
 
 	withUserTail := append(base(), Message{Role: RoleUser, Content: plan})
 	out := toAnthropicMessages(withUserTail)
-	if len(out) != 2 {
-		t.Fatalf("trailing user message must be preserved, got %d messages: %+v", len(out), out)
+	if len(out) != 1 {
+		t.Fatalf("consecutive user messages must merge into one (roles must alternate), got %d messages: %+v", len(out), out)
 	}
-	last := out[len(out)-1]
+	merged := out[0]
+	if merged.Role != "user" {
+		t.Errorf("merged message must keep the user role, got %q", merged.Role)
+	}
+	if len(merged.Content) != 2 {
+		t.Fatalf("both text payloads must be preserved as separate blocks, got %+v", merged.Content)
+	}
+	if merged.Content[0].Type != "text" || merged.Content[0].Text != "开始" {
+		t.Errorf("first block must be the original user text, got %+v", merged.Content[0])
+	}
+	if merged.Content[1].Type != "text" || !strings.Contains(merged.Content[1].Text, "当前执行计划") {
+		t.Errorf("plan text must reach Anthropic unchanged, got %+v", merged.Content[1])
+	}
+}
+
+// TestToAnthropicMessagesMergesParallelToolResults 冻结并行工具结果的合并行为：
+// 同一 assistant 回合的全部 tool_result 必须放进紧随其后的同一条 user 消息
+// （官方 SDK 同样如此合并）；拆成相邻多条 user 消息会被 API 以
+// "roles must alternate" 400 拒绝。
+func TestToAnthropicMessagesMergesParallelToolResults(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "查一下天气"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{
+			{ID: "t1", Name: "get_weather", Arguments: map[string]any{}},
+			{ID: "t2", Name: "get_weather", Arguments: map[string]any{}},
+		}},
+		{Role: RoleTool, ToolCallID: "t1", Content: "北京 晴"},
+		{Role: RoleTool, ToolCallID: "t2", Content: "上海 雨"},
+	}
+
+	out := toAnthropicMessages(msgs)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 messages (user, assistant, merged tool results), got %d: %+v", len(out), out)
+	}
+	last := out[2]
 	if last.Role != "user" {
-		t.Errorf("trailing message must keep the user role, got %q", last.Role)
+		t.Fatalf("tool results must ride in a user message, got %q", last.Role)
 	}
-	if len(last.Content) != 1 || last.Content[0].Type != "text" || !strings.Contains(last.Content[0].Text, "当前执行计划") {
-		t.Errorf("plan text must reach Anthropic unchanged, got %+v", last.Content)
+	if len(last.Content) != 2 {
+		t.Fatalf("expected 2 tool_result blocks in one message, got %d: %+v", len(last.Content), last.Content)
+	}
+	if last.Content[0].Type != "tool_result" || last.Content[0].ID != "t1" || last.Content[0].Text != "北京 晴" {
+		t.Errorf("first tool_result wrong: %+v", last.Content[0])
+	}
+	if last.Content[1].Type != "tool_result" || last.Content[1].ID != "t2" || last.Content[1].Text != "上海 雨" {
+		t.Errorf("second tool_result wrong: %+v", last.Content[1])
 	}
 }

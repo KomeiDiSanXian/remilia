@@ -21,8 +21,8 @@ import (
 // 出站消息的记录由 messagelog 的 OutboundObserver 在发送完成后同步完成
 // （见 messagelog.MessageLogger 中间件 / Logger.OnOutbound）。
 //
-// 此薄封装仅在上下文缺少观察者时（如 doSummary 用 NewContextFromEvent
-// 新建的上下文）用 p.history 补上，保证 AI 的对话回复总能被记录。
+// 此薄封装仅在上下文缺少出站观察者时（如 doSummary 用 ctx.Clone() 新建的
+// 上下文且原始上下文未挂 observer）用 p.history 补上，保证 AI 的对话回复总能被记录。
 // 记录不受 include_reply_context 控制——记录是 messagelog 级行为，
 // 该配置只控制回复上下文的注入（见 promptctx.PrependReplyContext）。
 func (s *contextState) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {

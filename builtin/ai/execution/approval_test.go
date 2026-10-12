@@ -53,28 +53,29 @@ func TestApproveDenyText(t *testing.T) {
 func TestApprovalManagerLifecycle(t *testing.T) {
 	m := NewApprovalManager()
 
-	// 注册并生成递增 ID
+	// 注册并生成递增 ID（带纪元前缀：A<epoch>-<seq>，不同纪元进程内唯一）。
 	r1 := NewApprovalRequest("u1", "", "", "")
 	r2 := NewApprovalRequest("u2", "", "", "")
 	m.Register(r1)
 	m.Register(r2)
-	assert.Equal(t, "A1", r1.ID)
-	assert.Equal(t, "A2", r2.ID)
+	assert.NotEqual(t, "", r1.ID)
+	assert.NotEqual(t, r1.ID, r2.ID, "IDs are unique within the manager")
+	assert.Contains(t, r1.ID, "A", "ID carries the approval epoch prefix")
 
 	// 发起者可审批
-	assert.True(t, m.Resolve("A1", "u1", true))
+	assert.True(t, m.Resolve(r1.ID, "u1", true))
 	assert.Equal(t, true, <-r1.Result())
 
 	// 非发起者不可审批
-	assert.False(t, m.Resolve("A2", "u3", true))
+	assert.False(t, m.Resolve(r2.ID, "u3", true))
 	assert.Len(t, r2.Result(), 0)
 
 	// 发起者后续可审批
-	assert.True(t, m.Resolve("A2", "u2", false))
+	assert.True(t, m.Resolve(r2.ID, "u2", false))
 	assert.Equal(t, false, <-r2.Result())
 
 	// 已处理请求不可重复审批
-	assert.False(t, m.Resolve("A1", "u1", true))
+	assert.False(t, m.Resolve(r1.ID, "u1", true))
 
 	// 超时清理：过期请求关闭通道（等待方收到关闭 → 拒绝）
 	r3 := NewApprovalRequest("u1", "", "", "")

@@ -67,6 +67,11 @@ type groupPolicy struct {
 	Approval *string `json:"approval,omitempty"`
 	// RequireMention 群级是否强制 @ 触发；nil = 未配置。
 	RequireMention *bool `json:"require_mention,omitempty"`
+	// ReplyPolicy 群级自主发言回复决策（all/smart/judge）；nil = 未配置。
+	// 仅在群被 GroupAutonomous（或 fallback）接管全量消息时生效。
+	ReplyPolicy *string `json:"reply_policy,omitempty"`
+	// ReplyChance 群级接话概率（0~1，smart 档有效）；nil = 未配置（用全局）。
+	ReplyChance *float64 `json:"reply_chance,omitempty"`
 }
 
 // Clone 深拷贝策略（避免外部修改污染内部状态）。
@@ -91,13 +96,22 @@ func (p *groupPolicy) Clone() *groupPolicy {
 		v := *p.RequireMention
 		cp.RequireMention = &v
 	}
+	if p.ReplyPolicy != nil {
+		v := *p.ReplyPolicy
+		cp.ReplyPolicy = &v
+	}
+	if p.ReplyChance != nil {
+		v := *p.ReplyChance
+		cp.ReplyChance = &v
+	}
 	return cp
 }
 
 // Empty 判断策略是否完全未配置。
 func (p *groupPolicy) Empty() bool {
 	return p == nil ||
-		(p.SystemPrompt == nil && p.ToolPolicy == nil && p.Approval == nil && p.RequireMention == nil)
+		(p.SystemPrompt == nil && p.ToolPolicy == nil && p.Approval == nil &&
+			p.RequireMention == nil && p.ReplyPolicy == nil && p.ReplyChance == nil)
 }
 
 // groupPolicyManager 管理全部群的 AI 策略（内存 + LevelDB 持久化）。
@@ -146,18 +160,53 @@ func (m *groupPolicyManager) Get(groupID string) *groupPolicy {
 	return m.policies[groupID].Clone()
 }
 
-// Effective 返回指定群的生效配置（群显式配置 > 全局 > 空策略）。
+// Effective 返回指定群的生效配置（字段级回退链：群显式配置的字段优先，
+// 未配置的字段回退全局配置（__global__），再回退插件默认）。
 // 返回的策略字段为 nil 表示使用插件默认值。
+//
+// 必须按字段合并而不是整份替换：此前只要群设置了任何一条配置，全局策略
+// 就整体失效——超管设了全局 tools=none，群管理员建一条群条目即可静默恢复
+// 全开，权限收紧被绕过。
 func (m *groupPolicyManager) Effective(groupID string) *groupPolicy {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	// nil 全局策略视为全空策略（字段未配置），统一合并路径。
+	global := m.policies[globalGroupID]
+	if global == nil {
+		global = &groupPolicy{}
+	}
 	if p, ok := m.policies[groupID]; ok {
-		return p.Clone()
+		merged := &groupPolicy{
+			SystemPrompt: mergeField(p.SystemPrompt, global.SystemPrompt),
+			ToolPolicy:   mergeField(p.ToolPolicy, global.ToolPolicy),
+			Approval:     mergeField(p.Approval, global.Approval),
+			ReplyPolicy:  mergeField(p.ReplyPolicy, global.ReplyPolicy),
+			ReplyChance:  mergeFloatField(p.ReplyChance, global.ReplyChance),
+		}
+		if p.RequireMention != nil {
+			merged.RequireMention = p.RequireMention
+		} else {
+			merged.RequireMention = global.RequireMention
+		}
+		return merged
 	}
-	if g, ok := m.policies[globalGroupID]; ok {
-		return g.Clone()
+	return global.Clone()
+}
+
+// mergeField 单字段回退：群显式配置优先，未配置回退全局。
+func mergeField(group, g *string) *string {
+	if group != nil {
+		return group
 	}
-	return &groupPolicy{}
+	return g
+}
+
+// mergeFloatField 单字段回退（float 版：群级接话概率）。
+func mergeFloatField(group, g *float64) *float64 {
+	if group != nil {
+		return group
+	}
+	return g
 }
 
 // SetGroup 设置指定群的策略（空字段表示清除对应项）。
@@ -178,6 +227,12 @@ func (m *groupPolicyManager) SetGroup(groupID string, p *groupPolicy) {
 		}
 		if p.Approval != nil {
 			m.policies[groupID].Approval = p.Approval
+		}
+		if p.ReplyPolicy != nil {
+			m.policies[groupID].ReplyPolicy = p.ReplyPolicy
+		}
+		if p.ReplyChance != nil {
+			m.policies[groupID].ReplyChance = p.ReplyChance
 		}
 		if p.RequireMention != nil {
 			m.policies[groupID].RequireMention = p.RequireMention
@@ -212,6 +267,9 @@ func (m *groupPolicyManager) ResetField(groupID, field string) {
 			p.Approval = nil
 		case "mention":
 			p.RequireMention = nil
+		case "reply":
+			p.ReplyPolicy = nil
+			p.ReplyChance = nil
 		}
 		if p.Empty() {
 			delete(m.policies, groupID)
@@ -264,7 +322,9 @@ func (m *groupPolicyManager) load() {
 }
 
 // effectiveTools 按群策略解析工具白名单。
-// 返回 (工具名集合, 是否启用白名单过滤)。all → (nil, false)；none → (空集, true)。
+// 返回 (工具名集合（小写归一）, 是否启用白名单过滤)。all → (nil, false)；none → (空集, true)。
+// 名字按小写归一存储：FilterTools 与注册表名比较时同样归一，避免 ValidToolName
+// 允许大写导致白名单永远匹配不上。
 func (p *groupPolicy) effectiveTools() (allowSet map[string]struct{}, filter bool) {
 	if p == nil || p.ToolPolicy == nil {
 		return nil, false
@@ -278,7 +338,7 @@ func (p *groupPolicy) effectiveTools() (allowSet map[string]struct{}, filter boo
 	default:
 		set := make(map[string]struct{})
 		for name := range strings.SplitSeq(policy, ",") {
-			name = strings.TrimSpace(name)
+			name = strings.ToLower(strings.TrimSpace(name))
 			if name != "" {
 				set[name] = struct{}{}
 			}
@@ -311,6 +371,22 @@ func (p *groupPolicy) EffectiveRequireMention() (bool, bool) {
 	return *p.RequireMention, true
 }
 
+// EffectiveReplyPolicy 返回生效的群回复决策（空串 = 用全局配置）。
+func (p *groupPolicy) EffectiveReplyPolicy() string {
+	if p == nil || p.ReplyPolicy == nil {
+		return ""
+	}
+	return *p.ReplyPolicy
+}
+
+// EffectiveReplyChance 返回生效的群接话概率（ok=false = 用全局配置）。
+func (p *groupPolicy) EffectiveReplyChance() (float64, bool) {
+	if p == nil || p.ReplyChance == nil {
+		return 0, false
+	}
+	return *p.ReplyChance, true
+}
+
 // FilterTools 按群策略过滤动作列表。
 // 策略为 nil 或未限制工具时原样返回；否则返回过滤后的动作副本（不影响原列表）。
 func (p *groupPolicy) FilterTools(actions []toolkit.Action) []toolkit.Action {
@@ -323,7 +399,7 @@ func (p *groupPolicy) FilterTools(actions []toolkit.Action) []toolkit.Action {
 	}
 	out := make([]toolkit.Action, 0, len(actions))
 	for _, a := range actions {
-		if _, ok := allowSet[a.Spec.Name]; ok {
+		if _, ok := allowSet[strings.ToLower(a.Spec.Name)]; ok {
 			out = append(out, a)
 		}
 	}

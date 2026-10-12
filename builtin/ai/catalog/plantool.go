@@ -10,6 +10,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -33,14 +34,20 @@ var validPlanStatuses = []string{
 
 // PlanAccess 计划状态的读写端口。
 //
-// 只暴露完成规划动作所需的三个操作：读快照、写回计划、重置后台自动推进预算。
+// 暴露完成规划动作所需的操作：原子更新、读快照、重置后台自动推进预算。
 // 方法名与会话状态（builtin/ai/session）已有的计划 API 一致，因此装配侧注入
 // 会话本身即可，无需再套一层适配。
+//
+// 更新必须走 UpdatePlan（锁内原子快照-修改-写回）：并行工具调用下
+// "读快照→副本改→SetPlan 写回" 会互相覆盖，先完成的步骤状态被静默回滚。
 type PlanAccess interface {
+	// UpdatePlan 在锁内原子更新计划：mutate 收到计划深拷贝，返回 nil 时写回。
+	// 返回值为更新后的计划快照；没有进行中的计划时返回 (nil, session.ErrNoPlan)。
+	UpdatePlan(mutate func(*session.Plan) error) (*session.Plan, error)
+	// SetPlan 整体写入计划（仅 create_plan 用于建立新计划）。
+	SetPlan(plan *session.Plan)
 	// PlanSnapshot 返回当前计划的快照（无计划时返回 nil）。
 	PlanSnapshot() *session.Plan
-	// SetPlan 写回计划。
-	SetPlan(plan *session.Plan)
 	// ResetPlanAuto 重置后台自动推进预算（用户侧重新获得完整轮次）。
 	ResetPlanAuto()
 }
@@ -106,8 +113,8 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 						Status:      session.PlanPending,
 					})
 				}
-				plans.SetPlan(plan)
 				// 新计划重置后台自动推进预算（用户侧重新获得完整轮次）。
+				plans.SetPlan(plan)
 				plans.ResetPlanAuto()
 				return "计划已创建：\n" + session.FormatPlan(plan), nil
 			},
@@ -140,44 +147,44 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				if plans == nil {
 					return "错误: 计划上下文不可用", nil
 				}
-				plan := plans.PlanSnapshot()
-				if plan == nil || !plan.Active {
-					return "错误: 当前没有进行中的计划，请先调用 create_plan", nil
-				}
 				stepID, _ := args["step_id"].(string)
 				status, _ := args["status"].(string)
 				note, _ := args["note"].(string)
+				if status != string(session.PlanInProgress) &&
+					status != string(session.PlanDone) && status != string(session.PlanFailed) {
+					return "错误: 非法状态，可选 in_progress/done/failed", nil
+				}
+				newStatus := session.PlanStepStatus(status)
 
 				// 顺序强制：目标步骤置任何非 pending 状态前，其前序步骤必须
 				// 全部终态（done/failed）——计划按序执行，不允许跳步。
-				found := false
-				for i := range plan.Steps {
-					if plan.Steps[i].ID == stepID {
-						found = true
+				plan, err := plans.UpdatePlan(func(plan *session.Plan) error {
+					for i := range plan.Steps {
+						if plan.Steps[i].ID != stepID {
+							continue
+						}
 						for j := range i {
 							if !session.TerminalStatus(plan.Steps[j]) {
-								return "错误: 前序步骤 " + plan.Steps[j].ID + " 尚未完成，请按计划顺序执行（先处理前序步骤）", nil
+								return fmt.Errorf("前序步骤 %s 尚未完成，请按计划顺序执行（先处理前序步骤）", plan.Steps[j].ID)
 							}
 						}
-						switch status {
-						case string(session.PlanInProgress), string(session.PlanDone), string(session.PlanFailed):
-							plan.Steps[i].Status = session.PlanStepStatus(status)
-						default:
-							return "错误: 非法状态，可选 in_progress/done/failed", nil
-						}
+						plan.Steps[i].Status = newStatus
 						if strings.TrimSpace(note) != "" {
 							plan.Steps[i].Result = strings.TrimSpace(note)
 						}
-						break
+						if plan.Completed() {
+							plan.Active = false
+						}
+						return nil
 					}
+					return errors.New("未找到步骤 " + stepID + "，请检查 create_plan 返回的计划")
+				})
+				if err != nil {
+					if errors.Is(err, session.ErrNoPlan) {
+						return "错误: 当前没有进行中的计划，请先调用 create_plan", nil
+					}
+					return "错误: " + err.Error(), nil
 				}
-				if !found {
-					return "错误: 未找到步骤 " + stepID + "，请检查 create_plan 返回的计划", nil
-				}
-				if plan.Completed() {
-					plan.Active = false
-				}
-				plans.SetPlan(plan)
 				return "计划已更新：\n" + session.FormatPlan(plan), nil
 			},
 		},

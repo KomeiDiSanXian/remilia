@@ -5,6 +5,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -107,11 +108,41 @@ func (p *Plan) FirstFailedFrontier() *PlanStep {
 
 // --- Session 上的计划存取 ---
 
+// ErrNoPlan 当前没有进行中的计划（UpdatePlan 返回）。
+var ErrNoPlan = errors.New("no active plan")
+
 // SetPlan 写入会话计划（线程安全，存储副本）。
 func (s *Session) SetPlan(p *Plan) {
 	s.Lock()
 	defer s.Unlock()
 	s.plan = ClonePlan(p)
+}
+
+// UpdatePlan 在会话锁内对当前计划执行原子更新。
+//
+// mutate 收到当前计划的深拷贝，返回 nil 时把修改后的计划写回会话；返回非 nil
+// 错误时不写回。快照、修改与写回在同一个会话锁内完成，因此并行工具调用
+// （tool_parallel 默认 4）各自更新各自步骤时不会互相覆盖——此前"读快照→
+// 副本上改→整写回"的模式在并行调用下后写会覆盖先写，先完成的步骤状态被
+// 静默回滚。
+//
+// 返回值为更新后的计划快照（供回显格式化）。没有进行中的计划时返回
+// (nil, ErrNoPlan)。
+func (s *Session) UpdatePlan(mutate func(*Plan) error) (*Plan, error) {
+	if mutate == nil {
+		return nil, errors.New("session: UpdatePlan: nil mutate")
+	}
+	s.Lock()
+	defer s.Unlock()
+	if s.plan == nil || !s.plan.Active {
+		return nil, ErrNoPlan
+	}
+	next := ClonePlan(s.plan)
+	if err := mutate(next); err != nil {
+		return nil, err
+	}
+	s.plan = next
+	return ClonePlan(next), nil
 }
 
 // PlanSnapshot 返回会话计划副本（无计划返回 nil）。

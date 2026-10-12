@@ -93,7 +93,10 @@ func ParseVerdict(text string) VerifyResult {
 	text = strings.TrimSpace(text)
 	var v VerifyResult
 
-	// JSON 路径：截取第一个 { 到最后一个 }
+	// JSON 路径：截取第一个 { 到最后一个 }。
+	// verdict 是 pass/fail 时直接返回（fail 的 reason 允许为空——此前
+	// "reason 为空的 fail" 会落回关键词兜底，把整段原始 JSON 当原因注入
+	// 修正指令）；verdict 缺失/非法时落入关键词兜底。
 	if start := strings.IndexByte(text, '{'); start >= 0 {
 		if end := strings.LastIndexByte(text, '}'); end > start {
 			var parsed struct {
@@ -103,24 +106,21 @@ func ParseVerdict(text string) VerifyResult {
 			if err := json.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
 				switch strings.ToLower(strings.TrimSpace(parsed.Verdict)) {
 				case "pass":
-					v.Pass = true
+					return VerifyResult{Pass: true}
 				case "fail":
-					v.Pass = false
-					v.Reason = strings.TrimSpace(parsed.Reason)
-				default:
-					// verdict 字段缺失/非法 → 落入关键词兜底
-				}
-				if v.Pass || v.Reason != "" {
-					return v
+					return VerifyResult{Pass: false, Reason: strings.TrimSpace(parsed.Reason)}
 				}
 			}
 		}
 	}
 
-	// 关键词兜底（注意 fail 关键词需先于 pass 检查："不通过" 含 "通过" 子串）
+	// 关键词兜底（注意 fail 关键词需先于 pass 检查："不通过" 含 "通过" 子串）。
+	// HasPrefix 覆盖"整条回复恰好只有 fail"的情况：TrimSpace 后没有任何
+	// 分隔符可供 Contains 匹配，此前会掉进 default 被判 pass——fail 语义反转。
 	lower := strings.ToLower(text)
 	switch {
 	case strings.Contains(lower, `"fail"`), strings.Contains(lower, "fail\n"),
+		strings.HasPrefix(lower, "fail"),
 		strings.Contains(text, "不通过"), strings.Contains(text, "未通过"),
 		strings.Contains(text, "不合格"), strings.Contains(text, "未回答"),
 		strings.Contains(text, "捏造"), strings.Contains(text, "答非所问"):

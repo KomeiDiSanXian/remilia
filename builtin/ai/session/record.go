@@ -14,15 +14,18 @@ import (
 
 // Record 对应数据库表，用于 GORM 持久化。
 type Record struct {
-	ID        string `gorm:"primaryKey"`
-	UserID    string `gorm:"index"`
-	ChatID    string `gorm:"index"`
-	Messages  string `gorm:"type:text"`
+	ID     string `gorm:"primaryKey"`
+	UserID string `gorm:"index"`
+	ChatID string `gorm:"index"`
+	// Messages 用 mediumtext：MySQL TEXT 上限 64KB，中文 UTF-8 下一条工具
+	// 结果即可达 ~24KB（MaxToolResultLen 按字符截断），20 条历史轻松超限，
+	// 超限后该会话每次落库都会失败并回滚到旧快照。mediumtext 16MB 兜底。
+	Messages  string `gorm:"type:mediumtext"`
 	CallCount int    `gorm:"default:0"`
 	ToolCount int    `gorm:"default:0"`
-	// Plan 进行中的任务计划（JSON；跨重启继续执行）。
+	// Plan 当前进行中的任务计划（JSON 序列化；会话间互相执行）。
 	Plan string `gorm:"type:text"`
-	// PendingImages 未消费图片引用（JSON；跨重启窗口内仍可合并）。
+	// PendingImages 未消费图片引用（JSON 序列化；跨重启窗口内仍可合并）
 	PendingImages string `gorm:"type:text"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

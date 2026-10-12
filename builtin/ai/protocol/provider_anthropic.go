@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -162,6 +163,12 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 			continue
 
 		case RoleUser:
+			// 连续 user 消息必须合并为一条：Anthropic 要求 roles 严格交替，
+			// 拆开会以 400 拒绝（messages: roles must alternate）。
+			if current != nil && current.Role == "user" {
+				current.Content = append(current.Content, toAnthropicUserBlocks(m)...)
+				continue
+			}
 			flush()
 			current = &anthropicReqMessage{
 				Role:    "user",
@@ -169,16 +176,22 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 			}
 
 		case RoleTool:
+			block := anthropicReqContentBlock{
+				Type: "tool_result",
+				ID:   m.ToolCallID,
+				Text: m.Content,
+			}
+			// 并行工具的多个 tool_result 必须全部放进紧随 assistant(tool_use)
+			// 之后的同一条 user 消息里（官方 SDK 同样如此合并）；拆成相邻多条
+			// user 消息会被 400 拒绝。
+			if current != nil && current.Role == "user" {
+				current.Content = append(current.Content, block)
+				continue
+			}
 			flush()
 			current = &anthropicReqMessage{
-				Role: "user",
-				Content: []anthropicReqContentBlock{
-					{
-						Type: "tool_result",
-						ID:   m.ToolCallID,
-						Text: m.Content,
-					},
-				},
+				Role:    "user",
+				Content: []anthropicReqContentBlock{block},
 			}
 
 		case RoleAssistant:
@@ -279,12 +292,21 @@ func attachmentFromAnthropicImage(src *anthropicImgSrc) (platform.Attachment, bo
 
 // --- 非流式调用 ---
 
+// defaultAnthropicMaxTokens Anthropic 侧的输出上限兜底。
+// Anthropic 的 max_tokens 必填且 >=1：配置与请求都没给时序列化出 0 会被
+// API 直接 400 拒绝（错误文案对用户还不可读），这里给协议级默认值。
+const defaultAnthropicMaxTokens = 4096
+
 func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	systemPrompt := extractAnthropicSystem(req.Messages)
 
+	maxTokens := requestMaxTokens(c.maxTokens, req.MaxTokens)
+	if maxTokens <= 0 {
+		maxTokens = defaultAnthropicMaxTokens
+	}
 	body := anthropicChatRequest{
 		Model:       RequestModel(c.model, req.Model),
-		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
+		MaxTokens:   maxTokens,
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
@@ -303,65 +325,30 @@ func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 }
 
 func (c *anthropicClient) doAnthropicChatRequest(ctx context.Context, payload []byte) (*ChatResponse, error) {
-	chatCtx := ctx
-	timeout := c.apiTimeout
-	if timeout <= 0 {
-		timeout = 60 * time.Second
-	}
-	var cancel context.CancelFunc
-	chatCtx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-chatCtx.Done():
-				return nil, chatCtx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
-			}
-		}
-
-		httpReq, err := http.NewRequestWithContext(chatCtx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(payload))
+	resp, err := executeWithRetry(ctx, c.maxRetries, c.apiTimeout, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("ai: anthropic create request: %w", err)
 		}
-		c.setHeaders(httpReq)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("ai: anthropic http request: %w", err)
-			continue
-		}
-
-		result, err := c.processAnthropicResponse(resp)
-		if err != nil {
-			resp.Body.Close()
-			lastErr = err
-			if resp.StatusCode < 500 {
-				return nil, lastErr
-			}
-			continue
-		}
-		resp.Body.Close()
-		return result, nil
+		c.setHeaders(req)
+		return req, nil
+	}, c.httpClient)
+	if err != nil {
+		return nil, err
 	}
-
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("ai: anthropic unexpected retry exit")
+	defer resp.Body.Close()
+	return c.processAnthropicResponse(resp)
 }
 
 // processAnthropicResponse 处理 Anthropic 非流式响应，不关闭 resp.Body。
 func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatResponse, error) {
 	if resp.StatusCode != http.StatusOK {
-		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}
 	}
 
 	var anthropicResp anthropicChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&anthropicResp); err != nil {
 		return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
 	}
 
@@ -405,9 +392,13 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 
 	systemPrompt := extractAnthropicSystem(req.Messages)
 
+	streamMaxTokens := requestMaxTokens(c.maxTokens, req.MaxTokens)
+	if streamMaxTokens <= 0 {
+		streamMaxTokens = defaultAnthropicMaxTokens
+	}
 	body := anthropicChatRequest{
 		Model:       RequestModel(c.model, req.Model),
-		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
+		MaxTokens:   streamMaxTokens,
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
@@ -442,8 +433,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
-			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))})
+			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+			sendEvent(StreamEvent{Type: StreamEventError, Err: &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}})
 			return
 		}
 
@@ -469,11 +460,17 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			if strings.HasPrefix(line, "event: ") {
 				continue
 			}
-			if !strings.HasPrefix(line, "data: ") {
-				continue
+			// SSE 规范允许冒号后无空格的写法；只认 "data: " 会丢弃个别
+			// 自建网关的输出（与 OpenAI 适配器同一约定）。
+			data, ok := strings.CutPrefix(line, "data: ")
+			if !ok {
+				rest, noSpaceOK := strings.CutPrefix(line, "data:")
+				if !noSpaceOK {
+					continue
+				}
+				data = rest
 			}
-
-			data := strings.TrimPrefix(line, "data: ")
+			data = strings.TrimSpace(data)
 			if data == "" {
 				continue
 			}
@@ -486,6 +483,10 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					Text        string `json:"text"`
 					PartialJSON string `json:"partial_json"`
 					StopReason  string `json:"stop_reason"`
+					// Thinking 思考型模型的思考内容流片段（thinking_delta）。
+					// 与 OpenAI 侧对 DeepSeek reasoning_content 的处理对偶：
+					// 只发推理事件供计数与日志，不进入回复正文。
+					Thinking string `json:"thinking"`
 				} `json:"delta,omitempty"`
 				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
 				Usage        *anthropicUsageBody `json:"usage,omitempty"`
@@ -508,6 +509,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			}
 
 			if err := json.Unmarshal([]byte(data), &streamEvent); err != nil {
+				logger.Debugf("[AI] skip non-JSON anthropic stream line: %v", err)
 				continue
 			}
 
@@ -551,6 +553,14 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					case "input_json_delta":
 						if tool, ok := pendingTools[streamEvent.Index]; ok {
 							tool.input += streamEvent.Delta.PartialJSON
+						}
+					case "thinking_delta":
+						// 思考内容只走事件通道：编排层据此识别"推理耗尽预算、
+						// 正文为空"的截断，避免空回复只能报泛化错误。
+						if streamEvent.Delta.Thinking != "" {
+							if !sendEvent(StreamEvent{Type: StreamEventReasoning, Content: streamEvent.Delta.Thinking}) {
+								return
+							}
 						}
 					}
 				}
@@ -617,42 +627,19 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 // doStreamRequest 执行流式 HTTP 请求，并在传输错误或 5xx 响应时按
 // maxRetries 配置重试。每次重试都重建请求体（http.Request.Body 是一次性读取的）。
 // 4xx 等客户端错误不重试，交由调用方以错误事件处理。
+// doStreamRequest 执行流式 HTTP 请求，并在传输错误、429 限流或 5xx 响应时
+// 按 maxRetries 配置重试（见 retry.go executeWithRetry）。
+// 4xx 等客户端错误不重试，交由调用方以错误事件处理。
 func (c *anthropicClient) doStreamRequest(ctx context.Context, url string, payload []byte) (*http.Response, error) {
-	var lastErr error
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
-			}
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+	return executeWithRetry(ctx, c.maxRetries, c.apiTimeout, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("ai: anthropic create request: %w", err)
 		}
-		c.setHeaders(httpReq)
-		httpReq.Header.Set("Accept", "text/event-stream")
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("ai: anthropic http request: %w", err)
-			continue
-		}
-		if resp.StatusCode >= 500 {
-			errBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			lastErr = fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
-			continue
-		}
-		return resp, nil
-	}
-
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("ai: anthropic unexpected retry exit")
+		c.setHeaders(req)
+		req.Header.Set("Accept", "text/event-stream")
+		return req, nil
+	}, c.httpClient)
 }
 
 // setHeaders 设置 Anthropic API 请求头。

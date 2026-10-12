@@ -64,7 +64,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: "ai",
 			Name:      "llm_tokens_total",
-			Help:      "LLM token 用量（type: prompt/completion/prompt_cached）",
+			Help:      "LLM token 用量（type: prompt/completion/prompt_cached/reasoning）",
 		},
 		[]string{"model", "type"},
 	)).(*prometheus.CounterVec)
@@ -82,7 +82,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: "ai",
 			Name:      "toolset_changes_total",
-			Help:      "工具集变更次数（reason: init/grow/decay）",
+			Help:      "工具集变更次数（reason: init/grow/shrink/decay）",
 		},
 		[]string{"reason"},
 	)).(*prometheus.CounterVec)

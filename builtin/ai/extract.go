@@ -30,14 +30,19 @@ func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Sess
 	}
 	extractor := p.memoryExtractor()
 	for _, scope := range scopes {
-		if !p.memory.CanExtract(scope) {
+		// CheckAndMark 原子节流：判定与标记在同一锁内，同一作用域的并发
+		// 消息不会双重抽取（此前 CanExtract→MarkExtracted 两个调用之间
+		// 存在窗口）。
+		if !p.memory.CheckAndMark(scope) {
 			continue
 		}
-		p.memory.MarkExtracted(scope)
 		scope := scope
 		p.lifecycleSpawn(func() {
 			if err := extractor.Extract(scope, sender.ID, chat, session); err != nil {
 				logger.Debugf("[AI] Memory extract failed: %v", err)
+				// 失败回滚节流标记：瞬时失败（超时/网络抖动）不该让这轮
+				// 对话的事实等满 memory_min_interval 才可能再抽。
+				p.memory.UnmarkExtract(scope)
 			}
 		})
 	}

@@ -252,3 +252,57 @@ func TestLoadConfigNoTrigger(t *testing.T) {
 		t.Error("expected AtBot to use default when not overridden")
 	}
 }
+
+func TestLoadConfigGroupReplyPolicy(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"group_autonomous":     true,
+			"group_reply_policy":   "smart",
+			"group_reply_chance":   float64(0.35),
+			"group_reply_cooldown": "90s",
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := Load(ctx)
+	if result.GroupReplyPolicy != GroupReplySmart {
+		t.Errorf("expected group_reply_policy smart, got %q", result.GroupReplyPolicy)
+	}
+	if result.GroupReplyChance != 0.35 {
+		t.Errorf("expected group_reply_chance 0.35, got %v", result.GroupReplyChance)
+	}
+	if result.GroupReplyCooldown != 90*time.Second {
+		t.Errorf("expected group_reply_cooldown 90s, got %v", result.GroupReplyCooldown)
+	}
+}
+
+func TestLoadConfigGroupReplyPolicyDefaults(t *testing.T) {
+	ctx := plugintest.NewSetupContext("ai", nil)
+	defer plugintest.StopSetupContext(ctx)
+
+	result := Load(ctx)
+	if result.GroupReplyPolicy != GroupReplyAll {
+		t.Errorf("expected default group_reply_policy all, got %q", result.GroupReplyPolicy)
+	}
+	if result.GroupReplyChance != 0.2 {
+		t.Errorf("expected default group_reply_chance 0.2, got %v", result.GroupReplyChance)
+	}
+	if result.GroupReplyCooldown != 2*time.Minute {
+		t.Errorf("expected default group_reply_cooldown 2m, got %v", result.GroupReplyCooldown)
+	}
+}
+
+func TestLoadConfigGroupReplyPolicyInvalid(t *testing.T) {
+	cfg := &mockConfig{values: map[string]any{"group_reply_policy": "spicy"}}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := Load(ctx)
+	if result.GroupReplyPolicy != GroupReplyAll {
+		t.Errorf("invalid policy should be ignored, got %q", result.GroupReplyPolicy)
+	}
+	if result.GroupReplyChance != DefaultConfig.GroupReplyChance {
+		t.Errorf("invalid policy should keep default chance, got %v", result.GroupReplyChance)
+	}
+}

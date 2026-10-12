@@ -19,6 +19,7 @@
 package ai
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -155,7 +156,10 @@ type toolInvocationDecision struct {
 //  2. 审批：按生效审批模式判断是否需要用户批准，需要时发起审批；拒绝或超时按拒绝处理。
 //
 // 两种拒绝都以工具级结果返回，不中断整个对话。
-func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, tc protocol.ToolCall) toolInvocationDecision {
+//
+// interruptCtx 是回合中断感知上下文（可 nil）：审批等待会监听它，
+// /ai stop / 用户新消息抢占时立即取消等待，不再阻塞后续消息处理。
+func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, interruptCtx context.Context, tc protocol.ToolCall) toolInvocationDecision {
 	action, hasAction := p.reg.Action(tc.Name)
 	if hasAction {
 		if perms := action.Policy.Permissions; len(perms) > 0 && !p.hasToolPermission(ctx, perms) {
@@ -169,7 +173,7 @@ func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, tc protocol.ToolCal
 	if !p.approvalModeFor(ctx, tc.Name) {
 		return toolInvocationDecision{allowed: true}
 	}
-	if !p.requestApproval(ctx, tc.Name, p.approvalSummaryForTool(ctx, tc), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
+	if !p.requestApproval(ctx, interruptCtx, tc.Name, p.approvalSummaryForTool(ctx, tc), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
 		// 审批被拒不消耗重试预算：模型无需"重试"一个用户已拒绝的动作，
 		// 与既有行为一致（此处刻意不置 err）。
 		return toolInvocationDecision{rejectText: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}

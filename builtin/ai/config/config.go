@@ -258,6 +258,27 @@ type Config struct {
 	//   - @机器人 + 触发命令（trigger_cmd）的组合仍生效
 	// 默认 false（仅 @ 触发）。
 	GroupAutonomous bool `yaml:"group_autonomous"`
+	// GroupReplyPolicy 群自主发言的回复决策（GroupAutonomous=true 时的回复粒度）。
+	//
+	//   - "all"（默认）：现行行为，群里每条消息都回复（向后兼容）。
+	//   - "smart"：分层决策——@/触发词/计划/被回复且在跟 bot 说话必回；
+	//     纯社交（"哈哈""666"）、刷屏复读、超短无信息消息、对 bot 的嫌弃
+	//     表达不回；其余弱信号消息按 group_reply_chance 概率抽签，且受
+	//     group_reply_cooldown 插话冷静期约束（bot 刚说过话、无强信号时
+	//     保持安静，像人一样"不无脑接话"）。
+	//   - "judge"：在 smart 的本地预筛之上，把"普通闲聊是否值得插话"
+	//     交给一次低成本的 LLM 判定（结合最近群聊上下文）。强信号与
+	//     本地规则可确定的垃圾消息不产生判定调用；判定超时/失败时
+	//     回退 group_reply_chance 概率抽签；同一时刻至多一个判定在跑。
+	//
+	// 群策略可用 /ai group set reply all|smart|judge [<概率>] 按群覆盖。
+	GroupReplyPolicy string `yaml:"group_reply_policy"`
+	// GroupReplyChance smart 策略下弱信号普通消息的回复概率（0~1，默认 0.2）。
+	// 0 = smart 档几乎只回应强信号；1 ≈ 等价 all（其他判定仍会拦截垃圾消息）。
+	GroupReplyChance float64 `yaml:"group_reply_chance"`
+	// GroupReplyCooldown 插话冷静期（smart 策略）：bot 发言后多久内不再主动
+	// 接话（默认 2m）。强信号（@/触发词/计划推进）不受此限。
+	GroupReplyCooldown time.Duration `yaml:"group_reply_cooldown"`
 	// PrivateChat 是否自动响应私聊消息。
 	//
 	// 注意：开启后 AI 会响应所有非命令消息（不以 "/" 开头）。
@@ -370,6 +391,25 @@ func validReasoningEffort(v string) bool {
 	return false
 }
 
+// GroupReplyPolicy 取值。
+const (
+	// GroupReplyAll 现行行为：每条消息都回复（默认，向后兼容）。
+	GroupReplyAll = "all"
+	// GroupReplySmart 分层决策：强信号必回，垃圾消息不回，
+	// 其余按概率与冷静期抽签（见 GroupReplyPolicy 文档）。
+	GroupReplySmart = "smart"
+	// GroupReplyJudge 在 smart 的本地预筛之上把"模糊地带"交给 LLM 终审：
+	// 强信号必回、本地规则确定的垃圾消息直接拒（不浪费判定调用），
+	// 其余普通消息由一个小 LLM 调用结合最近群聊上下文决定"是否值得插话"。
+	// 判定失败时回退到概率抽签；单飞并发上限 1，防止刷屏引发判定洪水。
+	GroupReplyJudge = "judge"
+)
+
+// validGroupReplyPolicy 判断 group_reply_policy 取值是否合法。
+func ValidGroupReplyPolicy(v string) bool {
+	return v == GroupReplyAll || v == GroupReplySmart || v == GroupReplyJudge
+}
+
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
 	Provider:               "openai",
@@ -433,6 +473,9 @@ var DefaultConfig = Config{
 	PlanAutoInterval:       15 * time.Second,
 	PlanAutoRounds:         3,
 	MaxSendsPerRound:       5,
+	GroupReplyPolicy:       GroupReplyAll,
+	GroupReplyChance:       0.2,
+	GroupReplyCooldown:     2 * time.Minute,
 }
 
 // Load 从插件配置中读取配置项，未配置时使用默认值。
@@ -517,11 +560,30 @@ func Load(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetString("system_prompt", ""); v != "" {
 		cfg.SystemPrompt = v
 	}
-	if v := ctx.Config.GetString("trigger_cmd", ""); v != "" {
-		cfg.TriggerCmd = v
+	// 显式存在性判断：允许 trigger_cmd 配置为空以禁用命令触发
+	//（空串写入时 GetString 拿到 "" 走不到 v != ""，会永远回退默认 "/ai"）。
+	if ctx.Config.Get("trigger_cmd") != nil {
+		cfg.TriggerCmd = ctx.Config.GetString("trigger_cmd", cfg.TriggerCmd)
 	}
 	cfg.AtBot = ctx.Config.GetBool("at_bot", cfg.AtBot)
 	cfg.GroupAutonomous = ctx.Config.GetBool("group_autonomous", cfg.GroupAutonomous)
+	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("group_reply_policy", ""))); v != "" {
+		if ValidGroupReplyPolicy(v) {
+			cfg.GroupReplyPolicy = v
+		} else {
+			ctx.Log.Warnf("invalid group_reply_policy %q, must be all|smart|judge, ignoring", v)
+		}
+	}
+	if v, ok := floatOption(ctx, "group_reply_chance"); ok {
+		if v >= 0 && v <= 1 {
+			cfg.GroupReplyChance = v
+		} else {
+			ctx.Log.Warnf("group_reply_chance must be within [0, 1], ignoring %v", v)
+		}
+	}
+	if v := ctx.Config.GetDuration("group_reply_cooldown", 0); v > 0 {
+		cfg.GroupReplyCooldown = v
+	}
 	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
 	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
 	cfg.QQRegenButton = ctx.Config.GetBool("qq_regen_button", cfg.QQRegenButton)
@@ -541,14 +603,20 @@ func Load(ctx *plugin.SetupContext) *Config {
 	cfg.VisionEnabled = ctx.Config.GetBool("vision_enabled", cfg.VisionEnabled)
 	cfg.AudioEnabled = ctx.Config.GetBool("audio_enabled", cfg.AudioEnabled)
 
-	if v := ctx.Config.GetDuration("image_merge_window", 0); v > 0 {
-		cfg.ImageMergeWindow = v
+	// 显式存在性判断：文档承诺 0 值语义的键必须接受配置中的 0
+	//（此前 Load 只认 v > 0，用户写 0 关闭功能时静默保持默认值）。
+	if ctx.Config.Get("image_merge_window") != nil {
+		cfg.ImageMergeWindow = ctx.Config.GetDuration("image_merge_window", cfg.ImageMergeWindow)
 	}
-	if v := ctx.Config.GetInt("image_context_turns", 0); v > 0 {
-		cfg.ImageContextTurns = v
+	if v, ok := intOption(ctx, "image_context_turns"); ok {
+		if v < 0 {
+			ctx.Log.Warnf("image_context_turns must not be negative, ignoring %d", v)
+		} else {
+			cfg.ImageContextTurns = v
+		}
 	}
-	if v := ctx.Config.GetDuration("image_context_window", 0); v > 0 {
-		cfg.ImageContextWindow = v
+	if ctx.Config.Get("image_context_window") != nil {
+		cfg.ImageContextWindow = ctx.Config.GetDuration("image_context_window", cfg.ImageContextWindow)
 	}
 	if v := ctx.Config.GetInt("max_images_per_message", 0); v > 0 {
 		cfg.MaxImagesPerMessage = v
@@ -671,15 +739,22 @@ func Load(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("plan_auto_rounds", 0); v > 0 {
 		cfg.PlanAutoRounds = v
 	}
-	if v := ctx.Config.GetInt("max_sends_per_round", 0); v > 0 {
+	// <=0 表示不限发送次数（sendBudget 对 limit<=0 恒放行），
+	// 显式存在性判断保证用户能配置 0/负值解除上限。
+	if v, ok := intOption(ctx, "max_sends_per_round"); ok {
 		cfg.MaxSendsPerRound = v
 	}
 	if v := ctx.Config.GetDuration("turn_timeout", 0); v > 0 {
 		cfg.TurnTimeout = v
 	}
 
-	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {
-		cfg.ContextGroupMessages = v
+	// 0 = 关闭群消息注入（文档承诺的关闭语义）。
+	if v, ok := intOption(ctx, "context_group_messages"); ok {
+		if v < 0 {
+			ctx.Log.Warnf("context_group_messages must not be negative, ignoring %d", v)
+		} else {
+			cfg.ContextGroupMessages = v
+		}
 	}
 	cfg.ContextGroupIncludeBot = ctx.Config.GetBool("context_group_include_bot", cfg.ContextGroupIncludeBot)
 

@@ -15,7 +15,9 @@ func TestIsSafeCommandArg(t *testing.T) {
 		{"\x00", false},
 		{"\x1b", false},
 		{"\x7F", false},
-		{"中文", false},
+		{"中文", true},
+		{"买咖啡", true},
+		{"hello 中文 emoji 🎉", true},
 		{string(make([]byte, 4097)), false},
 	}
 	for _, tt := range tests {

@@ -9,6 +9,7 @@
 package ai
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -47,10 +48,19 @@ func (e *executionState) handleApprovalButton(ctx *eventctx.Context) error {
 // 交互流程：
 //  1. 发送带"✅ 允许 / ❌ 拒绝"按钮的审批请求消息（平台支持按钮时）
 //  2. 同时提示文本命令 /ai approve <ID> / /ai deny <ID> 作为兜底
-//  3. 等待响应或超时（approvalTimeout），超时按拒绝处理
+//  3. 等待响应、回合中断（interruptCtx）或超时（approvalTimeout），
+//     超时与中断均按拒绝处理
+//
+// interruptCtx 是回合中断感知上下文（TurnCtx 派生）：/ai stop 或用户新消息
+// 抢占会取消它——已停止的回合不能继续阻塞等待审批（同会话新消息会在
+// 回合锁上排队，表现为"机器人无响应"），更不能在停止后因迟到的"允许"
+// 执行副作用。interruptCtx 为 nil 时仅按超时/响应收尾（测试与后台路径）。
 //
 // 审批请求消息与工具结果相互独立，发送失败也不影响文本兜底。
-func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary string, approvalTimeout time.Duration) bool {
+func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Context, toolName, argsSummary string, approvalTimeout time.Duration) bool {
+	if interruptCtx == nil {
+		interruptCtx = context.Background()
+	}
 	req := execution.NewApprovalRequest(ctx.GetSenderInfo().ID, ctx.GetChatInfo().ID, toolName, argsSummary)
 	p.approvals.Register(req)
 	id := req.ID
@@ -77,7 +87,7 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary st
 	select {
 	case approved, ok := <-req.Result():
 		if !ok {
-			// 通道被关闭 = 超时清理
+			// 通道被关闭 = 超时/停机清理
 			p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", execution.FormatApprovalTimeout(approvalTimeout), toolName))
 			return false
 		}
@@ -88,6 +98,12 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary st
 		// 静默失败，使请求永久残留在 pending 中。
 		p.approvals.Cancel(id)
 		p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", execution.FormatApprovalTimeout(approvalTimeout), toolName))
+		return false
+	case <-interruptCtx.Done():
+		// 回合被停止/抢占：取消审批并按拒绝处理，避免已停止的回合
+		// 因迟到的"允许"执行副作用。
+		p.approvals.Cancel(id)
+		p.replyFormatted(ctx, fmt.Sprintf("🛑 回合已停止，工具 `%s` 的审批已取消", toolName))
 		return false
 	}
 }

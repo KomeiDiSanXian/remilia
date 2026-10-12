@@ -66,7 +66,7 @@ func TestRequestApproval_ResolveByTextCommand(t *testing.T) {
 
 	done := make(chan bool, 1)
 	go func() {
-		done <- p.requestApproval(ctx, "sensitive_tool", "arg=1", 5*time.Second)
+		done <- p.requestApproval(ctx, nil, "sensitive_tool", "arg=1", 5*time.Second)
 	}()
 
 	// 等待审批请求注册
@@ -104,7 +104,7 @@ func TestRequestApproval_Timeout(t *testing.T) {
 		cfg:       &config.Config{TriggerCmd: "/ai"},
 	}
 	start := time.Now()
-	approved := p.requestApproval(ctx, "tool", "", 200*time.Millisecond)
+	approved := p.requestApproval(ctx, nil, "tool", "", 200*time.Millisecond)
 	assert.False(t, approved, "timeout should be treated as rejection")
 	assert.True(t, time.Since(start) >= 150*time.Millisecond, "should wait for timeout")
 }

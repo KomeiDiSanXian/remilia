@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -72,19 +73,30 @@ func (r *ApprovalRequest) Result() <-chan bool { return r.result }
 // ApprovalManager 管理全部待审批请求。
 type ApprovalManager struct {
 	mu      sync.Mutex
+	epoch   int64
 	seq     int
 	pending map[string]*ApprovalRequest
 }
 
-// NewApprovalManager 创建空的审批管理器。
+// approvalEpoch 全局递增的审批纪元：插件每次（重）载入都会新建
+// ApprovalManager，纪元随之推进。审批 ID 携带纪元前缀，避免插件热重载后
+// 新实例重新从 A1 开始计数、旧消息上残留的按钮/文本命令命中新实例的
+// 无关请求（RequesterID 相同即可通过）。
+var approvalEpoch atomic.Int64
+
+// NewApprovalManager 创建空的审批管理器（纪元自动递增）。
 func NewApprovalManager() *ApprovalManager {
-	return &ApprovalManager{pending: make(map[string]*ApprovalRequest)}
+	return &ApprovalManager{
+		pending: make(map[string]*ApprovalRequest),
+		epoch:   approvalEpoch.Add(1),
+	}
 }
 
 // nextID 生成下一个审批请求 ID（调用方须持有 m.mu 或单线程调用）。
+// 形如 "A3-7"：纪元 3、本实例第 7 条请求。
 func (m *ApprovalManager) nextID() string {
 	m.seq++
-	return fmt.Sprintf("A%d", m.seq)
+	return fmt.Sprintf("A%d-%d", m.epoch, m.seq)
 }
 
 // Register 注册一条待审批请求并写入其 ID。
@@ -157,6 +169,29 @@ func (m *ApprovalManager) CleanupExpired(timeout time.Duration, now time.Time) {
 	for _, r := range expired {
 		close(r.result) // 关闭通道 = 超时拒绝
 	}
+}
+
+// CancelForChat 取消指定会话的全部待审批请求（关闭通道即按拒绝处理）。
+// 返回取消的请求数。
+//
+// /ai stop 与用户新消息抢占时调用：已停止的回合不应再因迟到的"允许"
+// 执行副作用——用户以为"已停止当前生成"，此时点允许却触发工具，与
+// 停止语义矛盾。
+func (m *ApprovalManager) CancelForChat(chatID string) int {
+	m.mu.Lock()
+	var cancelled []*ApprovalRequest
+	for id, r := range m.pending {
+		if r.ChatID == chatID {
+			r.done = true
+			delete(m.pending, id)
+			cancelled = append(cancelled, r)
+		}
+	}
+	m.mu.Unlock()
+	for _, r := range cancelled {
+		close(r.result)
+	}
+	return len(cancelled)
 }
 
 // PendingIDs 返回当前待审批请求的 ID（顺序不确定）。

@@ -8,10 +8,13 @@
 //     （handleAIChat 调用 ResetPlanAuto），用户侧永远优先
 //   - 用户回合进行中（TryLockTurn 失败）跳过本轮，不与用户并发抢话
 //   - plan_auto_rounds（默认 3）限制单计划的后台推进轮次上限
+//   - 后台轮也走完整回合流程（BeginTurn）：接上中断信号，/ai stop 与
+//     用户新消息抢占同样能中止后台推进
 //   - 无进度停止：连续两轮计划签名（步骤状态）不变即停止自动推进，
-//     防止模型空转刷消息
-//   - 复用原事件与平台 Sender 重建上下文回复（doSummary 同模式）；
-//     生命周期 context 控制后台任务生命周期
+//     防止模型空转刷消息；停止前仍发送本轮已产出的内容
+//   - 复用原事件的 ctx.Clone() 重建可发送上下文（Clone 携带 dispatcher，
+//     Reply 才能真正投递；裸 NewContextFromEvent 没有 dispatcher，
+//     回复会被静默吞掉）；生命周期 context 控制后台任务生命周期
 package ai
 
 import (
@@ -39,16 +42,20 @@ func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Sessi
 	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
-	evt := ctx.GetPlatformEvent()
-	sender := ctx.GetPlatformSender()
+	// 克隆当前上下文供后台使用：Clone 复制 dispatcher 与扩展/botID，
+	// 且 std ctx 独立于事件池回收，后台任务安全；裸 NewContextFromEvent
+	// 缺 dispatcher，ctx.Reply 会以 ErrNoPlatformSender 静默失败。
+	clone := ctx.Clone()
+	evt := clone.GetPlatformEvent()
+	sender := clone.GetPlatformSender()
 	if evt == nil || sender == nil {
 		return
 	}
-	p.schedulePlanContinue(session, evt, sender)
+	p.schedulePlanContinue(session, evt, sender, clone)
 }
 
 // schedulePlanContinue 递增轮次并调度一次后台推进（间隔后执行）。
-func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Event, sender platform.Sender) {
+func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
 	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
@@ -64,41 +71,46 @@ func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Eve
 		case <-p.lifecycleCtx.Done():
 			return
 		}
-		p.continuePlan(session, evt, sender)
+		p.continuePlan(session, evt, sender, replyCtx)
 	})
 }
 
 // continuePlan 执行一轮后台计划推进：
-// 用户回合进行中跳过；无进度（计划签名不变）则停止自动推进；
-// 完成后仍有未完成步骤则继续调度下一轮。
-func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, sender platform.Sender) {
+// 用户回合进行中跳过；本轮作为完整回合执行（BeginTurn 接上中断信号，
+// /ai stop 与用户新消息抢占同样中止后台轮）；无进度（计划签名不变）
+// 则停止自动推进；完成后仍有未完成步骤则继续调度下一轮。
+func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
 	if !session.TryLockTurn() {
 		// 用户回合进行中：跳过本轮（不消耗后续推进资格）。
 		return
 	}
 	defer session.UnlockTurn()
 
+	// 接上回合中断信号：signal 存在后 TurnCtx/RequestInterrupt/Interrupted
+	// 才有效（否则 /ai stop 判定回合不活跃，无法中止后台轮）。
+	if !session.BeginTurn() {
+		return
+	}
+	defer session.EndTurn()
+
 	plan := session.PlanSnapshot()
 	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
-	before := runtime.PlanSignature(plan)
 
-	newCtx := eventctx.NewContextFromEvent(evt, sender)
-	result, err := p.generateVerified(newCtx, session)
+	result, err := p.generateVerified(replyCtx, session)
 	if err != nil {
+		if session.Interrupted() {
+			// 被停止/抢占：静默结束，不再推进也不再补发错误提示。
+			return
+		}
 		logger.Debugf("[AI] Plan auto-continue round failed: %v", err)
+		p.replyAndRecord(replyCtx, platform.TextMessage("⚠️ 后台计划推进失败，已暂停自动推进："+runtime.FormatAIError(err)))
 		return
 	}
 
-	after := session.PlanSnapshot()
-	if runtime.PlanSignature(after) == before {
-		// 本轮无进度（模型未推进计划也未产出内容）→ 停止自动推进。
-		session.StopPlanAuto()
-		logger.Debugf("[AI] Plan auto-continue stopped: no progress")
-		return
-	}
-
+	// 先把本轮产出发出去，再做"无进度"判定——模型没推进计划但产出了
+	// 有价值的回复文本时，丢弃它等于让一整轮 LLM/工具工作凭空蒸发。
 	if result != nil && (result.Text != "" || len(result.Attachments) > 0) {
 		msg := platform.OutboundMessage{}
 		if p.cfg.Markdown {
@@ -109,10 +121,20 @@ func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, send
 		if len(result.Attachments) > 0 {
 			msg.Attachments = result.Attachments
 		}
-		p.replyAndRecord(newCtx, msg)
+		p.replyAndRecord(replyCtx, msg)
+	}
+
+	after := session.PlanSnapshot()
+	if runtime.PlanSignature(after) == runtime.PlanSignature(plan) {
+		// 本轮无进度（计划签名不变）→ 停止自动推进。
+		if !session.Interrupted() {
+			session.StopPlanAuto()
+			logger.Debugf("[AI] Plan auto-continue stopped: no progress")
+		}
+		return
 	}
 
 	if after != nil && after.Active && after.HasPending() && !session.PlanAutoStopped() {
-		p.schedulePlanContinue(session, evt, sender)
+		p.schedulePlanContinue(session, evt, sender, replyCtx)
 	}
 }

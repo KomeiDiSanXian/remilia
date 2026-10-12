@@ -329,7 +329,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
 		results := runtime.ExecuteToolCallsParallel(toolCalls, p.cfg.ToolParallel, session.Interrupted,
 			func(_ int, tc protocol.ToolCall) runtime.ToolExecResult {
-				return p.execOneTool(ctx, session, cs, budget, tc)
+				return p.execOneTool(ctx, turnCtx, session, cs, budget, tc)
 			})
 
 		for i, tc := range toolCalls {
@@ -392,6 +392,28 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
+// effectiveToolBudget 单个工具调用的执行预算。
+// 默认 tool_timeout；工具实为技能（Skill）时取 max(tool_timeout, skill_timeout)——
+// 技能内部还有自己的多轮 LLM 循环，skill_timeout（默认 60s）比 tool_timeout
+// （默认 30s）更有意义；此前 skillCtx 从 toolCtx 派生，skill_timeout 配得
+// 再大也会被 30s 静默截断。
+func (p *Plugin) effectiveToolBudget(ctx *eventctx.Context, tc protocol.ToolCall) (d time.Duration) {
+	d = p.cfg.ToolTimeout
+	if _, ok := p.skillReg.GetSystem(tc.Name); ok {
+		if p.cfg.SkillTimeout > d {
+			d = p.cfg.SkillTimeout
+		}
+		return d
+	}
+	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok && skill.Enabled {
+		if p.cfg.SkillTimeout > d {
+			d = p.cfg.SkillTimeout
+		}
+		return d
+	}
+	return d
+}
+
 // finishReasonLength 提供商给出的"输出被 token 上限截断"结束原因。
 const finishReasonLength = "length"
 
@@ -406,19 +428,23 @@ func escalateMaxTokens(current, cap int) int {
 }
 
 // execOneTool 执行单个工具调用（计数 + 权限 + 审批 + 执行 + 追踪）。
-func (p *Plugin) execOneTool(ctx *eventctx.Context, session *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
+//
+// turnCtx 是回合中断感知上下文：工具超时与审批等待都从它派生，
+// /ai stop / 用户新消息抢占对已启动的工具与审批等待同样生效
+// （此前工具只用事件 ctx 的 per-tool 超时，中断无法中止在跑工具）。
+func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, session *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
 	session.Lock()
 	session.ToolCount++
 	session.Unlock()
 
 	// 策略评估（RBAC 权限 + 审批）由决策层给出结论：放行、拒绝文案与 SendTo 授权。
 	// 拒绝按工具级结果返回（不中断整个对话）。
-	verdict := p.decideToolInvocation(ctx, tc)
+	verdict := p.decideToolInvocation(ctx, turnCtx, tc)
 	if !verdict.allowed {
 		return runtime.ToolExecResult{Result: verdict.rejectText, Err: verdict.err}
 	}
 
-	toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
+	toolCtx, cancel := context.WithTimeout(turnCtx, p.effectiveToolBudget(ctx, tc))
 	defer cancel()
 	// 计划端口由装配侧直接注入：runtime 只承载与具体动作无关的机制，
 	// 不反向依赖内置动作包（catalog）。

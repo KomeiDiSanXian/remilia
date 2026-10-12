@@ -83,8 +83,11 @@ func (s *Session) MarkImageOverflowNotified() bool {
 }
 
 // PendingImageWithin 判断 pending 是否处于合并窗口内。
+// 同时持有 Part 与 Extra 的空窗口（maxKeep<=0 时仅计数）同样有效：
+// 此前 len(Parts)==0 即判 false，会把"仅计数"的窗口整体作废，
+// 超限反馈与重置标记都不会触发。
 func PendingImageWithin(p *PendingImageState, window time.Duration, now time.Time) bool {
-	if p == nil || len(p.Parts) == 0 {
+	if p == nil || (len(p.Parts) == 0 && p.Extra == 0) {
 		return false
 	}
 	if window <= 0 || p.Timestamp.IsZero() {
@@ -92,6 +95,12 @@ func PendingImageWithin(p *PendingImageState, window time.Duration, now time.Tim
 	}
 	return now.Sub(p.Timestamp) <= window
 }
+
+// MaxContentCacheEntries 附件内容缓存的条目上限。
+// base64 图片常驻内存：多模态会话反复处理图片时若无上限，10 分钟 TTL 内
+// 不相交的 URL 永不清理，会成为活跃群的内存尖峰来源。超上限时先清过期项，
+// 仍满则按插入序淘汰最旧的条目（map 遍历序不保证，但这是纯缓存，可接受）。
+const MaxContentCacheEntries = 32
 
 // CachedContent 从内存缓存中获取附件内容。已过期或不存在返回 nil。
 // 线程安全，持有 session 读锁。
@@ -113,12 +122,19 @@ func (s *Session) CachedContent(url string) *CachedContent {
 }
 
 // SetCachedContent 将附件内容存入内存缓存，TTL 默认 10 分钟。
-// 线程安全，持有 session 写锁。
+// 线程安全，持有 session 写锁。条目数有硬上限（见 MaxContentCacheEntries）：
+// 写入前先清扫过期项，仍满则淘汰最早过期的条目，防止长跑会话内存无界增长。
 func (s *Session) SetCachedContent(url string, data []byte, mimeType, audioFormat string) {
 	s.Lock()
 	defer s.Unlock()
 	if s.contentCache == nil {
 		s.contentCache = make(map[string]*CachedContent)
+	}
+	s.sweepContentCacheLocked()
+	for len(s.contentCache) >= MaxContentCacheEntries {
+		if !s.evictOldestContentLocked() {
+			break
+		}
 	}
 	s.contentCache[url] = &CachedContent{
 		Data:        data,
@@ -126,4 +142,35 @@ func (s *Session) SetCachedContent(url string, data []byte, mimeType, audioForma
 		AudioFormat: audioFormat,
 		ExpireAt:    time.Now().Add(10 * time.Minute),
 	}
+}
+
+// sweepContentCacheLocked 清除全部已过期条目（须持会话写锁）。
+func (s *Session) sweepContentCacheLocked() {
+	if len(s.contentCache) == 0 {
+		return
+	}
+	now := time.Now()
+	for url, c := range s.contentCache {
+		if now.After(c.ExpireAt) {
+			delete(s.contentCache, url)
+		}
+	}
+}
+
+// evictOldestContentLocked 淘汰一个最早过期的条目（须持会话写锁）。
+// 没有条目可淘汰时返回 false（防御空 map）。
+func (s *Session) evictOldestContentLocked() bool {
+	var oldestURL string
+	var oldest time.Time
+	found := false
+	for url, c := range s.contentCache {
+		if !found || c.ExpireAt.Before(oldest) {
+			oldestURL, oldest, found = url, c.ExpireAt, true
+		}
+	}
+	if !found {
+		return false
+	}
+	delete(s.contentCache, oldestURL)
+	return true
 }

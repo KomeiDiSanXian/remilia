@@ -477,6 +477,7 @@ func (m *memoryStore) RetrieveTexts(ctx context.Context, scope, query string, li
 }
 
 // CanExtract 判断指定作用域是否到达抽取节流间隔（距上次 >= minInterval）。
+// 注意这是非原子的只读判定：并发场景请用 [CheckAndMark]。
 func (m *memoryStore) CanExtract(scope string) bool {
 	if m.minInterval <= 0 {
 		return true
@@ -495,4 +496,28 @@ func (m *memoryStore) MarkExtracted(scope string) {
 	m.extractMu.Lock()
 	defer m.extractMu.Unlock()
 	m.lastExtract[scope] = time.Now()
+}
+
+// CheckAndMark 原子地"判定节流并记录时间"：通过则置时间戳并返回 true。
+// 判定与标记在同一锁内完成——此前 CanExtract/MarkExtracted 两个调用之间
+// 存在窗口，同一作用域的并发消息会双重抽取（每条都调一次 LLM）。
+func (m *memoryStore) CheckAndMark(scope string) bool {
+	m.extractMu.Lock()
+	defer m.extractMu.Unlock()
+	if m.minInterval > 0 {
+		if last, ok := m.lastExtract[scope]; ok && time.Since(last) < m.minInterval {
+			return false
+		}
+	}
+	m.lastExtract[scope] = time.Now()
+	return true
+}
+
+// UnmarkExtract 清除指定作用域的节流标记（回滚用）：抽取失败时不该白白
+// 消耗节流额度——此前先标记后异步抽取，LLM 调用失败后这轮事实要等满
+// memory_min_interval 才可能再抽，而那时对话早已被顶出上下文。
+func (m *memoryStore) UnmarkExtract(scope string) {
+	m.extractMu.Lock()
+	defer m.extractMu.Unlock()
+	delete(m.lastExtract, scope)
 }

@@ -178,7 +178,12 @@ func (sm *SessionManager) PeekOrLoad(sessionID string) *Session {
 // SaveLocked 持久化保存会话到存储后端（调用方须已持有会话锁）；需要自动加锁时用 SaveSession。
 //
 // 如果调用方未持有锁，请使用 [SaveSession] 替代。
+// 会话已置删除墓碑（被 Delete）时跳过写库：在途回合的收尾保存不得把删除撤销。
 func (sm *SessionManager) SaveLocked(session *Session) {
+	if session.Deleted() {
+		logger.Debugf("[AI] Session %s was deleted, skipping persist", session.ID)
+		return
+	}
 	session.UpdatedAt = time.Now()
 	TrimMessages(session, sm.maxHistory)
 
@@ -197,23 +202,33 @@ func (sm *SessionManager) SaveSession(session *Session) {
 }
 
 // Delete 删除指定会话（从 LRU 和持久化存储中）。
+//
+// 删除前对内存中的会话对象置墓碑：若此刻仍有回合在进行（回合收尾会调用
+// SaveSession），墓碑保证收尾保存不会把整条记录重新写回存储——否则
+// "/ai clear" 会被静默撤销，消息"删了又回来"。
 func (sm *SessionManager) Delete(sessionID string) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	if elem, ok := sm.sessions[sessionID]; ok {
+		entry := elem.Value.(*sessionEntry)
+		entry.session.MarkDeleted()
 		sm.lru.Remove(elem)
 		delete(sm.sessions, sessionID)
 	}
+	sm.mu.Unlock()
 
+	// 存储删除放在全局锁之外：DB I/O 不应阻塞其他会话的创建/查询。
 	if sm.storage != nil {
-		_ = sm.storage.Delete(sessionID)
+		if err := sm.storage.Delete(sessionID); err != nil {
+			logger.Errorf("[AI] Failed to delete session %s from storage: %v", sessionID, err)
+		}
 	}
 }
 
 // CleanupExpired 清理过期的会话。
 // 由插件 Setup 中启动的后台 goroutine 定期调用。
 // 先持锁收集过期会话并移出缓存，释放锁后再执行持久化删除，避免 DB I/O 阻塞其他会话操作。
+// 正在执行回合的会话跳过本轮（避免与活跃回合产生双活对象，见 evictLocked）；
+// 回合中的会话必然活跃（touch 会刷新 UpdatedAt），自然不会被判过期。
 func (sm *SessionManager) CleanupExpired() {
 	var expiredIDs []string
 
@@ -222,9 +237,10 @@ func (sm *SessionManager) CleanupExpired() {
 	for id, elem := range sm.sessions {
 		entry := elem.Value.(*sessionEntry)
 		entry.session.Lock()
-		expired := sm.ttl > 0 && now.After(entry.session.UpdatedAt.Add(sm.ttl))
+		expired := sm.ttl > 0 && !entry.session.Deleted() && now.After(entry.session.UpdatedAt.Add(sm.ttl))
 		entry.session.Unlock()
 		if expired {
+			entry.session.MarkDeleted()
 			sm.lru.Remove(elem)
 			delete(sm.sessions, id)
 			expiredIDs = append(expiredIDs, id)
@@ -234,7 +250,9 @@ func (sm *SessionManager) CleanupExpired() {
 
 	if sm.storage != nil {
 		for _, id := range expiredIDs {
-			_ = sm.storage.Delete(id)
+			if err := sm.storage.Delete(id); err != nil {
+				logger.Errorf("[AI] Failed to delete expired session %s from storage: %v", id, err)
+			}
 		}
 	}
 }
@@ -242,14 +260,30 @@ func (sm *SessionManager) CleanupExpired() {
 // evictLocked 在持有锁时执行 LRU 淘汰。
 func (sm *SessionManager) evictLocked() {
 	for sm.lru.Len() > sm.maxSize {
-		elem := sm.lru.Back()
+		elem := sm.evictCandidateLocked()
 		if elem == nil {
-			break
+			// 全部会话都有活跃回合：暂不淘汰，等回合结束后再裁。
+			return
 		}
 		entry := elem.Value.(*sessionEntry)
 		delete(sm.sessions, entry.session.ID)
 		sm.lru.Remove(elem)
 	}
+}
+
+// evictCandidateLocked 从链表尾部挑选淘汰候选：优先最久未访问的会话，但
+// 跳过正在执行回合的会话。淘汰一个活跃回合会话会让同一 sessionID 的下一条
+// 消息从存储加载出另一个对象，与进行中回合持有的对象双活——回合收尾的
+// 整记录 upsert 会覆盖掉缓存对象已落库的中间消息，且 /ai stop 无法抢断。
+// 全部会话都活跃时返回 nil（调用方应放弃本轮淘汰）。
+func (sm *SessionManager) evictCandidateLocked() *list.Element {
+	for elem := sm.lru.Back(); elem != nil; elem = elem.Prev() {
+		entry := elem.Value.(*sessionEntry)
+		if !entry.session.TurnActive() {
+			return elem
+		}
+	}
+	return nil
 }
 
 // TrimLowWaterDivisor 批量裁剪的"低水位"除数：超限时一次性多裁
@@ -291,7 +325,14 @@ func TrimMessages(s *Session, maxHistory int) {
 
 	targetOther := max(usable-len(systemMsgs), 0)
 	if len(otherMsgs) > targetOther {
-		keep := max(targetOther-max(targetOther/TrimLowWaterDivisor, 1), 1)
+		// 低水位固定让出 TrimLowWaterDivisor 条余量：裁后要累积整整 divisor
+		// 条才再次触发裁剪，两次裁剪之间的前缀字节才稳定。此前
+		// targetOther/divisor 在小 maxHistory（如 8）下退化成"几乎轮轮裁"，
+		// 批量裁剪收益归零。targetOther 为 0（system 占满窗口）时全部裁掉。
+		keep := 0
+		if targetOther > 0 {
+			keep = max(targetOther-TrimLowWaterDivisor, 1)
+		}
 		start := max(len(otherMsgs)-keep, 0)
 		for start < len(otherMsgs) && otherMsgs[start].Role == protocol.RoleTool {
 			start++

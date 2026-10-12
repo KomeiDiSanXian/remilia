@@ -37,6 +37,16 @@ import (
 // 原生 type=14 清空会话共用，见 qqaction.go 的 handleClearAction）。
 const sessionClearedText = "✅ 对话历史已清空，开始全新的对话吧！"
 
+// aiUsageHint 裸 /ai（无正文、无附件）的用法提示。
+func (p *Plugin) aiUsageHint() string {
+	cmd := p.triggerCmd
+	if cmd == "" {
+		cmd = "/ai"
+	}
+	return "💬 直接把问题发给我就能对话；也可试试：" +
+		"`" + cmd + " summary`（总结对话）、`" + cmd + " retry`（重新生成）、`" + cmd + " todos`（待办清单）、`" + cmd + " stop`（停止生成）、`" + cmd + " reset`（清空历史）"
+}
+
 // execSubCommand 根据子命令名称执行对应的操作。
 // 用于 /ai 命令路径（通过 GetParsedCommand 获取子命令名）。
 func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
@@ -117,18 +127,19 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		p.summaries[sessionID] = true
 		p.summaryMu.Unlock()
 
-		// 快照事件与发送器后再起后台任务：后台 goroutine 若在 handler 返回后
-		// 直接读事件上下文，可能读到已回收的对象（与 maybeExtractMemory 刻意
-		// 规避事件上下文保持一致）。goSafe 兜底 recover，避免后台 panic 终止进程。
-		event := ctx.GetPlatformEvent()
-		sender := ctx.GetPlatformSender()
+		// 克隆上下文后再起后台任务：Clone 复制 dispatcher 与扩展/botID，且
+		// std ctx 独立于事件池回收——裸 NewContextFromEvent 缺 dispatcher，
+		// ctx.Reply 会以 ErrNoPlatformSender 静默失败，总结永远发不出去。
+		// 历史已取快照，后台 goroutine 不再读会话，无 data race。goSafe
+		// 兜底 recover，避免后台 panic 终止进程。
+		clone := ctx.Clone()
 		goSafe("summary", func() {
 			defer func() {
 				p.summaryMu.Lock()
 				delete(p.summaries, sessionID)
 				p.summaryMu.Unlock()
 			}()
-			p.doSummary(event, sender, msgsSnapshot)
+			p.doSummary(clone, msgsSnapshot)
 		})
 		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
 		return nil
@@ -365,7 +376,7 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 }
 
 // handleStopCommand 处理 /ai stop（停止）：中断当前正在进行的生成，并一并
-// 取消会话中尚未结束的任务计划。
+// 取消会话中尚未结束的任务计划与本会话的全部待审批请求。
 //
 // 停止生成与计划取消绑定处理：进行中的回合被中断（RequestInterrupt 取消 LLM
 // 流请求，见 Session.TurnCtx / process.go，已生成的部分会作为回复保留）时，
@@ -373,13 +384,16 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 // 计划执行；因此回合空闲但仍有进行中计划时同样取消计划，阻止已调度的后台
 // 推进轮继续运行（计划取消见 plan.go CancelPlan / runner.go）。无进行中生成
 // 也无计划时（如仅在等待审批）仅提示无操作。
-func (r *runtimeState) handleStopCommand(ctx *eventctx.Context) error {
+//
+// 接收者为 *Plugin：stop 要横跨多个 owner 的状态（runtimeState 的会话、
+// executionState 的审批闸门），子状态方法的 receiver 无法触达兄弟字段。
+func (p *Plugin) handleStopCommand(ctx *eventctx.Context) error {
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)
-	if r.sm == nil {
+	if p.sm == nil {
 		ctx.ReplyText("当前没有正在进行的生成")
 		return nil
 	}
-	s := r.sm.Peek(sessionID)
+	s := p.sm.Peek(sessionID)
 	if s == nil {
 		ctx.ReplyText("当前没有正在进行的生成")
 		return nil
@@ -389,11 +403,19 @@ func (r *runtimeState) handleStopCommand(ctx *eventctx.Context) error {
 		s.RequestInterrupt()
 		stopped = true
 	}
+	// 中断已置位；回合内的审批等待监听中断信号（TurnCtx 派生）会自行收场。
+	// 此处再兜底取消本会话的全部待审批请求，覆盖审批等待未接中断
+	// 的路径（如按钮回调等待），保证已停止的回合不再执行副作用。
+	if p.approvals != nil {
+		if cancelled := p.approvals.CancelForChat(ctx.GetChatInfo().ID); cancelled > 0 {
+			stopped = true
+		}
+	}
 	planCancelled := s.CancelPlan()
 	if planCancelled {
 		// 取消是回合外的状态变更（生成可能已空闲），显式落库，
 		// 避免重启后旧计划从持久化快照复活。
-		r.sm.SaveSession(s)
+		p.sm.SaveSession(s)
 	}
 	switch {
 	case stopped && planCancelled:
@@ -500,10 +522,11 @@ func (a *adminState) formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm", m)
 }
 
-// doSummary 在后台调用 LLM 生成对话总结，通过快照的事件与 sender 发送结果。
-// msgs 是调用方已复制的消息快照，不会与 sess 管理器产生 data race。
-// 使用 p.lifecycleCtx 作为父上下文，确保插件关闭时及时取消。
-func (p *Plugin) doSummary(event platform.Event, sender platform.Sender, msgs []protocol.Message) {
+// doSummary 在后台调用 LLM 生成对话总结，通过调用方 Clone 的上下文发送结果。
+// ctx 携带 dispatcher（Reply 可真正投递），msgs 是调用方已复制的消息快照，
+// 不会与 sess 管理器产生 data race。使用 p.lifecycleCtx 作为父上下文，
+// 确保插件关闭时及时取消。
+func (p *Plugin) doSummary(ctx *eventctx.Context, msgs []protocol.Message) {
 	filtered := make([]protocol.Message, 0, len(msgs)+1)
 	for _, m := range msgs {
 		if m.Role != protocol.RoleSystem {
@@ -534,19 +557,20 @@ func (p *Plugin) doSummary(event platform.Event, sender platform.Sender, msgs []
 		if p.lifecycleCtx.Err() != nil {
 			return
 		}
-		newCtx := eventctx.NewContextFromEvent(event, sender)
-		if e := newCtx.ReplyText("❌ 生成总结失败: " + runtime.FormatAIError(err)); e != nil {
-			logger.Errorf("doSummary reply error: %v", e)
+		// ReplyText 返回 *future.Future（恒非 nil），错误要看 Wait 结果。
+		if f := ctx.ReplyText("❌ 生成总结失败: " + runtime.FormatAIError(err)); f != nil {
+			if _, ferr := f.Wait(ctx.Context()); ferr != nil {
+				logger.Errorf("doSummary reply failed: %v", ferr)
+			}
 		}
 		return
 	}
 
 	if resp.Content != "" {
-		newCtx := eventctx.NewContextFromEvent(event, sender)
 		if p.cfg.Markdown {
-			p.replyAndRecord(newCtx, platform.MarkdownMessage(resp.Content))
+			p.replyAndRecord(ctx, platform.MarkdownMessage(resp.Content))
 		} else {
-			p.replyAndRecord(newCtx, platform.TextMessage("📋 对话总结\n\n"+resp.Content))
+			p.replyAndRecord(ctx, platform.TextMessage("📋 对话总结\n\n"+resp.Content))
 		}
 	}
 }

@@ -48,6 +48,11 @@ type Session struct {
 	turnActive atomic.Bool
 	signal     atomic.Pointer[turnSignal]
 
+	// deleted 删除墓碑（json:"-" 不持久化）：Delete 在移出缓存时置位，
+	// 让仍在进行的回合收尾时跳过 SaveLocked 的整记录 upsert，避免把
+	// "/ai clear" 静默撤销（消息删了又回来）。
+	deleted atomic.Bool
+
 	contentCache map[string]*CachedContent `json:"-"`
 
 	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
@@ -152,6 +157,13 @@ func (s *Session) Interrupted() bool {
 		return false
 	}
 }
+
+// MarkDeleted 置删除墓碑：此后 SaveLocked 跳过持久化（Delete 期间在途回合的
+// 收尾写库会把删除撤销）。
+func (s *Session) MarkDeleted() { s.deleted.Store(true) }
+
+// Deleted 返回会话是否已置删除墓碑。
+func (s *Session) Deleted() bool { return s.deleted.Load() }
 
 // TurnCtx 返回随当前回合中断信号自动取消的子上下文。
 //

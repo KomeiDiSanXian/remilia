@@ -453,7 +453,7 @@ func TestExecOneToolSendToDeniedWithoutPermission(t *testing.T) {
 	}
 	sess := p.sm.GetOrCreate("send:deny", "user1", "chat_1")
 
-	res := p.execOneTool(ctx, sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
+	res := p.execOneTool(ctx, context.Background(), sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
 		Name:      catalog.SendToToolName,
 		Arguments: map[string]any{"target": "张三", "message": "hi"},
 	})
@@ -482,7 +482,7 @@ func TestExecOneToolSendToApprovalFlow(t *testing.T) {
 
 	done := make(chan runtime.ToolExecResult, 1)
 	go func() {
-		done <- p.execOneTool(ctx, sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
+		done <- p.execOneTool(ctx, context.Background(), sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
 			Name:      catalog.SendToToolName,
 			Arguments: map[string]any{"target": "张三", "message": "你好"},
 		})
