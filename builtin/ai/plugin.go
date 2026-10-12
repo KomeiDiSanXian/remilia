@@ -71,6 +71,22 @@ type Plugin struct {
 //		if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //		    aiSvc.RegisterToolProvider(myProvider)
 //		}
+//
+// # 二次开发接口一览
+//
+//   - 挂自定义 LLM 工具（含权限敏感）：实现 toolkit.ToolProvider，
+//     经 RegisterToolProvider 注册；工具集合会运行时变化的来源可附加
+//     实现 toolkit.ToolChangeNotifier 自动同步
+//   - 挂"子代理技能"（多工具编排）：实现 toolkit.SkillProvider，或显式
+//     RegisterSkillProvider；/ai skill 命令可管理
+//   - 一次性 LLM 问答（总结/翻译/判读/分拣）：持有 ai.LLMService（*Plugin
+//     实现该窄接口）调用 Complete —— 继承插件的模型/Key/超时/重试/指标，
+//     无工具、无会话、不走审批
+//   - 无权限的普通框架命令无需任何注册：会被自动发现包装成工具
+//   - 外部 MCP 工具服务器：由 ai/mcp 插件按配置接入，非编程面
+//
+// 不要绕开这些面手工改注册表/会话：回合纪律、审批与发送预算都在上述
+// 入口之后。
 func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "ai",
