@@ -10,7 +10,6 @@ package mcp
 // 让子进程自成进程组后用 -pid 整组 SIGKILL 是最可靠的清理方式。
 
 import (
-	"os/exec"
 	"syscall"
 )
 
