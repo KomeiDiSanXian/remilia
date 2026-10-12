@@ -122,4 +122,7 @@ type adminState struct {
 	// 节流，见 qqaction.go）。键为 action + sessionID。惰性初始化并按需清理。
 	actionMu   sync.Mutex
 	actionRate map[string]qqActionRateState
+	// replyGate 群自主发言接话策略（group_reply_policy=smart）的运行时状态：
+	// 概率器等（信号数据本身实时取自 messagelog）。见 replygate.go。
+	replyGate *replyGateState
 }

@@ -208,6 +208,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				groupPolicies:   groupPolicies,
 				emb:             emb,
 				memory:          memory,
+				replyGate:       initReplyGate(),
 			}
 
 			p.registerSkillAddFSM()
@@ -274,9 +275,11 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 						p.sm.CleanupExpired()
 						// 审批请求的兜底清理：正常超时路径已由 requestApproval
 						// 的本地兜底移除，这里捕获异常路径残留的请求，避免
-						// pending map 无界增长。
-						if p.cfg.ApprovalTimeout > 0 {
-							p.approvals.CleanupExpired(p.cfg.ApprovalTimeout, time.Now())
+						// pending map 无界增长。判定用 EffectiveApprovalTimeout
+						//（<=0 会取默认 60s）：config 配 0 意为"用默认"，与实际
+						// 等待时长保持一致，否则预算 0 时兜底清理会被静默跳过。
+						if e := runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg)); e > 0 {
+							p.approvals.CleanupExpired(e, time.Now())
 						}
 					case <-runCtx.Done():
 						return
@@ -287,13 +290,16 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			return p, nil
 		},
 		Teardown: func(tctx *plugin.TeardownContext) error {
-			if p := tctx.API.(*Plugin); p != nil {
-				if p.groupPolicies != nil {
-					p.groupPolicies.Close()
-				}
-				if p.memory != nil {
-					p.memory.Close()
-				}
+			// comma-ok 断言：装配保证 API 是 *Plugin，但防御未来装配变动。
+			p, ok := tctx.API.(*Plugin)
+			if !ok || p == nil {
+				return nil
+			}
+			if p.groupPolicies != nil {
+				p.groupPolicies.Close()
+			}
+			if p.memory != nil {
+				p.memory.Close()
 			}
 			return nil
 		},
@@ -523,9 +529,11 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		// 等价官方 OpenClaw 插件的 requireMention=false。
 		// 注意：此模式覆盖 @机器人 的群聊路径（@ 消息也命中），
 		// 因此开启时不再单独注册 AtBot 群聊 matcher，避免重复处理。
-		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(p.autoReplyEligible()).
-			Handle(p.handleAI)
+		for _, kind := range groupChatKinds() {
+			ctx.Reg.RegisterMatcher(string(kind)).
+				Where(p.autoReplyEligible()).
+				Handle(p.handleAI)
+		}
 	} else if p.cfg.AtBot {
 		// @机器人 触发：响应 @机器人 的任意消息，排除命令消息（其他插件的
 		// 命令不被 AI 抢答）与 AI 自身触发命令（由触发命令 matcher 接管）。
@@ -536,10 +544,12 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		// 而文档承诺的主路径"@机器人 后直接发消息"（含 @机器人 说"停止"
 		// 这类文本子命令）反而被关掉——默认配置下 @机器人 的普通消息静默
 		// 无响应，与"允许 @机器人 触发"的配置语义相悖。
-		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(eventctx.OnMentionedBot()).
-			Where(p.autoReplyEligible()).
-			Handle(p.handleAI)
+		for _, kind := range groupChatKinds() {
+			ctx.Reg.RegisterMatcher(string(kind)).
+				Where(eventctx.OnMentionedBot()).
+				Where(p.autoReplyEligible()).
+				Handle(p.handleAI)
+		}
 	}
 
 	// per-group @ 触发要求（/ai group set mention off）：群策略显式允许自主发言时，
@@ -549,17 +559,19 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	// 全局 GroupAutonomous=true 时不注册此兜底：自主 matcher 已覆盖全部
 	// 非命令消息，群策略 mention=on 的"必须 @"限制在 handleAI 内按群过滤。
 	if !groupCatchAll {
-		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(func(c *eventctx.Context) bool {
-				require, ok := p.groupRequireMention(c)
-				// 群策略未配置或要求 @ 时，本兜底 matcher 不处理（由上方 matcher 路由）
-				if !ok || require {
-					return false
-				}
-				// 群策略允许自主发言：放行未 @ 且不属于其他入口的消息
-				return !eventctx.OnMentionedBot()(c) && p.autoReplyEligible()(c)
-			}).
-			Handle(p.handleAI)
+		for _, kind := range groupChatKinds() {
+			ctx.Reg.RegisterMatcher(string(kind)).
+				Where(func(c *eventctx.Context) bool {
+					require, ok := p.groupRequireMention(c)
+					// 群策略未配置或要求 @ 时，本兜底 matcher 不处理（由上方 matcher 路由）
+					if !ok || require {
+						return false
+					}
+					// 群策略允许自主发言：放行未 @ 且不属于其他入口的消息
+					return !eventctx.OnMentionedBot()(c) && p.autoReplyEligible()(c)
+				}).
+				Handle(p.handleAI)
+		}
 	}
 
 	if privateCatchAll {
@@ -567,6 +579,14 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 			Where(p.autoReplyEligible()).
 			Handle(p.handleAI)
 	}
+}
+
+// groupChatKinds 群聊类事件种类：普通群消息 + 频道消息（Discord guild
+// channel、QQ 频道等被平台映射为 GUILD_MESSAGE）。二者触发语义一致
+// （chatInfo.IsGroup 判别会话类型），此前漏注册 GUILD_MESSAGE 导致
+// Discord 服务器频道 / QQ 频道里 @机器人 与 /ai 命令全部无响应。
+func groupChatKinds() []platform.EventKind {
+	return []platform.EventKind{platform.EventKindGroupMessage, platform.EventKindGuildMessage}
 }
 
 // autoReplyEligible 返回 matcher 规则：报告正文是否可由 AI 的自动响应入口

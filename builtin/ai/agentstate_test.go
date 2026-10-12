@@ -192,6 +192,7 @@ func agentStatePluginNonAgent() map[string]string {
 		"summaries":  "同一会话摘要任务的在途去重集合",
 		"actionMu":   "actionRate 的互斥锁",
 		"actionRate": "按钮/命令动作的限流状态",
+		"replyGate":  "群自主发言接话策略的概率器（smart 档），信号数据实时取自 messagelog",
 	}
 }
 

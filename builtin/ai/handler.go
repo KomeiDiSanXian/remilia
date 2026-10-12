@@ -62,6 +62,9 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		}
 		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
 		if content == "" && len(atts) == 0 {
+			// 裸 /ai（无正文、无附件）：沉默会让用户以为插件失灵，
+			// 回一句用法提示（与其他子命令路径的提示一致）。
+			p.replyFormatted(ctx, p.aiUsageHint())
 			return nil
 		}
 		// 命令路径不检查 FSM：避免 /ai cancel 这类消息被 FSM 的 cancel 事件消费。
@@ -99,6 +102,15 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	// per-group @ 触发要求（/ai group set mention on）：群策略显式要求必须 @ 时，
 	// 未 @ 机器人的群消息（全局 GroupAutonomous 模式下会进入此路径）直接跳过。
 	if require, ok := p.groupRequireMention(ctx); ok && require && !runtime.BotMentioned(ctx) {
+		return nil
+	}
+
+	// 群自主接话策略（group_reply_policy=smart）：未被显式点名的群消息按
+	// 分层决策决定是否插话——强信号（@/触发词/计划推进/在跟 bot 对话）
+	// 必回；纯社交/复读/嫌弃/超短消息不回；其余弱信号按概率抽签并受
+	// 插话冷静期约束。all（默认）时不做任何过滤，行为与旧版一致。
+	// gate 放在 pending-image 记录之前：smart 拒绝时纯图片也不进合并窗口。
+	if !explicit && p.autonomousReplyDenied(ctx, content) {
 		return nil
 	}
 
@@ -195,6 +207,10 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 			// 解析失败（存储未启用/URL 过期）的图片跳过，不影响本条文字。
 			if parts := p.hydratePendingImageRefs(ctx, sess, pendingRefs); len(parts) > 0 {
 				userMsg = runtime.MergePendingImageParts(userMsg, parts)
+			} else if pendingExtra+len(pendingRefs) > 0 && userMsg.Content != "" {
+				// 合并目标图片全部解析失败：给用户可见提示，避免发了字却
+				// 看不到图、无从知道为什么。
+				ctx.ReplyText(fmt.Sprintf("（此前发出的 %d 张图片已无法加载，本次仅处理文字）", pendingExtra+len(pendingRefs)))
 			}
 		}
 	}
@@ -207,8 +223,15 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		return nil
 	}
 
-	// 无文本且附件全部下载失败（SSRF/超限/超时）：无可处理内容，静默跳过。
+	// 无文本且附件全部下载失败（SSRF/超限/超时/格式不支持）：无可处理内容。
+	// 用户确实发了消息（原始事件带附件）时给可见反馈，避免"发了语音/图片
+	// 没反应"；原始事件本无附件且无文本的场景（群兜底误触发等）保持静默。
 	if userMsg.Content == "" && len(userMsg.ContentParts) == 0 {
+		if evtAtts := platform.Attachments(ctx.GetPlatformEvent()); len(evtAtts) > 0 ||
+			platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
+			logger.Debugf("[AI] Message had %d attachment(s) but none processed", len(evtAtts))
+			ctx.ReplyText("这条消息没有我能处理的内容（仅支持文本、图片和语音）；请检查附件是否下载失败或格式不受支持")
+		}
 		return nil
 	}
 
@@ -221,6 +244,15 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	// 生成回答并（开启 verify_enabled 时）经校验器校验，失败按反馈重新生成。
 	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
+		// 多轮工具循环中可能已经捕获到可用回复文本（如超深提前收尾），
+		// 先把它发出去再附错误提示，避免一整轮 LLM/工具工作凭空蒸发。
+		if result != nil && result.Text != "" {
+			if p.cfg.Markdown {
+				p.replyAndRecord(ctx, platform.MarkdownMessage(result.Text))
+			} else {
+				p.replyAndRecord(ctx, platform.TextMessage(result.Text))
+			}
+		}
 		ctx.ReplyError(runtime.FormatAIError(err))
 		return nil
 	}
@@ -548,6 +580,12 @@ func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.Attach
 
 // downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
 func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Session) *protocol.ContentPart {
+	// AI 消息通道只吃图片/语音：视频/文件 kind 显式声明时提前跳过——
+	// 此前会把整个附件（最高 20MB）下载完才被 InferPartType 弃置，白费带宽与时间。
+	if att.Kind == platform.AttachmentKindVideo || att.Kind == platform.AttachmentKindFile {
+		logger.Debugf("[AI] skipped unsupported attachment kind %s: %s", att.Kind, att.URL)
+		return nil
+	}
 	// 先检查缓存
 	if cached := sess.CachedContent(att.URL); cached != nil {
 		return &protocol.ContentPart{
@@ -626,7 +664,9 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 	if cp.Type == protocol.ContentPartAudio {
 		cp.AudioFormat = runtime.InferAudioFormat(mimeType)
 		if cp.AudioFormat == "" {
-			return nil // 不支持的音频格式
+			// 不支持的音频格式：留 Warn 便于归因"发了语音没反应"。
+			logger.Warnf("[AI] Unsupported audio mime %q dropped: %s", mimeType, att.URL)
+			return nil
 		}
 	}
 

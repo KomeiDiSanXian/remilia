@@ -21,7 +21,7 @@ func pluginStateOwners() map[string][]string {
 		"runtimeState":   {"sm", "triggerCmd", "defOnce", "def", "lifecycleCtx", "lifecycleCancel"},
 		"adminState": {
 			"fsmEngine", "reminders", "todos", "groupPolicies",
-			"summaryMu", "summaries", "actionMu", "actionRate",
+			"summaryMu", "summaries", "actionMu", "actionRate", "replyGate",
 		},
 	}
 }
