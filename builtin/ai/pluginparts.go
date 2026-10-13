@@ -47,10 +47,9 @@ type catalogState struct {
 	// 职责边界：reg 只负责"登记与按名查找"这一兼容注册 API；目录的聚合、
 	// 快照与代数（catalogGen）由本 owner 承担，Selector/Invoker 各自只读其一。
 	reg *toolkit.ToolRegistry
-	// catalogGen 目录代数：工具成员关系变化（登记/移除）时递增。会话级选择缓存
-	// 与稳定状态据此判断能否复用；来源的软不可用（断开/重连，成员未变）不推进
-	// 代数，避免连接抖动击穿前缀缓存。用原子量以免为读代数而取注册表锁。
-	catalogGen atomic.Uint64
+	// catalogGen 保存目录版本、快照互斥与来源覆盖状态。保留原子代数接口，
+	// 同时在其内部统一保护“版本 + 注册表动作”的快照边界。
+	catalogGen catalogRuntime
 	// skillReg 技能注册表，管理所有已注册的 Skill。
 	skillReg *toolkit.SkillRegistry
 	// perms RBAC 权限插件（用于工具级权限校验与按角色注入）。
@@ -59,6 +58,33 @@ type catalogState struct {
 	cmdMu sync.RWMutex
 	// cmdPatterns 工具名到完整命令模式的映射，用于 execution.RunCommand 构造合成事件。
 	cmdPatterns map[string]string
+}
+
+// catalogRuntime 将目录代数与其聚合状态放在同一字段中，保证快照和变更
+// 原子一致；嵌入 Uint64 保留 catalogGen.Add/Load 的兼容调用。
+type catalogRuntime struct {
+	atomic.Uint64
+	mu                  sync.RWMutex
+	baseTools           map[string]toolkit.Tool
+	baseCommandPatterns map[string]string
+	providers           []*toolProviderBinding
+	winners             map[string]catalogWinner
+}
+
+// toolExecutionSnapshot 将一次工具调用解析出的定义、策略与命令模式绑定在一起。
+// 它只在单次调用中传递，不持有目录锁；动态更新不改变已经完成解析的调用。
+type toolExecutionSnapshot struct {
+	tool           toolkit.Tool
+	commandPattern string
+	hasCommand     bool
+	found          bool
+}
+
+func (s toolExecutionSnapshot) action() (toolkit.Action, bool) {
+	if !s.found {
+		return toolkit.Action{}, false
+	}
+	return toolkit.ActionOf(s.tool), true
 }
 
 // contextState 上下文 owner 的字段。

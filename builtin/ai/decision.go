@@ -40,9 +40,15 @@ import (
 // 但无权的动作不进入模型视野（避免占名额与"调用了才被告知无权"）。
 // 执行路径的权限校验保留为纵深防御。
 func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Session) []toolkit.Action {
+	_, actions := p.actionCandidatesWithGeneration(ctx, session)
+	return actions
+}
+
+func (p *Plugin) actionCandidatesWithGeneration(ctx *eventctx.Context, session *session.Session) (uint64, []toolkit.Action) {
 	// 目录快照是聚合边界：来源（注册表、外部工具服务器）的可变状态在此固定为
 	// 一份只读视图；本函数只在其上做每调用者的收敛（用户 Skill、群策略、RBAC）。
-	actions := p.catalogSnapshot().Actions()
+	snapshot := p.catalogSnapshot()
+	actions := snapshot.Actions()
 	actions = append(actions, p.userSkillActions(session.UserID)...)
 
 	// per-group 工具白名单过滤（/ai group set tools）
@@ -59,7 +65,7 @@ func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Sessio
 	if len(actions) != beforePerm {
 		logger.Debugf("[AI] Permission filtered tools: %d→%d", beforePerm, len(actions))
 	}
-	return actions
+	return snapshot.Generation(), actions
 }
 
 // decideTurnActions 决定本轮交给模型的工具集。
@@ -74,28 +80,38 @@ func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Sessio
 //
 // 选择与稳定策略的实现见 builtin/ai/decision，本方法只交出插件持有的会话。
 func (p *Plugin) decideTurnActions(ctx *eventctx.Context, session *session.Session, needAction bool) []toolkit.Action {
-	candidates := p.actionCandidates(ctx, session)
+	generation, candidates := p.actionCandidatesWithGeneration(ctx, session)
 	if !needAction {
-		return p.stabilizeToolSet(session, candidates,
-			decision.RetainedActions(candidates, decision.SessionUsedTools(session)))
+		return p.stabilizeToolSetAtGeneration(session, candidates,
+			decision.RetainedActions(candidates, decision.SessionUsedTools(session)), generation)
 	}
-	return p.selectToolsForTurn(ctx, session, candidates)
+	return p.selectToolsForTurnAtGeneration(ctx, session, candidates, generation)
 }
 
 // selectToolsForTurn 从可用工具中选择本轮发送给 LLM 的子集。
 // 打分、会话缓存与稳定策略见 builtin/ai/decision；本方法只交出插件持有的配置、
 // 嵌入器、会话与本轮查询（最后一条用户消息）。
 func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *session.Session, actions []toolkit.Action) []toolkit.Action {
+	return p.selectToolsForTurnAtGeneration(ctx, session, actions, p.catalogGeneration())
+}
+
+func (p *Plugin) selectToolsForTurnAtGeneration(ctx *eventctx.Context, session *session.Session,
+	actions []toolkit.Action, generation uint64) []toolkit.Action {
 	opts := selectionOptions(p.cfg)
-	opts.CatalogGeneration = p.catalogGeneration()
+	opts.CatalogGeneration = generation
 	return decision.SelectToolsForTurn(opts, p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
 }
 
 // stabilizeToolSet 在检索候选之上应用会话级稳定策略。
 // 实现见 builtin/ai/decision；recordToolSet 作为观测端口注入，指标名与标签不变。
 func (p *Plugin) stabilizeToolSet(session *session.Session, available, candidate []toolkit.Action) []toolkit.Action {
+	return p.stabilizeToolSetAtGeneration(session, available, candidate, p.catalogGeneration())
+}
+
+func (p *Plugin) stabilizeToolSetAtGeneration(session *session.Session, available, candidate []toolkit.Action,
+	generation uint64) []toolkit.Action {
 	opts := selectionOptions(p.cfg)
-	opts.CatalogGeneration = p.catalogGeneration()
+	opts.CatalogGeneration = generation
 	return decision.StabilizeToolSet(opts, session, available, candidate, recordToolSet)
 }
 
@@ -160,7 +176,12 @@ type toolInvocationDecision struct {
 // interruptCtx 是回合中断感知上下文（可 nil）：审批等待会监听它，
 // /ai stop / 用户新消息抢占时立即取消等待，不再阻塞后续消息处理。
 func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, interruptCtx context.Context, tc protocol.ToolCall) toolInvocationDecision {
-	action, hasAction := p.reg.Action(tc.Name)
+	return p.decideToolInvocationWithSnapshot(ctx, interruptCtx, tc, p.executionToolSnapshot(tc.Name))
+}
+
+func (p *Plugin) decideToolInvocationWithSnapshot(ctx *eventctx.Context, interruptCtx context.Context,
+	tc protocol.ToolCall, snapshot toolExecutionSnapshot) toolInvocationDecision {
+	action, hasAction := snapshot.action()
 	if hasAction {
 		if perms := action.Policy.Permissions; len(perms) > 0 && !p.hasToolPermission(ctx, perms) {
 			return toolInvocationDecision{
@@ -170,10 +191,10 @@ func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, interruptCtx contex
 			}
 		}
 	}
-	if !p.approvalModeFor(ctx, tc.Name) {
+	if !p.approvalModeForAction(ctx, tc.Name, action, hasAction) {
 		return toolInvocationDecision{allowed: true}
 	}
-	if !p.requestApproval(ctx, interruptCtx, tc.Name, p.approvalSummaryForTool(ctx, tc), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
+	if !p.requestApproval(ctx, interruptCtx, tc.Name, p.approvalSummaryForAction(ctx, tc, action, hasAction), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
 		// 审批被拒不消耗重试预算：模型无需"重试"一个用户已拒绝的动作，
 		// 与既有行为一致（此处刻意不置 err）。
 		return toolInvocationDecision{rejectText: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}
@@ -195,8 +216,12 @@ func (p *Plugin) needsApproval(a toolkit.Action, mode string) bool {
 
 // approvalModeFor 判断指定工具在当前生效审批模式下是否需要审批。
 func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
-	mode := p.effectiveApprovalMode(ctx)
 	action, ok := p.reg.Action(toolName)
+	return p.approvalModeForAction(ctx, toolName, action, ok)
+}
+
+func (p *Plugin) approvalModeForAction(ctx *eventctx.Context, toolName string, action toolkit.Action, ok bool) bool {
+	mode := p.effectiveApprovalMode(ctx)
 	if mode == "" || mode == string(approvalOff) {
 		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
 		return ok && action.Policy.AlwaysRequireApproval

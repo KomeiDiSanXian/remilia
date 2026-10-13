@@ -102,6 +102,14 @@ type Action struct {
 	Policy ActionPolicy
 }
 
+// CloneAction 深拷贝动作中可变的切片、map 与递归 Schema。
+func CloneAction(a Action) Action {
+	a.Spec.Parameters = protocol.CloneToolParamSchema(a.Spec.Parameters)
+	a.Spec.Categories = slices.Clone(a.Spec.Categories)
+	a.Policy.Permissions = slices.Clone(a.Policy.Permissions)
+	return a
+}
+
 // ActionOf 从工具保真派生出管线动作。
 func ActionOf(t Tool) Action {
 	return Action{Spec: ActionSpecOf(t), Policy: ActionPolicyOf(t)}
@@ -122,8 +130,8 @@ func ActionSpecOf(t Tool) ActionSpec {
 	return ActionSpec{
 		Name:        t.Name,
 		Description: t.Description,
-		Parameters:  t.Parameters,
-		Categories:  t.Categories,
+		Parameters:  protocol.CloneToolParamSchema(t.Parameters),
+		Categories:  slices.Clone(t.Categories),
 	}
 }
 
@@ -138,7 +146,7 @@ func ActionPolicyOf(t Tool) ActionPolicy {
 		RequiresApproval:      t.RequiresApproval,
 		AlwaysRequireApproval: t.AlwaysRequireApproval,
 		GrantsSendTo:          t.GrantsSendTo,
-		Permissions:           t.Permissions,
+		Permissions:           slices.Clone(t.Permissions),
 	}
 }
 

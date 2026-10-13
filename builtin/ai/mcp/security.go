@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -139,6 +141,11 @@ func dialIPCheck(ip net.IP, s ServerConfig, plainHTTP bool) error {
 // newHTTPClient 构造始终校验 TLS 的客户端，并在拨号前按解析出的 IP 做 SSRF
 // 防护（直接连接已校验的 IP，抵御 DNS rebinding）。
 func newHTTPClient(s ServerConfig) (*http.Client, error) {
+	initialURL, err := checkHTTPURL(s.URL, s.AllowInsecureHTTP, s.AllowPrivateNetworks)
+	if err != nil {
+		return nil, err
+	}
+
 	var tlsCfg *tls.Config
 	if s.CACertFile != "" {
 		pool, err := loadCACertPool(s.CACertFile)
@@ -153,7 +160,7 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	// plainHTTP：该服务器的 URL 是明文 http（allow_insecure_http 已放行）。
 	// 明文 http 仍要限制在回环地址，防止一个开关把任意公网明文放行。
-	plainHTTP := strings.HasPrefix(strings.ToLower(s.URL), "http://")
+	plainHTTP := initialURL.Scheme == "http"
 	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -192,6 +199,12 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 			if len(via) >= 5 {
 				return fmt.Errorf("too many redirects")
 			}
+			if !sameHTTPOrigin(initialURL, req.URL) {
+				return fmt.Errorf("redirect to a different origin is not allowed")
+			}
+			if req.URL.User != nil {
+				return fmt.Errorf("redirect URL user info is not allowed")
+			}
 			if _, err := checkHTTPURL(req.URL.String(), s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
 				return err
 			}
@@ -199,6 +212,44 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 		},
 	}
 	return client, nil
+}
+
+// sameHTTPOrigin 比较 scheme、hostname 和有效端口。重定向只能留在服务器配置
+// 的同源地址，避免跨源跳转时把自定义认证头转发给另一台服务器。
+func sameHTTPOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil || !strings.EqualFold(a.Scheme, b.Scheme) {
+		return false
+	}
+	if canonicalHTTPHost(a.Hostname()) != canonicalHTTPHost(b.Hostname()) {
+		return false
+	}
+	return effectiveHTTPPort(a) == effectiveHTTPPort(b)
+}
+
+func canonicalHTTPHost(host string) string {
+	host = strings.TrimSuffix(host, ".")
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.String()
+	}
+	return strings.ToLower(host)
+}
+
+func effectiveHTTPPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			return "80"
+		case "https":
+			return "443"
+		default:
+			return ""
+		}
+	}
+	if number, err := strconv.Atoi(port); err == nil {
+		return strconv.Itoa(number)
+	}
+	return port
 }
 
 // loadCACertPool 从文件加载自定义 CA 证书池。

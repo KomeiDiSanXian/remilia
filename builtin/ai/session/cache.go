@@ -19,8 +19,8 @@ type SelectionCache struct {
 	At          time.Time
 	ToolCount   int
 	Names       []string
-	// CatalogGeneration 记录该选择结果对应的目录代数；目录内容变化后不
-	// 再复用（软不可用切换不推进代数，因此不失效）。
+	// CatalogGeneration 记录该选择结果对应的目录内容版本；动作定义或来源
+	// 变化后不再复用（软不可用切换不推进版本，因此不失效）。
 	CatalogGeneration uint64
 }
 
@@ -96,7 +96,7 @@ type ToolSetState struct {
 	Generation uint64
 	// ChangedAt 最近一次变更时间。
 	ChangedAt time.Time
-	// CatalogGeneration 记录该稳定集合收敛时的目录代数。
+	// CatalogGeneration 记录该稳定集合收敛时的目录内容版本。
 	CatalogGeneration uint64
 }
 

@@ -438,8 +438,10 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 	session.Unlock()
 
 	// 策略评估（RBAC 权限 + 审批）由决策层给出结论：放行、拒绝文案与 SendTo 授权。
-	// 拒绝按工具级结果返回（不中断整个对话）。
-	verdict := p.decideToolInvocation(ctx, turnCtx, tc)
+	// 拒绝按工具级结果返回（不中断整个对话）。解析出的动作快照继续传给执行器，
+	// Provider 在审批期间更新工具时，本次审批与执行仍针对同一份定义。
+	target := p.executionToolSnapshot(tc.Name)
+	verdict := p.decideToolInvocationWithSnapshot(ctx, turnCtx, tc, target)
 	if !verdict.allowed {
 		return runtime.ToolExecResult{Result: verdict.rejectText, Err: verdict.err}
 	}
@@ -453,7 +455,7 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 	// 嵌套 Skill 工具调用继承同一 context，无法绕过审批。
 	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: verdict.sendToGranted, budget: budget}
 	traceStart := time.Now()
-	res := p.executeToolResult(ctx, tc, toolCtx, cs, sender)
+	res := p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, sender, target)
 	runtime.RecordToolTrace(session, tc, traceStart, res.Text, res.Err)
 	return runtime.ToolExecResult{Result: res.Text, Err: res.Err}
 }
@@ -465,8 +467,12 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 // 谁——判定依据是动作的策略声明，不是写死的动作名。未声明者直接返回参数摘要，
 // 解析失败也回退摘要。
 func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc protocol.ToolCall) string {
-	summary := runtime.SummarizeArgs(tc.Arguments)
 	action, ok := p.reg.Action(tc.Name)
+	return p.approvalSummaryForAction(ctx, tc, action, ok)
+}
+
+func (p *Plugin) approvalSummaryForAction(ctx *eventctx.Context, tc protocol.ToolCall, action toolkit.Action, ok bool) string {
+	summary := runtime.SummarizeArgs(tc.Arguments)
 	if !ok || !action.Policy.GrantsSendTo {
 		return summary
 	}

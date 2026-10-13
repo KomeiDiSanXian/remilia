@@ -129,14 +129,13 @@ func (i SkillInvoker) Invoke(ctx context.Context) ActionResult {
 	return ActionResult{Text: result}
 }
 
-// CommandCatalog 真实命令目录（能力端口）：按动作名执行已注册命令并捕获其回复。
+// CommandCatalog 真实命令目录（能力端口）：执行已解析的命令模式并捕获回复。
 //
-// 端口只回答"这个动作名对应哪条真实命令、跑完说了什么"。命令表、合成事件与
-// 平台同步器都留在装配侧：合成事件的重放逻辑在 execution.RunCommand，
-// 命令模式与事件处理器由装配侧的适配器提供。
+// 端口只回答"这条命令模式跑完说了什么"。命令表、合成事件与平台同步器都留在
+// 装配侧：合成事件的重放逻辑在 execution.RunCommandWithPattern，目录解析由
+// 执行入口完成。
 type CommandCatalog interface {
-	// Run 以合成事件触发名为 name 的真实命令，返回捕获到的回复文本。
-	// 只有在命令模式已登记（来源解析由装配侧完成）时才会被调用。
+	// Run 触发装配侧选定的真实命令，返回捕获到的回复文本。
 	Run(ctx *eventctx.Context, name string, args map[string]any, cs *execution.CaptureSender) (string, error)
 }
 

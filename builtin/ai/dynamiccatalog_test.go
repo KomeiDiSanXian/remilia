@@ -74,10 +74,9 @@ func TestDynamicToolProviderSyncsOnChange(t *testing.T) {
 	}
 }
 
-// TestCatalogGenerationAdvancesOnlyOnMembershipChange 锁定代数语义：只有成员
-// 关系变化（增/删）才推进；重连同集合同名改 schema 都不推进——这是"连接抖动
-// 不击穿选择缓存"的前提。
-func TestCatalogGenerationAdvancesOnlyOnMembershipChange(t *testing.T) {
+// TestCatalogGenerationTracksDefinitionChanges 锁定目录版本语义：成员关系或动作
+// 定义变化时推进；内容完全相同的刷新不推进——连接抖动不会击穿选择缓存。
+func TestCatalogGenerationTracksDefinitionChanges(t *testing.T) {
 	p := &Plugin{reg: toolkit.NewToolRegistry()}
 	dp := &dynamicToolProvider{tools: []toolkit.Tool{
 		{Name: "search", Description: "v1", Source: toolkit.MCPSource("github")},
@@ -94,11 +93,12 @@ func TestCatalogGenerationAdvancesOnlyOnMembershipChange(t *testing.T) {
 		t.Fatalf("resync with identical membership advanced generation: %d→%d", base, got)
 	}
 
-	// 同名改 schema（定义变化但成员关系不变）：仍不推进。
+	// 同名动作定义变化也推进版本，避免复用基于旧定义打分的工具选择缓存。
 	dp.set(toolkit.Tool{Name: "search", Description: "v2 changed", Source: toolkit.MCPSource("github")})
-	if got := p.catalogGeneration(); got != base {
-		t.Fatalf("same-name schema change advanced generation: %d→%d", base, got)
+	if got := p.catalogGeneration(); got <= base {
+		t.Fatalf("same-name schema change did not advance generation: %d→%d", base, got)
 	}
+	base = p.catalogGeneration()
 	if tool, ok := p.reg.Get("search"); !ok || tool.Description != "v2 changed" {
 		t.Fatalf("in-place definition update not applied: %+v", tool)
 	}

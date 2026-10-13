@@ -15,8 +15,8 @@ import (
 //
 //	来源（可变）→ 目录装配层（聚合）→ CatalogSnapshot（不可变）→ Selector（只读）
 //
-// Generation 只在目录成员关系变化（动作被登记或移除）时推进；来源的软不可用
-// （暂时断开、重连中）不改变成员关系，因而不推进代数——这样连接抖动不会让
+// Generation 在成员关系、模型可见定义、策略或来源身份变化时推进；来源的软不可用
+// （暂时断开、重连中）不改变目录内容，因而不推进代数——这样连接抖动不会让
 // 会话级选择缓存与前缀缓存失效。
 
 // CatalogSnapshot 一份不可变的动作目录视图。
@@ -28,20 +28,29 @@ type CatalogSnapshot struct {
 	actions    []toolkit.Action
 }
 
-// NewSnapshot 构造一份目录快照。actions 会被拷贝，调用方后续修改不影响快照。
+// NewSnapshot 构造一份目录快照。actions 及其嵌套可变字段都会被深拷贝，
+// 调用方后续修改不影响快照。
 func NewSnapshot(generation uint64, actions []toolkit.Action) CatalogSnapshot {
+	cloned := make([]toolkit.Action, len(actions))
+	for i, action := range actions {
+		cloned[i] = toolkit.CloneAction(action)
+	}
 	return CatalogSnapshot{
 		generation: generation,
-		actions:    append([]toolkit.Action(nil), actions...),
+		actions:    cloned,
 	}
 }
 
-// Generation 返回目录代数（成员关系版本号）。
+// Generation 返回目录内容版本。
 func (s CatalogSnapshot) Generation() uint64 { return s.generation }
 
 // Actions 返回快照中的动作副本。
 func (s CatalogSnapshot) Actions() []toolkit.Action {
-	return append([]toolkit.Action(nil), s.actions...)
+	actions := make([]toolkit.Action, len(s.actions))
+	for i, action := range s.actions {
+		actions[i] = toolkit.CloneAction(action)
+	}
+	return actions
 }
 
 // Len 返回快照中的动作数量。
@@ -51,7 +60,7 @@ func (s CatalogSnapshot) Len() int { return len(s.actions) }
 func (s CatalogSnapshot) Lookup(name string) (toolkit.Action, bool) {
 	for _, a := range s.actions {
 		if a.Spec.Name == name {
-			return a, true
+			return toolkit.CloneAction(a), true
 		}
 	}
 	return toolkit.Action{}, false

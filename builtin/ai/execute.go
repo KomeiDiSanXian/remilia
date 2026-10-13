@@ -35,13 +35,18 @@ import (
 // 优先通过 vevent 触发真实命令并捕获其回复；若工具无对应命令，
 // 回退到工具自身的 Execute 回调。
 //
-// 来源判定是显式的：只有登记了命令模式的动作才走命令通道（commands.Pattern），
+// 来源判定是显式的：只有快照中登记了命令模式的动作才走命令通道，
 // 命中后结果完全由命令通道负责，不再以"文本为空"回退到占位 Execute——命令
 // 跑通但没输出会如实回填"未返回文本"，而不是冒充成功。
 //
 // Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调/命令/Skill 返回错误。
 // 工具正常返回、正文恰好以"错误:"开头，不算失败。
 func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context, cs *execution.CaptureSender, sender toolkit.ToolSender) runtime.ActionResult {
+	return p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, sender, p.executionToolSnapshot(tc.Name))
+}
+
+func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context,
+	cs *execution.CaptureSender, sender toolkit.ToolSender, snapshot toolExecutionSnapshot) runtime.ActionResult {
 	callerCtx := toolkit.WithCallerInfo(toolCtx, ctx.GetSenderInfo())
 	if sender != nil {
 		callerCtx = toolkit.WithToolSender(callerCtx, sender)
@@ -64,25 +69,28 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Record: recordToolCall}.Invoke(callerCtx)
 	}
 
-	tool, ok := p.reg.Get(tc.Name)
-	if !ok {
+	if !snapshot.found {
 		return runtime.ActionResult{
 			Text: fmt.Sprintf("错误: 未找到工具 %q", tc.Name),
 			Err:  fmt.Errorf("tool %q not found", tc.Name),
 		}
 	}
+	tool := snapshot.tool
 
 	// 真实命令路径：来源判定在装配侧——只有确实登记了命令模式的动作才走合成
 	// 事件重放，命中后结果完全由命令通道负责（包括"命令执行了但没有输出"），
 	// 不再以"文本为空"回退到动作自身的占位 Execute 冒充成功。
-	if _, ok := commands.Pattern(tc.Name); ok {
+	if snapshot.hasCommand {
 		// 并行工具执行时串行化真实命令路径（syncer 非线程安全）。
 		p.realCmdMu.Lock()
 		// 每次调用使用独立的捕获器：共享捕获器的 CapturedText 只在非空时覆盖、
 		// 从不重置，会让"本次命令无输出"错误回填上一次命令的旧文本。
 		cmdCS := &execution.CaptureSender{}
+		commands.commandPattern = snapshot.commandPattern
+		commands.patternResolved = true
 		result := runtime.CommandInvoker{
-			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments, CS: cmdCS, Record: recordToolCall,
+			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments,
+			CS: cmdCS, Record: recordToolCall,
 		}.Invoke(callerCtx)
 		// 汇入回合级捕获器：文本保留为"模型无输出"时的兜底回复，附件随最终回复发送。
 		cs.Merge(cmdCS)

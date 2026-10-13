@@ -29,6 +29,20 @@ type SessionManager struct {
 	maxHistory int
 	ttl        time.Duration
 	storage    SessionStore
+	// idLocks 按会话 ID 分片，串行化同一会话的 Load/Save/Delete。
+	// 数据库 I/O 不持有全局缓存锁，但清空、回填和收尾保存不能互相越过。
+	idLocks [64]sync.Mutex
+}
+
+// idLock 返回会话 ID 对应的固定分片锁。哈希冲突只会增加少量串行等待，
+// 不会影响会话正确性，也无需为每个历史会话长期保留一把锁。
+func (sm *SessionManager) idLock(sessionID string) *sync.Mutex {
+	hash := uint32(2166136261)
+	for i := 0; i < len(sessionID); i++ {
+		hash ^= uint32(sessionID[i])
+		hash *= 16777619
+	}
+	return &sm.idLocks[hash%uint32(len(sm.idLocks))]
 }
 
 // sessionEntry 包装 Session，作为 LRU 链表的节点值。
@@ -75,19 +89,25 @@ func NewSessionManager(maxSize, maxHistory int, ttl time.Duration, storage Sessi
 // 先从 LRU 缓存查找，未命中时尝试从持久化存储加载，
 // 都未找到时创建全新的会话。
 func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session {
+	// 同一会话的缓存查询、存储加载和插入与 Delete 串行化。若只在 Load 完成
+	// 后检查墓碑，先开始的慢查询可能越过 Delete，把旧记录重新插回缓存。
+	idLock := sm.idLock(sessionID)
+	idLock.Lock()
+
 	// 快路径：命中内存缓存时只在 sm.mu 内触碰会话，不做任何存储 I/O。
 	sm.mu.Lock()
 	if elem, ok := sm.sessions[sessionID]; ok {
 		entry := elem.Value.(*sessionEntry)
 		sm.lru.MoveToFront(elem)
 		sm.mu.Unlock()
+		idLock.Unlock()
 		sm.touch(entry.session)
 		return entry.session
 	}
 	sm.mu.Unlock()
 
 	// 慢路径：存储加载在 sm.mu 之外执行。此前在全局写锁内 Load 会让单个慢查询
-	// 阻塞所有会话的创建/查询/清理（队头阻塞）。加载幂等，命中二次检查即丢弃。
+	// 阻塞所有会话的创建/查询/清理（队头阻塞）。同一 ID 的存储操作由分片锁串行化。
 	var loaded *Session
 	if sm.storage != nil {
 		if stored, err := sm.storage.Load(sessionID); err == nil && stored != nil {
@@ -96,12 +116,13 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	}
 
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	// 二次检查：锁外加载期间可能已有并发 GetOrCreate 创建并登记了同一会话。
 	if elem, ok := sm.sessions[sessionID]; ok {
 		entry := elem.Value.(*sessionEntry)
 		sm.lru.MoveToFront(elem)
+		sm.mu.Unlock()
+		idLock.Unlock()
 		sm.touch(entry.session)
 		return entry.session
 	}
@@ -115,15 +136,18 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-	} else {
-		sm.touch(session)
 	}
 
 	elem := sm.lru.PushFront(&sessionEntry{session: session})
 	sm.sessions[sessionID] = elem
 
 	sm.evictLocked()
+	sm.mu.Unlock()
+	idLock.Unlock()
 
+	if loaded != nil {
+		sm.touch(session)
+	}
 	return session
 }
 
@@ -156,6 +180,10 @@ func (sm *SessionManager) Peek(sessionID string) *Session {
 // 返回的会话可能是缓存中的活跃对象（会被并发回合修改），因此调用方读取
 // 可变字段（Messages/CallCount/ToolCount 等）时需自行加锁。
 func (sm *SessionManager) PeekOrLoad(sessionID string) *Session {
+	idLock := sm.idLock(sessionID)
+	idLock.Lock()
+	defer idLock.Unlock()
+
 	sm.mu.RLock()
 	if elem, ok := sm.sessions[sessionID]; ok {
 		session := elem.Value.(*sessionEntry).session
@@ -180,6 +208,10 @@ func (sm *SessionManager) PeekOrLoad(sessionID string) *Session {
 // 如果调用方未持有锁，请使用 [SaveSession] 替代。
 // 会话已置删除墓碑（被 Delete）时跳过写库：在途回合的收尾保存不得把删除撤销。
 func (sm *SessionManager) SaveLocked(session *Session) {
+	idLock := sm.idLock(session.ID)
+	idLock.Lock()
+	defer idLock.Unlock()
+
 	if session.Deleted() {
 		logger.Debugf("[AI] Session %s was deleted, skipping persist", session.ID)
 		return
@@ -207,6 +239,10 @@ func (sm *SessionManager) SaveSession(session *Session) {
 // SaveSession），墓碑保证收尾保存不会把整条记录重新写回存储——否则
 // "/ai clear" 会被静默撤销，消息"删了又回来"。
 func (sm *SessionManager) Delete(sessionID string) {
+	idLock := sm.idLock(sessionID)
+	idLock.Lock()
+	defer idLock.Unlock()
+
 	sm.mu.Lock()
 	if elem, ok := sm.sessions[sessionID]; ok {
 		entry := elem.Value.(*sessionEntry)
@@ -226,34 +262,53 @@ func (sm *SessionManager) Delete(sessionID string) {
 
 // CleanupExpired 清理过期的会话。
 // 由插件 Setup 中启动的后台 goroutine 定期调用。
-// 先持锁收集过期会话并移出缓存，释放锁后再执行持久化删除，避免 DB I/O 阻塞其他会话操作。
+// 先复制缓存条目，逐个在会话锁与 ID 分片锁内复查后移出缓存；数据库删除期间
+// 不持有全局缓存锁，避免慢 I/O 阻塞其他会话操作。
 // 正在执行回合的会话跳过本轮（避免与活跃回合产生双活对象，见 evictLocked）；
 // 回合中的会话必然活跃（touch 会刷新 UpdatedAt），自然不会被判过期。
 func (sm *SessionManager) CleanupExpired() {
-	var expiredIDs []string
-
-	sm.mu.Lock()
-	now := time.Now()
-	for id, elem := range sm.sessions {
-		entry := elem.Value.(*sessionEntry)
-		entry.session.Lock()
-		expired := sm.ttl > 0 && !entry.session.Deleted() && now.After(entry.session.UpdatedAt.Add(sm.ttl))
-		entry.session.Unlock()
-		if expired {
-			entry.session.MarkDeleted()
-			sm.lru.Remove(elem)
-			delete(sm.sessions, id)
-			expiredIDs = append(expiredIDs, id)
-		}
+	type candidate struct {
+		id      string
+		session *Session
 	}
-	sm.mu.Unlock()
+	entries := make([]candidate, 0)
+	sm.mu.RLock()
+	for id, elem := range sm.sessions {
+		entries = append(entries, candidate{id: id, session: elem.Value.(*sessionEntry).session})
+	}
+	sm.mu.RUnlock()
 
-	if sm.storage != nil {
-		for _, id := range expiredIDs {
-			if err := sm.storage.Delete(id); err != nil {
-				logger.Errorf("[AI] Failed to delete expired session %s from storage: %v", id, err)
+	for _, entry := range entries {
+		session := entry.session
+		session.Lock()
+		expired := sm.ttl > 0 && !session.Deleted() && !session.TurnActive() &&
+			time.Now().After(session.UpdatedAt.Add(sm.ttl))
+		if !expired {
+			session.Unlock()
+			continue
+		}
+
+		idLock := sm.idLock(entry.id)
+		idLock.Lock()
+		sm.mu.Lock()
+		elem, ok := sm.sessions[entry.id]
+		current := ok && elem.Value.(*sessionEntry).session == session
+		expired = current && sm.ttl > 0 && !session.Deleted() && !session.TurnActive() &&
+			time.Now().After(session.UpdatedAt.Add(sm.ttl))
+		if expired {
+			session.MarkDeleted()
+			sm.lru.Remove(elem)
+			delete(sm.sessions, entry.id)
+		}
+		sm.mu.Unlock()
+		session.Unlock()
+
+		if expired && sm.storage != nil {
+			if err := sm.storage.Delete(entry.id); err != nil {
+				logger.Errorf("[AI] Failed to delete expired session %s from storage: %v", entry.id, err)
 			}
 		}
+		idLock.Unlock()
 	}
 }
 

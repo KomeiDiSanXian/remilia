@@ -65,14 +65,12 @@ type Session struct {
 	planAutoRounds int `json:"-"`
 	mu             sync.Mutex
 	turnMu         sync.Mutex
-	// turnActive / signal 回合活跃标志与中断信号（用户抢占机制）。
+	// signal 回合活跃标志与中断信号（用户抢占机制）。
 	// BeginTurn 开始回合并创建新信号；RequestInterrupt 关闭信号让进行中的
 	// 回合尽快收尾；EndTurn 清理。processWithTools 在轮次与工具之间检查。
 	//
-	// signal 用 atomic.Pointer 承载：RequestInterrupt 可能来自另一条事件
-	// 协程，与回合持有者调用 EndTurn 并发，用原子指针读写避免字段本身的
-	// 数据竞争（turnActive 同为原子量）。
-	turnActive atomic.Bool
+	// signal 是唯一活跃状态：nil 表示无回合，非 nil 同时携带该回合的中断信号。
+	// 这样活跃状态与信号通过一次原子操作发布，不会出现两者短暂不一致。
 	// deleted 删除墓碑（json:"-" 不持久化）：Delete 在移出缓存时置位，
 	// 让仍在进行的回合收尾时跳过 SaveLocked 的整记录 upsert，避免把
 	// "/ai clear" 静默撤销（消息删了又回来）。
@@ -107,21 +105,18 @@ func (s *Session) TryLockTurn() bool { return s.turnMu.TryLock() }
 // --- 用户中断/抢占 ---
 
 // TurnActive 返回是否有回合正在执行。
-func (s *Session) TurnActive() bool { return s.turnActive.Load() }
+func (s *Session) TurnActive() bool { return s.signal.Load() != nil }
 
 // BeginTurn 标记回合开始并重置中断信号。已活跃时返回 false（重复进入）。
 func (s *Session) BeginTurn() bool {
-	if !s.turnActive.CompareAndSwap(false, true) {
-		return false
-	}
-	s.signal.Store(&turnSignal{ch: make(chan struct{})})
-	return true
+	return s.signal.CompareAndSwap(nil, &turnSignal{ch: make(chan struct{})})
 }
 
 // EndTurn 结束回合并清理中断信号。
 func (s *Session) EndTurn() {
-	s.turnActive.Store(false)
-	s.signal.Store(nil)
+	if sig := s.signal.Load(); sig != nil {
+		s.signal.CompareAndSwap(sig, nil)
+	}
 }
 
 // RequestInterrupt 请求中断进行中的回合（非阻塞；无活跃回合时 no-op）。

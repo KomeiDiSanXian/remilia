@@ -94,9 +94,9 @@ func (p *Plugin) effectiveGroupReply(ctx *eventctx.Context) groupReplySettings {
 	}
 }
 
-// mediumReplyChance 中信号（回复了 bot 的消息 / 正文点名 bot）时的抽签概率：
+// mediumReplyChance 中信号（回复 bot 但不是直接对话 / 正文点名 bot）时的抽签概率：
 // 保证一个明显高于基线的接话意愿（基线 +0.2），上限 1。基线=0 时仍有兜底，
-// 避免"故意把概率调成 0 的安静模式"突然因引用而话多。
+// 避免"故意把概率调成 0 的安静模式"突然因弱引用而话多。
 func mediumReplyChance(base float64) float64 {
 	return min(base*2+0.2, 1)
 }
@@ -107,10 +107,8 @@ func mediumReplyChance(base float64) float64 {
 // 点名时）：强信号判定（@/触发词/计划进行中）由本函数自身承担，与调用方
 // 的路径分支解耦。
 //
-// 判定次序刻意把最便宜的放最前：
-//  1. 冷静期（一次本地缓存查询）——bot 刚说过话且无中信号：直接否
-//  2. decision.ShouldReply（本地词表/长度/复读判定）
-//  3. 概率抽签
+// 判定次序刻意把本地拒绝与必须回应的信号放前面：硬拒绝先于强信号；
+// 强信号和直接对话绕过冷静期与抽签，其余消息再经冷静期、分层与概率/judge。
 func (p *Plugin) autonomousReplyDenied(ctx *eventctx.Context, content string) bool {
 	set := p.effectiveGroupReply(ctx)
 	if set.mode == config.GroupReplyAll {
@@ -142,9 +140,17 @@ func (p *Plugin) autonomousReplyDenied(ctx *eventctx.Context, content string) bo
 		Duplicate:   p.recentGroupDuplicate(chat.ID, content),
 	}
 
+	// 明确拒绝信号优先于强信号；其余强信号和确实在与 bot 对话的引用直接通过，
+	// 不进入冷静期或概率层。
+	if decision.IsHardReject(in) {
+		return true
+	}
+	if decision.MustReply(in) {
+		return false
+	}
+
 	medium := in.ReplyToBot || in.MentionsBot
-	// 冷静期：bot 刚发言过即刻闭麦（强信号除外——上面的 plan 与下方的
-	// medium 通道都不依赖它）。messagelog 不可用时退化为不设冷却。
+	// 冷静期：bot 刚发言过即刻闭麦。messagelog 不可用时退化为不设冷却。
 	if !medium && p.botSpeechCooldownActive(chat.ID, set.cooldown) {
 		return true
 	}
@@ -153,7 +159,7 @@ func (p *Plugin) autonomousReplyDenied(ctx *eventctx.Context, content string) bo
 	case decision.TierReject:
 		return true
 	case decision.TierReply:
-		// 强/中信号过关：按中信号概率抽签，不受冷静期。
+		// 未达到必须回应条件的点名信号按中信号概率抽签，不受冷静期。
 		return !p.replyGate.maybeRoll(mediumReplyChance(set.chance))
 	default:
 		// 弱信号普通消息（模糊地带）：
@@ -162,10 +168,11 @@ func (p *Plugin) autonomousReplyDenied(ctx *eventctx.Context, content string) bo
 		// 判定忙（单飞上限已占）：硬静默——刷屏模式下这正是期望行为，
 		// 且不占用抽签额度。
 		if set.mode == config.GroupReplyJudge {
-			if p.replyGate.judge.busy.Load() {
+			reply, ok, busy := p.runReplyJudge(ctx, content)
+			if busy {
 				return true
 			}
-			if reply, ok := p.runReplyJudge(ctx, content); ok {
+			if ok {
 				return !reply
 			}
 		}

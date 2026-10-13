@@ -19,7 +19,8 @@ package catalog
 // 用"，仍留在可选集合以避免工具段在 [] 与 [...] 之间抖动，只在真正调用时
 // 由执行侧返回类型化错误。
 //
-// 目录内容（代数）只在成员增删时变化：见 [Availability.MembershipChanged]。
+// MembershipChanged 只报告成员增删；目录版本还由目录装配侧在模型可见定义、
+// 策略或来源身份变化时推进。
 
 // Availability 动作在目录中的可用性状态。
 type Availability uint8
@@ -83,7 +84,7 @@ func (a Availability) Soft() bool {
 }
 
 // MembershipChanged 报告从 from 到 to 的迁移是否改变了目录成员关系。
-// 成员关系变化才推进目录代数；软不可用切换、策略切换不推进。
+// 软可用性、策略禁用状态的切换不改变成员关系；成员变化由目录装配侧纳入版本。
 func MembershipChanged(from, to Availability) bool {
 	return from.InCatalog() != to.InCatalog()
 }

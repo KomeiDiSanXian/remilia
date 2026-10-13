@@ -29,8 +29,8 @@ type SelectionOptions struct {
 	StickyMax int
 	// StickyTTL 补充工具的空闲衰减窗口（tool_set_ttl；<=0 表示不衰减）。
 	StickyTTL time.Duration
-	// CatalogGeneration 当前目录代数（工具集合内容版本）。缓存仅在代数相同时
-	// 复用：来源增删工具会推进代数，连接抖动（软不可用）不会。
+	// CatalogGeneration 当前目录内容版本。成员、定义、策略或来源身份变化会推进；
+	// 连接抖动（软不可用）不会。选择缓存仅在版本相同时复用。
 	CatalogGeneration uint64
 }
 

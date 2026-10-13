@@ -109,8 +109,8 @@ func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, c
 	}
 	queryTokens := retrieval.TokenizeText(query)
 
-	// 复用条件：目录代数一致（目录成员未变）且可见动作数一致（每轮过滤结果未变）。
-	// 代数把"来源增删动作"与"每调用者过滤"两类变化都纳入，二者任一变化即不复用。
+	// 复用条件：目录内容版本一致且可见动作数一致（每轮过滤结果未变）。
+	// 版本覆盖来源变化与定义/策略更新；动作数覆盖每调用者过滤结果的变化。
 	if cached := sess.ToolSelection(); cached != nil &&
 		cached.CatalogGeneration == opts.CatalogGeneration &&
 		cached.ToolCount == len(actions) {

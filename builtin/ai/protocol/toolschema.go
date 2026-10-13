@@ -21,6 +21,25 @@ type ToolParamSchema struct {
 	Enum        []string                   `json:"enum,omitempty"`
 }
 
+// CloneToolParamSchema 深拷贝参数 Schema，包含嵌套属性、数组项与切片字段。
+// 注册表和目录快照用它隔离调用方对可变 map/slice 的后续修改。
+func CloneToolParamSchema(schema ToolParamSchema) ToolParamSchema {
+	clone := schema
+	if schema.Properties != nil {
+		clone.Properties = make(map[string]ToolParamSchema, len(schema.Properties))
+		for name, property := range schema.Properties {
+			clone.Properties[name] = CloneToolParamSchema(property)
+		}
+	}
+	if schema.Items != nil {
+		item := CloneToolParamSchema(*schema.Items)
+		clone.Items = &item
+	}
+	clone.Required = append([]string(nil), schema.Required...)
+	clone.Enum = append([]string(nil), schema.Enum...)
+	return clone
+}
+
 // ToolSpec 一个工具在协议层的声明：只有模型需要知道的字段。
 // 上层的动作描述（含类别、保留级别等）在序列化前收敛成它。
 type ToolSpec struct {

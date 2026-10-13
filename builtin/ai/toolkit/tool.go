@@ -195,9 +195,25 @@ type registeredAction struct {
 	selection *SelectionClass
 }
 
+// cloneTool 隔离注册表边界上的可变数据；执行回调本身是不可变函数值，直接复制。
+func cloneTool(t Tool) Tool {
+	t.Categories = slices.Clone(t.Categories)
+	t.Parameters = protocol.CloneToolParamSchema(t.Parameters)
+	t.Permissions = slices.Clone(t.Permissions)
+	if t.Selection != nil {
+		selection := *t.Selection
+		t.Selection = &selection
+	}
+	return t
+}
+
+// CloneTool 深拷贝工具中可变的类别、权限、选择级别与参数 Schema。
+// 执行回调是函数值，按值复制即可。
+func CloneTool(t Tool) Tool { return cloneTool(t) }
+
 // tool 把注册记录还原为工具，逐字段与注册时一致。
 func (e registeredAction) tool() Tool {
-	return Tool{
+	return cloneTool(Tool{
 		Name:                  e.action.Spec.Name,
 		Description:           e.action.Spec.Description,
 		Categories:            e.action.Spec.Categories,
@@ -210,7 +226,7 @@ func (e registeredAction) tool() Tool {
 		Permissions:           e.action.Policy.Permissions,
 		Execute:               e.execute,
 		ExecuteRich:           e.executeRich,
-	}
+	})
 }
 
 // NewToolRegistry 创建空的工具注册表。
@@ -235,8 +251,8 @@ func (r *ToolRegistry) Register(t Tool) {
 // Upsert 登记工具，同名工具会被新定义覆盖（而非被 first-wins 丢弃）。
 //
 // 供"工具集合会运行时变化"的来源（如外部工具服务器）刷新集合使用：来源重连后
-// 同名工具的描述/schema 可能变化，需要就地更新。是否因此推进目录代数由调用方
-// 决定（成员关系未变则不应推进，见 builtin/ai 的目录装配）。
+// 同名工具的描述/schema 可能变化，需要就地更新。目录装配侧应在模型可见定义
+// 或策略变化时推进目录版本，以使依赖旧定义的选择缓存失效。
 func (r *ToolRegistry) Upsert(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -285,7 +301,7 @@ func (r *ToolRegistry) Action(name string) (Action, bool) {
 	if !ok {
 		return Action{}, false
 	}
-	return e.action, true
+	return CloneAction(e.action), true
 }
 
 // Remove 按名称删除工具。返回是否实际删除了某个工具。
@@ -325,7 +341,7 @@ func (r *ToolRegistry) Actions() []Action {
 	defer r.mu.RUnlock()
 	out := make([]Action, 0, len(r.entries))
 	for _, e := range r.entries {
-		out = append(out, e.action)
+		out = append(out, CloneAction(e.action))
 	}
 	slices.SortFunc(out, func(a, b Action) int { return strings.Compare(a.Spec.Name, b.Spec.Name) })
 	return out

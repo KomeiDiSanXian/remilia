@@ -34,12 +34,12 @@ const replyJudgeWindowRunes = 1200
 const replyJudgeTimeout = 6 * time.Second
 
 // runReplyJudge 执行一次 LLM 插话判定。
-// 返回 (值得回话, true)；判定不可用（忙/出错/输出不可解析）返回 (_, false)——
-// 调用方回退概率抽签。
-func (p *Plugin) runReplyJudge(ctx *eventctx.Context, content string) (bool, bool) {
+// 返回 (值得回话, 判定成功, 判定槽忙碌)；出错或输出不可解析时调用方回退概率抽签，
+// 判定槽忙碌时则保持静默。
+func (p *Plugin) runReplyJudge(ctx *eventctx.Context, content string) (reply, ok, busy bool) {
 	if !p.replyGate.judge.tryAcquire() {
 		// 忙：视为"不回"。刷屏模式下不让判定排队正是期望行为。
-		return false, false
+		return false, false, true
 	}
 	defer p.replyGate.judge.release()
 
@@ -84,21 +84,23 @@ func (p *Plugin) runReplyJudge(ctx *eventctx.Context, content string) (bool, boo
 		},
 		MaxTokens:   64,
 		Temperature: 0,
+		// 思考程度沿用主配置；空值仍不发送，兼容不支持该字段的网关。
+		ReasoningEffort: p.cfg.ReasoningEffort,
 	}
 	resp, err := p.prov.Chat(judgeCtx, req)
 	if err != nil {
 		if p.lifecycleCtx == nil || p.lifecycleCtx.Err() == nil {
 			logger.Debugf("[AI] reply judge call failed: %v", err)
 		}
-		return false, false
+		return false, false, false
 	}
 	verdict, ok := runtime.ParseReplyVerdict(resp.Content)
 	if !ok {
 		logger.Debugf("[AI] reply judge unparsable output: %q", resp.Content)
-		return false, false
+		return false, false, false
 	}
 	logger.Debugf("[AI] reply judge verdict=%t reason=%q", verdict.Reply, verdict.Reason)
-	return verdict.Reply, true
+	return verdict.Reply, true, false
 }
 
 // judgeGate 判定单飞闸（进程级：判定无状态，不需要 per-chat）。

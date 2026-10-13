@@ -10,11 +10,11 @@
 //
 // 信号强度由装配侧先行分类（本文输入 flag 承载）：
 //
-//	强信号：被 @、触发前缀、进行中的计划 → 直接 tierReply，不进任何过滤
-//	中信号：回复 bot 且在"跟 bot 说话"、直接出现 bot 名字 → 过关但需抽签
+//	强信号：被 @、触发前缀、进行中的计划 → tierReply
+//	中信号：确实在回复 bot 时直接对话 → tierReply；直接出现 bot 名字 → tierReply
 //	弱信号：其余一切 → 全部判定依次执行
 //
-// 判定是纯函数：词表、阈值都在本文件常量区，可独立测试。
+// ShouldReply 保留纯分层语义；装配侧另用 MustReply 绕过冷却和抽签。
 package decision
 
 import (
@@ -52,6 +52,20 @@ type ReplyInput struct {
 	MentionsBot bool
 	// Duplicate 本条与用户上一条消息完全相同（疑似刷屏）。
 	Duplicate bool
+}
+
+// IsHardReject 报告重复消息、嫌弃表达或纯社交消息是否应直接拒绝。
+// 它不受 Strong 影响；强信号携带纯附件时，附件本身不按空社交消息过滤。
+func IsHardReject(in ReplyInput) bool {
+	trivialSocial := isTrivialSocial(in.Query) && (!in.HasContent || substantiveLen(in.Query) > 0)
+	return in.Duplicate || dislikeBot(in.Query) || trivialSocial
+}
+
+// MustReply 报告是否存在绕过冷却和概率判定的正向信号。
+// 调用方应先执行 IsHardReject；ShouldReply 则保留原有分层语义，供只需要 tier
+// 的调用方使用。
+func MustReply(in ReplyInput) bool {
+	return in.Strong || (in.ReplyToBot && talksToBot(in.Query))
 }
 
 // ShouldReply 返回分层判定。

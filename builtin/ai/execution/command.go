@@ -5,9 +5,9 @@
 // [CaptureSender] 截获 handler 输出：AI 自行总结后再回复用户，
 // 避免用户看到"工具结果"与"最终回复"两条消息。
 //
-// 需要的两项外部数据由本包作为消费方声明最小端口，装配点再适配：
-//   - [CommandPatterns]：目录 owner 的只读视图（动作名 → 命令模式）
-//   - [EventProcessor]：运行时装配的事件处理器
+// 事件处理器由本包作为消费方声明最小端口，装配点再适配。兼容入口 [RunCommand]
+// 另接受命令目录的只读解析端口；执行主路径使用 [RunCommandWithPattern]，
+// 由调用入口传入与工具定义同时解析出的模式。
 
 package execution
 
@@ -46,6 +46,12 @@ func RunCommand(origCtx *eventctx.Context, toolName string, args map[string]any,
 	if !ok {
 		return "", fmt.Errorf("动作 %q 没有登记命令模式", toolName)
 	}
+	return RunCommandWithPattern(origCtx, toolName, pattern, args, cs, processor)
+}
+
+// RunCommandWithPattern 使用调用入口从同一目录快照解析出的命令模式重放真实命令。
+// 命令模式作为值传入，动态目录更新不会在工具判定与事件重放之间改变本次调用目标。
+func RunCommandWithPattern(origCtx *eventctx.Context, toolName, pattern string, args map[string]any, cs *CaptureSender, processor EventProcessor) (string, error) {
 	if processor == nil {
 		return "", fmt.Errorf("动作 %q 缺少事件处理器，无法触发真实命令", toolName)
 	}

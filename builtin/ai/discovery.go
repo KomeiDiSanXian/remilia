@@ -13,12 +13,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"unicode/utf8"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -49,27 +51,30 @@ type pluginCatalogSink struct{ p *Plugin }
 
 // Has 报告动作名是否已存在（显式注册优先于自动发现）。
 func (s pluginCatalogSink) Has(name string) bool {
-	_, exists := s.p.reg.Get(name)
-	return exists
+	return s.p.executionToolSnapshot(name).found
 }
 
 // Add 登记自动发现的命令动作，并记下它对应的命令模式。
 func (s pluginCatalogSink) Add(tool toolkit.Tool, commandPattern string) {
-	s.p.cmdMu.Lock()
-	s.p.cmdPatterns[tool.Name] = commandPattern
-	s.p.cmdMu.Unlock()
-	s.p.registerCatalogTool(tool)
+	s.p.registerCommandCatalogTool(tool, commandPattern)
 }
 
-// toolProviderBinding 跟踪一个来源当前登记进目录的工具名。
+// toolProviderBinding 跟踪一个来源当前提供的工具定义。
 //
-// 动态来源（工具集合会运行时变化）在集合变化时只应移除"自己已不再提供"的工具，
-// 因此需要记住自己上一轮登记了哪些名字。绑定随来源注册一次性创建，并被
+// 同名工具由最后注册的 Provider 获胜；每个 Provider 保留自己的定义，移除时
+// 可回退到仍提供该名称的前一个来源。绑定随来源注册一次性创建，并被
 // [toolkit.ToolChangeNotifier] 的回调闭包捕获，不进入目录的公共结构。
 type toolProviderBinding struct {
 	// mu 串行化同一来源的同步：来源可能从多个监督协程并发通知变化。
 	mu    sync.Mutex
-	names []string
+	tools map[string]toolkit.Tool
+}
+
+// catalogWinner 是模型可见名称当前解析到的来源。provider 为 nil 时来自基础目录。
+type catalogWinner struct {
+	tool           toolkit.Tool
+	provider       *toolProviderBinding
+	commandPattern string
 }
 
 // RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。
@@ -82,8 +87,8 @@ type toolProviderBinding struct {
 // 自己实现的 Execute，而非通过合成事件触发真实命令。
 //
 // 来源若实现 [toolkit.ToolChangeNotifier]（工具集合会运行时变化），
-// 其后续变化会被自动同步进目录：新增登记、消失移除、同名就地更新定义。
-// 成员关系未变的刷新不推进目录代数，因此不会击穿会话缓存与前缀缓存。
+// 其后续变化会被自动同步进目录。较新的同名 Provider 获胜，移除后回退到
+// 仍提供该名称的较早来源；工具定义未变的刷新不推进目录代数。
 //
 // 使用示例：
 //
@@ -94,7 +99,10 @@ func (c *catalogState) RegisterToolProvider(tp toolkit.ToolProvider) {
 	if tp == nil {
 		return
 	}
-	binding := &toolProviderBinding{}
+	binding := &toolProviderBinding{tools: make(map[string]toolkit.Tool)}
+	c.catalogGen.mu.Lock()
+	c.catalogGen.providers = append(c.catalogGen.providers, binding)
+	c.catalogGen.mu.Unlock()
 	c.syncToolProvider(tp, binding)
 	if notifier, ok := tp.(toolkit.ToolChangeNotifier); ok {
 		notifier.OnToolsChanged(func() { c.syncToolProvider(tp, binding) })
@@ -103,37 +111,51 @@ func (c *catalogState) RegisterToolProvider(tp toolkit.ToolProvider) {
 
 // syncToolProvider 用来源当前的工具集刷新目录。
 //
-// 三条路径彼此独立：来源新提供且目录中不存在的工具 → 登记（推进代数）；
-// 来源曾提供但已消失的工具 → 移除（推进代数）；来源仍提供且目录中已存在的
-// 工具 → 就地覆盖定义（成员关系不变，不推进代数，因此重连/同名改 schema
-// 不会让缓存失效——定义每轮都会从注册表重新物化给模型）。
+// Provider 自身的工具集先完整替换，再按注册顺序解析每个受影响名称的当前来源。
+// 这样一个来源只会移除自己的定义；同名定义变化、来源切换也会推进目录代数。
 func (c *catalogState) syncToolProvider(tp toolkit.ToolProvider, b *toolProviderBinding) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	tools := tp.ListTools()
-	next := make(map[string]struct{}, len(tools))
+	next := make(map[string]toolkit.Tool, len(tools))
 	for _, t := range tools {
 		if t.Name == "" {
 			continue
 		}
-		next[t.Name] = struct{}{}
-		c.upsertCatalogTool(t)
-		// 显式注册覆盖同名的自动发现命令：清掉命令映射，避免执行期又走真实命令。
-		c.clearCommandPattern(t.Name)
+		t = normalizeCatalogTool(t)
+		next[t.Name] = t
 	}
-	for _, name := range b.names {
-		if _, ok := next[name]; ok {
-			continue
-		}
-		c.removeCatalogTool(name)
+
+	c.catalogGen.mu.Lock()
+	affectedSet := make(map[string]struct{}, len(b.tools)+len(next))
+	for name := range b.tools {
+		affectedSet[name] = struct{}{}
 	}
-	names := make([]string, 0, len(next))
 	for name := range next {
-		names = append(names, name)
+		affectedSet[name] = struct{}{}
 	}
-	slices.Sort(names)
-	b.names = names
+	b.tools = next
+	affected := make([]string, 0, len(affectedSet))
+	for name := range affectedSet {
+		affected = append(affected, name)
+	}
+	slices.Sort(affected)
+	for _, name := range affected {
+		c.applyCatalogWinnerLocked(name)
+	}
+	c.catalogGen.mu.Unlock()
+}
+
+// normalizeCatalogTool 净化模型可见名称并复制可变字段，避免 Provider 后续修改
+// 返回对象时改变目录定义。
+func normalizeCatalogTool(t toolkit.Tool) toolkit.Tool {
+	if !toolkit.ValidToolName(t.Name) {
+		original := t.Name
+		t.Name = toolkit.SanitizeToolName(t.Name)
+		logger.Warnf("[AI] Tool name %q is invalid (must match ^[a-zA-Z0-9_-]+$), sanitized to %q", original, t.Name)
+	}
+	return toolkit.CloneTool(t)
 }
 
 // DiscoverToolProviders 扫描插件管理器中所有已注册的插件服务，
@@ -153,52 +175,125 @@ func (c *catalogState) DiscoverToolProviders(mgr *plugin.Manager) {
 	}
 }
 
-// registerCatalogTool 登记一个目录工具（同名仅首次生效）；仅当成员关系变化
-// （此前不存在）时推进目录代数。
+// ensureCatalogMapsLocked 惰性初始化目录映射。测试与轻量调用方可直接构造 Plugin。
+func (c *catalogState) ensureCatalogMapsLocked() {
+	if c.catalogGen.baseTools == nil {
+		c.catalogGen.baseTools = make(map[string]toolkit.Tool)
+	}
+	if c.catalogGen.baseCommandPatterns == nil {
+		c.catalogGen.baseCommandPatterns = make(map[string]string)
+	}
+	if c.catalogGen.winners == nil {
+		c.catalogGen.winners = make(map[string]catalogWinner)
+	}
+}
+
+func (c *catalogState) registerCommandCatalogTool(t toolkit.Tool, commandPattern string) {
+	c.registerBaseCatalogTool(t, commandPattern)
+}
+
+func (c *catalogState) registerBaseCatalogTool(t toolkit.Tool, commandPattern string) {
+	if t.Name == "" {
+		return
+	}
+	t = normalizeCatalogTool(t)
+	c.catalogGen.mu.Lock()
+	c.ensureCatalogMapsLocked()
+	if _, exists := c.catalogGen.baseTools[t.Name]; exists {
+		c.catalogGen.mu.Unlock()
+		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
+		return
+	}
+	c.catalogGen.baseTools[t.Name] = t
+	if commandPattern == "" {
+		delete(c.catalogGen.baseCommandPatterns, t.Name)
+	} else {
+		c.catalogGen.baseCommandPatterns[t.Name] = commandPattern
+	}
+	c.applyCatalogWinnerLocked(t.Name)
+	c.catalogGen.mu.Unlock()
+}
+
+func (c *catalogState) resolveCatalogWinnerLocked(name string) (catalogWinner, bool) {
+	for _, provider := range slices.Backward(c.catalogGen.providers) {
+
+		if tool, ok := provider.tools[name]; ok {
+			return catalogWinner{tool: toolkit.CloneTool(tool), provider: provider}, true
+		}
+	}
+	tool, ok := c.catalogGen.baseTools[name]
+	if !ok {
+		return catalogWinner{}, false
+	}
+	return catalogWinner{
+		tool:           toolkit.CloneTool(tool),
+		commandPattern: c.catalogGen.baseCommandPatterns[name],
+	}, true
+}
+
+func sameCatalogWinner(a, b catalogWinner) bool {
+	return a.provider == b.provider &&
+		a.commandPattern == b.commandPattern &&
+		a.tool.EffectiveSource() == b.tool.EffectiveSource() &&
+		reflect.DeepEqual(toolkit.ActionOf(a.tool), toolkit.ActionOf(b.tool))
+}
+
+// applyCatalogWinnerLocked 原子更新注册表、命令映射和目录代数。调用方须持有 mu。
+func (c *catalogState) applyCatalogWinnerLocked(name string) {
+	c.ensureCatalogMapsLocked()
+	previous, hadPrevious := c.catalogGen.winners[name]
+	next, hasNext := c.resolveCatalogWinnerLocked(name)
+
+	reason := ""
+	switch {
+	case !hadPrevious && hasNext:
+		reason = "add"
+	case hadPrevious && !hasNext:
+		reason = "remove"
+	case hadPrevious && hasNext && !sameCatalogWinner(previous, next):
+		reason = "update"
+	}
+
+	if hasNext {
+		c.reg.Upsert(next.tool)
+		c.catalogGen.winners[name] = next
+	} else {
+		c.reg.Remove(name)
+		delete(c.catalogGen.winners, name)
+	}
+
+	c.cmdMu.Lock()
+	if c.cmdPatterns == nil {
+		c.cmdPatterns = make(map[string]string)
+	}
+	if hasNext && next.commandPattern != "" {
+		c.cmdPatterns[name] = next.commandPattern
+	} else {
+		delete(c.cmdPatterns, name)
+	}
+	c.cmdMu.Unlock()
+
+	if reason != "" {
+		c.bumpCatalogGeneration(reason)
+	}
+}
+
+// registerCatalogTool 登记一个基础目录工具；同名基础工具仅首次生效。
 func (c *catalogState) registerCatalogTool(t toolkit.Tool) {
-	if t.Name == "" {
-		return
-	}
-	if _, exists := c.reg.Get(t.Name); !exists {
-		c.bumpCatalogGeneration("add")
-	}
-	c.reg.Register(t)
+	c.registerBaseCatalogTool(t, "")
 }
 
-// upsertCatalogTool 登记或就地覆盖一个目录工具；仅新增成员时推进代数。
-func (c *catalogState) upsertCatalogTool(t toolkit.Tool) {
-	if t.Name == "" {
-		return
-	}
-	if _, exists := c.reg.Get(t.Name); !exists {
-		c.bumpCatalogGeneration("add")
-	}
-	c.reg.Upsert(t)
-}
-
-// removeCatalogTool 移除一个目录工具；实际删除时推进代数并清理命令映射。
-func (c *catalogState) removeCatalogTool(name string) {
-	if c.reg.Remove(name) {
-		c.bumpCatalogGeneration("remove")
-	}
-	c.clearCommandPattern(name)
-}
-
-// bumpCatalogGeneration 推进目录代数并打点。reason 区分新增（add）与移除
-// （remove）；每次推进都会让会话级选择缓存失效，指标用于观测抖动来源。
+// bumpCatalogGeneration 推进目录代数并打点。reason 为 add/remove/update。
 func (c *catalogState) bumpCatalogGeneration(reason string) {
 	recordCatalogGeneration(reason, c.catalogGen.Add(1))
 }
 
-// clearCommandPattern 清除某动作名对应的真实命令映射。
-func (c *catalogState) clearCommandPattern(name string) {
-	c.cmdMu.Lock()
-	delete(c.cmdPatterns, name)
-	c.cmdMu.Unlock()
+// catalogGeneration 返回当前目录内容版本。
+func (c *catalogState) catalogGeneration() uint64 {
+	c.catalogGen.mu.RLock()
+	defer c.catalogGen.mu.RUnlock()
+	return c.catalogGen.Load()
 }
-
-// catalogGeneration 返回当前目录代数（工具成员关系的版本号）。
-func (c *catalogState) catalogGeneration() uint64 { return c.catalogGen.Load() }
 
 // catalogSnapshot 返回当前**全局目录**（全部已登记动作）的不可变快照。
 //
@@ -206,7 +301,32 @@ func (c *catalogState) catalogGeneration() uint64 { return c.catalogGen.Load() }
 // 的只读视图。群策略与 RBAC 的收敛是每轮、每调用者的事，在 actionCandidates
 // 中于快照之上完成，不进快照。
 func (c *catalogState) catalogSnapshot() catalog.CatalogSnapshot {
+	c.catalogGen.mu.RLock()
+	defer c.catalogGen.mu.RUnlock()
 	return catalog.NewSnapshot(c.catalogGen.Load(), c.reg.Actions())
+}
+
+// executionToolSnapshot 同时读取工具定义和对应的命令模式。动态 Provider 更新
+// 会在 catalogGen.mu 写锁内替换两者，因此执行入口持读锁取得的组合始终来自同一目录版本。
+func (c *catalogState) executionToolSnapshot(name string) toolExecutionSnapshot {
+	c.catalogGen.mu.RLock()
+	defer c.catalogGen.mu.RUnlock()
+	if c.reg == nil {
+		return toolExecutionSnapshot{}
+	}
+	tool, ok := c.reg.Get(name)
+	if !ok {
+		return toolExecutionSnapshot{}
+	}
+	c.cmdMu.RLock()
+	pattern, isCommand := c.cmdPatterns[name]
+	c.cmdMu.RUnlock()
+	return toolExecutionSnapshot{
+		tool:           tool,
+		commandPattern: pattern,
+		hasCommand:     isCommand,
+		found:          true,
+	}
 }
 
 // RegisterSkill 注册一个系统级 Skill。

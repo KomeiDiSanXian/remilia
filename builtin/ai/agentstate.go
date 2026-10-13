@@ -82,8 +82,8 @@ func agentStateInventory() []agentStateItem {
 		},
 		{
 			Name: "interrupt", Class: agentStateSessionMemory,
-			Session: []string{"turnActive", "signal"},
-			Note:    "回合活跃标志与中断信号：用户抢占/停止生成",
+			Session: []string{"signal"},
+			Note:    "回合活跃状态与中断信号由同一原子指针承载：用户抢占/停止生成",
 		},
 		{
 			Name: "session_deleted", Class: agentStateSessionMemory,
