@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	benchmarkOpenAIToolsSink       []OpenAITool
-	benchmarkAnthropicToolsSink    []AnthropicTool
-	benchmarkProviderPayloadSink   []byte
+	benchmarkOpenAIToolsSink     []OpenAITool
+	benchmarkAnthropicToolsSink  []AnthropicTool
+	benchmarkProviderPayloadSink []byte
 )
 
 func benchmarkToolSpecs(count int) []ToolSpec {
