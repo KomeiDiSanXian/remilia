@@ -184,6 +184,16 @@ LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI / Anthropic prompt cache
 
 启用 `vision_enabled` 后，对话中的图片附件会随消息发送给视觉模型（提供商需支持多模态）。
 
+## 性能基准
+
+AI 插件提供本地微基准，覆盖工具目录与选择、会话状态、动态提示词、记忆与检索、Provider 请求组装。运行全部基准：
+
+```bash
+go test -run '^$' -bench . -benchmem ./builtin/ai/...
+```
+
+基准使用本地数据和假实现，不会调用真实模型或嵌入服务。首轮测量结果与运行限制见[性能报告](../05-performance/PERFORMANCE_REPORT.md#ai-插件微基准2026-10-13)。
+
 ## 架构审查与演进
 
 当前 AI 插件的分层问题（`Tool` 语义过载、`Tool → Plugin` 依赖倒置、Decision 层缺失、

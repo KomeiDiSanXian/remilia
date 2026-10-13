@@ -1,7 +1,7 @@
 # Remilia 性能报告
 
-> **最后更新**: 2026-08-03  
-> **测试环境**: AMD Ryzen 7 5800H (16 线程), 32 GB RAM, Go 1.26.5, Windows  
+> **最后更新**: 2026-10-13
+> **引擎基准测试环境**: AMD Ryzen 7 5800H (16 线程), 32 GB RAM, Go 1.26.5, Windows
 > **测试工具**: `examples/benchmark/throughput_bench.go`（端到端压测）+ `go test -benchmem`（micro-benchmark）
 
 ---
@@ -125,6 +125,41 @@ Temp Matcher 增删           ~25,000 ns    71 KB  (v1.31.0: ~25µs)
 | + sortedCache `hasHandler` 过滤 | **235,000+** | ✅ 源头过滤无 Handler 匹配器 |
 
 ---
+
+## AI 插件微基准（2026-10-13）
+
+新增的 AI 插件基准覆盖了请求准备前的主要本地 CPU 路径：
+
+| 包 | 覆盖范围 |
+|----|----------|
+| `builtin/ai/catalog` | 工具目录候选装配、快照、排序和查找 |
+| `builtin/ai/decision` | 冷/热工具选择、会话已用工具提取 |
+| `builtin/ai/session` | 工具选择状态、RAG 缓存快照、会话获取 |
+| `builtin/ai/promptctx` | 动态上下文构造、RAG 命中格式化 |
+| `builtin/ai` | 不同事实数量下的记忆检索 |
+| `builtin/ai/retrieval` | 分词、关键词排序、相似度计算、语义向量缓存命中 |
+| `builtin/ai/protocol` | 工具定义转换、Provider 请求准备、多模态请求准备 |
+
+首轮短测样本（Windows amd64，AMD Ryzen 7 5800H，Go 1.27.1，`-benchtime=250ms`）：
+
+| 场景 | 延迟 | 分配 |
+|------|------|------|
+| 100 个工具，冷选择 | 482 µs/op | 226,524 B/op，2,655 allocs/op |
+| 100 个工具，缓存命中 | 15.4 µs/op | 29,315 B/op，120 allocs/op |
+| 500 个工具，冷选择 | 2.61 ms/op | 1,119,362 B/op，13,067 allocs/op |
+| OpenAI 典型请求准备 | 62.2 µs/op | 54,002 B/op，204 allocs/op |
+| 会话管理器，同 ID 缓存命中 | 36.3 ns/op | 0 B/op，0 allocs/op |
+| 动态上下文，缓存正文截断 | 719 ns/op | 3,072 B/op，1 alloc/op |
+
+在这组本地合成用例里，100 个工具的冷选择约 0.48 ms，缓存命中约 15 µs；500 个工具的冷选择约 2.6 ms，并产生更多内存分配。请求准备本身为几十微秒量级。这些数据可作为后续优化的起点，不能直接代表生产延迟或并发吞吐；基准使用本地数据和假实现，不调用真实 LLM、嵌入服务或数据库，也不包含网络耗时。
+
+```bash
+# 从仓库根目录运行 AI 插件全部微基准
+go test -run '^$' -bench . -benchmem ./builtin/ai/...
+
+# 多轮采样，用于对比代码变更前后的结果
+go test -run '^$' -bench . -benchmem -benchtime=1s -count=5 ./builtin/ai/...
+```
 
 ## 运行基准测试
 
