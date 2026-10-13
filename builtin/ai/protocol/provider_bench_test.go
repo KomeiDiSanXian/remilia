@@ -11,8 +11,6 @@ var (
 	benchmarkOpenAIToolsSink       []OpenAITool
 	benchmarkAnthropicToolsSink    []AnthropicTool
 	benchmarkProviderPayloadSink   []byte
-	benchmarkOpenAIMessagesSink    []openaiChatMessage
-	benchmarkAnthropicMessagesSink []anthropicReqMessage
 )
 
 func benchmarkToolSpecs(count int) []ToolSpec {

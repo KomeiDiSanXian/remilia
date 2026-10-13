@@ -11,9 +11,10 @@ linters:
         - SA*
         - S*
         - QF*
+        # golangci-lint v2.14.0 still bundles staticcheck v0.8.1. Keep these
+        # excluded while Go 1.27.2 generic-method crashes remain open upstream
+        # (golang/go#82105).
         - -QF1012
-        # SA4023 crashes on Go 1.27 generic methods (upstream golang/go#81188);
-        # golangci-lint drops the analyzer before running it. Restore once fixed.
         - -SA4023
     errcheck:
       exclude-functions:

@@ -1,0 +1,61 @@
+name: Nightly Snapshot
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27"
+
+jobs:
+  snapshot:
+    name: Build downloadable snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          check-latest: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Build dashboard
+        run: |
+          (cd dashboard && npm ci && npx vite build)
+          mkdir -p cmd/bot/dashboarddist
+          cp -r dashboard/dist/* cmd/bot/dashboarddist/
+
+      - name: Build snapshot packages
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --snapshot --clean
+
+      - name: Upload snapshot packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: remilia-nightly-${{ github.run_number }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
