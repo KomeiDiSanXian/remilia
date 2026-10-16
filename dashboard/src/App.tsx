@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getStoredApiKey, clearApiKey, setBaseURL } from './api'
+import { getStoredApiKey, setStoredApiKey, clearApiKey, setBaseURL } from './api'
 import { Login } from './components/Login.tsx'
 import { Dashboard } from './components/Dashboard.tsx'
 
@@ -18,6 +18,13 @@ export default function App() {
   const handleLogin = (key: string, url: string) => {
     setBaseURL(url)
     localStorage.setItem(URL_STORAGE_KEY, url)
+    // request() 每次从 localStorage 读取密钥；不落盘的话认证请求不会携带
+    // Authorization 头，配置了 api.api_key 的服务会 401，刷新后还会退回登录页。
+    if (key) {
+      setStoredApiKey(key)
+    } else {
+      clearApiKey()
+    }
     setApiKey(key)
   }
 
