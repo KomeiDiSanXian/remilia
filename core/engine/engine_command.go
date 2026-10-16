@@ -55,7 +55,6 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 		coordinator: e,
 		Source:      "global",
 	}
-	m.commandIndexed.Store(true) // OnCommand 规则（Rules[0]）通过 commandIndex 进行匹配
 	m.priority.Store(50)
 
 	trimmedPattern := strings.TrimSpace(cmdPattern)
@@ -66,6 +65,12 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 			m.definition = &command.Definition{
 				Name: cmdName,
 			}
+			// 只有提取到命令名时才走 commandIndex O(1) 分发：
+			// 此时 Match 跳过 Rules[0]（前缀检查）是安全的——索引命中
+			// 已隐式验证了前缀。模式只有前缀（如 "/"、"!!"）时没有索引
+			// 键，若仍标记 commandIndexed，Rules[0] 会被跳过而候选来源
+			// 又随索引重建在"全不匹配"与"匹配一切"之间摇摆。
+			m.commandIndexed.Store(true)
 		}
 	}
 
