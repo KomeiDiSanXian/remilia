@@ -84,7 +84,8 @@ type FSM struct {
 // Validate 检查 FSM 定义的结构正确性：
 //   - Name、Initial 和至少一个 Event 是必需的
 //   - 每个 Event 必须有 Name、From、To 以及非 nil 的 Match
-//   - 至少有一个 Event 的 From 等于 Initial 状态
+//   - 至少有一个 Event 的 From 等于 Initial 状态，或为通配符 "*"
+//     （运行时 TryStartSession 同样接受 "*" 作为启动条件）
 //   - OnEnter/OnExit 中引用的状态必须出现在某个 Event 中
 func (f *FSM) Validate() error {
 	if f.Name == "" {
@@ -113,7 +114,7 @@ func (f *FSM) Validate() error {
 		if ev.To != "" {
 			allStates[ev.To] = true
 		}
-		if ev.From == f.Initial {
+		if ev.From == f.Initial || ev.From == "*" {
 			hasInitial = true
 		}
 	}
@@ -136,9 +137,13 @@ func (f *FSM) Validate() error {
 
 // canTransitionFrom 检查是否有 Event 的 From 匹配 s（或通配符 "*"）。
 // 用于判断 session 是否卡在终态。若返回 false，TryStartSession 会清理并重新开始。
+//
+// "*" 必须计入：TryTransition/TryStartSession 都接受 From:"*"（任意状态迁移），
+// 只比较字面量会把"任意状态 /cancel"这类 FSM 的活跃会话误判为卡在终态，
+// 用户发一句无关消息就静默删除会话（连同 Data）。
 func (f *FSM) canTransitionFrom(s State) bool {
 	for _, ev := range f.Events {
-		if ev.From == s {
+		if ev.From == s || ev.From == "*" {
 			return true
 		}
 	}
