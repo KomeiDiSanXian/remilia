@@ -1,0 +1,158 @@
+name: Android
+
+# 什么时候跑（交叉编译 + R8 + 打包一次要十几分钟，所以只在该跑的时候跑）：
+#   - v* 标签：由 release.yml 通过 workflow_call 调用，构建 release 包并挂到同一个 Release；
+#   - 手动 workflow_dispatch：随时出一份，产物以 workflow artifact 形式保留 7 天，方便先装到手机上试；
+#   - PR 只在改动 desktop/** 或本工作流时验证：没配密钥时自动回退 debug 签名，
+#     但走的仍是 release（R8 混淆 + 符号裁剪）路径，能提前发现混淆/链接问题。
+# 普通 push、只改 Go / 文档 / dashboard 的 PR 都不会触发（那些走 ci.yml）。
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/android.yml"
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANDROID_API: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_NDK_VERSION: "29.0.14206865"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  apk:
+    name: Build APK (arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # 往 Release 传资产要 contents: write；PR 上的 token 由 GitHub 自动降为只读
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        run: |
+          # runner 镜像自带 Android SDK 与 cmdline-tools，但版本不全，缺什么装什么
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          {
+            echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+            echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+          } >>"$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      # Rust 交叉编译是这一步的主要耗时，缓存 target 目录后重复触发快很多
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Sync app version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node desktop/scripts/sync-version.mjs "${{ github.ref_name }}"
+
+      - name: Configure release signing
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "signed=false" >>"$GITHUB_OUTPUT"
+            echo "::warning::未配置 ANDROID_KEYSTORE_BASE64，本次产物回退 debug 签名，也不会进 Release"
+            exit 0
+          fi
+          ks="$RUNNER_TEMP/remilia-android.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d >"$ks"
+          # storeFile 支持绝对路径；口令请用字母数字，Java Properties 会把反斜杠当转义
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$ks" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" \
+            >desktop/src-tauri/gen/android/keystore.properties
+          echo "signed=true" >>"$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        working-directory: desktop
+        run: npx tauri android build --apk --target aarch64
+
+      - name: Collect APK
+        id: apk
+        run: |
+          src=desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+          mkdir -p dist-android
+          cp "$src" dist-android/remilia_android_arm64.apk
+          ls -lh dist-android/remilia_android_arm64.apk
+          echo "sha256=$(sha256sum "$src" | cut -d' ' -f1)" >>"$GITHUB_OUTPUT"
+
+      - name: Verify APK signature
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner" verify \
+            --print-certs dist-android/remilia_android_arm64.apk
+
+      - name: Upload APK to the release
+        # 只有打标签（由 release.yml 调用，Release 已由 GoReleaser 建好）且配了密钥时才写 Release
+        if: startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist-android/remilia_android_arm64.apk --clobber
+          echo "已把 remilia_android_arm64.apk 传到 ${GITHUB_REF_NAME}"
+
+      - name: Upload APK artifact
+        if: startsWith(github.ref, 'refs/tags/v') == false
+        uses: actions/upload-artifact@v7
+        with:
+          name: remilia-android-apk
+          path: dist-android/remilia_android_arm64.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Android APK (arm64)"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 文件 | \`remilia_android_arm64.apk\`（$(du -h dist-android/remilia_android_arm64.apk | cut -f1)） |"
+            echo "| SHA-256 | \`${{ steps.apk.outputs.sha256 }}\` |"
+            echo "| 签名 | $([ "${{ steps.signing.outputs.signed }}" = "true" ] && echo 'release keystore' || echo 'debug keystore（未配置密钥）') |"
+            echo ""
+            "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging \
+              dist-android/remilia_android_arm64.apk |
+              grep -E "^package:|^native-code:|^sdkVersion:|^targetSdkVersion:" |
+              sed 's/^/- /'
+          } >>"$GITHUB_STEP_SUMMARY"

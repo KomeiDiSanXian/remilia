@@ -118,3 +118,12 @@ jobs:
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
+
+  android:
+    name: Android (arm64 APK)
+    # 复用 android.yml：等 GoReleaser 建好 Release 再上传 APK，避免两个 job 竞争创建
+    needs: [goreleaser]
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+    permissions:
+      contents: write
