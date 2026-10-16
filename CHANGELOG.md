@@ -20,6 +20,7 @@
 - 新增 Android 客户端构建链路：`desktop` 可打包 APK 装到手机上远程管理机器人（填后端地址与 API Key，界面与桌面端共用）。手机沙箱不允许执行随包携带的程序，Go 机器人无法在手机上运行，移动端因此不提供「启动本地后端」和自动更新入口，启动后直接进入连接配置页。
 - 图标重新设计并分层生成：源图由 `dashboard/scripts/generate-icons.ps1` 产出，`desktop/src-tauri/app-icon.json` 驱动 Tauri CLI 生成各平台图标，Android 自适应图标（背景/前景/单色层）与桌面端图标一并更新，替换掉此前的默认图标。
 - Android 工程纳入仓库（`desktop/src-tauri/gen/android`）；发布包默认放开明文 HTTP，便于连接局域网 `http://<主机>:9002` 后端。
+- Android release 包支持本地签名：签名配置放在仓库外的 `keystore.properties`（已 gitignore），`make desktop-android-release` 一条命令产出可长期安装的 release APK；没有该文件时自动回退 debug 签名，CI 上不带密钥也能打包。
 
 ### 🛠 修复
 

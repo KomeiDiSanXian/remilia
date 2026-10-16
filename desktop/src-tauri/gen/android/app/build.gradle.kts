@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -13,6 +14,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// release 签名配置（可选）：把 storeFile/storePassword/keyAlias/keyPassword 写进
+// gen/android/keystore.properties（该文件已被 .gitignore 忽略，密钥不要提交进仓库）。
+// 没有这个文件时 release 回退到 debug 签名，保证其他环境也能打出可安装的包。
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.remilia.desktop"
@@ -23,6 +34,18 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                val configured = keystoreProperties.getProperty("storeFile")
+                // storeFile 支持绝对路径，也支持相对 gen/android 的相对路径
+                storeFile = File(configured).takeIf { it.isAbsolute } ?: rootProject.file(configured)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -40,6 +63,12 @@ android {
             // 手机端要能连内网 http://<ip>:9002 的后端（局域网默认明文 HTTP），
             // 因此 release 也放开明文流量；若把 API 暴露到公网请自行加 HTTPS 反代。
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                // 没配密钥的环境（例如 CI 上没带密钥）回退 debug 签名，产物仍可安装
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

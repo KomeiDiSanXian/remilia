@@ -126,5 +126,10 @@ desktop-build: desktop-sidecar desktop-front
 desktop-android:
 	cd desktop && npx tauri android build --debug --apk --target aarch64
 
+# 构建 Android release APK（签名配置见 desktop/README.md「release 签名」）
+# 产物：desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+desktop-android-release:
+	cd desktop && npx tauri android build --apk --target aarch64
+
 docker:
 	docker build -t $(APP_NAME):$(VERSION) .
