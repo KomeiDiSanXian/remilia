@@ -256,6 +256,15 @@ export async function enableMatcherGroup(name: string): Promise<void> {
   await request('POST', `/api/v1/engine/matchers/group/${name}/enable`)
 }
 
+// 全局匹配开关：停用后每个事件只执行优先级最高的一个匹配器。
+export async function disableGlobalMatchers(): Promise<void> {
+  await request('POST', '/api/v1/engine/matchers/global/disable')
+}
+
+export async function enableGlobalMatchers(): Promise<void> {
+  await request('POST', '/api/v1/engine/matchers/global/enable')
+}
+
 // --- Audit Log API (Phase A) ---
 
 export interface AuditEntry {

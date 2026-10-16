@@ -121,3 +121,30 @@ func (s *Server) handleEnableMatcherGroup(w http.ResponseWriter, r *http.Request
 	logger.Infof("[API] Matcher group %s enabled", name)
 	writeOK(w, map[string]string{"message": "matcher group enabled"})
 }
+
+// handleEnableGlobalMatchers 处理 POST /api/v1/engine/matchers/global/enable
+// 恢复默认行为：一个事件可以命中并执行多个匹配器（等价 SetBlock(false)）。
+func (s *Server) handleEnableGlobalMatchers(w http.ResponseWriter, _ *http.Request) {
+	eng := s.engineRef()
+	if eng == nil {
+		writeErr(w, 404, "engine not available", http.StatusNotFound)
+		return
+	}
+	eng.EnableGlobalMatchers(true)
+	logger.Info("[API] Global matchers enabled")
+	writeOK(w, map[string]string{"message": "global matchers enabled"})
+}
+
+// handleDisableGlobalMatchers 处理 POST /api/v1/engine/matchers/global/disable
+// 等价 SetBlock(true)：每个事件只执行优先级最高的一个命中匹配器。
+// 注意这不是"停止事件分发"——完全停止请逐组禁用或停止上游投递。
+func (s *Server) handleDisableGlobalMatchers(w http.ResponseWriter, _ *http.Request) {
+	eng := s.engineRef()
+	if eng == nil {
+		writeErr(w, 404, "engine not available", http.StatusNotFound)
+		return
+	}
+	eng.EnableGlobalMatchers(false)
+	logger.Info("[API] Global matchers disabled")
+	writeOK(w, map[string]string{"message": "global matchers disabled"})
+}

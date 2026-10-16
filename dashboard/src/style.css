@@ -570,6 +570,8 @@ form button[type="submit"] {
   min-width: 0;
 }
 .stat-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.stat-card-btn { cursor: pointer; font: inherit; color: inherit; text-align: left; width: 100%; }
+.stat-card-btn:disabled { cursor: wait; opacity: 0.7; transform: none; }
 .stat-icon {
   width: 40px; height: 40px; flex-shrink: 0;
   border-radius: 11px;

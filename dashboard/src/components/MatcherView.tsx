@@ -3,6 +3,9 @@ import * as api from '../api'
 import { useToast } from './Toast.tsx'
 import { Icon } from './Icons.tsx'
 
+// 全局匹配开关在 toggling 状态里使用的标记，避免与分组名冲突。
+const GLOBAL_TOGGLE = '__global__'
+
 export function MatcherView() {
   const [stats, setStats] = useState<api.MatcherStats | null>(null)
   const [groups, setGroups] = useState<api.MatcherGroupInfo[]>([])
@@ -40,6 +43,20 @@ export function MatcherView() {
     }
   }, [fetchData, toast])
 
+  const toggleGlobal = useCallback(async (enabled: boolean) => {
+    setToggling(GLOBAL_TOGGLE)
+    try {
+      if (enabled) await api.disableGlobalMatchers()
+      else await api.enableGlobalMatchers()
+      toast(`全局匹配${enabled ? '已停用（每个事件只执行优先级最高的一个匹配器）' : '已启用'}`, 'success')
+      fetchData()
+    } catch (e: unknown) {
+      toast(`操作失败: ${(e as Error).message}`, 'error')
+    } finally {
+      setToggling('')
+    }
+  }, [fetchData, toast])
+
   if (loading) return <div className="loading">加载中...</div>
   if (error) return <div className="error-card">获取失败: {error}</div>
   if (!stats) return null
@@ -67,10 +84,18 @@ export function MatcherView() {
           <span className="stat-icon amber"><Icon name="clock" size={18} /></span>
           <div className="stat-body"><div className="stat-value">{stats.temp}</div><div className="stat-label">临时匹配器</div></div>
         </div>
-        <div className="stat-card">
+        <button
+          type="button"
+          className="stat-card stat-card-btn"
+          onClick={() => toggleGlobal(stats.global_enabled)}
+          disabled={toggling === GLOBAL_TOGGLE}
+          title={stats.global_enabled
+            ? '点击停用：每个事件只执行优先级最高的一个匹配器'
+            : '点击启用：一个事件可以执行多个命中的匹配器'}
+        >
           <span className={`stat-icon ${stats.global_enabled ? 'green' : 'red'}`}><Icon name={stats.global_enabled ? 'check' : 'stop'} size={18} /></span>
-          <div className="stat-body"><div className="stat-value">{stats.global_enabled ? '启用' : '停用'}</div><div className="stat-label">全局匹配开关</div></div>
-        </div>
+          <div className="stat-body"><div className="stat-value">{stats.global_enabled ? '启用' : '停用'}</div><div className="stat-label">全局匹配开关（点击切换）</div></div>
+        </button>
       </div>
 
       {groups.length > 0 && (

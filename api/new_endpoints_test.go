@@ -79,6 +79,36 @@ func TestEndpoint_MatcherGroups_AuthRequired(t *testing.T) {
 	assert.Equal(t, 401, w.Code)
 }
 
+// TestEndpoint_GlobalMatcherToggle 覆盖全局匹配开关端点：
+// 关闭后统计接口的 global_enabled 必须同步为 false，重新打开恢复 true。
+func TestEndpoint_GlobalMatcherToggle(t *testing.T) {
+	var eng *engine.Engine
+	h := newTestServer(t, func(e *engine.Engine, _ *fsm.Manager, _ *plugin.Manager) {
+		eng = e
+	})
+
+	require.True(t, eng.GetMatcherStats().GlobalEnabled)
+
+	post := func(path string) int {
+		t.Helper()
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, path, nil)
+		r.Header.Set("Authorization", "Bearer test-key")
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	require.Equal(t, 200, post("/api/v1/engine/matchers/global/disable"))
+	assert.False(t, eng.GetMatcherStats().GlobalEnabled)
+
+	code, resp := getJSON(t, h, "/api/v1/engine/matchers")
+	assert.Equal(t, 200, code)
+	assert.Equal(t, false, resp["data"].(map[string]any)["global_enabled"])
+
+	require.Equal(t, 200, post("/api/v1/engine/matchers/global/enable"))
+	assert.True(t, eng.GetMatcherStats().GlobalEnabled)
+}
+
 func TestEndpoint_SchedulerJobs(t *testing.T) {
 	h := newTestServer(t, func(_ *engine.Engine, _ *fsm.Manager, pm *plugin.Manager) {
 		inst, ok := pm.Get("scheduler")
