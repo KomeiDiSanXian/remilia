@@ -132,7 +132,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - name: Build Dashboard
         run: |
-          (cd dashboard && npm ci && npx vite build)
+          (cd dashboard && npm ci && npm run build)
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Download dependencies
@@ -267,7 +267,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - name: Build Dashboard
         run: |
-          (cd dashboard && npm ci && npx vite build)
+          (cd dashboard && npm ci && npm run build)
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Build
