@@ -15,15 +15,20 @@ type GormStore struct {
 	client *infrastorage.Plugin
 }
 
+// ErrNilStorageClient 表示调用方传入了 nil 存储客户端。
+var ErrNilStorageClient = errors.New("ai: nil storage client")
+
 // NewGormSessionStore 创建一个基于 GORM 的会话存储。
 // 初始化时会自动创建 session_records 表。
 //
-// client 为 nil 时显式 panic：若直接把它交给 AutoMigrate，会先发生一次真实的内存
-// 解引用，而该访问违例在 Windows + -race 下偶发被运行时升级为 fatal error
-// （unexpected signal during runtime execution / 0xc0000005），使整个测试二进制崩溃。
+// client 为 nil 时返回 [ErrNilStorageClient] 而非 panic：装配侧把非 nil error 视为
+// 「无持久化，回退内存存储」，构造函数不该用 panic 处理调用方传参问题；
+// 显式判空同时避免了一次真实的内存解引用——该访问违例在 Windows + -race 下偶发被
+// 运行时升级为 fatal error（unexpected signal during runtime execution / 0xc0000005），
+// 会使整个测试二进制崩溃。
 func NewGormSessionStore(client *infrastorage.Plugin) (SessionStore, error) {
 	if client == nil {
-		panic("ai: nil storage client")
+		return nil, ErrNilStorageClient
 	}
 	if err := client.AutoMigrate(&Record{}); err != nil {
 		return nil, fmt.Errorf("ai: migrate session table: %w", err)

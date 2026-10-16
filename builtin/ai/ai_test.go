@@ -1,6 +1,7 @@
 package ai_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -107,11 +108,15 @@ func TestPluginNew(t *testing.T) {
 	}
 }
 
-func TestNewGormSessionStorePanicsWithNil(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for nil client")
-		}
-	}()
-	session.NewGormSessionStore(nil)
+func TestNewGormSessionStoreNilClient(t *testing.T) {
+	store, err := session.NewGormSessionStore(nil)
+	if err == nil {
+		t.Fatal("expected error for nil client")
+	}
+	if !errors.Is(err, session.ErrNilStorageClient) {
+		t.Fatalf("expected ErrNilStorageClient, got %v", err)
+	}
+	if store != nil {
+		t.Fatalf("expected nil store, got %#v", store)
+	}
 }
