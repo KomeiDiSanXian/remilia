@@ -30,8 +30,11 @@ Remilia: Go 1.27 multi-platform bot framework. Root module `github.com/KomeiDiSa
 ## Desktop & WASM
 
 - Tauri sidecar must be named `remilia-bot-<rust-target-triple>[.exe]` in `desktop/src-tauri/binaries/`; use `make desktop-sidecar` / `desktop-prepare`.
+- Tauri deps are paired by minor: `desktop/package.json` and `desktop/src-tauri/Cargo.toml` both pin `~x.y` for `@tauri-apps/api`↔`tauri`, `plugin-shell`, `plugin-updater`, `plugin-process`, because `tauri build` aborts on a major/minor mismatch (`version mismatched Tauri packages`). Bump both sides in the same commit — a one-sided lock refresh must never cross a minor (rationale and table: `desktop/README.md`).
+- PRs touching `desktop/**` (or `.github/workflows/android.yml`) run the arm64 APK build as a check; `v*` tags publish the APK. Trigger matrix, signing and manual republish: `desktop/README.md`.
 - `make build-wasm-test` needs TinyGo + Go 1.23; sample `.wasm` fixtures are committed.
 
 ## Known flake
 
-- Windows CI once crashed with `Exception 0xc0000005` in package `plugin` at test teardown (not reproducible locally). Treat a recurrence as runtime/platform-level first; the job sets `GOTRACEBACK: system` and uploads `windows-test-logs`.
+- Windows CI has crashed twice with `Exception 0xc0000005` (package `plugin` at test teardown; `builtin/ai`'s `TestNewGormSessionStorePanicsWithNil`, whose raw nil dereference has since become an explicit error). Treat a recurrence as runtime/platform-level first and simply rerun the failed job — the same commit passes on retry; the job sets `GOTRACEBACK: system` and uploads `windows-test-logs`.
+- For the real test output read that artifact, not the log: `gh run download <run-id> -n windows-test-logs` → `windows-test.log` (the `gh run view --job --log` stream is tab-split and shreds `go test` output).
