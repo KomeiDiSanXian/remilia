@@ -49,3 +49,72 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  updater-key-check:
+    name: Check updater signing key
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        # secrets 不能直接写在 if 条件里，先落成 job 输出再判断
+        run: echo "available=${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    name: Desktop (Windows)
+    # 等 GoReleaser 建好 Release 再上传安装包，避免两个 job 竞争创建
+    needs: [goreleaser, updater-key-check]
+    # 未配置签名密钥时跳过桌面端构建（普通发布不受影响）
+    if: needs.updater-key-check.outputs.available == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: true
+          check-latest: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
+
+      - name: Build Dashboard
+        shell: pwsh
+        run: |
+          Push-Location dashboard
+          npm ci
+          npm run build
+          Pop-Location
+          New-Item -ItemType Directory -Force cmd/bot/dashboarddist | Out-Null
+          Copy-Item dashboard/dist/* cmd/bot/dashboarddist -Recurse -Force
+
+      - name: Build Go sidecar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop/src-tauri/binaries | Out-Null
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $ldflags = "-s -w -X github.com/KomeiDiSanXian/remilia.Version=${{ github.ref_name }} -X main.commit=${{ github.sha }} -X main.date=$date"
+          go build -trimpath -ldflags $ldflags -o desktop/src-tauri/binaries/remilia-bot-x86_64-pc-windows-msvc.exe ./cmd/bot
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Sync desktop version from tag
+        # 桌面端内置 sidecar，每个框架版本都应作为一次桌面端发布
+        run: node desktop/scripts/sync-version.mjs ${{ github.ref_name }}
+
+      - name: Build and publish desktop release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}

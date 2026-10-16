@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### ✨ 新特性
+
+**桌面端**
+
+- 支持应用内自动更新：托盘「关于」对话框显示当前版本，可检查、下载并安装签名更新（Tauri updater），安装完成后一键重启。更新源为 GitHub Releases 的 `latest.json`，签名公钥随包内置。
+- 发布流程新增 Windows 桌面构建（`.github/workflows/release.yml`）：打 `v*` 标签时同步构建 NSIS/MSI 安装包、更新包与 `latest.json` 并上传到同一 Release；未配置签名密钥（`TAURI_SIGNING_PRIVATE_KEY`）时自动跳过，普通发布不受影响。
+- 桌面端版本号随发布标签自动同步（`desktop/scripts/sync-version.mjs`）：桌面端内置 Go 后端子进程，每次框架发布都会带出新的 sidecar。
+
 ### 🛠 修复
 
 **管理 API 与配置**
