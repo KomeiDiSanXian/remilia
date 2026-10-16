@@ -82,27 +82,29 @@ export function AuditLogView() {
 
       {!loading && !error && filtered && filtered.length > 0 && (
         <div className="card">
-          <table className="data-table audit-table">
-            <thead>
-              <tr><th>时间</th><th>动作</th><th>用户</th><th>内容</th></tr>
-            </thead>
-            <tbody>
-              {filtered.map((entry) => (
-                <tr key={entry.id}>
-                  <td>{new Date(entry.timestamp).toLocaleString()}</td>
-                  <td><span className="chip info">{entry.action}</span></td>
-                  <td className="mono">{entry.user_id}</td>
-                  <td>
-                    {entry.content && <div className="audit-content">{entry.content}</div>}
-                    <div className="audit-meta">
-                      {entry.group_id && <span>群组: {entry.group_id}</span>}
-                      {entry.meta && <span> meta: {JSON.stringify(entry.meta)}</span>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="data-table audit-table">
+              <thead>
+                <tr><th>时间</th><th>动作</th><th>用户</th><th>内容</th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                    <td><span className="chip info">{entry.action}</span></td>
+                    <td className="mono">{entry.user_id}</td>
+                    <td>
+                      {entry.content && <div className="audit-content">{entry.content}</div>}
+                      <div className="audit-meta">
+                        {entry.group_id && <span>群组: {entry.group_id}</span>}
+                        {entry.meta && <span> meta: {JSON.stringify(entry.meta)}</span>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

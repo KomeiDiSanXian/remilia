@@ -81,40 +81,42 @@ export function CommandList() {
             <strong>{cat}</strong>
             <span className="tag">{cmds.length} 个命令</span>
           </div>
-          <table className="command-table">
-            <thead>
-              <tr>
-                <th>命令</th>
-                <th>描述</th>
-                <th>用法</th>
-                <th>插件</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cmds.map((cmd) => (
-                <tr key={cmd.command}>
-                  <td>
-                    <code>{cmd.command}</code>
-                    {cmd.aliases && cmd.aliases.length > 0 && (
-                      <div className="cmd-alias">
-                        {cmd.aliases.map((a) => <span key={a} className="chip muted">{a}</span>)}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    {cmd.description || '-'}
-                    {cmd.examples && cmd.examples.length > 0 && (
-                      <div className="cmd-examples">
-                        {cmd.examples.map((ex, i) => <code key={i}>{ex}</code>)}
-                      </div>
-                    )}
-                  </td>
-                  <td><code>{cmd.usage || '-'}</code></td>
-                  <td>{cmd.plugin || '-'}</td>
+          <div className="table-wrap">
+            <table className="command-table">
+              <thead>
+                <tr>
+                  <th>命令</th>
+                  <th>描述</th>
+                  <th>用法</th>
+                  <th>插件</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {cmds.map((cmd) => (
+                  <tr key={cmd.command}>
+                    <td>
+                      <code>{cmd.command}</code>
+                      {cmd.aliases && cmd.aliases.length > 0 && (
+                        <div className="cmd-alias">
+                          {cmd.aliases.map((a) => <span key={a} className="chip muted">{a}</span>)}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {cmd.description || '-'}
+                      {cmd.examples && cmd.examples.length > 0 && (
+                        <div className="cmd-examples">
+                          {cmd.examples.map((ex, i) => <code key={i}>{ex}</code>)}
+                        </div>
+                      )}
+                    </td>
+                    <td><code>{cmd.usage || '-'}</code></td>
+                    <td>{cmd.plugin || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
     </div>

@@ -409,12 +409,12 @@ form button[type="submit"] {
 /* ==========================================================================
    Dashboard 外壳
    ========================================================================== */
-.dashboard { min-height: 100vh; display: flex; flex: 1; }
+.dashboard { min-height: 100vh; min-height: 100dvh; display: flex; flex: 1; }
 
 /* --- Sidebar --- */
 .sidebar {
   width: var(--sidebar-w); min-width: var(--sidebar-w);
-  height: 100vh;
+  height: 100vh; height: 100dvh;
   position: sticky; top: 0;
   display: flex; flex-direction: column;
   background: rgba(13, 18, 32, 0.92);
@@ -516,7 +516,7 @@ form button[type="submit"] {
 /* --- Main column --- */
 .dashboard-main {
   flex: 1; display: flex; flex-direction: column;
-  min-width: 0; height: 100vh; overflow: hidden;
+  min-width: 0; height: 100vh; height: 100dvh; overflow: hidden;
 }
 .dashboard-topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
@@ -967,7 +967,8 @@ form button[type="submit"] {
    ========================================================================== */
 .toast-container {
   position: fixed; top: 14px; right: 14px; z-index: 9999;
-  display: flex; flex-direction: column; gap: 8px; max-width: 380px;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(380px, calc(100vw - 28px));
 }
 .toast {
   display: flex; align-items: flex-start; gap: 0.6rem;
@@ -1027,7 +1028,12 @@ form button[type="submit"] {
     min-width: var(--sidebar-w) !important;
     transform: translateX(-100%);
     box-shadow: var(--shadow-lg);
+    /* 抽屉模式：给刘海屏/手势条留安全区；折叠按钮在此宽度无意义（标签会被隐藏）故收起 */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
+  .sidebar-toggle { display: none; }
+  .sidebar-item { min-height: 44px; }
   .sidebar.mobile-open { transform: translateX(0); }
   .sidebar-backdrop {
     position: fixed; inset: 0; z-index: 55;
@@ -1036,20 +1042,54 @@ form button[type="submit"] {
     animation: fade-in 0.15s ease-out;
   }
   .topbar-menu-btn { display: inline-flex; }
-  .dashboard-main { height: 100vh; }
+  .dashboard-main { height: 100vh; height: 100dvh; }
+  /* iOS 独立窗口模式下内容延伸进状态栏，顶栏内缩一个安全区高度 */
+  .dashboard-topbar {
+    height: auto;
+    min-height: calc(var(--topbar-h) + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
 }
 
 @media (max-width: 768px) {
   .dashboard-topbar { padding: 0 0.9rem; }
-  .dashboard-main main { padding: 1.1rem 0.9rem 2rem; }
+  .dashboard-main main { padding: 1.1rem 0.9rem calc(2rem + env(safe-area-inset-bottom)); }
   .plugin-grid { grid-template-columns: 1fr; }
   .platform-grid { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .conn-pill span.pill-text { display: none; }
   .plugin-search { max-width: none; }
   .command-table th:nth-child(4), .command-table td:nth-child(4) { display: none; }
-  .log-container { height: 55vh; }
+  .log-container { height: 55vh; height: 55dvh; }
   .section-header h2 { font-size: 1.05rem; }
+
+  /* 触控目标：按钮在手指下可点（约 40px）；桌面端标题栏按钮保持原有尺寸 */
+  button:not(.titlebar-btn) { min-height: 40px; }
+  .btn-icon { width: 40px; height: 40px; }
+  .sidebar .sidebar-item { min-height: 44px; }
+
+  /* iOS Safari 会在字号 <16px 的输入控件获得焦点时放大页面，这里统一 16px */
+  .field input, .field select,
+  .dialog select, .dialog input[type="text"], .dialog input[type="number"], .dialog input[type="password"],
+  .add-platform-form select,
+  .plugin-search input, .plugin-sort,
+  .cf-input, .config-editor { font-size: 16px; }
+
+  /* 宽表格改为横向滚动，避免列被压成一字一行 */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap .command-table { min-width: 460px; }
+  .table-wrap .audit-table { min-width: 620px; }
+  .table-wrap .session-table { min-width: 640px; }
+  .table-wrap .scheduler-table { min-width: 560px; }
+
+  /* 对话框：小屏收边距，按钮撑满整行更好点 */
+  .dialog { padding: 1.15rem 1.1rem; max-height: 88vh; }
+  .dialog-actions button { flex: 1; min-height: 42px; }
+  .toast-container { top: calc(14px + env(safe-area-inset-top)); left: 14px; right: 14px; max-width: none; }
+
+  /* 配置表单与 JSON 编辑器 */
+  .cf-section-body { padding-left: 0.8rem; }
+  .config-editor { min-height: 320px; }
 }
 
 @media (max-width: 480px) {
@@ -1057,4 +1097,14 @@ form button[type="submit"] {
   .stat-icon { width: 34px; height: 34px; }
   .stat-value { font-size: 1.05rem; }
   .login-card { padding: 2rem 1.4rem; }
+
+  /* 日志窄屏分两行：时间与级别一行，正文独占一行，正文不再被挤成窄条 */
+  .log-line { flex-wrap: wrap; gap: 0.1rem 0.7rem; }
+  .log-msg { flex-basis: 100%; }
+
+  /* 配置表单：标签与输入框上下排布，输入框占满整行 */
+  .cf-field { align-items: flex-start; }
+  .cf-label { min-width: 0; }
+  .cf-input { min-width: 0; flex-basis: 100%; }
+  .cf-input-narrow { max-width: none; }
 }

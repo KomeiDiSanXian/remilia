@@ -25,6 +25,14 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plu
 
 `/api/v1/health` 与 `/api/v1/version` 为公开端点，无需认证。`GET /api/v1/auth/verify` 需要认证，用于客户端校验 API Key 是否有效（仪表盘 / 桌面端登录时探测，返回当前会话信息）。
 
+## 内置仪表盘
+
+API 服务器同源托管前端仪表盘：浏览器打开 `http://<主机>:<端口>/` 即可用同一套 API Key 登录管理，无需单独部署前端（`cmd/bot` 会把构建产物内嵌进二进制）。
+
+- **手机浏览器**：界面按小屏适配（抽屉式侧边栏、宽表格横向滚动、触摸友好的按钮尺寸），打开同一地址即可管理。iOS Safari 与 Android Chrome 支持"添加到主屏幕"，以独立窗口打开（`manifest.json` 与图标随二进制一并发布）。
+- **离线外壳**：生产构建会注册 Service Worker，断网时仍能打开界面外壳（数据仍需连上服务端）。Service Worker 只在安全上下文（HTTPS 或 localhost）注册；通过 `http://<局域网 IP>:<端口>` 访问时浏览器不允许注册，仪表盘功能不受影响。
+- **远程访问**：确保 `api.enabled: true` 且监听地址对访问方可达，并用 `api_key` 保护；暴露到公网时请置于 HTTPS 反向代理之后。
+
 ## 端点总览
 
 ### 公开端点

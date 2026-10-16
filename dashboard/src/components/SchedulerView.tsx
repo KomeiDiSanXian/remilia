@@ -76,27 +76,29 @@ export function SchedulerView() {
 
       {history.length > 0 && (
         <div className="card">
-          <table className="data-table">
-            <thead>
-              <tr><th>任务</th><th>结果</th><th>执行时间</th><th>耗时</th><th>错误</th></tr>
-            </thead>
-            <tbody>
-              {history.map((rec, i) => (
-                <tr key={`${rec.job_id}-${i}`}>
-                  <td>{rec.job_name || `#${rec.job_id}`}</td>
-                  <td>
-                    <span className={`chip ${rec.success ? 'success' : 'danger'}`}>
-                      <Icon name={rec.success ? 'check' : 'alert'} size={11} />
-                      {rec.success ? '成功' : '失败'}
-                    </span>
-                  </td>
-                  <td>{new Date(rec.start_at).toLocaleString()}</td>
-                  <td className="mono">{rec.duration}</td>
-                  <td style={{ color: 'var(--danger)', fontSize: '0.78rem', wordBreak: 'break-word' }}>{rec.error || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="data-table scheduler-table">
+              <thead>
+                <tr><th>任务</th><th>结果</th><th>执行时间</th><th>耗时</th><th>错误</th></tr>
+              </thead>
+              <tbody>
+                {history.map((rec, i) => (
+                  <tr key={`${rec.job_id}-${i}`}>
+                    <td>{rec.job_name || `#${rec.job_id}`}</td>
+                    <td>
+                      <span className={`chip ${rec.success ? 'success' : 'danger'}`}>
+                        <Icon name={rec.success ? 'check' : 'alert'} size={11} />
+                        {rec.success ? '成功' : '失败'}
+                      </span>
+                    </td>
+                    <td>{new Date(rec.start_at).toLocaleString()}</td>
+                    <td className="mono">{rec.duration}</td>
+                    <td style={{ color: 'var(--danger)', fontSize: '0.78rem', wordBreak: 'break-word' }}>{rec.error || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

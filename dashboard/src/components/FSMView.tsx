@@ -79,26 +79,28 @@ export function FSMView() {
             <h2><Icon name="activity" size={18} />活跃会话 <span className="plugin-count">({sessions.length})</span></h2>
           </div>
           <div className="card">
-            <table className="data-table session-table">
-              <thead>
-                <tr><th>会话 ID</th><th>FSM</th><th>当前状态</th><th>创建时间</th><th>操作</th></tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => (
-                  <tr key={s.id}>
-                    <td className="mono" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.id}</td>
-                    <td>{s.fsm_name}</td>
-                    <td><code>{s.current}</code></td>
-                    <td>{new Date(s.created_at * 1000).toLocaleString()}</td>
-                    <td>
-                      <button className="btn-secondary btn-sm" onClick={() => handleEnd(s.id)}>
-                        <Icon name="stop" size={12} />结束
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table className="data-table session-table">
+                <thead>
+                  <tr><th>会话 ID</th><th>FSM</th><th>当前状态</th><th>创建时间</th><th>操作</th></tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s) => (
+                    <tr key={s.id}>
+                      <td className="mono" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.id}</td>
+                      <td>{s.fsm_name}</td>
+                      <td><code>{s.current}</code></td>
+                      <td>{new Date(s.created_at * 1000).toLocaleString()}</td>
+                      <td>
+                        <button className="btn-secondary btn-sm" onClick={() => handleEnd(s.id)}>
+                          <Icon name="stop" size={12} />结束
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

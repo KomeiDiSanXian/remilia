@@ -10,6 +10,11 @@
 - 发布流程新增 Windows 桌面构建（`.github/workflows/release.yml`）：打 `v*` 标签时同步构建 NSIS/MSI 安装包、更新包与 `latest.json` 并上传到同一 Release；未配置签名密钥（`TAURI_SIGNING_PRIVATE_KEY`）时自动跳过，普通发布不受影响。
 - 桌面端版本号随发布标签自动同步（`desktop/scripts/sync-version.mjs`）：桌面端内置 Go 后端子进程，每次框架发布都会带出新的 sidecar。
 
+**仪表盘（Web 端）**
+
+- 移动端可用：布局按小屏重构——侧边栏抽屉化（含遮罩与菜单按钮）、宽表格横向滚动、按钮触摸目标放大到约 40px、iOS 输入框不再自动放大页面、刘海屏安全区适配、日志在窄屏改为两行排版。手机浏览器打开 `http://<主机>:<端口>/` 即可管理机器人。
+- 支持「添加到主屏幕」（PWA）：内置 `manifest.json` 与 192/512/maskable 图标（`dashboard/scripts/generate-icons.ps1` 可重新生成），生产构建注册 Service Worker，断网时仍能打开界面外壳；`/api/`（含日志 SSE 流）始终直连不缓存。Service Worker 仅在安全上下文（HTTPS / localhost）注册，局域网 http 访问不受影响。
+
 ### 🛠 修复
 
 **管理 API 与配置**
