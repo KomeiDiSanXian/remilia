@@ -23,7 +23,7 @@ api:
 curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plugins
 ```
 
-`/api/v1/health` 与 `/api/v1/version` 为公开端点，无需认证。
+`/api/v1/health` 与 `/api/v1/version` 为公开端点，无需认证。`GET /api/v1/auth/verify` 需要认证，用于客户端校验 API Key 是否有效（仪表盘 / 桌面端登录时探测，返回当前会话信息）。
 
 ## 端点总览
 
@@ -72,6 +72,8 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plu
 | GET | `/api/v1/engine/matchers/groups` | 匹配器分组列表（名称/数量/启用状态） |
 | POST | `/api/v1/engine/matchers/group/{name}/disable` | 禁用分组 |
 | POST | `/api/v1/engine/matchers/group/{name}/enable` | 启用分组 |
+| POST | `/api/v1/engine/matchers/global/disable` | 停用全局匹配（每个事件只执行优先级最高的一个匹配器） |
+| POST | `/api/v1/engine/matchers/global/enable` | 启用全局匹配（一个事件可执行多个命中匹配器，默认） |
 
 ### 审计日志
 
@@ -124,6 +126,8 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plu
 | GET/PUT | `/api/v1/config` | 读取 / 写入配置 |
 | POST | `/api/v1/config/reload` | 触发配置重载 |
 | GET | `/api/v1/stats` | 插件管理器运行时统计快照 |
+
+> **配置脱敏与写回**：`GET /api/v1/config` 返回的敏感键值已脱敏（如 `re****en`）；`PUT` 会丢弃与当前值一致的脱敏占位符，因此可以安全地把 `GET` 结果改后原样回传，真实密钥不会被占位符覆盖。写入键名大小写与下划线不敏感（`Bot.QQ.Token` 视同 `bot.qq.token`）。
 
 ## 使用示例
 

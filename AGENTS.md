@@ -6,7 +6,7 @@ Remilia: Go 1.27 multi-platform bot framework. Root module `github.com/KomeiDiSa
 
 - `go.work` covers `.`, `cmd/bot`, `examples/httpclient-demo`. From the root, `go build/test ./...` matches only the root module — build/test `cmd/bot` from its own directory.
 - `examples/showcase/wasm` is intentionally outside the workspace (TinyGo/WASI); do not add it to `go.work`.
-- Layout: `core/` engine (COW) + context + fsm + permission, `platform/` adapters, `plugin/` DI/plugin runtime, `builtin/` framework-shipped plugins, `cmd/bot/plugins/` app-specific plugins, `infra/` toolkit, `api/` admin REST server, `dashboard/` Vue SPA, `desktop/` Tauri shell, `tests/` integration/benchmark/chaos/fuzzing. Deep design notes: `docs/notes/`.
+- Layout: `core/` engine (COW) + context + fsm + permission, `platform/` adapters, `plugin/` DI/plugin runtime, `builtin/` framework-shipped plugins, `cmd/bot/plugins/` app-specific plugins, `infra/` toolkit, `api/` admin REST server, `dashboard/` React SPA, `desktop/` Tauri shell, `tests/` integration/benchmark/chaos/fuzzing. Deep design notes: `docs/notes/`.
 - Dependency rule (`builtin/README.md`): `core/` and `infra/` must never import `builtin/`; layer-3 business plugins must not be imported by layers 1–2.
 
 ## Build & test
