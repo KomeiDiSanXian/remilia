@@ -22,7 +22,7 @@ Remilia: Go 1.27 multi-platform bot framework. Root module `github.com/KomeiDiSa
 ## Conventions
 
 - Commit messages, PR titles, and release notes are English. Code comments and user docs are Chinese — match the surrounding language.
-- `CHANGELOG.md` gets a detailed Chinese entry per release; update it with user-visible changes.
+- `CHANGELOG.md` gets a detailed Chinese entry per release; update it with user-visible changes. The `vX.Y.Z` section is also the GitHub Release body: the release workflow extracts it with `scripts/release-notes.mjs` and only falls back to the generated commit list when the section is missing — write the section before tagging.
 - Metric tests must assert deltas around each call, never absolute values of package-global Prometheus counters (they fail under `go test -count=N`).
 - Gitignored, don't commit: `config.yaml`, `cmd/bot/dashboarddist/`, `data/`, `logs/`, `profiles/`, `site/`, `MEMORY.md` (local-only agent notebook worth consulting for recent work notes).
 - Line endings are pinned to LF by `.gitattributes` (`*.bat`/`*.cmd` keep CRLF); don't re-normalize.

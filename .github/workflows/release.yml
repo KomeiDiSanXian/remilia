@@ -42,11 +42,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        # CHANGELOG 里对应版本的段落就是发布说明；缺失时回退 GoReleaser 自动 changelog
+        run: |
+          if node scripts/release-notes.mjs "${GITHUB_REF_NAME}" > release-notes.md; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CHANGELOG.md 中没有 ${GITHUB_REF_NAME} 的段落，改用自动生成的 changelog"
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
-          args: release --clean
+          # --release-notes 会让 GoReleaser 跳过自带 changelog，直接用该文件作为 Release 正文
+          args: release --clean ${{ steps.notes.outputs.found == 'true' && '--release-notes=release-notes.md' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
