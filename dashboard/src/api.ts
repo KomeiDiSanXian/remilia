@@ -133,16 +133,16 @@ export async function getPlugin(name: string): Promise<PluginInfo> {
 }
 
 export interface PluginDetail {
-  Name: string
-  State: string
-  LoadTime: string
-  LastError: string | null
-  MatcherCount: number
-  Uptime: number
-  HasSaveState: boolean
-  EventBusSubscriptions: number
-  GoroutineCount: number
-  Metadata: PluginMetadata | null
+  name: string
+  state: string
+  uptime: string
+  matcher_count: number
+  last_error?: string
+  load_time?: string
+  has_save_state: boolean
+  event_bus_subscriptions: number
+  goroutine_count: number
+  metadata: PluginMetadata | null
 }
 
 export interface PluginMetadata {

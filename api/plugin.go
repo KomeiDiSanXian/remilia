@@ -40,7 +40,28 @@ func (s *Server) handleGetPlugin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "plugin not found", http.StatusNotFound)
 		return
 	}
-	writeOK(w, status)
+	writeOK(w, pluginStatusToDetail(status))
+}
+
+// pluginStatusToDetail 将 plugin.Status 转换为稳定的详情响应结构。
+func pluginStatusToDetail(status *plugin.Status) PluginDetail {
+	detail := PluginDetail{
+		Name:                  status.Name,
+		State:                 status.State.String(),
+		Uptime:                status.Uptime.String(),
+		MatcherCount:          status.MatcherCount,
+		HasSaveState:          status.HasSaveState,
+		EventBusSubscriptions: status.EventBusSubscriptions,
+		GoroutineCount:        status.GoroutineCount,
+		Metadata:              status.Metadata,
+	}
+	if !status.LoadTime.IsZero() {
+		detail.LoadTime = status.LoadTime.Format(time.RFC3339)
+	}
+	if status.LastError != nil {
+		detail.LastError = status.LastError.Error()
+	}
+	return detail
 }
 
 // handleEnablePlugin 处理 POST /api/v1/plugins/{name}/enable

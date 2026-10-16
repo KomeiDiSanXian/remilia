@@ -105,7 +105,7 @@ export function PluginList() {
   if (loading) return <div className="section"><h2>插件管理</h2><SkeletonGrid count={6} /></div>
   if (error) return <div className="error-card">获取失败: {error}</div>
 
-  const meta = detailData?.Metadata
+  const meta = detailData?.metadata
   const countBy = (f: StateFilter) => {
     if (f === 'all') return plugins.length
     if (f === 'Other') return plugins.filter((p) => !['Loaded', 'Disabled', 'Error'].includes(p.state)).length
@@ -202,18 +202,18 @@ export function PluginList() {
           <div className="dialog plugin-detail-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header">
               {detailTarget}
-              {detailData && <span className={`dialog-header-tag ${detailData.State === 'Loaded' ? 'running' : 'stopped'}`}>{stateLabels[detailData.State] || detailData.State}</span>}
+              {detailData && <span className={`dialog-header-tag ${detailData.state === 'Loaded' ? 'running' : 'stopped'}`}>{stateLabels[detailData.state] || detailData.state}</span>}
             </div>
             {detailLoading && <div className="dialog-body">加载中...</div>}
             {detailData && (
               <div className="dialog-body plugin-detail-body">
-                <div className="info-row"><span className="label">状态</span><span>{stateLabels[detailData.State] || detailData.State}</span></div>
-                <div className="info-row"><span className="label">匹配器</span><span>{detailData.MatcherCount}</span></div>
-                <div className="info-row"><span className="label">运行时长</span><span>{Math.floor(detailData.Uptime / 1e9)}s</span></div>
-                <div className="info-row"><span className="label">Goroutines</span><span>{detailData.GoroutineCount}</span></div>
-                <div className="info-row"><span className="label">EventBus 订阅</span><span>{detailData.EventBusSubscriptions}</span></div>
-                <div className="info-row"><span className="label">状态持久化</span><span>{detailData.HasSaveState ? '是' : '否'}</span></div>
-                {detailData.LastError && <div className="info-row error-text"><span className="label">错误</span><span>{detailData.LastError}</span></div>}
+                <div className="info-row"><span className="label">状态</span><span>{stateLabels[detailData.state] || detailData.state}</span></div>
+                <div className="info-row"><span className="label">匹配器</span><span>{detailData.matcher_count}</span></div>
+                <div className="info-row"><span className="label">运行时长</span><span>{detailData.uptime}</span></div>
+                <div className="info-row"><span className="label">Goroutines</span><span>{detailData.goroutine_count}</span></div>
+                <div className="info-row"><span className="label">EventBus 订阅</span><span>{detailData.event_bus_subscriptions}</span></div>
+                <div className="info-row"><span className="label">状态持久化</span><span>{detailData.has_save_state ? '是' : '否'}</span></div>
+                {detailData.last_error && <div className="info-row error-text"><span className="label">错误</span><span>{detailData.last_error}</span></div>}
                 {meta && (
                   <>
                     <div className="plugin-detail-divider">元数据</div>
