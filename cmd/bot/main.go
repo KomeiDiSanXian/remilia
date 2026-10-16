@@ -1,5 +1,8 @@
 package main
 
+// 嵌入时区数据库，避免精简运行环境缺少系统 tzdata 时命名时区加载失败。
+import _ "time/tzdata"
+
 // commit / date 由构建期通过 ldflags 注入
 // （Makefile 与 .goreleaser.yaml 均使用 -X main.commit / -X main.date）。
 // 因此这两个变量必须留在 main 包，不能随装配逻辑迁出。

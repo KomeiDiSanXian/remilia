@@ -269,7 +269,7 @@ func loadCACertPool(file string) (*x509.CertPool, error) {
 // 无 "=" 的条目是畸形 env（Windows/Unix 语义不一致），跳过；
 // 重复键按 extra 覆盖白名单透传（map 去重，保持最后写入者胜出）。
 func buildEnv(extra, allow []string) []string {
-	allowed := make(map[string]struct{}, len(baseEnvAllowlist)+len(allow))
+	allowed := make(map[string]struct{}, len(allow))
 	for _, k := range baseEnvAllowlist {
 		allowed[strings.ToUpper(k)] = struct{}{}
 	}
@@ -290,7 +290,7 @@ func buildEnv(extra, allow []string) []string {
 		extraKVs[key] = expandEnv(kv)
 	}
 	seen := make(map[string]struct{}, len(extraKVs))
-	out := make([]string, 0, len(baseEnvAllowlist)+len(extraKVs))
+	out := make([]string, 0, len(extraKVs))
 	for _, kv := range os.Environ() {
 		key, _, ok := strings.Cut(kv, "=")
 		if !ok {
