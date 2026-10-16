@@ -24,6 +24,7 @@ package permission
 import (
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -64,6 +65,10 @@ func (p Permission) Match(target Permission) bool {
 // matchWithWildcard checks whether pattern (which may contain "*" or "prefix:*")
 // matches value. Wildcards are only expanded on the pattern side; a "*" in
 // value is treated literally (see Permission.Match).
+//
+// "prefix:*" 落在命名空间边界上：命中 "prefix" 本身或 "prefix:" 开头的值。
+// 早前的裸前缀比较让 "command:*" 命中 "commander"、"admin:*" 命中
+// "administrator"，授权范围被意外放大。
 func matchWithWildcard(pattern, value string) bool {
 	if pattern == "" || value == "" {
 		return false
@@ -74,7 +79,7 @@ func matchWithWildcard(pattern, value string) bool {
 	// prefix wildcard, e.g. "command:*"
 	if len(pattern) > 2 && pattern[len(pattern)-2:] == ":*" {
 		prefix := pattern[:len(pattern)-2]
-		if len(value) >= len(prefix) && value[:len(prefix)] == prefix {
+		if value == prefix || strings.HasPrefix(value, prefix+":") {
 			return true
 		}
 	}
