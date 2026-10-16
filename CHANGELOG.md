@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 🛠 修复
+
+**构建 / CI**
+
+- Android 发布工作流补齐 dashboard 依赖：桌面端前端通过 `@dashboard` 别名直接引用 dashboard 源码，只装桌面依赖时 `tsc` 会因解析不到 `react` 类型而失败（打标签后的首次真实运行即暴露，此前 release 因之缺少 APK）。
+- Android 工作流的手动触发新增可选 `tag` 入参：填了便按该标签同步版本号并把 APK 发布到对应 Release（无需移动标签即可补包），留空仍只产出 workflow artifact。
+
 ## v1.73.0 (2026-10-16)
 
 ### ✨ 新特性
