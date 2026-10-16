@@ -1,6 +1,7 @@
 package auditlog_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
@@ -49,5 +50,33 @@ func TestAuditLog_Descriptor(t *testing.T) {
 	desc := auditlog.New()
 	if desc == nil || desc.Name != "auditlog" {
 		t.Fatal("invalid descriptor")
+	}
+}
+
+// TestAuditLog_LogEntryJSONContract 锁定管理 API / Dashboard 依赖的 snake_case 字段名。
+func TestAuditLog_LogEntryJSONContract(t *testing.T) {
+	p := auditlog.NewPlugin(auditlog.Config{MaxMemoryEntries: 10})
+	p.RecordRaw("user1", "command", map[string]any{"cmd": "/help"})
+
+	entries := p.Recent(1)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	data, err := json.Marshal(entries[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, key := range []string{"id", "timestamp", "user_id", "action"} {
+		if _, ok := m[key]; !ok {
+			t.Errorf("expected key %q, got keys %v", key, m)
+		}
+	}
+	if _, ok := m["UserID"]; ok {
+		t.Errorf("unexpected Go-style key UserID, got keys %v", m)
 	}
 }

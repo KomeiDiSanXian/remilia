@@ -31,14 +31,18 @@ type LogEntryModel struct {
 	Meta      string    `gorm:"type:text"`
 }
 
+// LogEntry 审计日志条目。
+//
+// JSON 字段名为 snake_case，与 Dashboard / API 的读取约定保持一致；
+// 没有标签时 encoding/json 会输出 Go 字段名，前端表格会读到空值。
 type LogEntry struct {
-	ID        int64
-	Timestamp time.Time
-	UserID    string
-	GroupID   string
-	Action    string
-	Content   string
-	Meta      map[string]any
+	ID        int64          `json:"id"`
+	Timestamp time.Time      `json:"timestamp"`
+	UserID    string         `json:"user_id"`
+	GroupID   string         `json:"group_id,omitempty"`
+	Action    string         `json:"action"`
+	Content   string         `json:"content,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
 }
 
 type Config struct {
