@@ -161,12 +161,23 @@ func (p *ExecPool) runWorker(first func()) {
 // 由已完成直接任务的 goroutine 调用，确保队列任务不会停滞。
 // 由于队列消费时持有令牌，其他 goroutine 的 drainQueue 不会重复消费。
 func (p *ExecPool) drainQueue() {
+	p.drainQueueUntil(context.Background())
+}
+
+// drainQueueUntil 从队列中消费任务，直到队列为空或 ctx 结束。
+//
+// 每取一个任务前检查 ctx：一旦取消就不再启动新任务（已开始的任务
+// 无法被 Go 中断，但不再继续消费队列）。返回 false 表示 ctx 先结束。
+func (p *ExecPool) drainQueueUntil(ctx context.Context) bool {
 	for {
+		if ctx.Err() != nil {
+			return false
+		}
 		select {
 		case task := <-p.queue:
 			runPoolTask(task)
 		default:
-			return
+			return true
 		}
 	}
 }
@@ -192,12 +203,16 @@ func runPoolTask(task func()) {
 // Drain 等待所有正在执行的任务完成，直到超时或 context 取消。
 //
 // 应在 shutdown 时调用。调用后不应再提交新任务。
-// 在等待执行中 goroutine 之前，会先消费队列中的剩余任务。
+// 在等待执行中 goroutine 之前，会先消费队列中的剩余任务；ctx 结束时立即停止
+// 消费并返回，不会为了清空队列而忽略取消（否则一次长队列/阻塞任务就能
+// 让 Shutdown 超过调用方给定超时）。
 func (p *ExecPool) Drain(ctx context.Context) error {
 	p.stopped.Store(true)
 
 	// 先消费队列中可能残留的任务（当没有活跃 goroutine 来 drain 时）
-	p.drainQueue()
+	if !p.drainQueueUntil(ctx) {
+		return ctx.Err()
+	}
 
 	done := make(chan struct{})
 	go func() {
