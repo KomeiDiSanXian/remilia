@@ -58,6 +58,30 @@ func TestRemove(t *testing.T) {
 	assert.Equal(t, "val2", vals[0])
 }
 
+func TestReplace(t *testing.T) {
+	trie := New[string]()
+	trie.Insert("test", "val1")
+	trie.Insert("test", "val2")
+
+	trie.Replace("test", "val3")
+
+	// 旧值必须全部消失：ExactMatch 只看到新值，GetAll 不重复。
+	v, ok := trie.ExactMatch("test")
+	require.True(t, ok)
+	assert.Equal(t, "val3", v)
+
+	vals := trie.GetAll()
+	require.Len(t, vals, 1)
+	assert.Equal(t, "val3", vals[0])
+
+	t.Run("missing key behaves like insert", func(t *testing.T) {
+		trie.Replace("new", "val4")
+		v, ok := trie.ExactMatch("new")
+		require.True(t, ok)
+		assert.Equal(t, "val4", v)
+	})
+}
+
 func TestClear(t *testing.T) {
 	trie := New[string]()
 	trie.Insert("a", "1")

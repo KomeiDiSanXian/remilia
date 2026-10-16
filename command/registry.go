@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/trie"
 )
 
@@ -158,13 +159,14 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 }
 
 // Upsert 注册或更新注册表中的命令定义。
-// 若命令已存在，则原地更新其元数据；
+// 若命令已存在，则以其为新版元数据（保留调用统计），并刷新编译快照；
 // 若命令尚未注册，则直接插入。
 // 此方法可避免"already registered"错误——当 RegisterCommandDef 先通过 OnCommand
 // 注册了一个裸定义，随后又尝试注册带完整元数据的定义时，即会触发该错误。
 //
-// 引入 needRecompile 脏标志，仅当别名或优先级发生变化时才触发 recompile()，
-// 避免仅变更描述/用途等元数据时产生不必要的快照重建开销。
+// 更新路径必须重建编译快照：compiledRegistry 中保存的是 *Meta 指针，
+// 只改字段不会让 Lookup/List 看到变化。写入也统一使用 Trie.Replace，
+// 确保同一命令只保留一份元数据。
 func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	if def == nil || def.Name == "" {
 		return
@@ -174,57 +176,57 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	defer cr.mu.Unlock()
 
 	if existing, ok := cr.trie.ExactMatch(def.Name); ok {
-		needRecompile := false
-
-		// 别名变更：同步更新 cr.aliases（影响 compiledRegistry.aliasMap），标记重编译
+		// 别名变更：同步更新 cr.aliases（影响 compiledRegistry.aliasMap）
 		if !slices.Equal(existing.Aliases, def.Aliases) {
-			// 移除旧别名
 			for _, alias := range existing.Aliases {
 				delete(cr.aliases, alias)
 			}
-			// 注册新别名
 			for _, alias := range def.Aliases {
 				cr.aliases[alias] = def.Name
 			}
-			existing.Aliases = def.Aliases
-			needRecompile = true
 		}
 
-		// 优先级变更：影响 commandList 排序，标记重编译
-		if opts.Priority != 0 && existing.Priority != opts.Priority {
-			existing.Priority = opts.Priority
-			needRecompile = true
+		priority := existing.Priority
+		if opts.Priority != 0 {
+			priority = opts.Priority
+		}
+
+		pattern := existing.pattern
+		if opts.Pattern != "" {
+			if compiled, err := regexp.Compile(opts.Pattern); err == nil {
+				pattern = compiled
+			} else {
+				logger.Warnf("[command] upsert %s: invalid pattern %q ignored: %v", def.Name, opts.Pattern, err)
+			}
 		}
 
 		// COW: 手动创建新副本（avoid copying atomic.Int64 / infraatomic.Value 'noCopy' fields）
 		newMeta := &Meta{
-			Name:        existing.Name,
-			Aliases:     existing.Aliases,
+			Name:        def.Name,
+			Aliases:     def.Aliases,
 			Description: def.Description,
 			Usage:       def.Usage,
+			Category:    existing.Category,
+			Source:      existing.Source,
 			Definition:  def,
-			Priority:    existing.Priority,
-			pattern:     existing.pattern,
+			Priority:    priority,
+			pattern:     pattern,
 		}
 		if opts.Category != "" {
 			newMeta.Category = opts.Category
-		} else {
-			newMeta.Category = existing.Category
 		}
 		if opts.Source != "" {
 			newMeta.Source = opts.Source
-		} else {
-			newMeta.Source = existing.Source
 		}
 		// Preserve atomic stats from the original meta
 		newMeta.callCount.Store(existing.callCount.Load())
 		newMeta.lastCall.Store(existing.lastCall.Load())
-		existing = newMeta
-		cr.trie.Insert(def.Name, existing)
 
-		if needRecompile {
-			cr.recompile()
-		}
+		// Replace 而不是 Insert：Insert 会向同一 key 追加新值，
+		// 使 Lookup 继续命中旧元数据、List/Complete 出现重复项，
+		// 且 Unregister 只能删掉其中一个。
+		cr.trie.Replace(def.Name, newMeta)
+		cr.recompile()
 		return
 	}
 
@@ -244,7 +246,9 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 		if pattern, err := regexp.Compile(opts.Pattern); err == nil {
 			meta.pattern = pattern
 		} else {
-			panic(err)
+			// 与 RegisterWithOptions 返回 error、RegisterBatch 跳过的口径一致：
+			// Upsert 没有 error 返回值，非法模式忽略并告警，而不是让进程 panic。
+			logger.Warnf("[command] upsert %s: invalid pattern %q ignored: %v", def.Name, opts.Pattern, err)
 		}
 	}
 
@@ -327,21 +331,32 @@ func (cr *Registry) RegisterBatch(defs []*Definition, opts ...RegisterOptions) m
 }
 
 // Unregister 注销命令
+//
+// 会清理该名称下的全部元数据：更新路径历史上会向同一 key 追加新值，
+// 只删第一个会让命令在注销后依然存在。
 func (cr *Registry) Unregister(name string) error {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
-	meta, ok := cr.trie.ExactMatch(name)
-	if !ok {
+	if _, ok := cr.trie.ExactMatch(name); !ok {
 		return fmt.Errorf("command %s not registered", name)
 	}
 
-	// 从 Trie 删除命令
-	cr.trie.Remove(name, meta)
+	for {
+		meta, ok := cr.trie.ExactMatch(name)
+		if !ok {
+			break
+		}
 
-	// 删除别名
-	for _, alias := range meta.Aliases {
-		delete(cr.aliases, alias)
+		// 从 Trie 删除命令
+		cr.trie.Remove(name, meta)
+
+		// 删除别名（仅当别名仍指向该命令时）
+		for _, alias := range meta.Aliases {
+			if cr.aliases[alias] == name {
+				delete(cr.aliases, alias)
+			}
+		}
 	}
 
 	// 重新编译

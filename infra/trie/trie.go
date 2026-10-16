@@ -52,6 +52,29 @@ func (t *Trie[V]) Insert(key string, val V) {
 	t.built.Store(false)
 }
 
+// Replace 用新值替换某个 key 关联的全部值。key 不存在时等价于 Insert。
+//
+// Insert 允许同一 key 关联多个值（见其注释）；Replace 用于“同名只保留最新值”
+// 的场景，避免旧值残留在 GetAll/SearchPrefix 的结果里。
+func (t *Trie[V]) Replace(key string, val V) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	node := t.root
+	for _, r := range key {
+		if node.children[r] == nil {
+			node.children[r] = &Node[V]{
+				children: make(map[rune]*Node[V]),
+			}
+		}
+		node = node.children[r]
+	}
+
+	node.values = []V{val}
+	node.isEnd = true
+	t.built.Store(false)
+}
+
 // Remove 从指定 key 的节点中移除一个值。值不存在时为空操作。
 func (t *Trie[V]) Remove(key string, val V) {
 	t.mu.Lock()
