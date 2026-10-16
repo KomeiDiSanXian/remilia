@@ -27,3 +27,47 @@ updates:
       prefix: chore
     labels:
       - ci
+
+  - package-ecosystem: npm
+    directory: "/dashboard"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      dashboard-npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: "/desktop"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      desktop-npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+    labels:
+      - dependencies
+
+  - package-ecosystem: cargo
+    directory: "/desktop/src-tauri"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      desktop-cargo:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: chore
+    labels:
+      - dependencies
