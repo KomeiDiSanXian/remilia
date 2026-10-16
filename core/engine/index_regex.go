@@ -32,14 +32,20 @@ func (regexIndex) Band() RoutingBand { return BandSlow }
 // Candidates 消息内容为空时返回空候选；
 // 否则对 specific/generic 两桶逐条预匹配，收集命中的匹配器及其捕获组。
 // 返回列表按原桶序（已按优先级升序），过滤不改变相对顺序。
+//
+// 事件类型为空时只匹配通用桶：两路会指向同一个桶，
+// 同一个正则 matcher 会被执行两次、Meta 也会重复注入。
 func (regexIndex) Candidates(env MatcherEnv, ctx *context.Context) MatcherCandidates {
 	var c MatcherCandidates
 	content := ctx.GetMessageContent()
 	if content == "" {
 		return c
 	}
-	c.AddMeta(matchRegexBucket(env.RegexCandidates(ctx.GetEventType()), content))
-	c.AddMeta(matchRegexBucket(env.RegexCandidates(""), content))
+	eventType := ctx.GetEventType()
+	c.AddMeta(matchRegexBucket(env.RegexCandidates(eventType), content))
+	if eventType != "" {
+		c.AddMeta(matchRegexBucket(env.RegexCandidates(""), content))
+	}
 	return c
 }
 

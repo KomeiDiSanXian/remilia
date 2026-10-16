@@ -12,9 +12,16 @@ type permanentIndex struct{}
 func (permanentIndex) Band() RoutingBand { return BandFast }
 
 // Candidates 返回事件类型精确匹配 + 通用类型两路候选流。
+//
+// 事件类型为空时（未绑定平台事件的 Context）specific 与 generic 是
+// 同一个列表，只取一路——叠加两路会让每个通用 matcher 在候选流中出现
+// 两次、handler 被执行两次。
 func (permanentIndex) Candidates(env MatcherEnv, ctx *context.Context) MatcherCandidates {
 	var c MatcherCandidates
-	c.Add(env.SortedCache(ctx.GetEventType()))
-	c.Add(env.SortedCache(""))
+	eventType := ctx.GetEventType()
+	c.Add(env.SortedCache(eventType))
+	if eventType != "" {
+		c.Add(env.SortedCache(""))
+	}
 	return c
 }

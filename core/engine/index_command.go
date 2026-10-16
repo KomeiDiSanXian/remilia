@@ -13,6 +13,9 @@ func (commandIndex) Band() RoutingBand { return BandFast }
 
 // Candidates 消息内容为空或提取不到命令词时返回空候选；
 // 命中命令词后返回 specific/generic 两路候选流。
+//
+// 事件类型为空时只返回一路：此时 specific 与 generic 是同一个桶，
+// 叠加会让同一个命令 matcher 在候选流中出现两次。
 func (commandIndex) Candidates(env MatcherEnv, ctx *context.Context) MatcherCandidates {
 	var c MatcherCandidates
 	content := ctx.GetMessageContent()
@@ -23,8 +26,12 @@ func (commandIndex) Candidates(env MatcherEnv, ctx *context.Context) MatcherCand
 	if cmd == "" {
 		return c
 	}
-	specific, generic := env.CommandCandidates(cmd, ctx.GetEventType())
+
+	eventType := ctx.GetEventType()
+	specific, generic := env.CommandCandidates(cmd, eventType)
 	c.Add(specific)
-	c.Add(generic)
+	if eventType != "" {
+		c.Add(generic)
+	}
 	return c
 }

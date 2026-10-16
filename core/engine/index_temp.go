@@ -15,10 +15,17 @@ func (tempIndex) Band() RoutingBand { return BandFast }
 
 // Candidates 无临时匹配器时零开销短路（HasAny 原子计数）；
 // 有候选时读取 RCU 快照（按 eventType 预归并、预排序），返回两路。
+//
+// 事件类型为空时只取通用桶：Get("") 两次会让同一个临时 matcher
+// 在候选流中出现两次。
 func (i tempIndex) Candidates(env MatcherEnv, ctx *context.Context) MatcherCandidates {
 	var c MatcherCandidates
-	if i.tm.HasAny() {
-		c.Add(i.tm.Get(ctx.GetEventType()))
+	if !i.tm.HasAny() {
+		return c
+	}
+	eventType := ctx.GetEventType()
+	c.Add(i.tm.Get(eventType))
+	if eventType != "" {
 		c.Add(i.tm.Get(""))
 	}
 	return c
