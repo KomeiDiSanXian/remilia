@@ -171,7 +171,17 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) *future.Future[platform.
 	return f
 }
 
-// ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
+// ReplyWithContext 与 Reply 相同，但额外接受调用方 context 控制发送。
+//
+// 调用方 context 的取消/超时与 Dispatcher 自身的发送超时（SendTimeout）
+// 取先到者：任一先结束都会中止发送，Future 以发送失败结束。取消来源保留在
+// 取消原因中（调用方超时 → context.DeadlineExceeded，主动取消 → context.Canceled，
+// 可用 context.Cause 读取）。
+//
+// 传入的 context 若在提交前已经结束，则不再入队，Future 立即以该错误结束。
+//
+// 注意：Dispatcher 的发送任务只会拿到它自己的发送 context，因此这里通过
+// [stdctx.AfterFunc] 把调用方 context 的结束信号桥接为发送 context 的取消。
 func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {
 	f := future.New[platform.SendResult]()
 	if ctx == nil {
@@ -194,13 +204,45 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
 		return f
 	}
+	// 调用方 context 已结束：不再入队，直接以取消原因结束 Future
+	if stdCtx != nil {
+		if err := stdCtx.Err(); err != nil {
+			f.Resolve(platform.SendResult{}, err)
+			return f
+		}
+	}
 	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
+		sendCtx, release := mergeSendContext(sendCtx, stdCtx)
+		defer release()
 		return submitReply(sendCtx, req, sender, chatID, f, obs)
 	})
 	if err != nil {
 		f.Resolve(platform.SendResult{}, err)
 	}
 	return f
+}
+
+// mergeSendContext 把调用方 context 的取消/超时桥接到 Dispatcher 的发送 context。
+//
+// Dispatcher 的发送任务只会拿到它自己的发送 context（baseCtx + SendTimeout），
+// 调用方传入的取消信号不会自动生效；这里用 stdctx.AfterFunc 把调用方的结束
+// 信号转发为发送 context 的取消（发送超时仍由 Dispatcher 自己的 ctx 保留）。
+//
+// 返回的 release 在发送结束后调用：解除桥接并释放派生 context。
+func mergeSendContext(sendCtx, callerCtx stdctx.Context) (stdctx.Context, func()) {
+	if callerCtx == nil || callerCtx.Done() == nil {
+		// 无可取消的调用方 context（Background/TODO）：无需桥接
+		return sendCtx, func() {}
+	}
+	merged, cancel := stdctx.WithCancelCause(sendCtx)
+	stop := stdctx.AfterFunc(callerCtx, func() {
+		// 转发原始取消原因：超时 → DeadlineExceeded，主动取消 → Canceled
+		cancel(stdctx.Cause(callerCtx))
+	})
+	return merged, func() {
+		stop()
+		cancel(nil)
+	}
 }
 
 // GetPlatformCapabilities 返回当前平台的能力声明。
