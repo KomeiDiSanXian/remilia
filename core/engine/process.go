@@ -20,9 +20,20 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	e.processEventGuard(ctx)
 }
 
-// processEventGuard 是 ProcessEvent 和 ProcessPlatformEvent 的通用防护层：
+// processEventGuard 是 ProcessEvent / ProcessPlatformEvent 的通用防护层：
 // shutdown 检查、eventWg 计数、panic 恢复。
 func (e *Engine) processEventGuard(ctx *context.Context) {
+	e.processEventGuarded(ctx, true)
+}
+
+// processEventGuarded 是事件处理入口的公共防护层。
+//
+// allowPool 为 true 时慢 handler 可 offload 到 ExecPool（ProcessEvent 路径）；
+// 为 false 时强制在当前 goroutine 执行（ProcessEventSync 路径）。
+// 两条路径都必须经过 shutdown 检查、eventWg 计数与 panic 恢复：
+// 否则 Shutdown 返回后仍会有 handler 在运行，规则/中间件构造中的 panic
+// 也会直接抛给调用方。
+func (e *Engine) processEventGuarded(ctx *context.Context, allowPool bool) {
 	if e.shutdown.Load() {
 		return
 	}
@@ -47,7 +58,13 @@ func (e *Engine) processEventGuard(ctx *context.Context) {
 		}
 	}()
 
-	e.processEventContextWithPool(ctx)
+	if allowPool {
+		e.processEventContextWithPool(ctx)
+		return
+	}
+
+	ctx.SetDispatcher(e.dispatcher)
+	e.processEventMatchers(ctx, false)
 }
 
 // invokeHandler 封装调用处理器，通过中间件链执行
