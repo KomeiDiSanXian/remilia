@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/trie"
@@ -488,6 +490,8 @@ func sortCommandsByPriority(commands []*Meta) {
 //
 //	ExtractCommandFast("!help arg1", "!")   // returns "!help"
 //	ExtractCommandFast("/help arg1", "/")    // returns "/help"
+//
+// 空白判定使用 unicode.IsSpace，与解析器及引擎保持一致（全角空格等同样分隔）。
 func ExtractCommandFast(content string, prefix string) string {
 	content = strings.TrimSpace(content)
 	if content == "" || prefix == "" {
@@ -499,7 +503,7 @@ func ExtractCommandFast(content string, prefix string) string {
 	}
 
 	// 查找第一个空白字符
-	spaceIdx := strings.IndexAny(content, " \t\n")
+	spaceIdx := strings.IndexFunc(content, unicode.IsSpace)
 	if spaceIdx == -1 {
 		return content
 	}
@@ -513,6 +517,8 @@ func ExtractCommandFast(content string, prefix string) string {
 //
 //	ExtractCommandAndArgs("!help foo bar", "!")  // returns "!help", "foo bar"
 //	ExtractCommandAndArgs("hello", "!")           // returns "", "hello"
+//
+// 空白判定使用 unicode.IsSpace，与解析器及引擎保持一致（全角空格等同样分隔）。
 func ExtractCommandAndArgs(content string, prefix string) (command string, args string) {
 	content = strings.TrimSpace(content)
 	if content == "" || prefix == "" {
@@ -523,14 +529,17 @@ func ExtractCommandAndArgs(content string, prefix string) (command string, args 
 		return "", content
 	}
 
-	// 查找第一个空白字符
-	spaceIdx := strings.IndexAny(content, " \t\n")
+	// 查找第一个空白字符。注意 IndexFunc 返回的是字节下标，
+	// 全角空格等分隔符本身可能是多字节字符，切分参数时必须按 rune 宽度跳过整个分隔符，
+	// 否则会撕裂字符、把残余字节带进参数。
+	spaceIdx := strings.IndexFunc(content, unicode.IsSpace)
 	if spaceIdx == -1 {
 		return content, ""
 	}
 
+	_, sepSize := utf8.DecodeRuneInString(content[spaceIdx:])
 	command = content[:spaceIdx]
-	args = strings.TrimSpace(content[spaceIdx+1:])
+	args = strings.TrimSpace(content[spaceIdx+sepSize:])
 	return
 }
 

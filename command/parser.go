@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -202,8 +203,8 @@ func tokenize(s string) ([]string, error) {
 			continue
 		}
 
-		switch r {
-		case '"', '\'':
+		switch {
+		case r == '"' || r == '\'':
 			if !inQuote {
 				inQuote = true
 				quoteChar = r
@@ -213,7 +214,11 @@ func tokenize(s string) ([]string, error) {
 			} else {
 				current.WriteRune(r)
 			}
-		case ' ', '\t', '\n':
+		case unicode.IsSpace(r):
+			// 分隔符与引擎侧的命令提取保持一致（见 core/engine 的 extractCommand）：
+			// 除普通空格外，全角空格 U+3000、不间断空格等 Unicode 空白同样分隔 token。
+			// 此前只识别 ' '、'\t'、'\n'，全角空格会被并入 token，导致命令解析整体
+			// 失败并被 OnParseCommand 规则静默丢弃。
 			if inQuote {
 				current.WriteRune(r)
 			} else if current.Len() > 0 {
