@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -39,7 +40,12 @@ type setupContextInternal struct {
 	eng                 registryBackend // 注册 Matcher 的 engine（reload 时复用，同时满足 MatcherWriter + Reader）
 
 	// 资源追踪：Scope 级联清理
-	rootScope *Scope // 插件根 Scope，unload 时自动 Dispose
+	//
+	// rootScope 用 atomic.Pointer 承载：Scope/Subscribe/SubscribeAll 在插件
+	// 后台 goroutine 里随时可被首次调用，而 unload 会读取并 Dispose 它，
+	// 普通字段的裸读裸写在并发首调下既可能建出两个根 Scope（落败方的订阅
+	// 不在根上 → 卸载时泄漏），也会被 -race 报为数据竞争。
+	rootScope atomic.Pointer[Scope]
 
 	// RegisterCron 懒初始化字段（framework #31）
 	cronInitOnce  sync.Once
@@ -523,13 +529,37 @@ func (ctx *SetupContext) ExportIface[T any](key string, impl T) {
 //	root.Subscribe("plugin.loaded", func(data any) { ... })
 //	root.OnDispose(func() error { return cleanup() })
 func (ctx *SetupContext) Scope() *Scope {
-	if ctx.rootScope == nil {
-		ctx.rootScope = &Scope{
-			name: ctx.pluginName + ":root",
-			ctx:  ctx,
-		}
+	if sc := ctx.rootScope.Load(); sc != nil {
+		return sc
 	}
-	return ctx.rootScope
+	// 并发首次调用：CAS 保证所有调用方拿到同一个根 Scope，
+	// 落败者创建出的 Scope 无人引用，随 GC 回收（其中尚无订阅/钩子）。
+	next := &Scope{
+		name: ctx.pluginName + ":root",
+		ctx:  ctx,
+	}
+	if ctx.rootScope.CompareAndSwap(nil, next) {
+		return next
+	}
+	return ctx.rootScope.Load()
+}
+
+// rootScopeOrNil 返回已创建的根 Scope（不触发惰性创建），未使用时返回 nil。
+// 供生命周期代码（unload / 蓝绿清理）读取。
+func (ctx *SetupContext) rootScopeOrNil() *Scope {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.rootScope.Load()
+}
+
+// setRootScope 注入已有根 Scope（InPlace 重载继承旧实例的 Scope）。
+// 应在插件 Setup 开始前调用，避免与 Scope() 的并发首次创建交错。
+func (ctx *SetupContext) setRootScope(s *Scope) {
+	if ctx == nil || s == nil {
+		return
+	}
+	ctx.rootScope.Store(s)
 }
 
 // Subscribe 在 EventBus 上订阅，生命周期绑定到当前插件根 Scope。

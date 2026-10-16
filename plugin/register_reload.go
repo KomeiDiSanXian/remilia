@@ -113,7 +113,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		}
 		// 原地重载不卸载旧实例：新 context 继承旧 rootScope（及已导出 key 记录），
 		// 保证订阅/清理钩子仍归本插件生命周期管理，后续 Unregister 时能被 Dispose。
-		newContext.rootScope = oldContext.rootScope
+		newContext.setRootScope(oldContext.rootScopeOrNil())
 		newContext.exportedNames = oldContext.exportedKeysSnapshot()
 		pi.mu.Lock()
 		pi.setupContext = newContext
@@ -273,9 +273,11 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		}
 		// 清理旧实例的 rootScope：EventBus 订阅、OnDispose 钩子、子 Scope。
 		// 否则旧 handler 持续留在总线上，事件会被新旧实例各处理一次（历史 bug）。
-		if oldContext != nil && oldContext.rootScope != nil {
-			if err := oldContext.rootScope.Dispose(context.Background()); err != nil {
-				logger.WithField("plugin", pluginName).WithError(err).Warn("[plugin] Blue-green: old scope dispose failed")
+		if oldContext != nil {
+			if sc := oldContext.rootScopeOrNil(); sc != nil {
+				if err := sc.Dispose(context.Background()); err != nil {
+					logger.WithField("plugin", pluginName).WithError(err).Warn("[plugin] Blue-green: old scope dispose failed")
+				}
 			}
 		}
 		tctx := &TeardownContext{

@@ -185,9 +185,11 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	pi.mu.Unlock()
 
 	// Step 0: 清理 Scope 追踪的资源（subscriptions、middleware、child scopes、dispose hooks）
-	if setupCtx != nil && setupCtx.rootScope != nil {
-		if err := setupCtx.rootScope.Dispose(ctx); err != nil {
-			logger.WithField("plugin", pi.desc.Name).WithError(err).Warn("[Instance] Scope dispose failed during unload")
+	if setupCtx != nil {
+		if sc := setupCtx.rootScopeOrNil(); sc != nil {
+			if err := sc.Dispose(ctx); err != nil {
+				logger.WithField("plugin", pi.desc.Name).WithError(err).Warn("[Instance] Scope dispose failed during unload")
+			}
 		}
 	}
 
