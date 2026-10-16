@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -73,8 +75,7 @@ func (s *Server) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.pluginMgr.Enable(name); err != nil {
-		logger.WithError(err).Errorf("[API] Failed to enable plugin %s", name)
-		writeErr(w, 500, err.Error(), http.StatusInternalServerError)
+		writePluginOpError(w, "enable", name, err)
 		return
 	}
 	writeOK(w, map[string]string{"message": "plugin enabled"})
@@ -89,8 +90,7 @@ func (s *Server) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.pluginMgr.Disable(name); err != nil {
-		logger.WithError(err).Errorf("[API] Failed to disable plugin %s", name)
-		writeErr(w, 500, err.Error(), http.StatusInternalServerError)
+		writePluginOpError(w, "disable", name, err)
 		return
 	}
 	writeOK(w, map[string]string{"message": "plugin disabled"})
@@ -107,11 +107,22 @@ func (s *Server) handleReloadPlugin(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if err := s.pluginMgr.Reload(ctx, name); err != nil {
-		logger.WithError(err).Errorf("[API] Failed to reload plugin %s", name)
-		writeErr(w, 500, err.Error(), http.StatusInternalServerError)
+		writePluginOpError(w, "reload", name, err)
 		return
 	}
 	writeOK(w, map[string]string{"message": "plugin reloaded"})
+}
+
+// writePluginOpError 统一插件启停/重载的失败响应：
+// 插件不存在返回 404（此前一律 500，前端只能显示"服务器错误"），
+// 其余内部错误保留 500。
+func writePluginOpError(w http.ResponseWriter, action, name string, err error) {
+	logger.WithError(err).Errorf("[API] Failed to %s plugin %s", action, name)
+	if errors.Is(err, errutil.ErrPluginNotFound) {
+		writeErr(w, 404, "plugin not found", http.StatusNotFound)
+		return
+	}
+	writeErr(w, 500, err.Error(), http.StatusInternalServerError)
 }
 
 // instanceToPluginInfo 将 plugin.Instance 转换为 PluginInfo 响应结构。
