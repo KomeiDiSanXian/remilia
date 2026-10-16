@@ -19,6 +19,8 @@ package engine
 // UpdateCommandCache / InvalidateSortedCache）自动降级为收集，
 // Flush 统一重建，最终状态与逐条注册完全等价。
 
+import "sync/atomic"
+
 // RegisterBatch 是一次注册批处理会话（见 [Engine.BeginRegisterBatch]）。
 type RegisterBatch struct {
 	e        *Engine
@@ -42,6 +44,13 @@ func (b *RegisterBatch) contains(m *Matcher) bool {
 //   - 临时 matcher：统一入 TempManager
 //   - 批期脏事件类型：排序缓存重建
 //
+// Flush 前结算批内生命周期变更：会话期间 matcher 对事件不可见，批内
+// Delete()/SetTemp() 不会反映到 State（DeleteMatcher 对未入 State 的
+// matcher 是空操作，SetTemp 已把它加进 TempManager）。若原样提交：
+//   - 已删除的 matcher 会以 deleted=true 的僵尸条目留在各索引（计数/内存/
+//     命令表不回收），
+//   - 已迁移为临时的 matcher 会同时出现在 State 与 TempManager（双倍执行）。
+//
 // 幂等：已结束的会话重复 Flush 为空操作。
 func (b *RegisterBatch) Flush() {
 	if b == nil || b.e == nil {
@@ -56,16 +65,37 @@ func (b *RegisterBatch) Flush() {
 	e.registerBatch = nil
 	e.writeMu.Unlock()
 
-	if len(b.matchers) > 0 {
-		e.BatchRegisterMatchers(b.matchers)
+	// 批内过滤：只提交仍然存活且仍为常规 matcher 的条目。
+	// 复用底层数组（会话结束即废弃，不再被引用）。
+	live := b.matchers[:0]
+	for _, m := range b.matchers {
+		if batchMatcherDropped(m) {
+			continue
+		}
+		live = append(live, m)
+	}
+	if len(live) > 0 {
+		e.BatchRegisterMatchers(live)
 	}
 	for _, m := range b.temps {
+		if m == nil || m.rt.deleted.Load() {
+			continue
+		}
 		e.internals.tempManager.Add(m)
 		e.rebuildMatcherChainCOW(m)
 	}
 	for et := range b.dirty {
 		e.InvalidateSortedCache(et)
 	}
+}
+
+// batchMatcherDropped 报告批内 matcher 是否已被 Delete() 删除或被 SetTemp()
+// 迁移为临时 matcher（见 [RegisterBatch.Flush] 的结算说明）。
+func batchMatcherDropped(m *Matcher) bool {
+	if m == nil {
+		return true
+	}
+	return m.rt.deleted.Load() || atomic.LoadInt32(&m.rt.isTemp) == 1
 }
 
 // RegisterBatchStarter 是注册批处理会话的入口（Engine 实现）。

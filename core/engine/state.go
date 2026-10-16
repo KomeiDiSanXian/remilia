@@ -338,6 +338,22 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		return s
 	}
 
+	// 先结算批内生命周期变更（见 RegisterBatch.Flush）：
+	// 已删除 / 已迁移为临时 matcher 的条目不再进 State——前者会变成永不回收的
+	// 僵尸条目，后者会与 TempManager 双索引并存（双倍执行）。
+	// dst.matchers 与各索引都基于过滤后的集合构建。
+	live := make([]*Matcher, 0, len(matchers))
+	for _, m := range matchers {
+		if batchMatcherDropped(m) {
+			continue
+		}
+		live = append(live, m)
+	}
+	if len(live) == 0 {
+		return s
+	}
+	matchers = live
+
 	dst := &state{
 		matchers:         append(s.matchers[:len(s.matchers):len(s.matchers)], matchers...),
 		matcherIndex:     copyMatcherIndex(s.matcherIndex),
@@ -891,11 +907,14 @@ func deleteFromSlice[T comparable](slice []T, elem T) []T {
 	return slice
 }
 
-// makeRunnableSlice 从 matchers 中过滤出 hasHandler == true 的匹配器
+// makeRunnableSlice 从 matchers 中过滤出「有 handler 且未被删除」的匹配器
+//
+// deleted 过滤是兜底：删除路径会重建索引，但批注册提交等路径可能携带
+// 已删除的条目（见 RegisterBatch.Flush），不得进入运行时列表。
 func makeRunnableSlice(matchers []*Matcher) []*Matcher {
 	sorted := make([]*Matcher, 0, len(matchers))
 	for _, m := range matchers {
-		if m.hasHandler.Load() {
+		if m.hasHandler.Load() && !m.rt.deleted.Load() {
 			sorted = append(sorted, m)
 		}
 	}
