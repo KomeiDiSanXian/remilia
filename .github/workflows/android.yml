@@ -44,6 +44,9 @@ jobs:
     # 往 Release 传资产要 contents: write；PR 上的 token 由 GitHub 自动降为只读
     permissions:
       contents: write
+      # 给发布到 Release 的 APK 做产物来源证明（attestation）
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
 
@@ -151,6 +154,13 @@ jobs:
         run: |
           "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner" verify \
             --print-certs dist-android/remilia_android_arm64.apk
+
+      - name: Attest build provenance
+        # 只给真正会进 Release 的包做证明（tag 为空或 debug 签名时跳过）
+        if: steps.release.outputs.tag != '' && steps.signing.outputs.signed == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-android/remilia_android_arm64.apk
 
       - name: Upload APK to the release
         # 由 release.yml 在打标签时调用（Release 已由 GoReleaser 建好），或手动指定了 tag；

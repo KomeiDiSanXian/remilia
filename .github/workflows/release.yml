@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
   packages: write
+  # 产物来源证明（attestation）：签发 OIDC 证书 + 写入 attestation 存储
+  id-token: write
+  attestations: write
 
 jobs:
   goreleaser:
@@ -61,6 +64,12 @@ jobs:
           args: release --clean ${{ steps.notes.outputs.found == 'true' && '--release-notes=release-notes.md' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest build provenance
+        # subject-checksums 把 checksums.txt 里列出的每个文件登记为 subject —— 11 个归档一次覆盖
+        uses: actions/attest@v4
+        with:
+          subject-checksums: ./dist/checksums.txt
 
   updater-key-check:
     name: Check updater signing key
@@ -131,6 +140,14 @@ jobs:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
 
+      - name: Attest build provenance
+        # 安装包在应用内更新链路之外没有任何签名，来源证明是它们唯一的可验证出处
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+
   android:
     name: Android (arm64 APK)
     # 复用 android.yml：等 GoReleaser 建好 Release 再上传 APK，避免两个 job 竞争创建
@@ -139,3 +156,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: write
+      # 复用工作流内要做 attestation，调用方必须放行这两个权限（否则打标签时才发现）
+      id-token: write
+      attestations: write
