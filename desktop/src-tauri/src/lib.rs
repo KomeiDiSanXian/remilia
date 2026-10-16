@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
@@ -16,6 +17,9 @@ struct AppState {
     api_url: Mutex<String>,
     api_key: Mutex<String>,
     bot_child: Mutex<Option<tauri_plugin_shell::process::CommandChild>>,
+    /// 是否已确认真正退出应用。ExitRequested 处理器默认拦截退出以保留托盘，
+    /// 只有标题栏/托盘的"完全关闭"会先置位该标志。
+    exit_allowed: AtomicBool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,7 +95,16 @@ fn close_window(app: AppHandle) {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    quit_app_now(&app);
+}
+
+/// 请求真正退出应用：置位放行标志、停止 sidecar，再触发退出。
+///
+/// RuntimeEvent 处理器会对所有未放行的 ExitRequested 调用 prevent_exit()
+/// （包括 app.exit() 触发的程序化退出），因此必须先置位再调用 exit。
+fn quit_app_now(app: &AppHandle) {
     let state = app.state::<AppState>();
+    state.exit_allowed.store(true, Ordering::SeqCst);
     kill_bot_child(&state);
     app.exit(0);
 }
@@ -225,9 +238,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        let state = app.state::<AppState>();
-                        kill_bot_child(&state);
-                        app.exit(0);
+                        quit_app_now(app);
                     }
                     _ => {}
                 })
@@ -259,8 +270,12 @@ pub fn run() {
         .expect("failed to build app")
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { api, .. } = event {
-                // 应用退出时杀掉 sidecar
                 let state = app_handle.state::<AppState>();
+                if state.exit_allowed.load(Ordering::SeqCst) {
+                    // 标题栏/托盘明确要求退出：放行。
+                    return;
+                }
+                // 其他退出请求（例如所有窗口被销毁）：停掉 sidecar 并保持托盘常驻。
                 kill_bot_child(&state);
                 api.prevent_exit();
             }
