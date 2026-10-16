@@ -114,6 +114,9 @@ func NewRole(name string, perms ...Permission) *Role {
 func (r *Role) AddPermission(perm Permission) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.permissions == nil {
+		r.permissions = make(map[string]Permission, 1)
+	}
 	r.permissions[perm.String()] = perm
 }
 
@@ -233,6 +236,31 @@ func (pm *Manager) ListRoles() []string {
 		names = append(names, n)
 	}
 	return names
+}
+
+// RemoveRole deletes a role definition and revokes it from every user.
+// It reports whether the role existed.
+func (pm *Manager) RemoveRole(name string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if _, ok := pm.roles[name]; !ok {
+		return false
+	}
+	delete(pm.roles, name)
+	for userID, roles := range pm.userRoles {
+		filtered := make([]string, 0, len(roles))
+		for _, r := range roles {
+			if r != name {
+				filtered = append(filtered, r)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(pm.userRoles, userID)
+			continue
+		}
+		pm.userRoles[userID] = filtered
+	}
+	return true
 }
 
 // AssignRole grants roleName to userID.

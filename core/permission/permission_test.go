@@ -118,6 +118,26 @@ func TestPermissionManager_Basic(t *testing.T) {
 		pm2.LoadUserRoles(exported)
 		assert.True(t, pm2.HasPermission("u4", Permission{Resource: "command:weather", Action: "execute"}))
 	})
+
+	t.Run("RemoveRole", func(t *testing.T) {
+		pm := NewPermissionManager()
+		pm.RegisterRole(NewRole("temp", Permission{Resource: "cmd", Action: "execute"}))
+		_ = pm.AssignRole("u5", "guest")
+		_ = pm.AssignRole("u5", "temp")
+
+		assert.True(t, pm.RemoveRole("temp"))
+		_, ok := pm.GetRole("temp")
+		assert.False(t, ok)
+		assert.NotContains(t, pm.GetUserRoles("u5"), "temp")
+		// 其他角色不受影响
+		assert.Contains(t, pm.GetUserRoles("u5"), "guest")
+		// 删除后同名角色可以重新注册
+		pm.RegisterRole(NewRole("temp", Permission{Resource: "cmd", Action: "execute"}))
+		_, ok = pm.GetRole("temp")
+		assert.True(t, ok)
+		// 删除不存在的角色
+		assert.False(t, pm.RemoveRole("ghost"))
+	})
 }
 
 func TestRole_AddRemovePermission(t *testing.T) {
@@ -131,6 +151,18 @@ func TestRole_AddRemovePermission(t *testing.T) {
 	role.RemovePermission(perm)
 	assert.False(t, role.HasPermission(perm))
 	assert.False(t, role.HasPermission(other))
+}
+
+// TestRole_AddPermissionOnZeroValue 覆盖结构体字面量构造的角色：
+// permissions map 为 nil，AddPermission 必须惰性初始化而不是 panic。
+func TestRole_AddPermissionOnZeroValue(t *testing.T) {
+	role := &Role{Name: "zero"}
+	perm := Permission{Resource: "cmd", Action: "execute"}
+
+	role.AddPermission(perm)
+
+	assert.True(t, role.HasPermission(perm))
+	assert.Equal(t, []Permission{perm}, role.Permissions())
 }
 
 func BenchmarkPermissionMatch(b *testing.B) {

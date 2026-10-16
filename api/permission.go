@@ -112,20 +112,20 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "role name is required", http.StatusBadRequest)
 		return
 	}
-	role := &permission.Role{Name: body.Name}
+	perms := make([]permission.Permission, 0, len(body.Permissions))
 	for _, ps := range body.Permissions {
 		parts := strings.SplitN(ps, ":", 2)
 		res, act := parts[0], "*"
 		if len(parts) == 2 {
 			act = parts[1]
 		}
-		role.AddPermission(permission.Permission{Resource: res, Action: act})
+		perms = append(perms, permission.Permission{Resource: res, Action: act})
 	}
 	if _, exists := pm.GetRole(body.Name); exists {
 		writeErr(w, 409, "role already exists", http.StatusConflict)
 		return
 	}
-	pm.RegisterRole(role)
+	pm.RegisterRole(permission.NewRole(body.Name, perms...))
 	writeOK(w, map[string]string{"message": "role created"})
 }
 
@@ -137,12 +137,12 @@ func (s *Server) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("role")
-	if _, ok := pm.GetRole(name); !ok {
+	// 之前用空角色覆盖实现"删除"，角色定义仍然存在，
+	// 导致同名重建返回 409、用户仍挂着空角色。
+	if !pm.RemoveRole(name) {
 		writeErr(w, 404, "role not found", http.StatusNotFound)
 		return
 	}
-	// Manager doesn't have RemoveRole, so we create an empty role to overwrite
-	pm.RegisterRole(&permission.Role{Name: name})
 	writeOK(w, map[string]string{"message": "role deleted"})
 }
 

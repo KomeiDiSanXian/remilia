@@ -369,9 +369,7 @@ func (p *Plugin) GetRole(roleName string) ([]string, error) {
 
 // ListRoles 列出所有角色
 func (p *Plugin) ListRoles() []string {
-	// PermissionManager 没有直接的 ListRoles 方法
-	// 返回已知的角色列表
-	return []string{"superadmin", "admin", "user", "guest", "moderator"}
+	return p.manager.ListRoles()
 }
 
 // RequirePermission 创建权限检查中间件（兼容旧 API）
