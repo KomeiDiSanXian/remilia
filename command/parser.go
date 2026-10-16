@@ -162,6 +162,13 @@ func isShortFlag(token string) bool {
 // tokenize 分词函数，支持引号和转义字符
 // 示例: `hello "world test" foo` -> ["hello", "world test", "foo"]
 //
+// 转义约定：
+//   - `\\`、`\"`、`\'` 输出反斜杠与引号本身（引号内外均有效）
+//   - `\` + 空白输出空白本身，用于把空白并入 token（`hello\ world`）
+//   - `\n`、`\t`、`\r` 仅在引号内转换为控制字符；未加引号时按字面保留，
+//     避免把 `C:\Users\name` 这类路径改写成控制字符
+//   - 其余序列原样保留反斜杠（`\d`、`\U` 等不会丢字符）
+//
 // 性能优化：
 // - 预分配 tokens slice 容量（减少扩容）
 // - 预分配 strings.Builder 缓冲区（减少内存分配）
@@ -179,22 +186,30 @@ func tokenize(s string) ([]string, error) {
 
 	for _, r := range s {
 		if escaped {
-			// 处理特殊转义字符
-			switch r {
-			case 'n':
-				current.WriteRune('\n')
-			case 't':
-				current.WriteRune('\t')
-			case 'r':
-				current.WriteRune('\r')
-			case '\\':
-				current.WriteRune('\\')
-			case '"':
-				current.WriteRune('"')
-			case '\'':
-				current.WriteRune('\'')
+			switch {
+			case r == '\\' || r == '"' || r == '\'':
+				// 反斜杠与引号在任何位置都按转义处理：未加引号时
+				// `hello\"world` 也依赖它把引号写进 token。
+				current.WriteRune(r)
+			case unicode.IsSpace(r):
+				// 空白转义（`a\ b`）输出空白本身，让空白成为 token 的一部分。
+				current.WriteRune(r)
+			case inQuote && (r == 'n' || r == 't' || r == 'r'):
+				// 控制字符转义只在引号内生效。未加引号时 `\n`、`\t`、`\r`
+				// 更常出现在字面文本中（Windows 路径、正则），不应被改写成控制字符。
+				switch r {
+				case 'n':
+					current.WriteRune('\n')
+				case 't':
+					current.WriteRune('\t')
+				case 'r':
+					current.WriteRune('\r')
+				}
 			default:
-				// 其他字符直接输出
+				// 其余序列不是有效转义，原样保留反斜杠与被转义字符。
+				// 旧实现只写被转义字符，用户输入的 `C:\Users\name` 会被
+				// 静默改写成 `C:Users` + 换行 + `ames`，路径随即失效。
+				current.WriteByte('\\')
 				current.WriteRune(r)
 			}
 			escaped = false

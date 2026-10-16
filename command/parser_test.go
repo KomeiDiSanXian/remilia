@@ -100,9 +100,15 @@ func TestTokenize(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "special escape sequences",
+			name:     "unquoted escape sequences stay literal",
 			input:    `hello\nworld test\ttab`,
-			expected: []string{"hello\nworld", "test\ttab"},
+			expected: []string{`hello\nworld`, `test\ttab`},
+			wantErr:  false,
+		},
+		{
+			name:     "quoted control escape sequences",
+			input:    `hello "\nworld" "tab\there"`,
+			expected: []string{"hello", "\nworld", "tab\there"},
 			wantErr:  false,
 		},
 		{
@@ -112,9 +118,9 @@ func TestTokenize(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "carriage return escape",
+			name:     "unquoted carriage return stays literal",
 			input:    `line1\rline2`,
-			expected: []string{"line1\rline2"},
+			expected: []string{`line1\rline2`},
 			wantErr:  false,
 		},
 	}
