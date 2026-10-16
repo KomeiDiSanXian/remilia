@@ -1,6 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -241,4 +245,91 @@ func TestDropMaskedSecrets_KeepsPlainValues(t *testing.T) {
 	dropMaskedSecrets(current, updates)
 
 	assert.Equal(t, "real-new-token", updates["Bot"].(map[string]any)["QQ"].(map[string]any)["Token"])
+}
+
+// TestNormalizeNumericStrings 数字字符串只在目标字段本身是数字时还原，
+// 普通字符串字段不受影响。
+func TestNormalizeNumericStrings(t *testing.T) {
+	current := map[string]any{
+		"bot": map[string]any{
+			"qq": map[string]any{"app_id": uint64(1), "name": "123"},
+		},
+	}
+	updates := map[string]any{
+		"Bot": map[string]any{
+			"QQ": map[string]any{"AppID": "9007199254740993", "Name": "456", "Token": "abc"},
+		},
+	}
+
+	normalizeNumericStrings(current, updates)
+
+	qq := updates["Bot"].(map[string]any)["QQ"].(map[string]any)
+	assert.Equal(t, uint64(9007199254740993), qq["AppID"])
+	assert.Equal(t, "456", qq["Name"], "字符串字段不应被改成数字")
+	assert.Equal(t, "abc", qq["Token"])
+}
+
+// TestConfigAPI_NumericIDRoundTrip 端到端回归：GET /config 的 QQ AppID/BotID 必须是
+// 字符串（避免浏览器 Number 精度上限），原样 PUT 回传后配置文件里仍是数字、值不丢精度。
+func TestConfigAPI_NumericIDRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTempConfig(t, dir, `
+bot:
+  qq:
+    app_id: 9007199254740993
+    bot_id: 456
+    token: "real-token"
+    secret: "real-secret"
+    webhook:
+      host: "0.0.0.0"
+      port: 8080
+log:
+  level: "info"
+  format: "text"
+`)
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	srv := NewServer(":0", "test-api-key", Deps{ConfigPath: path})
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	r.Header.Set(authHeader("test-api-key"))
+	mux.ServeHTTP(w, r)
+	require.Equal(t, 200, w.Code)
+
+	var resp struct {
+		Code int            `json:"code"`
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	qq := resp.Data["Bot"].(map[string]any)["QQ"].(map[string]any)
+	assert.Equal(t, "9007199254740993", qq["AppID"])
+	assert.Equal(t, "456", qq["BotID"])
+
+	// 模拟仪表盘：改一个无关字段后把整棵（含字符串 ID 的）配置回传
+	qq["Webhook"].(map[string]any)["Port"] = float64(9090)
+	body, err := json.Marshal(map[string]any{"Bot": resp.Data["Bot"]})
+	require.NoError(t, err)
+
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPut, "/api/v1/config", bytes.NewReader(body))
+	r.Header.Set(authHeader("test-api-key"))
+	r.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(w, r)
+	require.Equal(t, 200, w.Code, w.Body.String())
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "app_id: 9007199254740993", "ID 应以数字落盘")
+	assert.NotContains(t, string(raw), `"9007199254740993"`)
+
+	reloaded, ok := config.Get()
+	require.True(t, ok)
+	assert.Equal(t, uint64(9007199254740993), reloaded.Bot.QQ.AppID)
+	assert.Equal(t, uint64(456), reloaded.Bot.QQ.BotID)
+	assert.Equal(t, 9090, reloaded.Bot.QQ.Webhook.Port)
 }

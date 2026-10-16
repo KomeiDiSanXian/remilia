@@ -169,9 +169,13 @@ type BotConfig struct {
 //
 // 由 QQ 平台适配器（platform/qq）在初始化时读取。
 // 非 QQ 平台无需填写此配置节。
+//
+// AppID/BotID 的 json 标签带 `,string`：管理 API 以字符串输出 ID，
+// 避免 JavaScript 的 Number（2^53 精度上限）在仪表盘里损坏大整数；
+// 内部类型与配置文件仍是数字，写回时由 api 层还原（见 writeConfigUpdate）。
 type QQConfig struct {
-	AppID    uint64             `yaml:"app_id" mapstructure:"app_id"`
-	BotID    uint64             `yaml:"bot_id" mapstructure:"bot_id"`
+	AppID    uint64             `yaml:"app_id" mapstructure:"app_id" json:"AppID,string"`
+	BotID    uint64             `yaml:"bot_id" mapstructure:"bot_id" json:"BotID,string"`
 	Token    string             `yaml:"token" mapstructure:"token"`
 	Secret   string             `yaml:"secret" mapstructure:"secret"`
 	Webhook  WebhookConfig      `yaml:"webhook" mapstructure:"webhook"`

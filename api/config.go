@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/config"
@@ -49,6 +50,9 @@ func (s *Server) writeConfigUpdate(updates map[string]any) error {
 	// （bot / qq / token）。不归一化就深合并会写出并存的大小写重复段落，
 	// YAML 大小写不敏感，实际生效的仍是旧的小写段落——仪表盘改了配置却"没保存"。
 	canonicalizeKeys(current, updates)
+	// GET /config 中 QQ AppID/BotID 等 ID 字段以字符串输出（json 标签 `,string`），
+	// 写回时还原为数字，保证校验与落盘逻辑拿到的是数字。
+	normalizeNumericStrings(current, updates)
 	// 脱敏占位符不能写回磁盘：原始 JSON 编辑器会把含占位符的整棵配置原样回传。
 	dropMaskedSecrets(current, updates)
 	merged := deepMerge(current, updates)
@@ -146,6 +150,63 @@ func canonicalizeKeys(current, updates map[string]any) {
 		}
 		canonicalizeKeys(parent, child)
 	}
+}
+
+// normalizeNumericStrings 将 updates 中"当前值是数字、提交值是可解析的数字字符串"的项还原为数字。
+//
+// GET /api/v1/config 对 QQ AppID/BotID 等 ID 字段用字符串输出（json 标签 `,string`），
+// 避免 JavaScript Number 的 2^53 精度上限在浏览器端损坏大整数。
+// 原样写回时若保持字符串，yaml.Unmarshal 到 uint64 会失败、配置文件里也会多出引号，
+// 因此只有在确认目标字段本身就是数字时才转换；真正的字符串字段不受影响。
+func normalizeNumericStrings(current, updates map[string]any) {
+	for k, v := range updates {
+		if child, ok := v.(map[string]any); ok {
+			var currentChild map[string]any
+			if actual, found := lookupKey(current, k); found {
+				currentChild, _ = current[actual].(map[string]any)
+			}
+			if currentChild == nil {
+				continue
+			}
+			normalizeNumericStrings(currentChild, child)
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || s == "" {
+			continue
+		}
+		actual, found := lookupKey(current, k)
+		if !found || !isNumericValue(current[actual]) {
+			continue
+		}
+		if n, ok := parseNumber(s); ok {
+			updates[k] = n
+		}
+	}
+}
+
+// isNumericValue 判断值是否为 YAML / JSON 解码产生的数字类型。
+func isNumericValue(v any) bool {
+	switch v.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
+// parseNumber 依次尝试把字符串解析为 uint64 / int64 / float64。
+func parseNumber(s string) (any, bool) {
+	if u, err := strconv.ParseUint(s, 10, 64); err == nil {
+		return u, true
+	}
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i, true
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f, true
+	}
+	return nil, false
 }
 
 // sensitiveKeySuffixes 敏感配置键名后缀（归一化后比较）。
