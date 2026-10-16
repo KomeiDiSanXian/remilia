@@ -69,13 +69,17 @@ go get github.com/KomeiDiSanXian/remilia
 
 ### 验证发布产物（可选）
 
-Release 里的 Go 归档、Windows 安装包与 Android APK 都带**产物来源证明**（[GitHub Artifact Attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)，SLSA Build L2 / Sigstore 签名），可以确认它们确实由本仓库的发布工作流构建、且未被改动：
+Release 里的 Go 归档、Windows 安装包、Android APK 与容器镜像都带**产物来源证明**（[GitHub Artifact Attestations](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)，SLSA Build L2 / Sigstore 签名），可以确认它们确实由本仓库的发布工作流构建、且未被改动：
 
 ```bash
+# 归档、安装包与 APK：把文件名换成对应资产即可
 gh attestation verify remilia_Linux_x86_64.tar.gz --repo KomeiDiSanXian/remilia
+
+# 容器镜像（提供 linux/amd64、linux/arm64、linux/arm/v7 三个平台；OCI 校验需先 docker login ghcr.io）
+gh attestation verify oci://ghcr.io/komeidisanxian/remilia:latest --owner KomeiDiSanXian
 ```
 
-安装包与 APK 同理，把文件名换成对应资产即可。`checksums.txt` 只能说明"文件与清单一致"，来源证明解决的是"这份文件是不是 CI 产出的"。
+`checksums.txt` 只能说明"文件与清单一致"，来源证明解决的是"这份文件是不是 CI 产出的"。
 
 ---
 

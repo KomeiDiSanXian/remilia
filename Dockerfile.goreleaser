@@ -5,7 +5,9 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN addgroup -S remilia && adduser -S remilia -G remilia
 
 WORKDIR /app
-COPY remilia .
+# dockers_v2 的构建上下文按平台分目录（linux/amd64/remilia、linux/arm/v7/remilia……）
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/remilia .
 
 RUN mkdir -p /app/data/db && chown -R remilia:remilia /app/data
 

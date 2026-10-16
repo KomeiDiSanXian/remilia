@@ -99,17 +99,32 @@ changelog:
       - "^test:"
       - "^chore"
 
-dockers:
-  - image_templates:
-      - "ghcr.io/komeidisanxian/remilia:{{ .Version }}"
-      - "ghcr.io/komeidisanxian/remilia:latest"
-    dockerfile: Dockerfile.goreleaser
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{ .Date }}"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
+# 多平台镜像：buildx 一次构建索引（旧 dockers 已被官方弃用，v3 起由本配置接管）。
+# 旧的 --pull 没有等价写法（v2 的 flags 要求用 = 连接值），删掉无妨：runner 每次都是全新环境，基础镜像本来就会重新拉取。
+dockers_v2:
+  - dockerfile: Dockerfile.goreleaser
+    images:
+      - "ghcr.io/komeidisanxian/remilia"
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v7
+    labels:
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+    # 给镜像附上 buildx 生成的 SBOM
+    sbom: true
+    # 快照（nightly）不构建镜像：分平台本地构建需要在 QEMU 下跑 arm64/armv7 的 RUN 步骤
+    disable: "{{ .IsSnapshot }}"
+
+docker_digest:
+  name_template: "digests.txt"
 
 release:
   github:
