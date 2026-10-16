@@ -97,7 +97,10 @@ func ParseCommandLine(input string) (*Args, error) {
 		}
 
 		// 处理短标志（-k 或 -k value）
-		if strings.HasPrefix(token, "-") && len(token) == 2 {
+		// 仅把 "-" + ASCII 字母视为短标志：isShortFlag 会排除负数
+		// （-1、-42、-3.14），否则 `/roll -1 100` 里的 -1 会被当成
+		// 未声明的短标志吞掉，位置参数随之错位。
+		if isShortFlag(token) {
 			key := strings.TrimPrefix(token, "-")
 			// 检查下一个 token 是否存在且不是另一个标志
 			if i+1 < len(tokens) && !strings.HasPrefix(tokens[i+1], "--") && !isShortFlag(tokens[i+1]) {
