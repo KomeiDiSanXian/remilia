@@ -90,51 +90,6 @@ func TestLookupKey(t *testing.T) {
 	})
 }
 
-func TestWalkGet(t *testing.T) {
-	m := map[string]any{
-		"bot": map[string]any{
-			"qq": map[string]any{
-				"token": "secret123",
-			},
-		},
-	}
-	t.Run("found", func(t *testing.T) {
-		v := walkGet(m, []string{"bot", "qq", "token"})
-		assert.Equal(t, "secret123", v)
-	})
-
-	t.Run("not found", func(t *testing.T) {
-		v := walkGet(m, []string{"bot", "qq", "nonexistent"})
-		assert.Nil(t, v)
-	})
-
-	t.Run("partial path", func(t *testing.T) {
-		v := walkGet(m, []string{"bot", "qq"})
-		assert.NotNil(t, v)
-	})
-}
-
-func TestWalkSet(t *testing.T) {
-	m := map[string]any{
-		"bot": map[string]any{
-			"token": "old",
-		},
-	}
-	t.Run("sets value", func(t *testing.T) {
-		walkSet(m, []string{"bot", "token"}, "new")
-		assert.Equal(t, "new", walkGet(m, []string{"bot", "token"}))
-	})
-
-	t.Run("nonexistent path does nothing", func(t *testing.T) {
-		walkSet(m, []string{"nonexistent", "key"}, "val")
-	})
-
-	t.Run("non-map intermediate does nothing", func(t *testing.T) {
-		m2 := map[string]any{"key": "scalar"}
-		walkSet(m2, []string{"key", "sub"}, "val")
-	})
-}
-
 func TestDeleteConfigKey(t *testing.T) {
 	m := map[string]any{
 		"bot": map[string]any{
@@ -256,4 +211,73 @@ func TestMaskTree(t *testing.T) {
 	assert.Contains(t, token, "my")
 	assert.Contains(t, token, "en")
 	assert.NotContains(t, token, "mylongsecrettoken")
+}
+
+func TestIsSensitiveKeyName(t *testing.T) {
+	for _, key := range []string{
+		"token", "Token", "api_key", "APIKey", "access_token", "AccessToken",
+		"embedding_api_key", "EmbeddingAPIKey", "verify_token", "client_secret",
+		"redis_password", "client_credential",
+	} {
+		assert.True(t, isSensitiveKeyName(key), "expected %q to be sensitive", key)
+	}
+	for _, key := range []string{
+		"max_tokens", "max_tokens_cap", "tokenizer", "secret_santa", "format", "level",
+	} {
+		assert.False(t, isSensitiveKeyName(key), "expected %q not to be sensitive", key)
+	}
+}
+
+// TestMaskSensitive_ExtendedCoverage 覆盖此前漏脱敏的字段：
+// Telegram Token、api.api_key、插件嵌套配置与 embedding_api_key，
+// 同时确认 max_tokens 之类的普通数值键不受影响。
+func TestMaskSensitive_ExtendedCoverage(t *testing.T) {
+	input := map[string]any{
+		"API": map[string]any{"APIKey": "admin-key-1234"},
+		"Bot": map[string]any{
+			"Telegram": map[string]any{"Token": "123456:telegram-token"},
+			"Milky":    map[string]any{"AccessToken": "milky-access-token"},
+		},
+		"Plugins": map[string]any{
+			"Ai": map[string]any{
+				"APIKey":          "sk-abcdefgh",
+				"EmbeddingAPIKey": "emb-abcdefgh",
+				"MaxTokens":       4096,
+				"Providers": map[string]any{
+					"Openai": map[string]any{"APIKey": "nested-provider-key"},
+				},
+			},
+			"Knowledgebase": map[string]any{"EmbeddingAPIKey": "kb-key-1234"},
+		},
+	}
+
+	result, ok := maskSensitive(input).(map[string]any)
+	require.True(t, ok)
+
+	assertMasked := func(t *testing.T, got any, original string) {
+		t.Helper()
+		s, ok := got.(string)
+		require.True(t, ok, "expected string, got %T", got)
+		assert.NotEqual(t, original, s)
+		assert.Contains(t, s, "*")
+	}
+	assertPlain := func(t *testing.T, got any, want any) {
+		t.Helper()
+		assert.Equal(t, want, got)
+	}
+
+	apiSection := result["API"].(map[string]any)
+	assertMasked(t, apiSection["APIKey"], "admin-key-1234")
+
+	bot := result["Bot"].(map[string]any)
+	assertMasked(t, bot["Telegram"].(map[string]any)["Token"], "123456:telegram-token")
+	assertMasked(t, bot["Milky"].(map[string]any)["AccessToken"], "milky-access-token")
+
+	plugins := result["Plugins"].(map[string]any)
+	ai := plugins["Ai"].(map[string]any)
+	assertMasked(t, ai["APIKey"], "sk-abcdefgh")
+	assertMasked(t, ai["EmbeddingAPIKey"], "emb-abcdefgh")
+	assertPlain(t, ai["MaxTokens"], float64(4096))
+	assertMasked(t, ai["Providers"].(map[string]any)["Openai"].(map[string]any)["APIKey"], "nested-provider-key")
+	assertMasked(t, plugins["Knowledgebase"].(map[string]any)["EmbeddingAPIKey"], "kb-key-1234")
 }

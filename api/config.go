@@ -148,18 +148,21 @@ func canonicalizeKeys(current, updates map[string]any) {
 	}
 }
 
-// sensitiveKeyNames 敏感键名集合（归一化后比较），供脱敏与写回过滤共用。
-var sensitiveKeyNames = map[string]bool{
-	"apikey":      true,
-	"token":       true,
-	"secret":      true,
-	"password":    true,
-	"accesstoken": true,
-}
+// sensitiveKeySuffixes 敏感配置键名后缀（归一化后比较）。
+//
+// 用后缀而不是精确名单，是为了覆盖 embedding_api_key、verify_token 等变体；
+// max_tokens 之类包含 "token" 但不以其结尾的键不会误伤。
+var sensitiveKeySuffixes = []string{"token", "secret", "password", "apikey", "credential"}
 
 // isSensitiveKeyName 判断配置键名是否为敏感键（大小写、下划线不敏感）。
 func isSensitiveKeyName(key string) bool {
-	return sensitiveKeyNames[normalizeKey(key)]
+	n := normalizeKey(key)
+	for _, suffix := range sensitiveKeySuffixes {
+		if strings.HasSuffix(n, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // maskSecret 对密钥脱敏：保留首尾两位，中间以 * 代替；长度 ≤ 4 时全部隐藏。
@@ -223,36 +226,18 @@ func maskSensitive(raw any) any {
 	return tree
 }
 
+// maskTree 递归脱敏：键名敏感的非空字符串值一律替换为占位符。
+//
+// 递归遍历而不是固定路径，避免平台/插件新增字段（如 bot.telegram.token、
+// api.api_key、plugins.*.embedding_api_key）漏脱敏导致明文泄露。
 func maskTree(tree map[string]any) {
-	for _, path := range []string{
-		"bot.qq.token", "bot.qq.secret",
-		"bot.onebot.token", "bot.onebot.secret",
-		"bot.discord.token", "bot.satori.token",
-		"bot.milky.access_token",
-	} {
-		parts := strings.Split(path, ".")
-		if v := walkGet(tree, parts); v != nil {
-			if s, ok := v.(string); ok && s != "" {
-				walkSet(tree, parts, maskSecret(s))
-			}
-		}
-	}
-	var plugins map[string]any
-	if pk, ok := lookupKey(tree, "plugins"); ok {
-		plugins, _ = tree[pk].(map[string]any)
-	}
-	for _, pcfg := range plugins {
-		pm, _ := pcfg.(map[string]any)
-		if pm == nil {
-			continue
-		}
-		for _, sk := range []string{"api_key", "token", "secret", "password", "access_token"} {
-			actual, ok := lookupKey(pm, sk)
-			if !ok {
-				continue
-			}
-			if s, ok := pm[actual].(string); ok && s != "" {
-				pm[actual] = maskSecret(s)
+	for k, v := range tree {
+		switch val := v.(type) {
+		case map[string]any:
+			maskTree(val)
+		case string:
+			if val != "" && isSensitiveKeyName(k) {
+				tree[k] = maskSecret(val)
 			}
 		}
 	}
@@ -281,44 +266,6 @@ func lookupKey(m map[string]any, key string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func walkGet(m map[string]any, path []string) any {
-	current := m
-	for i, p := range path {
-		actual, ok := lookupKey(current, p)
-		if !ok {
-			return nil
-		}
-		if i == len(path)-1 {
-			return current[actual]
-		}
-		next, ok := current[actual].(map[string]any)
-		if !ok {
-			return nil
-		}
-		current = next
-	}
-	return nil
-}
-
-func walkSet(m map[string]any, path []string, value any) {
-	current := m
-	for i, p := range path {
-		actual, ok := lookupKey(current, p)
-		if !ok {
-			return
-		}
-		if i == len(path)-1 {
-			current[actual] = value
-			return
-		}
-		next, ok := current[actual].(map[string]any)
-		if !ok {
-			return
-		}
-		current = next
-	}
 }
 
 // handleReloadConfig 处理 POST /api/v1/config/reload
