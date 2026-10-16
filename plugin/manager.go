@@ -1025,15 +1025,19 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 			continue
 		}
 		logger.Infof("[PluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
-		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待
-		pm.lifecycle.metaGM.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.WithField("panic", r).Errorf("[PluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
-				}
-			}()
-			cb(reloadedPlugin)
-		})
+		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待。
+		// 只读取快照指针：管理器可能在停机时被停止、在下次 StartAll 时被替换，
+		// 但已提交的任务由各自的管理器负责收尾。
+		if gm := pm.lifecycle.metaManager(); gm != nil {
+			gm.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WithField("panic", r).Errorf("[PluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
+					}
+				}()
+				cb(reloadedPlugin)
+			})
+		}
 	}
 }
 

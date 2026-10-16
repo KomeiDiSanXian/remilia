@@ -97,7 +97,7 @@ func (cc *configController) propagateConfigChangeAttempt(attempt int) {
 			time.AfterFunc(200*time.Millisecond, func() {
 				// Manager 已 Shutdown（metaGM 停止）后丢弃重试，
 				// 避免定时器在停机后仍触发访问已卸载插件的 config。
-				if cc.pm.lifecycle.metaGM.isStopped() {
+				if gm := cc.pm.lifecycle.metaManager(); gm == nil || gm.isStopped() {
 					logger.Debug("[Manager] Config change notification dropped: manager shut down")
 					return
 				}

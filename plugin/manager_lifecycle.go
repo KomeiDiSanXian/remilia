@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -16,14 +17,29 @@ import (
 type lifecycleController struct {
 	pm        *Manager
 	listeners []LifecycleListener
-	metaGM    *goroutineManager // 元数据 goroutine（notifyDependents 等）
+	// metaGM 元数据 goroutine（notifyDependents 等）。
+	//
+	// Shutdown 停止它、StartAll 经 ensureMetaGM 重建它，两者可能与管理命令
+	// （notifyDependents / 配置变更重试定时器）并发，因此用 atomic.Pointer
+	// 承载：读方拿到的旧管理器即使随即被替换也不会读到撕裂的字段。
+	metaGM atomic.Pointer[goroutineManager]
 }
 
 func newLifecycleController(pm *Manager) *lifecycleController {
-	return &lifecycleController{
-		pm:     pm,
-		metaGM: newGoroutineManagerForPlugin("manager"),
+	lc := &lifecycleController{pm: pm}
+	lc.metaGM.Store(newGoroutineManagerForPlugin("manager"))
+	return lc
+}
+
+// metaManager 返回当前的元数据 goroutine 管理器（可能为 nil）。
+//
+// 与 [lifecycleController.ensureMetaGM] 配对使用：返回的管理器可能已被
+// Shutdown 停止，调用方按需自行判断 isStopped。
+func (lc *lifecycleController) metaManager() *goroutineManager {
+	if lc == nil {
+		return nil
 	}
+	return lc.metaGM.Load()
 }
 
 // StartAll 启动所有已通过 Register 预注册（Unloaded 状态）的插件。
@@ -147,8 +163,8 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 
 // Shutdown 停止 Manager 管理的所有内部后台 goroutine（如 notifyDependents 等元数据 goroutine）。
 func (lc *lifecycleController) Shutdown() {
-	if lc.metaGM != nil {
-		lc.metaGM.stopAndWait()
+	if gm := lc.metaManager(); gm != nil {
+		gm.stopAndWait()
 	}
 }
 
@@ -157,9 +173,19 @@ func (lc *lifecycleController) Shutdown() {
 // StopAll 结尾调用 Shutdown 停掉 metaGM 后，Manager 仍可继续使用
 // （StartAll 注释宣称幂等可重启）。若 metaGM 已被停止，此处重建一个，
 // 使 Stop → Start 循环中的元数据任务（notifyDependents 等）恢复正常。
+//
+// 并发调用（如两次 StartAll）用 CAS 保证只发布一个管理器：落败者创建出的
+// 管理器未被任何人持有，直接丢弃。
 func (lc *lifecycleController) ensureMetaGM() {
-	if lc.metaGM == nil || lc.metaGM.isStopped() {
-		lc.metaGM = newGoroutineManagerForPlugin("manager")
+	for {
+		cur := lc.metaGM.Load()
+		if cur != nil && !cur.isStopped() {
+			return
+		}
+		next := newGoroutineManagerForPlugin("manager")
+		if lc.metaGM.CompareAndSwap(cur, next) {
+			return
+		}
 	}
 }
 
