@@ -112,20 +112,24 @@ export async function restartBot(name: string): Promise<void> {
 
 // --- Plugin API ---
 
+// 插件启停/重载需要先卸载再加载，服务端 reload 的超时上限是 30s；
+// 默认 5s 会让正常的慢插件操作误报"请求超时"。
+const PLUGIN_OP_TIMEOUT = 35000
+
 export async function listPlugins(): Promise<PluginInfo[]> {
   return request<PluginInfo[]>('GET', '/api/v1/plugins')
 }
 
 export async function enablePlugin(name: string): Promise<void> {
-  await request('POST', `/api/v1/plugins/${name}/enable`)
+  await request('POST', `/api/v1/plugins/${name}/enable`, undefined, PLUGIN_OP_TIMEOUT)
 }
 
 export async function disablePlugin(name: string): Promise<void> {
-  await request('POST', `/api/v1/plugins/${name}/disable`)
+  await request('POST', `/api/v1/plugins/${name}/disable`, undefined, PLUGIN_OP_TIMEOUT)
 }
 
 export async function reloadPlugin(name: string): Promise<void> {
-  await request('POST', `/api/v1/plugins/${name}/reload`)
+  await request('POST', `/api/v1/plugins/${name}/reload`, undefined, PLUGIN_OP_TIMEOUT)
 }
 
 export async function getPlugin(name: string): Promise<PluginInfo> {
