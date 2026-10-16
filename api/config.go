@@ -45,6 +45,12 @@ func (s *Server) writeConfigUpdate(updates map[string]any) error {
 	if err := yaml.Unmarshal(currentData, &current); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
+	// GET /config 返回 Go 字段名（Bot / QQ / Token），配置文件里是 YAML 键名
+	// （bot / qq / token）。不归一化就深合并会写出并存的大小写重复段落，
+	// YAML 大小写不敏感，实际生效的仍是旧的小写段落——仪表盘改了配置却"没保存"。
+	canonicalizeKeys(current, updates)
+	// 脱敏占位符不能写回磁盘：原始 JSON 编辑器会把含占位符的整棵配置原样回传。
+	dropMaskedSecrets(current, updates)
 	merged := deepMerge(current, updates)
 	mergedYAML, err := yaml.Marshal(merged)
 	if err != nil {
@@ -113,6 +119,96 @@ func deepMerge(dst, src map[string]any) map[string]any {
 	return result
 }
 
+// canonicalizeKeys 将 updates 中与 current 归一化同名的键改写为 current 的实际键名。
+//
+// 例如文件里是 "log"，更新来自 GET /config 的 "Log"，改写后深合并命中同一节点，
+// 而不是生成并存的大小写重复段落。
+func canonicalizeKeys(current, updates map[string]any) {
+	for k, v := range updates {
+		actual, found := lookupKey(current, k)
+		if !found {
+			continue
+		}
+		if actual != k {
+			if _, exists := updates[actual]; !exists {
+				updates[actual] = v
+				delete(updates, k)
+			}
+			k = actual
+		}
+		child, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		parent, ok := current[k].(map[string]any)
+		if !ok {
+			continue
+		}
+		canonicalizeKeys(parent, child)
+	}
+}
+
+// sensitiveKeyNames 敏感键名集合（归一化后比较），供脱敏与写回过滤共用。
+var sensitiveKeyNames = map[string]bool{
+	"apikey":      true,
+	"token":       true,
+	"secret":      true,
+	"password":    true,
+	"accesstoken": true,
+}
+
+// isSensitiveKeyName 判断配置键名是否为敏感键（大小写、下划线不敏感）。
+func isSensitiveKeyName(key string) bool {
+	return sensitiveKeyNames[normalizeKey(key)]
+}
+
+// maskSecret 对密钥脱敏：保留首尾两位，中间以 * 代替；长度 ≤ 4 时全部隐藏。
+func maskSecret(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	if len(s) <= 4 {
+		return "****"
+	}
+	return s[:2] + strings.Repeat("*", len(s)-4) + s[len(s)-2:]
+}
+
+// dropMaskedSecrets 从 updates 中删除"等于当前值脱敏结果"的敏感键。
+//
+// 原始 JSON 编辑器会把 GET /config 返回的占位符（如 "re******en"）原样回传，
+// 与当前值精确比对可以零误伤地识别占位符（含 5~6 位短密钥只有一两个星号的情况）；
+// 含连续三个星号的值按约定直接视为占位符，兜底处理当前值已变化或节点不存在的场景。
+func dropMaskedSecrets(current, updates map[string]any) {
+	for k, v := range updates {
+		if child, ok := v.(map[string]any); ok {
+			var currentChild map[string]any
+			if actual, found := lookupKey(current, k); found {
+				currentChild, _ = current[actual].(map[string]any)
+			}
+			if currentChild == nil {
+				currentChild = map[string]any{}
+			}
+			dropMaskedSecrets(currentChild, child)
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || !isSensitiveKeyName(k) {
+			continue
+		}
+		if strings.Contains(s, "***") {
+			delete(updates, k)
+			continue
+		}
+		actual, found := lookupKey(current, k)
+		if !found {
+			continue
+		}
+		if currentVal, ok := current[actual].(string); ok && currentVal != "" && s == maskSecret(currentVal) {
+			delete(updates, k)
+		}
+	}
+}
+
 // maskSensitive 将 config.Get() 返回的配置脱敏后返回（JSON 序列化 → map 操作）。
 func maskSensitive(raw any) any {
 	data, err := json.Marshal(raw)
@@ -128,15 +224,6 @@ func maskSensitive(raw any) any {
 }
 
 func maskTree(tree map[string]any) {
-	mask := func(s string) string {
-		if len(s) == 0 {
-			return ""
-		}
-		if len(s) <= 4 {
-			return "****"
-		}
-		return s[:2] + strings.Repeat("*", len(s)-4) + s[len(s)-2:]
-	}
 	for _, path := range []string{
 		"bot.qq.token", "bot.qq.secret",
 		"bot.onebot.token", "bot.onebot.secret",
@@ -146,7 +233,7 @@ func maskTree(tree map[string]any) {
 		parts := strings.Split(path, ".")
 		if v := walkGet(tree, parts); v != nil {
 			if s, ok := v.(string); ok && s != "" {
-				walkSet(tree, parts, mask(s))
+				walkSet(tree, parts, maskSecret(s))
 			}
 		}
 	}
@@ -165,7 +252,7 @@ func maskTree(tree map[string]any) {
 				continue
 			}
 			if s, ok := pm[actual].(string); ok && s != "" {
-				pm[actual] = mask(s)
+				pm[actual] = maskSecret(s)
 			}
 		}
 	}

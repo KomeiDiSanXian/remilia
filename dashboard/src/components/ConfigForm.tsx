@@ -1,14 +1,9 @@
 import { useState } from 'react'
+import { isSensitiveKey } from '../sensitive'
 
 interface ConfigFormProps {
   value: Record<string, unknown>
   onChange: (value: Record<string, unknown>) => void
-}
-
-const SENSITIVE_KEYS = new Set(['token', 'secret', 'api_key', 'password', 'access_token'])
-
-function isSensitive(key: string): boolean {
-  return SENSITIVE_KEYS.has(key)
 }
 
 export function ConfigForm({ value, onChange }: ConfigFormProps) {
@@ -69,7 +64,7 @@ export function ConfigForm({ value, onChange }: ConfigFormProps) {
     }
 
     if (typeof val === 'string') {
-      if (isSensitive(key)) {
+      if (isSensitiveKey(key)) {
         const editing = editingSensitive.has(path)
         return (
           <div className="cf-field" key={key}>

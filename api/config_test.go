@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func writeTempConfig(t *testing.T, dir, content string) string {
@@ -129,4 +131,114 @@ log:
 	if after.Bot.QQ.Webhook.Port != 8080 {
 		t.Errorf("port should remain 8080, got %d", after.Bot.QQ.Webhook.Port)
 	}
+}
+
+// validQQConfig 是可验证通过的最小 QQ 配置，含真实密钥用于脱敏/写回测试。
+const validQQConfig = `
+bot:
+  qq:
+    app_id: 123
+    bot_id: 456
+    token: "real-token"
+    secret: "real-secret"
+    webhook:
+      host: "0.0.0.0"
+      port: 8080
+log:
+  level: "info"
+  format: "text"
+`
+
+// TestWriteConfigUpdate_CanonicalizesGoStyleKeys 回归：GET /config 返回 Go 字段名
+// （Log / Bot），原样回传时必须命中配置文件里的小写 YAML 键（log / bot），
+// 既不能写出并存的大小写重复段落，也不能让修改被静默忽略。
+func TestWriteConfigUpdate_CanonicalizesGoStyleKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTempConfig(t, dir, validQQConfig)
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	srv := &Server{configPath: path}
+	// JSON 解码后数字为 float64，与 HTTP 请求路径一致。
+	err := srv.writeConfigUpdate(map[string]any{
+		"Log": map[string]any{"Level": "debug"},
+		"Bot": map[string]any{"QQ": map[string]any{"Webhook": map[string]any{"Port": float64(9090)}}},
+	})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "\nLog:")
+	assert.NotContains(t, string(raw), "\nBot:")
+
+	cfg, ok := config.Get()
+	require.True(t, ok)
+	assert.Equal(t, 9090, cfg.Bot.QQ.Webhook.Port)
+	assert.Equal(t, "debug", cfg.Log.Level)
+}
+
+// TestWriteConfigUpdate_DropsMaskedSecrets 回归：原始 JSON 编辑器回传的脱敏占位符
+// 不能覆盖磁盘上的真实密钥，同时同一请求里的真实修改必须正常写入。
+func TestWriteConfigUpdate_DropsMaskedSecrets(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTempConfig(t, dir, validQQConfig)
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	cfg, ok := config.Get()
+	require.True(t, ok)
+	updates, ok := maskSensitive(cfg).(map[string]any)
+	require.True(t, ok)
+
+	bot := updates["Bot"].(map[string]any)
+	qq := bot["QQ"].(map[string]any)
+	placeholder, ok := qq["Token"].(string)
+	require.True(t, ok)
+	require.Contains(t, placeholder, "*")
+	qq["Webhook"].(map[string]any)["Port"] = float64(9090)
+	qq["Secret"] = "brand-new-secret"
+
+	srv := &Server{configPath: path}
+	require.NoError(t, srv.writeConfigUpdate(updates))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "***")
+
+	reloaded, ok := config.Get()
+	require.True(t, ok)
+	assert.Equal(t, "real-token", reloaded.Bot.QQ.Token)
+	assert.Equal(t, "brand-new-secret", reloaded.Bot.QQ.Secret)
+	assert.Equal(t, 9090, reloaded.Bot.QQ.Webhook.Port)
+}
+
+// TestDropMaskedSecrets_ShortSecret 覆盖 5~6 位短密钥：占位符没有连续三个星号，
+// 只能靠与当前值的精确比对识别。
+func TestDropMaskedSecrets_ShortSecret(t *testing.T) {
+	current := map[string]any{"bot": map[string]any{"qq": map[string]any{"token": "abcde"}}}
+	updates := map[string]any{
+		"Bot": map[string]any{"QQ": map[string]any{
+			"Token":  maskSecret("abcde"),
+			"Secret": "new-secret",
+		}},
+	}
+	require.NotContains(t, maskSecret("abcde"), "***")
+
+	dropMaskedSecrets(current, updates)
+
+	qq := updates["Bot"].(map[string]any)["QQ"].(map[string]any)
+	assert.NotContains(t, qq, "Token")
+	assert.Equal(t, "new-secret", qq["Secret"])
+}
+
+// TestDropMaskedSecrets_KeepsPlainValues 不含星号的真实值必须原样保留。
+func TestDropMaskedSecrets_KeepsPlainValues(t *testing.T) {
+	current := map[string]any{"bot": map[string]any{"qq": map[string]any{"token": "old"}}}
+	updates := map[string]any{"Bot": map[string]any{"QQ": map[string]any{"Token": "real-new-token"}}}
+
+	dropMaskedSecrets(current, updates)
+
+	assert.Equal(t, "real-new-token", updates["Bot"].(map[string]any)["QQ"].(map[string]any)["Token"])
 }

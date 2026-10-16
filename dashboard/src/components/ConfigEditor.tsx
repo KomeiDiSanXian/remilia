@@ -1,21 +1,16 @@
 import { useEffect, useState, useCallback } from 'react'
 import * as api from '../api'
+import { isSensitiveKey } from '../sensitive'
 import { ConfigForm } from './ConfigForm'
 import { Icon } from './Icons.tsx'
 
 type Status = 'idle' | 'loading' | 'saving' | 'saved' | 'error'
 type Mode = 'form' | 'raw'
 
-const SENSITIVE_KEYS = new Set(['token', 'secret', 'api_key', 'password', 'access_token'])
-
-function isSensitive(key: string): boolean {
-  return SENSITIVE_KEYS.has(key)
-}
-
 function buildPatch(original: Record<string, unknown>, edited: Record<string, unknown>): Record<string, unknown> {
   const patch: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(edited)) {
-    if (isSensitive(key)) {
+    if (isSensitiveKey(key)) {
       const origVal = original[key]
       if (value === '' || value === origVal) continue
       patch[key] = value
