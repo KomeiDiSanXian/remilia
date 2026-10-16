@@ -90,9 +90,32 @@ debug 包保留完整调试符号，体积偏大（约 200 MB）属正常，要�
 adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
-release 包（`npx tauri android build --apk`）需要自行配置签名：在
-`src-tauri/gen/android/keystore.properties` 里放 `storeFile`/`storePassword`/`keyAlias`/`keyPassword`，
-再在 `app/build.gradle.kts` 的 `signingConfigs` 中引用并挂到 `release`；未配置时产出的是未签名包。
+### release 签名
+
+release 包不带调试符号，体积比 debug 包小得多（约 20 MB 对约 200 MB），适合长期装在手机上。
+
+签名配置放在 `src-tauri/gen/android/keystore.properties`（已 gitignore，**不要提交**），四个键：
+`storeFile`（keystore 路径，绝对路径或相对 `gen/android` 的相对路径）、`storePassword`、`keyAlias`、`keyPassword`。
+`app/build.gradle.kts` 的 `signingConfigs` 已经接好：文件存在时用它签名，不存在时回退 debug 签名
+（产物仍可安装），因此没带密钥的 CI 也能打出包。
+
+生成 keystore（只需一次；生成后请把 keystore 文件和口令一起备份，丢了就无法覆盖安装）：
+
+```bash
+"$JAVA_HOME/bin/keytool" -genkeypair -v -storetype PKCS12 -alias remilia \
+  -keyalg RSA -keysize 2048 -validity 10950 \
+  -keystore "$HOME/.tauri/remilia-android.keystore"
+```
+
+打包 release 包（arm64）：
+
+```bash
+cd desktop
+npx tauri android build --apk --target aarch64   # 等价：make desktop-android-release
+```
+
+产物：`src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`。
+release 与 debug 签名不同，手机上从 debug 包换装 release 包需先卸载旧包。
 
 ### 与桌面端的差异
 
