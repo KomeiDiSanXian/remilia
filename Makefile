@@ -121,5 +121,10 @@ desktop-dev: desktop-front
 desktop-build: desktop-sidecar desktop-front
 	cd desktop && npx tauri build
 
+# 构建 Android debug APK（需 ANDROID_HOME / NDK_HOME 与 JDK 17，见 desktop/README.md）
+# 产物：desktop/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+desktop-android:
+	cd desktop && npx tauri android build --debug --apk --target aarch64
+
 docker:
 	docker build -t $(APP_NAME):$(VERSION) .

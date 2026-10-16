@@ -74,6 +74,8 @@ npx tauri icon src-tauri/app-icon.json                  # 仅改图标时需要
 npx tauri android build --debug --apk --target aarch64  # debug 包，arm64 手机
 ```
 
+也可以在仓库根目录执行 `make desktop-android`（等价于上面第二条命令）。
+
 产物：`src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`。
 debug 包保留完整调试符号，体积偏大（约 200 MB）属正常，要小体积请出 release 包。
 
