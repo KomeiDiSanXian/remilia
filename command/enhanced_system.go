@@ -125,7 +125,8 @@ func (p *Parser) Register(cmd *Definition) {
 //  1. 词法拆分（tokenize）
 //  2. 匹配根命令名称
 //  3. 通过流式分层解析（parseHierarchical）将 flag 归属到其所在层级
-//  4. 对叶子层级执行参数绑定与 Validator
+//  4. 逐层绑定已声明的 flag 与位置参数（父层同名项被子层覆盖），
+//     并对执行的叶子层级执行 Validator 与必填校验
 //
 // flag 作用域规则（与 Cobra / GNU getopt 一致）：
 //   - flag 出现在子命令 token 之前 → 属于父命令
@@ -327,8 +328,16 @@ func parseHierarchical(tokens []string, rootDef *Definition) []cmdLevel {
 }
 
 // buildParsedFromLevels constructs a Parsed from the hierarchical level chain.
-// Only the leaf level's flags and positional arguments are bound — each level
-// owns its own scope, matching Cobra / Click semantics.
+//
+// Every level's declared flags and positional arguments are bound into the same
+// Parsed, from the root down, so values typed before a subcommand stay readable
+// from the handler (`/debug --verbose runtime --output json` binds both
+// --verbose and --output); a child declaration with the same name wins over its
+// parent's. Required flags and arguments are only enforced on the executed
+// (leaf) level: the parent command does not run when a subcommand is used, so
+// `/ai reset` must not fail because `/ai` itself declares a required flag.
+// Flags and arguments that no level declares are ignored, matching the lenient
+// parsing used elsewhere in this package.
 func buildParsedFromLevels(input string, rawArgs *Args, levels []cmdLevel) (*Parsed, error) {
 	leaf := levels[len(levels)-1]
 
@@ -346,11 +355,14 @@ func buildParsedFromLevels(input string, rawArgs *Args, levels []cmdLevel) (*Par
 		rawArgs:     rawArgs,
 	}
 
-	if err := parseArguments(parsed, leaf.args, leaf.def); err != nil {
-		return nil, err
-	}
-	if err := parseFlagsFromMap(parsed, leaf.flags, leaf.def); err != nil {
-		return nil, err
+	for i := range levels {
+		enforceRequired := i == len(levels)-1
+		if err := parseArguments(parsed, levels[i].args, levels[i].def, enforceRequired); err != nil {
+			return nil, err
+		}
+		if err := parseFlagsFromMap(parsed, levels[i].flags, levels[i].def, enforceRequired); err != nil {
+			return nil, err
+		}
 	}
 	if leaf.def.Validator != nil {
 		if err := leaf.def.Validator(parsed); err != nil {
@@ -417,8 +429,10 @@ func findSubCmd(cmds []*Definition, name string) *Definition {
 }
 
 // parseFlagsFromMap resolves and type-converts the raw string flags collected
-// for a single command level into parsed.Flags, validating required flags.
-func parseFlagsFromMap(parsed *Parsed, rawFlags map[string]string, def *Definition) error {
+// for a single command level into parsed.Flags. Required flags are only
+// reported as missing on the executed (leaf) level — see
+// buildParsedFromLevels for why.
+func parseFlagsFromMap(parsed *Parsed, rawFlags map[string]string, def *Definition, enforceRequired bool) error {
 	for _, flagDef := range def.Flags {
 		var rawValue string
 		var found bool
@@ -430,15 +444,18 @@ func parseFlagsFromMap(parsed *Parsed, rawFlags map[string]string, def *Definiti
 		if flagDef.Type == ArgTypeStringSlice {
 			if found {
 				vals := strings.Fields(rawValue)
-				if flagDef.Required && len(vals) == 0 {
+				if enforceRequired && flagDef.Required && len(vals) == 0 {
 					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
 				}
 				parsed.Flags[flagDef.Name] = vals
 			} else {
-				if flagDef.Required {
+				if enforceRequired && flagDef.Required {
 					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
 				}
-				parsed.Flags[flagDef.Name] = flagDef.Default
+				// 默认值不覆盖已绑定的值：父层显式提供的同名 flag 必须保留。
+				if _, exists := parsed.Flags[flagDef.Name]; !exists {
+					parsed.Flags[flagDef.Name] = flagDef.Default
+				}
 			}
 			continue
 		}
@@ -455,16 +472,22 @@ func parseFlagsFromMap(parsed *Parsed, rawFlags map[string]string, def *Definiti
 			}
 			parsed.Flags[flagDef.Name] = value
 		} else {
-			if flagDef.Required {
+			if enforceRequired && flagDef.Required {
 				return fmt.Errorf("required flag --%s is missing", flagDef.Name)
 			}
-			parsed.Flags[flagDef.Name] = flagDef.Default
+			// 默认值不覆盖已绑定的值（见上方 StringSlice 分支说明）。
+			if _, exists := parsed.Flags[flagDef.Name]; !exists {
+				parsed.Flags[flagDef.Name] = flagDef.Default
+			}
 		}
 	}
 	return nil
 }
 
-func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
+// parseArguments binds the positional tokens collected for a single command
+// level against def.Arguments. Like parseFlagsFromMap, required arguments are
+// only enforced on the executed (leaf) level.
+func parseArguments(parsed *Parsed, tokens []string, def *Definition, enforceRequired bool) error {
 	for i, argDef := range def.Arguments {
 		if argDef.Type == ArgTypeStringSlice {
 			if i != len(def.Arguments)-1 {
@@ -474,7 +497,7 @@ func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
 			if i < len(tokens) {
 				vals = append(vals, tokens[i:]...)
 			}
-			if argDef.Required && len(vals) == 0 {
+			if enforceRequired && argDef.Required && len(vals) == 0 {
 				return fmt.Errorf("required argument %s is missing", argDef.Name)
 			}
 			parsed.Arguments[argDef.Name] = vals
@@ -495,10 +518,15 @@ func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
 				}
 			}
 		} else {
-			if argDef.Required {
+			if enforceRequired && argDef.Required {
 				return fmt.Errorf("required argument %s is missing", argDef.Name)
 			}
-			value = argDef.Default
+			// 默认值不覆盖已绑定的值：父层显式提供的同名参数必须保留。
+			if _, exists := parsed.Arguments[argDef.Name]; !exists {
+				value = argDef.Default
+			} else {
+				continue
+			}
 		}
 		parsed.Arguments[argDef.Name] = value
 	}
