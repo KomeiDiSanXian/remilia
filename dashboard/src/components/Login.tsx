@@ -17,19 +17,29 @@ export function Login({ onLogin }: LoginProps) {
     setError('')
     try {
       const base = url.replace(/\/+$/, '')
-      let res = await fetch(`${base}/api/v1/version`)
+      // 探测受保护端点：公开的 /version 无法区分"服务未配置 Key"和"Key 无效"，
+      // 之前用 /version 探测会永远显示"开发模式无需 Key"。
+      let res = await fetch(`${base}/api/v1/auth/verify`)
       if (res.ok) {
         setNoKeyMode(true)
-        setTesting(false)
         return
       }
-      if (key.trim()) {
-        res = await fetch(`${base}/api/v1/version`, {
-          headers: { Authorization: `Bearer ${key.trim()}` },
-        })
+      if (res.status !== 401) {
+        setError(`连接失败 (HTTP ${res.status})`)
+        return
       }
+      setNoKeyMode(false)
+      if (!key.trim()) {
+        setError('该服务需要 API Key')
+        return
+      }
+      res = await fetch(`${base}/api/v1/auth/verify`, {
+        headers: { Authorization: `Bearer ${key.trim()}` },
+      })
       if (res.ok) {
-        setNoKeyMode(false)
+        setError('')
+      } else if (res.status === 401) {
+        setError('API Key 无效')
       } else {
         setError(`连接失败 (HTTP ${res.status})`)
       }

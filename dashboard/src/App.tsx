@@ -4,15 +4,20 @@ import { Login } from './components/Login.tsx'
 import { Dashboard } from './components/Dashboard.tsx'
 
 const URL_STORAGE_KEY = 'remilia_api_url'
+const SESSION_KEY = 'remilia_logged_in'
 
 export default function App() {
-  const [apiKey, setApiKey] = useState<string | null>(() => {
-    const saved = getStoredApiKey()
-    if (saved) {
-      const savedUrl = localStorage.getItem(URL_STORAGE_KEY)
-      if (savedUrl) setBaseURL(savedUrl)
+  // 会话标记独立于 Key 存储：空 Key（开发模式）也要能登录并保持会话，
+  // 之前用 apiKey 的真值做判断，留空 Key 的提交会被 Login 重新渲染吞掉。
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => {
+    const savedUrl = localStorage.getItem(URL_STORAGE_KEY)
+    if (!savedUrl) return false
+    const savedKey = getStoredApiKey()
+    if (savedKey || localStorage.getItem(SESSION_KEY) === '1') {
+      setBaseURL(savedUrl)
+      return true
     }
-    return saved
+    return false
   })
 
   const handleLogin = (key: string, url: string) => {
@@ -25,16 +30,18 @@ export default function App() {
     } else {
       clearApiKey()
     }
-    setApiKey(key)
+    localStorage.setItem(SESSION_KEY, '1')
+    setLoggedIn(true)
   }
 
   const handleLogout = () => {
     clearApiKey()
     localStorage.removeItem(URL_STORAGE_KEY)
-    setApiKey(null)
+    localStorage.removeItem(SESSION_KEY)
+    setLoggedIn(false)
   }
 
-  if (!apiKey) {
+  if (!loggedIn) {
     return <Login onLogin={handleLogin} />
   }
 

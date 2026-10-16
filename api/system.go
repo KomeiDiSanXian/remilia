@@ -47,6 +47,13 @@ func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request) {
 	writeOK(w, s.pluginMgr.Stats())
 }
 
+// handleAuthVerify 处理 GET /api/v1/auth/verify
+// 认证通过时返回 200。客户端用候选 Key 探测该端点即可区分
+// "服务未配置 Key"、"Key 有效" 和 "Key 无效"——公开的 /version 做不到这一点。
+func (s *Server) handleAuthVerify(w http.ResponseWriter, _ *http.Request) {
+	writeOK(w, map[string]bool{"authorized": true})
+}
+
 // SetBuildInfo 由 main 包在初始化时注入构建信息。
 // commit 和 date 是 -ldflags 传入的编译时变量。
 //

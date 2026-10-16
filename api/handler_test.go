@@ -54,6 +54,38 @@ func TestHandleVersion(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 }
 
+func TestHandleAuthVerify(t *testing.T) {
+	h, apiKey := newTestHandler(t)
+
+	t.Run("valid key", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
+		r.Header.Set(authHeader(apiKey))
+		h.ServeHTTP(w, r)
+		assert.Equal(t, 200, w.Code)
+
+		var resp APIResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		require.NoError(t, err)
+		assert.Equal(t, 0, resp.Code)
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
+		h.ServeHTTP(w, r)
+		assert.Equal(t, 401, w.Code)
+	})
+
+	t.Run("wrong key", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
+		r.Header.Set("Authorization", "Bearer wrong-key")
+		h.ServeHTTP(w, r)
+		assert.Equal(t, 401, w.Code)
+	})
+}
+
 func TestAuthMiddleware_ValidKey(t *testing.T) {
 	h, apiKey := newTestHandler(t)
 	w := httptest.NewRecorder()

@@ -18,23 +18,29 @@ export function Settings({ initialUrl = 'http://localhost:9002', onConnect }: Se
     setError('')
     try {
       const base = url.replace(/\/+$/, '')
-      // 先用空 Key 测试
-      let res = await fetch(`${base}/api/v1/version`)
+      // 探测受保护端点：公开的 /version 无法区分"服务未配置 Key"和"Key 无效"。
+      let res = await fetch(`${base}/api/v1/auth/verify`)
       if (res.ok) {
         setNoKeyMode(true)
         setError('')
-        setTesting(false)
         return
       }
-      // 用输入的 Key 测试
-      if (key.trim()) {
-        res = await fetch(`${base}/api/v1/version`, {
-          headers: { Authorization: `Bearer ${key.trim()}` },
-        })
+      if (res.status !== 401) {
+        setError(`连接失败 (HTTP ${res.status})`)
+        return
       }
+      setNoKeyMode(false)
+      if (!key.trim()) {
+        setError('该服务需要 API Key')
+        return
+      }
+      res = await fetch(`${base}/api/v1/auth/verify`, {
+        headers: { Authorization: `Bearer ${key.trim()}` },
+      })
       if (res.ok) {
-        setNoKeyMode(false)
         setError('')
+      } else if (res.status === 401) {
+        setError('API Key 无效')
       } else {
         setError(`连接失败 (HTTP ${res.status})`)
       }

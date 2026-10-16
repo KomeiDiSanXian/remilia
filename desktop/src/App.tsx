@@ -12,14 +12,19 @@ import { Icon } from '@dashboard/components/Icons'
 const URL_STORAGE_KEY = 'remilia_api_url'
 const SIDECAR_URL = 'http://localhost:9002'
 
-async function tryLocalSidecar(): Promise<{ url: string; key: string } | null> {
+type SidecarProbe = 'ready' | 'needs-key' | null
+
+// 探测受保护端点：401 表示 sidecar 配置了 api_key，需要用户输入；
+// 之前把 401 也当成"就绪"并以空 Key 连接，Dashboard 会一路 401 且没有入口补 Key。
+async function probeLocalSidecar(): Promise<SidecarProbe> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 1500)
-      const res = await fetch(`${SIDECAR_URL}/api/v1/version`, { signal: controller.signal })
+      const res = await fetch(`${SIDECAR_URL}/api/v1/auth/verify`, { signal: controller.signal })
       clearTimeout(timer)
-      if (res.ok || res.status === 401) return { url: SIDECAR_URL, key: '' }
+      if (res.ok) return 'ready'
+      if (res.status === 401) return 'needs-key'
     } catch { }
     await new Promise((r) => setTimeout(r, 400))
   }
@@ -67,13 +72,19 @@ export default function App() {
 
     // 等待后端就绪
     for (let i = 0; i < 10; i++) {
-      const sidecar = await tryLocalSidecar()
-      if (sidecar) {
-        setBaseURL(sidecar.url)
+      const probe = await probeLocalSidecar()
+      if (probe === 'ready') {
+        setBaseURL(SIDECAR_URL)
         localStorage.removeItem(URL_STORAGE_KEY)
         clearApiKey()
-        try { await invoke('set_connection', { config: { url: sidecar.url, key: sidecar.key } }) } catch { }
+        try { await invoke('set_connection', { config: { url: SIDECAR_URL, key: '' } }) } catch { }
         setConnected(true)
+        return
+      }
+      if (probe === 'needs-key') {
+        // 保持 connecting 视图（Settings），让用户补 Key 后再连接
+        localStorage.setItem(URL_STORAGE_KEY, SIDECAR_URL)
+        setLocalError('本地后端已启动但配置了 API Key，请输入后连接')
         return
       }
       await new Promise((r) => setTimeout(r, 800))
@@ -157,6 +168,7 @@ export default function App() {
                 <Icon name="chevronLeft" size={14} />返回
               </button>
             )}
+            {localError && <div className="banner error" style={{ marginBottom: '1rem' }}>{localError}</div>}
             <Settings initialUrl={localStorage.getItem(URL_STORAGE_KEY) || SIDECAR_URL} onConnect={(url, key) => {
               setBaseURL(url)
               setStoredApiKey(key)

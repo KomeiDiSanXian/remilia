@@ -134,6 +134,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 
+	// Auth probe（受保护）：客户端用它验证候选 API Key，而不是探测公开的 /version
+	mux.HandleFunc("GET /api/v1/auth/verify", s.auth(s.handleAuthVerify))
+
 	if s.dashboardHandler != nil {
 		mux.Handle("/", s.dashboardHandler)
 	}
