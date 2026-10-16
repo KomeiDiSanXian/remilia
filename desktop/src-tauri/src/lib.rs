@@ -170,6 +170,9 @@ fn kill_bot_child(state: &AppState) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
+        // 更新源（GitHub Releases 的 latest.json）与公钥配置见 tauri.conf.json 的 plugins.updater
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_connection,
