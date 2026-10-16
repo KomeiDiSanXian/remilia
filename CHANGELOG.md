@@ -14,6 +14,28 @@
 - 发布产物新增来源证明（attestation）：打 `v*` 标签时，Go 归档（按 `dist/checksums.txt` 一次性覆盖）、Windows 安装包与 Android APK 都会生成 GitHub 产物来源证明（`actions/attest`，SLSA Build L2，Sigstore 签名），用户可用 `gh attestation verify <文件> --repo KomeiDiSanXian/remilia` 核对它们由本仓库的发布工作流构建。
 - 容器镜像改用 GoReleaser 的 `dockers_v2`（buildx）构建：一次产出 `linux/amd64`、`linux/arm64` 与 `linux/arm/v7` 三个平台的索引（此前只有 amd64，ARM 设备拉取后直接 `exec format error`），镜像同时带上产物来源证明（按 `dist/digests.txt`）与 buildx SBOM；快照（nightly）不构建镜像。
 
+**核心框架（core / command / plugin）**
+
+本次对 `core/`、`command/`、`plugin/` 做了一轮逐项核查，修复项见下（每项都有配套回归测试），完整核查记录与遗留事项见 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md)。
+
+- 命令解析统一按 Unicode 空白切分：全角空格（`/cmd　hello`）此前让整条消息变成单个 token，解析报 `command mismatch` 后消息被静默丢弃；引擎侧的命令词提取改为同一口径。
+- 负数位置参数不再被当作短标志：`/roll -1 100` 此前得到 `Flags[1]=100`、位置参数为空，现在 `-1` 正确进入位置参数。
+- 未定义的转义序列保留反斜杠：`/ai C:\Users\name` 不再被改写成 `C:Users<换行>ames`；引号内的 `\n`/`\t`/`\r` 仍按转义处理。
+- 子命令命中后父层的 flag 与位置参数会被绑定到 `Parsed`（`/cmd --mode fast sub` 不再丢 `--mode`）；`required` 只在实际执行的叶子层校验，父层 `Validator` 不运行（父命令只是命名空间时不因父层必填失败）。
+- 命令注册表：重复注册同一命令会替换旧元数据（`FindCommand`/`/help` 列表不再返回旧描述、不再出现重复项），注销会清空同名全部条目；`Upsert` 遇到非法正则模式改为告警忽略，不再 panic。
+- 引擎中间件链不再用过期快照填充缓存：运行期 `Use`/`ResetGroupMiddleware` 与事件派发并发时，matcher 不会长期跳过全部中间件（鉴权、日志、限流）。
+- `ProcessEventSync` 走与异步路径相同的事件守卫：停机过程的同步派发受控，规则/链构造期 panic 同样被回收。
+- `ExecPool` 排空会响应停机上下文：队列里有阻塞任务时不再让 30s 超时形同虚设（已开始执行的任务按 Go 语义无法中断）。
+- 事件类型为空时不再重复投递候选：此前各索引把 specific/generic 两路指向同一个桶，导致 handler 每个事件执行两次。
+- `OnCommand("/")` 这类只有前缀、没有命令名的模式改为普通规则匹配：不再出现「注册后静默失效、一次索引重建后又匹配一切」。
+- `WithTimeout` 包装的规则改在上下文副本上执行：超时后不再与引擎并发读写匹配状态，迟到登记的延迟副作用不会被后续 matcher 提交（超时前返回的副作用照常提交，触发前的扩展状态仍可读）。
+- `OnCooldown` 默认 key 带上每条规则的命名空间：不同命令共用默认 key 导致 `/sign` 冷却期间 `/daily` 静默不响应的问题修复；显式传入 `keyFn` 时 key 仍完全由调用方控制。
+- `ReplyWithContext` 真正接入调用方 context：取消/超时中止发送，已取消的 context 不再入队，取消原因可用 `context.Cause` 读取。
+- 插件 Setup 进行中（`Loading`）的实例不会再被并发卸载/重载：注销与重载先等待 Setup 结束（受调用方 ctx 约束），避免清理先于 Setup 完成、随后又被 Setup 收尾写回（幽灵命令、容器残留）；Setup 挂起时返回「still loading」错误，`ForceUnregister` 仍是兜底。
+- 插件根 Scope 与元数据 goroutine 管理器改为无竞争访问：并发首次 `Scope()`/`Subscribe` 不再建出两个根 Scope（订阅与清理钩子不再泄漏），`StopAll` → `StartAll` 交叠不再竞争。
+- FSM 的 `From:"*"` 在会话存活判断与定义校验中生效：声明「任意状态 /cancel」的流程不再因用户发来无关消息而把会话连同 `Data` 静默删除，只有通配启动事件的 FSM 也能注册。
+- 权限前缀通配要求命名空间边界：`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目（导出与持久化不再被污染）。
+
 ## v1.73.0 (2026-10-16)
 
 ### ✨ 新特性
