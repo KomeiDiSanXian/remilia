@@ -117,6 +117,32 @@ npx tauri android build --apk --target aarch64   # 等价：make desktop-android
 产物：`src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`。
 release 与 debug 签名不同，手机上从 debug 包换装 release 包需先卸载旧包。
 
+### CI 构建与发布（`Android` 工作流）
+
+`.github/workflows/android.yml` 负责自动构建，触发条件刻意收紧（一次构建十几分钟）：
+
+| 场景 | 行为 |
+| --- | --- |
+| 打 `v*` 标签 | 由 `release.yml`（GoReleaser 建好 Release 后）调用，构建并上传 `remilia_android_arm64.apk` 到同一个 Release |
+| `workflow_dispatch` 手动 | 随时出一份，产物是 workflow artifact（保留 7 天），不碰 Release |
+| PR 改到 `desktop/**` 或该工作流 | 跑一次构建验证（走 release + R8 路径，能提前发现混淆/链接问题），产物同样是 artifact |
+| 普通 push、改 Go/文档/dashboard | **不触发** |
+
+发布资产文件名固定为 `remilia_android_arm64.apk`，因此可以直接用固定链接下载
+（手机浏览器打开即可安装）：`https://github.com/KomeiDiSanXian/remilia/releases/latest/download/remilia_android_arm64.apk`。
+
+CI 上签名依赖四个 Repository secrets（未配置时工作流仍会跑，但产物回退 debug 签名且不写 Release）：
+
+| Secret | 取值 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | keystore 文件的 base64：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.tauri\remilia-android.keystore"))` |
+| `ANDROID_KEYSTORE_PASSWORD` | 与 `keystore.properties` 的 `storePassword` 一致 |
+| `ANDROID_KEY_ALIAS` | `remilia` |
+| `ANDROID_KEY_PASSWORD` | 与 `keystore.properties` 的 `keyPassword` 一致 |
+
+> 桌面端更新包用的 `TAURI_SIGNING_PRIVATE_KEY` 与此无关：那是 Tauri updater 的签名密钥，
+> APK 必须用上面这个 Java keystore 签名。
+
 ### 与桌面端的差异
 
 - `src-tauri/tauri.android.conf.json` 把 `bundle.externalBin` 覆盖为空：移动端没有 sidecar，
