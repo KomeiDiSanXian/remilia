@@ -3,6 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { ConfirmDialog } from './ConfirmDialog'
+import { isMobileShell } from '../platform.ts'
 
 interface AboutDialogProps {
   open: boolean
@@ -138,7 +139,8 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
         <p className="about-desc">
           Remilia 是一款通用聊天机器人框架，支持多平台接入与插件扩展。
         </p>
-        <div className="about-update">{renderUpdateSection()}</div>
+        {/* 更新检查是桌面端专属能力（移动端走应用商店/手动安装） */}
+        {!isMobileShell && <div className="about-update">{renderUpdateSection()}</div>}
         <p className="about-link">
           <a href="https://github.com/KomeiDiSanXian/remilia" target="_blank" rel="noopener noreferrer">GitHub</a>
         </p>

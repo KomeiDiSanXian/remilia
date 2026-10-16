@@ -2,12 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+// 托盘、菜单与 sidecar 属于桌面端能力：tauri 的 menu/tray 模块在移动端根本不存在，
+// 必须整体置于 cfg(desktop) 之下，否则 Android/iOS 目标无法编译。
+#[cfg(desktop)]
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
+    Emitter,
 };
+#[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
 
 // --- 应用状态 ---
@@ -78,9 +83,15 @@ fn load_window_state(app: AppHandle) -> Option<WindowState> {
 
 #[tauri::command]
 fn minimize_window(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.minimize();
+    // 最小化是桌面端专属能力：移动端 WebviewWindow 没有 minimize 方法
+    #[cfg(desktop)]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.minimize();
+        }
     }
+    #[cfg(not(desktop))]
+    let _ = app;
 }
 
 #[tauri::command]
@@ -127,6 +138,11 @@ fn start_bot(app: AppHandle) -> Result<bool, String> {
 
 // --- 进程管理 ---
 
+/// 启动随包携带的 Go 后端 sidecar（仅桌面端）。
+///
+/// Android/iOS 不允许执行随包携带的外部可执行文件，移动端没有 sidecar 概念，
+/// 因此移动端固定返回 None，由前端改为连接远程后端。
+#[cfg(desktop)]
 fn spawn_bot_child(app: &AppHandle) -> Option<tauri_plugin_shell::process::CommandChild> {
     let sidecar = app.shell().sidecar("remilia-bot");
     match sidecar {
@@ -185,77 +201,11 @@ pub fn run() {
             start_bot,
         ])
         .setup(|app| {
-            // 系统托盘右键菜单
-            let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
-            let reconnect = MenuItemBuilder::with_id("reconnect", "重新连接").build(app)?;
-            let about = MenuItemBuilder::with_id("about", "关于").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-
-            let tray_menu = MenuBuilder::new(app)
-                .item(&show)
-                .item(&reconnect)
-                .item(&about)
-                .separator()
-                .item(&quit)
-                .build()?;
-
-            // 系统托盘
-            // 确保窗口显示（TrayIconBuilder 可能导致窗口初始隐藏）
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-
-            // 从嵌入式 PNG 字节加载托盘图标
-            let icon =
-                Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("valid tray icon");
-
-            TrayIconBuilder::new()
-                .icon(icon)
-                .menu(&tray_menu)
-                .tooltip("Remilia Desktop")
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "reconnect" => {
-                        // 重新连接：关闭设置页重新打开
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.emit("navigate", "settings");
-                        }
-                    }
-                    "about" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = window.emit("navigate", "about");
-                        }
-                    }
-                    "quit" => {
-                        quit_app_now(app);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+            // 托盘/菜单是桌面端专属能力，移动端跳过
+            #[cfg(desktop)]
+            setup_tray(app)?;
+            #[cfg(not(desktop))]
+            let _ = app;
 
             Ok(())
         })
@@ -279,4 +229,88 @@ pub fn run() {
                 api.prevent_exit();
             }
         });
+}
+
+/// 桌面端：创建系统托盘与右键菜单，并确保主窗口可见。
+#[cfg(desktop)]
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    // 系统托盘右键菜单
+    let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
+    let reconnect = MenuItemBuilder::with_id("reconnect", "重新连接").build(app)?;
+    let about = MenuItemBuilder::with_id("about", "关于").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
+
+    let tray_menu = MenuBuilder::new(app)
+        .item(&show)
+        .item(&reconnect)
+        .item(&about)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    // 系统托盘
+    // 确保窗口显示（TrayIconBuilder 可能导致窗口初始隐藏）
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+
+    // 从嵌入式 PNG 字节加载托盘图标
+    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("valid tray icon");
+
+    TrayIconBuilder::new()
+        .icon(icon)
+        .menu(&tray_menu)
+        .tooltip("Remilia Desktop")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "reconnect" => {
+                // 重新连接：关闭设置页重新打开
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("navigate", "settings");
+                }
+            }
+            "about" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("navigate", "about");
+                }
+            }
+            "quit" => {
+                quit_app_now(app);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// 移动端没有 sidecar：固定返回 None，前端只提供"连接远程后端"。
+#[cfg(mobile)]
+fn spawn_bot_child(_app: &AppHandle) -> Option<tauri_plugin_shell::process::CommandChild> {
+    log::warn!("[Desktop] sidecar is unavailable on mobile, connect to a remote backend instead");
+    None
 }

@@ -45,6 +45,59 @@ make desktop-build
 > release 构建会生成签名更新包（`bundle.createUpdaterArtifacts`），需要更新签名私钥，
 > 见下方「自动更新」。仅调试前端时用 `npm run dev`，不触发签名。
 
+## Android 客户端
+
+手机端**只做远程管理**：Android 沙箱不允许执行随包携带的可执行文件，Go 机器人的 sidecar
+无法在手机上启动，因此移动端隐藏了「启动本地后端」与自动更新入口，启动后直接进入连接配置页
+（填 `http://<主机>:9002` 与 API Key）。机器人本身仍要跑在电脑或服务器上。
+
+### 环境准备
+
+| 组件 | 要求 |
+| --- | --- |
+| JDK | 17（`JAVA_HOME`） |
+| Android SDK | `ANDROID_HOME` 指向 SDK 根目录，需要 `platform-tools`、`platforms;android-36`、`build-tools;36.0.0` |
+| NDK | r29 及以上（`NDK_HOME`），Tauri 用它做交叉编译与链接 |
+| Rust 目标 | `rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` |
+
+```bash
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+```
+
+Android 工程（`src-tauri/gen/android`）已随仓库提交，克隆后不需要再跑 `tauri android init`。
+
+### 构建与安装
+
+```bash
+cd desktop
+npx tauri icon src-tauri/app-icon.json                  # 仅改图标时需要
+npx tauri android build --debug --apk --target aarch64  # debug 包，arm64 手机
+```
+
+产物：`src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`。
+debug 包保留完整调试符号，体积偏大（约 200 MB）属正常，要小体积请出 release 包。
+
+安装（手机打开 USB 调试，或直接把 APK 传到手机点击安装）：
+
+```bash
+adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+release 包（`npx tauri android build --apk`）需要自行配置签名：在
+`src-tauri/gen/android/keystore.properties` 里放 `storeFile`/`storePassword`/`keyAlias`/`keyPassword`，
+再在 `app/build.gradle.kts` 的 `signingConfigs` 中引用并挂到 `release`；未配置时产出的是未签名包。
+
+### 与桌面端的差异
+
+- `src-tauri/tauri.android.conf.json` 把 `bundle.externalBin` 覆盖为空：移动端没有 sidecar，
+  不清空会因找不到 `binaries/remilia-bot-aarch64-linux-android` 而中断构建；
+- `gen/android/app/build.gradle.kts` 的 release 也放开了明文 HTTP（`usesCleartextTraffic`），
+  否则连不上局域网 `http://<主机>:9002` 后端；把 API 暴露到公网时请自行加 HTTPS 反代；
+- 若用 `node node_modules/@tauri-apps/cli/tauri.js android init` 重新生成工程，
+  `buildSrc/.../BuildTask.kt` 的 `val executable` 会被写成 node 路径（上游按 argv[0] 推断），
+  Gradle 调用时报 `Cannot find module ...\tauri`，改回 `"""npx"""` 即可；
+  用 `npx tauri android init` 触发则不会踩到。
+
 ## 自动更新
 
 桌面端通过 Tauri updater 从 GitHub Releases 拉取签名更新：

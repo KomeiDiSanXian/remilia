@@ -15,6 +15,12 @@
 - 移动端可用：布局按小屏重构——侧边栏抽屉化（含遮罩与菜单按钮）、宽表格横向滚动、按钮触摸目标放大到约 40px、iOS 输入框不再自动放大页面、刘海屏安全区适配、日志在窄屏改为两行排版。手机浏览器打开 `http://<主机>:<端口>/` 即可管理机器人。
 - 支持「添加到主屏幕」（PWA）：内置 `manifest.json` 与 192/512/maskable 图标（`dashboard/scripts/generate-icons.ps1` 可重新生成），生产构建注册 Service Worker，断网时仍能打开界面外壳；`/api/`（含日志 SSE 流）始终直连不缓存。Service Worker 仅在安全上下文（HTTPS / localhost）注册，局域网 http 访问不受影响。
 
+**移动端（Android）**
+
+- 新增 Android 客户端构建链路：`desktop` 可打包 APK 装到手机上远程管理机器人（填后端地址与 API Key，界面与桌面端共用）。手机沙箱不允许执行随包携带的程序，Go 机器人无法在手机上运行，移动端因此不提供「启动本地后端」和自动更新入口，启动后直接进入连接配置页。
+- 图标重新设计并分层生成：源图由 `dashboard/scripts/generate-icons.ps1` 产出，`desktop/src-tauri/app-icon.json` 驱动 Tauri CLI 生成各平台图标，Android 自适应图标（背景/前景/单色层）与桌面端图标一并更新，替换掉此前的默认图标。
+- Android 工程纳入仓库（`desktop/src-tauri/gen/android`）；发布包默认放开明文 HTTP，便于连接局域网 `http://<主机>:9002` 后端。
+
 ### 🛠 修复
 
 **管理 API 与配置**
