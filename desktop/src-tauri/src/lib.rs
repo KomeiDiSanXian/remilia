@@ -52,10 +52,7 @@ fn get_connection(state: tauri::State<'_, AppState>) -> ConnectionConfig {
 }
 
 #[tauri::command]
-fn set_connection(
-    state: tauri::State<'_, AppState>,
-    config: ConnectionConfig,
-) {
+fn set_connection(state: tauri::State<'_, AppState>, config: ConnectionConfig) {
     *state.api_url.lock().expect("api_url lock poisoned") = config.url;
     *state.api_key.lock().expect("api_key lock poisoned") = config.key;
 }
@@ -119,8 +116,7 @@ fn start_bot(app: AppHandle) -> Result<bool, String> {
     if let Some(child) = spawn_bot_child(&app) {
         let state = app.state::<AppState>();
         *state.bot_child.lock().expect("bot_child lock poisoned") = Some(child);
-        *state.api_url.lock().expect("api_url lock poisoned") =
-            "http://localhost:9002".to_string();
+        *state.api_url.lock().expect("api_url lock poisoned") = "http://localhost:9002".to_string();
         log::info!("[Desktop] Go backend sidecar started on demand");
         Ok(true)
     } else {
@@ -208,8 +204,8 @@ pub fn run() {
             }
 
             // 从嵌入式 PNG 字节加载托盘图标
-            let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
-                .expect("valid tray icon");
+            let icon =
+                Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("valid tray icon");
 
             TrayIconBuilder::new()
                 .icon(icon)
