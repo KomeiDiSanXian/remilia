@@ -9,6 +9,7 @@
 - Android 发布工作流补齐 dashboard 依赖：桌面端前端通过 `@dashboard` 别名直接引用 dashboard 源码，只装桌面依赖时 `tsc` 会因解析不到 `react` 类型而失败（打标签后的首次真实运行即暴露，此前 release 因之缺少 APK）。
 - Android 工作流的手动触发新增可选 `tag` 入参：填了便按该标签同步版本号并把 APK 发布到对应 Release（无需移动标签即可补包），留空仍只产出 workflow artifact。
 - 桌面端 Tauri 依赖改为按 minor 配对（npm 与 Rust 两侧都写 `~x.y`）：此前两侧范围过松，任一次单边 lock 刷新都可能把一侧顶到新 minor，触发 `version mismatched Tauri packages` 导致构建与发布失败。
+- `builtin/ai` 会话存储的构造改为显式拒绝 nil 客户端（`panic("ai: nil storage client")`）：此前依赖一次真实的 nil 内存解引来产生 panic，而该访问违例在 Windows + `-race` 下偶发被运行时升级为 `fatal error`（0xc0000005），会让整个测试二进制崩溃（master CI 出现过一次，同一提交重跑即绿），现已消除该路径。
 
 ## v1.73.0 (2026-10-16)
 

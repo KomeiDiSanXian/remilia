@@ -17,7 +17,14 @@ type GormStore struct {
 
 // NewGormSessionStore 创建一个基于 GORM 的会话存储。
 // 初始化时会自动创建 session_records 表。
+//
+// client 为 nil 时显式 panic：若直接把它交给 AutoMigrate，会先发生一次真实的内存
+// 解引用，而该访问违例在 Windows + -race 下偶发被运行时升级为 fatal error
+// （unexpected signal during runtime execution / 0xc0000005），使整个测试二进制崩溃。
 func NewGormSessionStore(client *infrastorage.Plugin) (SessionStore, error) {
+	if client == nil {
+		panic("ai: nil storage client")
+	}
 	if err := client.AutoMigrate(&Record{}); err != nil {
 		return nil, fmt.Errorf("ai: migrate session table: %w", err)
 	}
