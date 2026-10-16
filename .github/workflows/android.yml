@@ -2,13 +2,24 @@ name: Android
 
 # 什么时候跑（交叉编译 + R8 + 打包一次要十几分钟，所以只在该跑的时候跑）：
 #   - v* 标签：由 release.yml 通过 workflow_call 调用，构建 release 包并挂到同一个 Release；
-#   - 手动 workflow_dispatch：随时出一份，产物以 workflow artifact 形式保留 7 天，方便先装到手机上试；
+#   - 手动 workflow_dispatch：随时出一份；填了 tag 就按该标签同步版本号并发布到对应 Release，
+#     不填则只产出 workflow artifact（保留 7 天），方便先装到手机上试；
 #   - PR 只在改动 desktop/** 或本工作流时验证：没配密钥时自动回退 debug 签名，
 #     但走的仍是 release（R8 混淆 + 符号裁剪）路径，能提前发现混淆/链接问题。
 # 普通 push、只改 Go / 文档 / dashboard 的 PR 都不会触发（那些走 ci.yml）。
 on:
   workflow_call:
+    inputs:
+      tag:
+        description: 要发布到哪个 Release（留空则由调用方的 ref 决定）
+        required: false
+        type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "按这个标签构建并发布（例：v1.73.0）；留空则只产出 artifact"
+        required: false
+        type: string
   pull_request:
     branches: [master, main]
     paths:
@@ -40,7 +51,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
 
       - uses: actions/setup-java@v5
         with:
@@ -74,13 +87,30 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm ci
+      - name: Install frontend dependencies
+        # desktop 前端用 @dashboard 别名直接引用 dashboard 的源码（见 desktop/tsconfig.json
+        # 与 vite.config.ts），两边的 node_modules 都要装，否则 tsc 解析不到 react 的类型
+        run: |
+          (cd dashboard && npm ci)
+          (cd desktop && npm ci)
+
+      - name: Resolve target release
+        id: release
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          fi
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          if [ -n "$tag" ]; then
+            echo "构建完成后会发布到 Release $tag"
+          else
+            echo "未指定标签，产物只作为 workflow artifact"
+          fi
 
       - name: Sync app version from tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: node desktop/scripts/sync-version.mjs "${{ github.ref_name }}"
+        if: steps.release.outputs.tag != ''
+        run: node desktop/scripts/sync-version.mjs "${{ steps.release.outputs.tag }}"
 
       - name: Configure release signing
         id: signing
@@ -123,16 +153,17 @@ jobs:
             --print-certs dist-android/remilia_android_arm64.apk
 
       - name: Upload APK to the release
-        # 只有打标签（由 release.yml 调用，Release 已由 GoReleaser 建好）且配了密钥时才写 Release
-        if: startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.signed == 'true'
+        # 由 release.yml 在打标签时调用（Release 已由 GoReleaser 建好），或手动指定了 tag；
+        # 没配签名密钥时不上传，避免发布页出现 debug 签名的包
+        if: steps.release.outputs.tag != '' && steps.signing.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist-android/remilia_android_arm64.apk --clobber
-          echo "已把 remilia_android_arm64.apk 传到 ${GITHUB_REF_NAME}"
+          gh release upload "${{ steps.release.outputs.tag }}" dist-android/remilia_android_arm64.apk --clobber
+          echo "已把 remilia_android_arm64.apk 传到 ${{ steps.release.outputs.tag }}"
 
       - name: Upload APK artifact
-        if: startsWith(github.ref, 'refs/tags/v') == false
+        if: steps.release.outputs.tag == ''
         uses: actions/upload-artifact@v7
         with:
           name: remilia-android-apk
