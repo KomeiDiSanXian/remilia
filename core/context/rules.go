@@ -321,9 +321,25 @@ func Not(rule Rule) Rule {
 // - 需要防止慢规则阻塞事件处理
 //
 // 注意事项:
-// - 超时后规则 goroutine 仍在运行(直到完成)
+// - 超时后规则 goroutine 仍在运行(直到完成)，但它跑在规则的派生 Context 上：
+//   - 迟到登记的延迟副作用只会留在派生 Context 里，不会被误提交给后续 matcher
+//     （见下面"副作用归属"说明）
+//   - 规则读到的匹配状态是触发时的快照，超时后的 SetMatcher 等变更它看不到
+//
 // - 每次调用都会创建新的 goroutine(有性能开销)
 // - 最佳实践是让规则快速返回，而不是依赖超时
+//
+// # 副作用归属
+//
+// 规则持有的 Context 是触发时派生出的副本：与原型共享平台事件、发送器等
+// 只读数据，但拥有独立的匹配状态与延迟副作用缓冲。
+//
+//   - 规则在超时前返回：副本上登记的副作用并入本次匹配会话，照常随
+//     [Context.CommitPendingRuleEffects] 提交（语义与直接写规则一致）；
+//   - 规则超时：本规则判定为不通过，迟到登记的副作用无人提交，直接丢弃。
+//
+// 这样 [OnCooldown] 这类"规则通过才写状态"的副作用不会因为规则超时后被
+// 后续 matcher 提交而错误消耗（等于用另一个事件消耗了冷却）。
 //
 // 使用示例:
 //
@@ -334,8 +350,23 @@ func Not(rule Rule) Rule {
 //	}
 //	engine.OnC2C(WithTimeout(slowRule, 100*time.Millisecond)).Handle(handler)
 func WithTimeout(rule Rule, timeout time.Duration) Rule {
+	if rule == nil {
+		return func(*Context) bool { return true }
+	}
 	return func(ctx *Context) bool {
 		resultChan := make(chan bool, 1)
+
+		// 规则在派生 Context 上执行。引擎在超时返回后会继续推进匹配循环
+		// （丢弃/提交副作用、SetMatcher、处理下一个候选），而规则 goroutine
+		// 可能仍在运行：直接用原 Context 会让两次活动的匹配会话互相污染，
+		// 且对 Context 字段的读写构成数据竞争。
+		//
+		// 用 Clone 而非共享原 Context：Clone 复制触发时已有的扩展状态
+		// （规则仍能读到触发前写入的数据），但之后的写入互不可见。
+		ruleCtx := ctx
+		if ctx != nil {
+			ruleCtx = ctx.Clone()
+		}
 
 		go func() {
 			defer func() {
@@ -344,11 +375,16 @@ func WithTimeout(rule Rule, timeout time.Duration) Rule {
 					resultChan <- false
 				}
 			}()
-			resultChan <- rule(ctx)
+			resultChan <- rule(ruleCtx)
 		}()
 
 		select {
 		case result := <-resultChan:
+			// 规则已在超时前结束（channel 缓冲 1，发送即最后一步）：
+			// 把它登记的副作用搬回本次匹配会话。
+			if ruleCtx != ctx {
+				ctx.adoptRuleEffects(ruleCtx)
+			}
 			return result
 		case <-time.After(timeout):
 			logger.WithFields(logger.Fields{

@@ -62,7 +62,12 @@ type Context struct {
 	// pendingRuleEffects 收集规则在 Match 过程中登记的延迟副作用
 	// （如 OnCooldown 的冷却写入）。由引擎在当前 matcher 的全部规则
 	// 通过后统一提交，任一规则失败则丢弃。
-	// 仅在单个 matcher 的 Match 周期内使用（单 goroutine），不参与 Clone。
+	//
+	// 写入者约定：只有"正在为本次匹配求值"的规则才登记副作用（引擎 goroutine
+	// 同步调用 Rules，或 [WithTimeout] 在超时前返回后由 adoptRuleEffects 并入），
+	// 因此本字段的读写始终发生在引擎 goroutine 上。超时后仍在运行的规则
+	// goroutine 工作在派生 Context 上，登记项不会进入这里。
+	// 不参与 Clone。
 	pendingRuleEffects []func()
 }
 
@@ -101,6 +106,22 @@ func (ctx *Context) DiscardPendingRuleEffects() {
 		return
 	}
 	ctx.pendingRuleEffects = nil
+}
+
+// adoptRuleEffects 把派生 Context 上登记的延迟副作用并入当前匹配会话。
+//
+// 供 [WithTimeout] 在包装的规则于超时前返回时调用：该规则在派生 Context
+// 上执行（避免超时返回后与引擎推进的匹配会话互相污染），副作用需要搬回
+// 本次匹配的 Context 才会被引擎提交。
+//
+// 只在规则 goroutine 已经结束（收到结果）后调用；超时路径不搬运——
+// 迟到登记的副作用留在派生 Context 里，随副本一起被 GC。
+func (ctx *Context) adoptRuleEffects(from *Context) {
+	if ctx == nil || from == nil || len(from.pendingRuleEffects) == 0 {
+		return
+	}
+	ctx.pendingRuleEffects = append(ctx.pendingRuleEffects, from.pendingRuleEffects...)
+	from.pendingRuleEffects = nil
 }
 
 // Cancel 主动释放 Clone 创建的 context 资源。
