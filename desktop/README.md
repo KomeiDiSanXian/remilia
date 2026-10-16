@@ -124,9 +124,11 @@ release 与 debug 签名不同，手机上从 debug 包换装 release 包需先�
 | 场景 | 行为 |
 | --- | --- |
 | 打 `v*` 标签 | 由 `release.yml`（GoReleaser 建好 Release 后）调用，构建并上传 `remilia_android_arm64.apk` 到同一个 Release |
-| `workflow_dispatch` 手动 | 随时出一份，产物是 workflow artifact（保留 7 天），不碰 Release |
+| `workflow_dispatch` 手动 | 填了 `tag`（如 `v1.73.0`）就按该标签同步版本号并把 APK 发布到对应 Release（可用来给已发布的版本补包），留空则只产出 workflow artifact（保留 7 天） |
 | PR 改到 `desktop/**` 或该工作流 | 跑一次构建验证（走 release + R8 路径，能提前发现混淆/链接问题），产物同样是 artifact |
 | 普通 push、改 Go/文档/dashboard | **不触发** |
+
+手动补包的写法：`gh workflow run android.yml --ref master -f tag=v1.73.0`（或网页上 Actions → Android → Run workflow）。
 
 发布资产文件名固定为 `remilia_android_arm64.apk`，因此可以直接用固定链接下载
 （手机浏览器打开即可安装）：`https://github.com/KomeiDiSanXian/remilia/releases/latest/download/remilia_android_arm64.apk`。
