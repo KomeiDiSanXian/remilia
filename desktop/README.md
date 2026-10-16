@@ -156,6 +156,21 @@ CI 上签名依赖四个 Repository secrets（未配置时工作流仍会跑，�
   Gradle 调用时报 `Cannot find module ...\tauri`，改回 `"""npx"""` 即可；
   用 `npx tauri android init` 触发则不会踩到。
 
+### 依赖版本配对（重要）
+
+Tauri 要求「npm 包 ↔ Rust crate」保持同一 major.minor，`tauri build` 会在编译前直接失败
+（`Found version mismatched Tauri packages`）。对应四对：
+
+| npm（`desktop/package.json`） | crate（`src-tauri/Cargo.toml`） |
+| --- | --- |
+| `@tauri-apps/api` | `tauri` |
+| `@tauri-apps/plugin-shell` | `tauri-plugin-shell` |
+| `@tauri-apps/plugin-updater` | `tauri-plugin-updater` |
+| `@tauri-apps/plugin-process` | `tauri-plugin-process` |
+
+因此两侧都用 `~x.y` 锁住 minor：单边刷新 lock（例如一次依赖分组 PR）不会被顶到新 minor 而配对失败。
+跨 minor 升级时请在同一个提交里同时改两侧，并一起更新 `package-lock.json` 与 `Cargo.lock`。
+
 ## 自动更新
 
 桌面端通过 Tauri updater 从 GitHub Releases 拉取签名更新：
