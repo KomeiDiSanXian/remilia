@@ -60,7 +60,7 @@ func (e *Engine) processEventGuard(ctx *context.Context) {
 //     → 直接返回 cc.handlers[0]；零锁、零函数调用、零 reflect。
 //
 //  2. 慢速路径（链首次编译或链/handler 变更后）
-//     RLock 读取 Handler → ensureChain → getOrBuildIterChain
+//     RLock 读取 Handler → buildHandlerChain（校验快照一致性后写入缓存）
 //
 //  3. 终止路径
 //     deleted 或 handler == nil 时提前返回
@@ -97,11 +97,9 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			return
 		}
 
-		// 确保中间件链是最新的（gen 不匹配时重建）
-		mwState := e.middleware.Load()
-		e.ensureMatcherChainWithState(m, mwState)
-		chain, _, _ := m.getChainCache()
-		finalHandler = e.getOrBuildIterChain(m, chain, handlerErr)
+		// 确保中间件链是最新的（gen 不匹配时重建），并在写入缓存前
+		// 校验快照未被并发中间件变更污染（见 buildHandlerChain）。
+		finalHandler = e.buildHandlerChain(m, handlerErr)
 	}
 
 	recordHandlerError := func(err error) {
@@ -178,6 +176,9 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 //   - invalidateCombinedChain()：中间件链重建时
 //   - ensureChain()：combined chain 实际更新时
 //   - Handle()：handler 更换时
+//
+// 注意：调用方必须保证传入的 chain 与当前中间件状态一致
+// （invokeHandler 走 buildHandlerChain，它会做这项校验）。
 func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he context.Handler) context.Handler {
 	cv := m.compiledVersion.Load()
 
@@ -185,39 +186,93 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 		return cc.head
 	}
 
+	head := e.composeIterChain(chain, he)
+	m.compiledHandlers.Store(&compiledChain{head: head, version: cv})
+	return head
+}
+
+// buildHandlerChain 构建 matcher 的中间件处理链并写入缓存。
+//
+// 事件协程可能与中间件变更（Use / UseForGroup / ResetMiddlewares）并发：
+// 读到旧中间件状态后缓存又被失效（compiledVersion 自增、combinedChain 清空），
+// 若此时用旧链填充缓存并把版本号写成失效后的新值，之后热路径会长期命中这份
+// 旧链——鉴权、日志等中间件被整体跳过。
+//
+// 因此写入缓存前必须确认快照仍然有效：版本号未变，且链的代际号与当前中间件
+// 状态一致。校验失败说明构建期间发生了并发变更，重新读取状态重试；连续失败时
+// 退化为构建一次但不写缓存，保证本次事件仍使用最新中间件。
+func (e *Engine) buildHandlerChain(m *Matcher, he context.Handler) context.Handler {
+	for range maxHandlerChainBuildAttempts {
+		mwState := e.middleware.Load()
+		e.ensureMatcherChainWithState(m, mwState)
+		chain, chainGlobalGen, chainGroupGen := m.getChainCache()
+		cv := m.compiledVersion.Load()
+
+		head := e.composeIterChain(chain, he)
+		m.compiledHandlers.Store(&compiledChain{head: head, version: cv})
+
+		if e.chainSnapshotValid(m, cv, chainGlobalGen, chainGroupGen) {
+			return head
+		}
+	}
+
+	// 极端情况下（构建期间持续发生中间件变更）不再写缓存，
+	// 直接用当前状态构建，避免把过期链固化下来。
+	mwState := e.middleware.Load()
+	e.ensureMatcherChainWithState(m, mwState)
+	chain, _, _ := m.getChainCache()
+	return e.composeIterChain(chain, he)
+}
+
+// chainSnapshotValid 判断构建 handler 链时使用的快照是否仍然有效：
+// compiledVersion 未变化，且组合链记录的中件间代际号与当前中间件状态一致。
+func (e *Engine) chainSnapshotValid(m *Matcher, cv, chainGlobalGen, chainGroupGen uint64) bool {
+	if m.compiledVersion.Load() != cv {
+		return false
+	}
+	globalGen, groupGen := e.middlewareGensFor(m)
+	return globalGen == chainGlobalGen && groupGen == chainGroupGen
+}
+
+// middlewareGensFor 返回 matcher 所属分组当前的全局/分组中间件代际号。
+func (e *Engine) middlewareGensFor(m *Matcher) (globalGen, groupGen uint64) {
+	mwState := e.middleware.Load()
+	if mwState == nil {
+		return 0, 0
+	}
+	if snap := mwState.groupMiddlewares[m.group]; snap != nil {
+		groupGen = snap.gen
+	}
+	return mwState.global.gen, groupGen
+}
+
+// composeIterChain 把中间件链与业务 handler 组合成单一入口 handler。
+//
+// 从右向左构建，让每个中间件闭包捕获已构建好的 "next"：
+//
+//	tmp[N]   = he                       (actual handler)
+//	tmp[N-1] = chain[N-1](tmp[N])       (innermost middleware)
+//	...
+//	tmp[0]   = chain[0](tmp[1])         (outermost middleware)
+//
+// 只返回 tmp[0]（入口）；tmp[1..N] 通过闭包捕获保持存活，不依赖切片。
+func (e *Engine) composeIterChain(chain []context.Middleware, he context.Handler) context.Handler {
 	// Fast path: no middleware → call handler directly, zero overhead.
-	// Still cache in compiledHandlers so invokeHandler's fast path skips
-	// the entire ensureMatcherChainWithState + getChainCache on every event.
 	if len(chain) == 0 {
-		m.compiledHandlers.Store(&compiledChain{head: he, version: cv})
 		return he
 	}
 
-	// Slow path: compose the middleware chain once and cache only the head.
-	//
-	// We build right-to-left using a temporary local slice so each closure
-	// can capture the already-built "next" value:
-	//
-	//   tmp[N]   = he                       (actual handler)
-	//   tmp[N-1] = chain[N-1](tmp[N])       (innermost middleware)
-	//   ...
-	//   tmp[0]   = chain[0](tmp[1])         (outermost middleware)
-	//
-	// Only tmp[0] (head) is stored in compiledChain; tmp[1..N] are kept alive
-	// through the closure capture chain, not through the slice.
 	tmp := make([]context.Handler, len(chain)+1)
 	tmp[len(chain)] = he
 	for i := len(chain) - 1; i >= 0; i-- {
 		tmp[i] = chain[i](tmp[i+1])
 	}
 
-	cc := &compiledChain{
-		head:    tmp[0],
-		version: cv,
-	}
-	m.compiledHandlers.Store(cc)
 	return tmp[0]
 }
+
+// maxHandlerChainBuildAttempts 限制 buildHandlerChain 在并发中间件变更下的重试次数。
+const maxHandlerChainBuildAttempts = 4
 
 // startPendingDeleteProcessor 启动批量删除处理器
 //

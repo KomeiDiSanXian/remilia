@@ -106,6 +106,10 @@ type Matcher struct {
 //
 // version 反映构建时 m.compiledVersion 的快照；版本不匹配
 // 会在下次慢路径调用时触发重建。
+//
+// 只有当组合链与当前中间件状态一致时（见 buildHandlerChain）才会写入缓存：
+// 否则版本快照可能取自并发失效之后，而链内容仍是失效之前的旧值，
+// 热路径会长期误用旧链。
 type compiledChain struct {
 	head    context.Handler // 入口：包裹实际 handler 的最外层中间件
 	version uint64          // 编译时 m.compiledVersion 的快照
