@@ -2,6 +2,7 @@ package context
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -485,6 +486,18 @@ var (
 	cooldownStoreOnce sync.Once
 )
 
+// cooldownNamespaceSeq 为每个使用默认 key 的 OnCooldown 规则生成命名空间。
+//
+// 冷却表是进程级全局单表：默认 key 若只取发送者 ID，所有命令共用一条记录，
+// 一个命令触发冷却会让其它命令在窗口内静默不响应。命名空间是规则身份的唯一
+// 可用标识（规则求值时引擎尚未注入当前 matcher，见 Context.SetMatcher 调用点），
+// 因此为每次 OnCooldown 调用分配一个序号作为默认 key 前缀。
+//
+// 同一规则实例被多个 matcher 复用时共享同一命名空间——这正是"共用冷却"的
+// 显式写法；重复注册（如插件重载）会产生新命名空间，冷却随之重置，需要跨
+// 注册保留冷却时应显式提供 keyFn。
+var cooldownNamespaceSeq atomic.Uint64
+
 func initCooldownStore() {
 	cooldownStoreOnce.Do(func() {
 		c, err := lru.New[string, time.Time](50000)
@@ -499,7 +512,11 @@ func initCooldownStore() {
 // 同一用户在 d 时间内只允许触发一次；冷却期间该规则返回 false，事件不匹配。
 //
 // keyFn 用于从 Context 中提取冷却 key（通常是用户 ID）。
-// 若 keyFn 为 nil，则默认使用 ctx.GetSenderInfo().ID（平台无关）。
+// 若 keyFn 为 nil，则默认使用 ctx.GetSenderInfo().ID（平台无关），并自动
+// 加上本规则实例的命名空间：不同 OnCooldown 调用（通常对应不同命令）的冷却
+// 相互独立，不会出现「/sign 冷却中导致 /daily 也无法触发」。
+// 传入 keyFn 时 key 完全由调用方决定（前缀、命名空间、跨规则共享都由 keyFn
+// 负责），框架不再添加任何前缀。
 //
 // # 副作用语义（延迟提交）
 //
@@ -518,15 +535,24 @@ func initCooldownStore() {
 //	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/sign"), OnCooldown(24*time.Hour, nil)).Handle(signHandler)
 func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
 	initCooldownStore()
-	if keyFn == nil {
+
+	explicitKey := keyFn != nil
+	namespace := ""
+	if !explicitKey {
+		namespace = strconv.FormatUint(cooldownNamespaceSeq.Add(1), 36) + ":"
 		keyFn = func(ctx *Context) string {
 			return ctx.GetSenderInfo().ID
 		}
 	}
+
 	return func(ctx *Context) bool {
 		key := keyFn(ctx)
 		if key == "" {
 			return true // 无法确定 key，放行
+		}
+		if !explicitKey {
+			// 默认 key 隔离到本规则：见 cooldownNamespaceSeq 说明
+			key = namespace + key
 		}
 		now := time.Now()
 		if last, ok := cooldownStore.Get(key); ok && now.Sub(last) < d {
