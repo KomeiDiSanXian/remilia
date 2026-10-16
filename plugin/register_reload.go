@@ -14,6 +14,17 @@ import (
 // reload 重载插件（实现 pluginInternal）
 // ctx 用于控制超时：若 context 到期，跳过卸载/加载步骤并返回 ctx.Err()。
 func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordinator) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Setup 在飞（Loading）时不能开始重载：与卸载同理，重载的第一步可能是
+	// unload（Dispose/Teardown），会与在飞的 Setup 交叠并把它的收尾结果
+	// 一起撤销（见 waitForLoading）。等锁外完成等待，避免持锁等待 Setup 收尾。
+	if err := pi.waitForLoading(ctx); err != nil {
+		return err
+	}
+
 	pi.mu.Lock()
 	// 与状态置位同锁完成检查，防止并发 Reload/Unregister 交叠执行双重热重载
 	switch pi.state {
@@ -23,6 +34,10 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 	case Unloading:
 		pi.mu.Unlock()
 		return fmt.Errorf("plugin %q is being unloaded", pi.desc.Name)
+	case Loading:
+		// 等待结束后又出现了新的 Setup：放弃本次重载，避免双重 Setup
+		pi.mu.Unlock()
+		return fmt.Errorf("plugin %q is still loading, retry after load completes", pi.desc.Name)
 	}
 	oldContext := pi.setupContext
 	pi.state = Reloading

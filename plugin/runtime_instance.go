@@ -60,6 +60,39 @@ func (pi *Instance) tryTransition(from, to State) bool {
 	return true
 }
 
+// loadingWaitInterval 是等待在飞 Setup 结束的轮询间隔。
+// 注销/重载是管理冷路径，10ms 级延迟可接受。
+const loadingWaitInterval = 10 * time.Millisecond
+
+// waitForLoading 等待实例离开 Loading 状态（Setup 在飞时阻塞到其结束）。
+//
+// 实例在 Setup 开始前就以 Loading 入表、Setup 在锁外执行（见 registerPreSetup
+// 与 load）。若此时直接 unload/reload：
+//   - 清理会先于 Setup 完成执行：rootScope 可能尚未创建（其订阅/钩子无人
+//     Dispose）、Teardown 与在飞的 Setup 并发；
+//   - 随后 Setup 成功收尾会把状态改回 Loaded、把 API 写回容器、Matcher 注册
+//     进引擎——这些资源已无人管理（幽灵命令持续响应、容器残留已卸载插件）。
+//
+// 因此 Unregister/reload 先在此排队等待 Setup 结束，再走各自的正常流程。
+// 返回错误：等待期间 ctx 到期（Setup 可能挂起，此时应使用 ForceUnregister
+// 强制移除，其语义即"不等待清理"）。
+func (pi *Instance) waitForLoading(ctx context.Context) error {
+	for {
+		pi.mu.RLock()
+		loading := pi.state == Loading
+		name := pi.desc.Name
+		pi.mu.RUnlock()
+		if !loading {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("plugin %q is still loading: %w", name, ctx.Err())
+		case <-time.After(loadingWaitInterval):
+		}
+	}
+}
+
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
 
 // load 加载插件（实现 pluginInternal）

@@ -122,7 +122,24 @@ func (pm *Manager) ListAllGoroutines() []GoroutineInfo { return pm.stats.ListGor
 // Manager 锁外执行。旧实现全程持有写锁，一旦 Teardown 或插件后台 goroutine
 // 调用任何 Manager API（如 ctx.Info.IsLoaded），整个 Manager 会永久死锁。
 // 通过先将状态置为 Unloading 防止并发的重复注销。
+//
+// 若插件正处于 Setup（Loading）阶段，先等待其结束再注销（受 ctx 约束），
+// 避免清理先于 Setup 完成、随后又被 Setup 收尾写回（见 Instance.waitForLoading）。
 func (pm *Manager) Unregister(ctx context.Context, name string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 等待在飞的 Setup 结束：在锁外进行，Setup 收尾需要 pm.mu 时不会死锁
+	pm.mu.RLock()
+	pending, hasPending := pm.plugins[name]
+	pm.mu.RUnlock()
+	if hasPending && pending != nil {
+		if err := pending.waitForLoading(ctx); err != nil {
+			return err
+		}
+	}
+
 	pm.mu.Lock()
 	inst, exists := pm.plugins[name]
 	if !exists {
@@ -130,9 +147,15 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
-	if inst.GetState() == Unloading {
+	switch inst.GetState() {
+	case Unloading:
 		pm.mu.Unlock()
 		return fmt.Errorf("plugin %s is already being unregistered", name)
+	case Loading:
+		// 等待期间又开始了新的 Setup（如并发 Register/StartAll）：放弃本次注销，
+		// 由调用方在加载结束后重试，避免与在飞 Setup 交叠
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %s is still loading, retry after load completes", name)
 	}
 	inst.SetState(Unloading)
 	pm.mu.Unlock()
