@@ -13,14 +13,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
-tauri-plugin-shell = "2"
+# 配对约束：tauri / tauri-plugin-* 这些 crate 与 npm 侧的 @tauri-apps/* 必须保持同一
+# major.minor，否则 `tauri build` 会在编译前直接报 "version mismatched Tauri packages"。
+# 这里用 ~ 锁住 minor：单边刷新 lock（例如某次依赖 PR）不会被顶到新的 minor 而配对失败；
+# 跨 minor 升级时请在同一个提交里同时改 Cargo.toml 与 desktop/package.json 两侧。
+tauri = { version = "~2.12", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "~2.5"
 # 自动更新：updater 负责检查/下载/校验签名，process 提供安装完成后的 relaunch
 # 注意：Cargo.lock 把 zip 固定为 4.6.1（Windows 下 updater 依赖 zip ^4）。
 # zip 2.x/4.x 已被上游全部 yank，新解析会失败，请不要 `cargo update zip`
 # 或删除锁文件；等 updater 支持 zip 5+ 后再解除。
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
+tauri-plugin-updater = "~2.14"
+tauri-plugin-process = "~2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
