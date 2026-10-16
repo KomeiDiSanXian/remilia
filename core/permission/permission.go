@@ -284,15 +284,26 @@ func (pm *Manager) AssignRole(userID, roleName string) error {
 }
 
 // RevokeRole removes roleName from userID.
+//
+// 结果为空时删除该用户的映射条目：否则对不存在/已无角色的用户调用会写入
+// 空切片条目，userRoles 随调用次数无界增长，并被 ExportUserRoles 带进
+// 持久化数据（对照 [Manager.RemoveRole] 的 delete 语义）。
 func (pm *Manager) RevokeRole(userID, roleName string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	roles := pm.userRoles[userID]
+	roles, ok := pm.userRoles[userID]
+	if !ok {
+		return
+	}
 	filtered := make([]string, 0, len(roles))
 	for _, r := range roles {
 		if r != roleName {
 			filtered = append(filtered, r)
 		}
+	}
+	if len(filtered) == 0 {
+		delete(pm.userRoles, userID)
+		return
 	}
 	pm.userRoles[userID] = filtered
 }
@@ -310,15 +321,25 @@ func (pm *Manager) GrantPermission(userID string, perm Permission) {
 }
 
 // RevokePermission removes exact matches of perm from userID's direct permissions.
+//
+// 结果为空时删除该用户的映射条目（同 [Manager.RevokeRole]）：避免为不存在/
+// 已无权限的用户留下空切片条目，污染 ExportUserPerms 的持久化数据。
 func (pm *Manager) RevokePermission(userID string, perm Permission) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	perms := pm.userPerms[userID]
+	perms, ok := pm.userPerms[userID]
+	if !ok {
+		return
+	}
 	filtered := make([]Permission, 0, len(perms))
 	for _, p := range perms {
 		if p.Resource != perm.Resource || p.Action != perm.Action {
 			filtered = append(filtered, p)
 		}
+	}
+	if len(filtered) == 0 {
+		delete(pm.userPerms, userID)
+		return
 	}
 	pm.userPerms[userID] = filtered
 }
