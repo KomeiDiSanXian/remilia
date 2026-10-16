@@ -81,6 +81,8 @@ npx tauri android build --debug --apk --target aarch64  # debug 包，arm64 手�
 
 产物：`src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`。
 debug 包保留完整调试符号，体积偏大（约 200 MB）属正常，要小体积请出 release 包。
+若某次打包后 APK 体积异常（例如突然翻倍），删掉 `src-tauri/gen/android/app/build`
+再打一次即可（Gradle 增量打包会残留上一版的原生库数据）。
 
 安装（手机打开 USB 调试，或直接把 APK 传到手机点击安装）：
 
