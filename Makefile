@@ -64,6 +64,10 @@ else
 	cd plugin/wasm/testdata/tinygoplugin && tinygo build -o tinygoplugin.wasm -target=wasi . && cp tinygoplugin.wasm ../
 endif
 
+# 构建远程执行节点（Linux amd64 静态二进制，部署到远程主机）
+executor-build:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build -o bin/remilia-executor-linux-amd64 ./cmd/executor
+
 build-wasm-showcase:
 	cd examples/showcase/wasm && tinygo build -o ../demo.wasm -target=wasi .
 

@@ -174,6 +174,14 @@ func (m *Manager) Allowed() []string {
 	return out
 }
 
+// Timeout 返回单次执行超时（供节点自述与客户端展示）。
+func (m *Manager) Timeout() time.Duration {
+	if m == nil {
+		return 0
+	}
+	return m.timeout
+}
+
 // Run 执行一次受控进程调用。
 //
 // 只有"无法开始执行"（未配置、命令不允许、工作目录非法、可执行文件不存在）

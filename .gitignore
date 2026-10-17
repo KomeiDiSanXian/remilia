@@ -63,3 +63,7 @@ logs/
 
 # 抓取/调研临时产物（http_request 落盘、素材下载、OCR 中间结果）
 .fetch/
+
+# GoReleaser / 本地构建输出
+/dist/
+/bin/
