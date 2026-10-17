@@ -345,6 +345,27 @@ func (pi *Instance) coordinatorOrNil() engine.GroupWriter {
 	return nil
 }
 
+// waitForSettledState 等待在飞的加载/重载结束（Loading/Reloading → 其它状态）。
+//
+// StopAll 等停机路径需要它：直接跳过 Loading/Reloading 会让停机后旧实例仍
+// 持有订阅与 Matcher，且在飞重载的收尾还会向已停机的 Manager 提交通知。
+// 等待受调用方 ctx 约束（超时返回 ctx.Err()）。
+func (pi *Instance) waitForSettledState(ctx context.Context) error {
+	for {
+		switch pi.GetState() {
+		case Loading, Reloading:
+			// 继续等待
+		default:
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(loadingWaitInterval):
+		}
+	}
+}
+
 // dependencies 返回依赖列表（实现 pluginInternal）
 func (pi *Instance) dependencies() []string { return pi.desc.Deps }
 

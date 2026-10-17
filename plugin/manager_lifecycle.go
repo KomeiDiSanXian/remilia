@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync/atomic"
@@ -122,6 +123,9 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 	lc.pm.mu.RUnlock()
 
 	var errs []error
+	// skipped 记录本次未被停止的插件（状态不允许卸载），停机后一并告警：
+	// 静默跳过会让"停机了但插件还在响应事件"难以定位。
+	var skipped []string
 	// 从后往前遍历
 	for _, name := range slices.Backward(order) {
 		select {
@@ -139,7 +143,30 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 		// 原子转换：与 StartAll 的 tryTransition 对称，防止并发 StopAll 或
 		// 与 Reload/Unregister 交叠时对同一实例重复执行 unload。
 		if !inst.tryTransition(Loaded, Unloading) && !inst.tryTransition(Disabled, Unloading) {
-			continue
+			state := inst.GetState()
+			// 在飞的加载/重载：直接跳过会让停机后旧实例仍持有订阅与 Matcher，
+			// 且在飞重载的收尾还会向已停机的 Manager 提交通知。在停机预算内
+			// 等它落定后再尝试一次转换。
+			if state == Loading || state == Reloading {
+				if err := inst.waitForSettledState(ctx); err != nil {
+					skipped = append(skipped, name+":"+inst.GetState().String())
+					logger.WithField("plugin", name).WithError(err).
+						Warn("[PluginManager] StopAll: gave up waiting for in-flight load/reload")
+					// 调用方需要知道停机不完整：与 Teardown 失败一致计入错误
+					errs = append(errs, fmt.Errorf("plugin %q: wait for in-flight %s: %w",
+						name, inst.GetState().String(), err))
+					continue
+				}
+				if !inst.tryTransition(Loaded, Unloading) && !inst.tryTransition(Disabled, Unloading) {
+					skipped = append(skipped, name+":"+inst.GetState().String())
+					continue
+				}
+			} else {
+				// Error/Unloaded/Unloading：不可在此路径卸载（Error 需 Retry 或
+				// ForceUnregister），记录以免停机后"以为都停了"。
+				skipped = append(skipped, name+":"+state.String())
+				continue
+			}
 		}
 		if err := inst.unload(ctx, lc.pm.coordinator); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] StopAll: plugin %s failed to stop", name)
@@ -156,12 +183,19 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 	// 停止 Manager 自身的后台 goroutine
 	lc.Shutdown()
 
+	if len(skipped) > 0 {
+		logger.WithField("plugins", skipped).
+			Warnf("[PluginManager] StopAll: %d plugin(s) were not stopped", len(skipped))
+	}
+
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
 		for i, e := range errs {
 			msgs[i] = e.Error()
 		}
-		return fmt.Errorf("StopAll: %d plugin(s) failed: %v", len(errs), msgs)
+		// errors.Join 保留错误链：调用方可用 errors.Is 判断原因
+		// （如 ctx 到期导致停机不完整）
+		return fmt.Errorf("StopAll: %d plugin(s) failed: %v: %w", len(errs), msgs, errors.Join(errs...))
 	}
 	return nil
 }
