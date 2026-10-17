@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -105,25 +106,51 @@ func (cc *configController) propagateConfigChangeAttempt(attempt int) {
 			})
 			return
 		}
-		logger.Warn("[Manager] Config change notification skipped after retries: write lock held")
+		// 重试耗尽：此前直接丢弃通知，插件会永久错过这次 OnChange（配置已变、
+		// 运行时行为不变）。改为交给元数据 goroutine 阻塞等待写锁后完成广播：
+		// 既不占用调用方 goroutine，也不会在停机后触发（metaGM 停机时会取消）。
+		if gm := cc.pm.lifecycle.metaManager(); gm != nil && !gm.isStopped() {
+			logger.Debug("[Manager] Config change notification deferred to metadata goroutine after retries")
+			gm.goNamed_("config-notify-final", func(context.Context) {
+				cc.pm.mu.RLock()
+				toReload := cc.collectConfigReloadsLocked()
+				cc.pm.mu.RUnlock()
+				cc.reloadPluginConfigs(toReload)
+			})
+			return
+		}
+		logger.Warn("[Manager] Config change notification skipped: manager shut down")
 		return
 	}
-	type nameConfig struct {
-		name string
-		cfg  Config
-	}
-	toReload := make([]nameConfig, 0, len(cc.pm.loadOrder))
+	toReload := cc.collectConfigReloadsLocked()
+	cc.pm.mu.RUnlock()
+
+	cc.reloadPluginConfigs(toReload)
+}
+
+// pendingConfigReload 是待广播的插件配置快照（持锁收集，锁外重载）。
+type pendingConfigReload struct {
+	name string
+	cfg  Config
+}
+
+// collectConfigReloadsLocked 在持有 pm.mu 读锁时收集需要重载配置的插件。
+func (cc *configController) collectConfigReloadsLocked() []pendingConfigReload {
+	toReload := make([]pendingConfigReload, 0, len(cc.pm.loadOrder))
 	for _, name := range cc.pm.loadOrder {
 		inst, exists := cc.pm.plugins[name]
 		if !exists {
 			continue
 		}
 		if cfg := inst.GetConfig(); cfg != nil {
-			toReload = append(toReload, nameConfig{name, cfg})
+			toReload = append(toReload, pendingConfigReload{name, cfg})
 		}
 	}
-	cc.pm.mu.RUnlock()
+	return toReload
+}
 
+// reloadPluginConfigs 在锁外执行插件配置重载（可能触发插件回调）。
+func (cc *configController) reloadPluginConfigs(toReload []pendingConfigReload) {
 	for _, nc := range toReload {
 		if err := nc.cfg.Reload(); err != nil {
 			logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", nc.name)
