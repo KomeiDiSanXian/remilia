@@ -326,6 +326,64 @@ func TestMemStoreListActive(t *testing.T) {
 	}
 }
 
+func TestMemStoreListRecent(t *testing.T) {
+	store := NewMemStore()
+	base := time.Now()
+	first := New("第一个", "s1", "u1", "c1", "qq")
+	first.UpdatedAt = base.Add(-2 * time.Minute)
+	second := New("第二个", "s2", "u1", "c1", "qq")
+	second.UpdatedAt = base.Add(-time.Minute)
+	third := New("第三个", "s3", "u1", "c1", "qq")
+	third.UpdatedAt = base
+	for _, tk := range []*Task{second, third, first} {
+		if err := store.Save(tk); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	recent, err := store.ListRecent(0)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(recent) != 3 || recent[0].ID != third.ID || recent[2].ID != first.ID {
+		t.Fatalf("ListRecent order = %+v", recent)
+	}
+
+	capped, err := store.ListRecent(2)
+	if err != nil || len(capped) != 2 || capped[0].ID != third.ID {
+		t.Fatalf("ListRecent(2) = (%+v, %v)", capped, err)
+	}
+}
+
+func TestGormStoreListRecent(t *testing.T) {
+	client := openTaskTestDB(t)
+	store, err := NewGormStore(client)
+	if err != nil {
+		t.Fatalf("NewGormStore: %v", err)
+	}
+
+	base := time.Now()
+	first := New("第一个", "s1", "u1", "c1", "qq")
+	first.CreatedAt, first.UpdatedAt = base.Add(-2*time.Minute), base.Add(-2*time.Minute)
+	second := New("第二个", "s2", "u1", "c1", "qq")
+	second.CreatedAt, second.UpdatedAt = base.Add(-time.Minute), base.Add(-time.Minute)
+	third := New("第三个", "s3", "u1", "c1", "qq")
+	third.CreatedAt, third.UpdatedAt = base, base
+	for _, tk := range []*Task{second, third, first} {
+		if err := store.Save(tk); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	recent, err := store.ListRecent(2)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(recent) != 2 || recent[0].ID != third.ID || recent[1].ID != second.ID {
+		t.Fatalf("ListRecent = %+v", recent)
+	}
+}
+
 func TestNoopStore(t *testing.T) {
 	var store NoopStore
 	if err := store.Save(New("目标", "s", "u", "c", "p")); err != nil {

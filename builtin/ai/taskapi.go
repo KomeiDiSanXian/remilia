@@ -40,6 +40,15 @@ func (p *Plugin) TasksBySession(sessionID string, limit int) ([]*task.Task, erro
 	return list, nil
 }
 
+// RecentTasks 返回最近更新的任务（跨会话，按更新时间倒序），供管理面展示；
+// limit <= 0 时取默认上限。
+func (p *Plugin) RecentTasks(limit int) ([]*task.Task, error) {
+	if p == nil {
+		return nil, nil
+	}
+	return p.taskStore().ListRecent(limit)
+}
+
 // TaskByID 按任务 ID 查询任务；不存在时返回 [task.ErrNotFound]。
 func (p *Plugin) TaskByID(id string) (*task.Task, error) {
 	if p == nil {

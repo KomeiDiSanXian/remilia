@@ -3,6 +3,7 @@
 // 端点（Bearer 认证，与其它 /api/v1 一致）：
 //
 //	GET  /api/v1/ai/tasks?session=<id>&limit=50   会话的任务记录（倒序）
+//	GET  /api/v1/ai/tasks?limit=50                最近更新的任务（跨会话，管理面板用）
 //	GET  /api/v1/ai/tasks/{id}                    任务详情
 //	POST /api/v1/ai/tasks/{id}/cancel             取消任务（同步取消会话计划）
 //
@@ -39,28 +40,39 @@ func (s *Server) resolveAI() *ai.Plugin {
 }
 
 // handleListAITasks 处理 GET /api/v1/ai/tasks?session=<id>&limit=50。
+//
+// 带 session 参数时返回该会话的任务记录；不带时返回最近更新的任务（跨会话），
+// 供管理面板使用。
 func (s *Server) handleListAITasks(w http.ResponseWriter, r *http.Request) {
 	p := s.resolveAI()
 	if p == nil {
 		writeErr(w, 404, "ai plugin not available", http.StatusNotFound)
 		return
 	}
-	sessionID := r.URL.Query().Get("session")
-	if sessionID == "" {
-		writeErr(w, 400, "session query parameter is required", http.StatusBadRequest)
-		return
-	}
 	limit := parseLimit(r.URL.Query().Get("limit"), defaultAITaskLimit)
-	list, err := p.TasksBySession(sessionID, limit)
+	sessionID := r.URL.Query().Get("session")
+
+	var (
+		list []*task.Task
+		err  error
+	)
+	if sessionID == "" {
+		list, err = p.RecentTasks(limit)
+	} else {
+		list, err = p.TasksBySession(sessionID, limit)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeOK(w, map[string]any{
-		"tasks":   list,
-		"count":   len(list),
-		"session": sessionID,
-	})
+	data := map[string]any{
+		"tasks": list,
+		"count": len(list),
+	}
+	if sessionID != "" {
+		data["session"] = sessionID
+	}
+	writeOK(w, data)
 }
 
 // handleGetAITask 处理 GET /api/v1/ai/tasks/{id}。

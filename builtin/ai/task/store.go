@@ -26,6 +26,12 @@ var ErrNotFound = errors.New("task: not found")
 // ErrNilStorageClient 调用方传入了 nil 存储客户端。
 var ErrNilStorageClient = errors.New("task: nil storage client")
 
+// DefaultRecentLimit / MaxRecentLimit "最近任务"查询的默认与最大条数。
+const (
+	DefaultRecentLimit = 50
+	MaxRecentLimit     = 200
+)
+
 // Store 任务持久化端口。
 type Store interface {
 	// Save 保存任务（主键存在时整记录覆盖）。
@@ -39,6 +45,9 @@ type Store interface {
 	// ListActive 返回全部活动（非终态）任务，按创建时间正序；无记录时返回空切片。
 	// 供进程启动时恢复中断任务使用。
 	ListActive() ([]*Task, error)
+	// ListRecent 返回最近更新的任务（跨会话，按更新时间倒序），最多 limit 条；
+	// limit <= 0 时取默认上限。供管理面展示使用。
+	ListRecent(limit int) ([]*Task, error)
 }
 
 // Record 对应数据库表 ai_tasks 的任务持久化记录。
@@ -214,6 +223,29 @@ func (s *GormStore) ListActive() ([]*Task, error) {
 	return recordsToTasks(recs), nil
 }
 
+// ListRecent 返回最近更新的任务，按更新时间倒序。
+func (s *GormStore) ListRecent(limit int) ([]*Task, error) {
+	var recs []Record
+	if err := s.client.
+		Order("updated_at DESC").
+		Limit(normalizeRecentLimit(limit)).
+		Find(&recs); err != nil {
+		return nil, err
+	}
+	return recordsToTasks(recs), nil
+}
+
+// normalizeRecentLimit 归一化"最近任务"的查询上限。
+func normalizeRecentLimit(limit int) int {
+	if limit <= 0 {
+		return DefaultRecentLimit
+	}
+	if limit > MaxRecentLimit {
+		return MaxRecentLimit
+	}
+	return limit
+}
+
 // recordsToTasks 转换记录集；单条损坏（跨版本降级、手工改库）只跳过该条，
 // 不让整个查询失败。
 func recordsToTasks(recs []Record) []*Task {
@@ -344,6 +376,27 @@ func (m *MemStore) ListActive() ([]*Task, error) {
 	return out, nil
 }
 
+// ListRecent 返回最近更新的任务，按更新时间倒序。
+func (m *MemStore) ListRecent(limit int) ([]*Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Task, 0, len(m.tasks))
+	for _, t := range m.tasks {
+		out = append(out, t.Clone())
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return strings.Compare(out[i].ID, out[j].ID) > 0
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	limit = normalizeRecentLimit(limit)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // NoopStore 空实现，不进行任何持久化（DryRun 装配使用）。
 type NoopStore struct{}
 
@@ -361,3 +414,6 @@ func (NoopStore) ListBySession(string) ([]*Task, error) { return nil, nil }
 
 // ListActive 空实现，始终返回空切片。
 func (NoopStore) ListActive() ([]*Task, error) { return nil, nil }
+
+// ListRecent 空实现，始终返回空切片。
+func (NoopStore) ListRecent(int) ([]*Task, error) { return nil, nil }

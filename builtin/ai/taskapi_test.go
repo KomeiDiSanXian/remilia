@@ -54,6 +54,27 @@ func TestTaskAPIQueriesAndCancel(t *testing.T) {
 	}
 }
 
+func TestTaskAPIRecentTasks(t *testing.T) {
+	p := newTaskPlugin(t)
+	ctx := makeManageCtx("/ai", false)
+	create := planToolForTest(t, catalog.PlanCreateToolName)
+
+	for _, chat := range []string{"chat", "group-1"} {
+		sess := p.sm.GetOrCreate("synthetic:"+chat+":user", "user", chat)
+		pa := p.planAccessFor(ctx, sess)
+		execPlanTool(t, create, pa, map[string]any{"task": "任务 " + chat, "steps": []any{"第一步", "第二步"}})
+	}
+
+	recent, err := p.RecentTasks(0)
+	if err != nil || len(recent) != 2 {
+		t.Fatalf("RecentTasks = (%v, %v)", recent, err)
+	}
+	capped, err := p.RecentTasks(1)
+	if err != nil || len(capped) != 1 {
+		t.Fatalf("RecentTasks(1) = (%v, %v)", capped, err)
+	}
+}
+
 func TestTaskAPICancelFinishedTask(t *testing.T) {
 	p := newTaskPlugin(t)
 	ctx := makeManageCtx("/ai", false)
