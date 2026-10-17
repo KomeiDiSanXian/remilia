@@ -77,6 +77,16 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 	}
 	tool := snapshot.tool
 
+	// 参数结构校验：模型给出的参数必须满足工具声明。失败按工具级结果回填，
+	// 让模型按字段定位修正后重试；未声明参数的工具保持原有行为。
+	// 校验只覆盖 ToolParamSchema 能表达的约束，外部来源的复杂 Schema 不被误拒。
+	if err := protocol.ValidateArguments(tool.Parameters, tc.Arguments); err != nil {
+		return runtime.ActionResult{
+			Text: fmt.Sprintf("错误: 工具 %q 的参数不合法: %v；请按参数定义修正后重试", tc.Name, err),
+			Err:  err,
+		}
+	}
+
 	// 真实命令路径：来源判定在装配侧——只有确实登记了命令模式的动作才走合成
 	// 事件重放，命中后结果完全由命令通道负责（包括"命令执行了但没有输出"），
 	// 不再以"文本为空"回退到动作自身的占位 Execute 冒充成功。
