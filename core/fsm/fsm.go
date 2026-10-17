@@ -244,18 +244,29 @@ type sessionLister interface {
 }
 
 // ListSessions 返回当前所有会话的只读快照；存储后端不支持枚举时返回空切片。
+//
+// 每个会话在**会话锁内**深拷贝（含 Data）：并发的 TryTransition/EndSession
+// 在会话锁内原地改写 Current/UpdatedAt/Data，锁外读取既会读到撕裂的字段，
+// 也会在读写同一张 Data map 时触发数据竞争（concurrent map read/write）。
+// 需要实时对象请使用 [Engine.GetSession]（其生命周期由调用方与迁移协调）。
 func (e *Engine) ListSessions() []Session {
 	lister, ok := e.stores.(sessionLister)
 	if !ok {
 		return []Session{}
 	}
+	// 先取引用列表（存储锁内只保护 map 结构），再逐个在会话锁内快照：
+	// 反过来（持存储锁取会话锁）会与 TryTransition 的
+	// 会话锁 → 存储锁 顺序构成死锁。
 	all := lister.List()
 	sessions := make([]Session, 0, len(all))
 	for _, s := range all {
 		if s == nil {
 			continue
 		}
-		sessions = append(sessions, *s)
+		lk := e.sessionLock(s.ID)
+		lk.Lock()
+		sessions = append(sessions, s.snapshot())
+		lk.Unlock()
 	}
 	return sessions
 }

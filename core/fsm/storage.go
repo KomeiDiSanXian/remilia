@@ -1,6 +1,9 @@
 package fsm
 
-import "sync"
+import (
+	"maps"
+	"sync"
+)
 
 // Session 表示单个 FSM 会话的运行时状态。
 //
@@ -25,6 +28,16 @@ type Session struct {
 
 // Storage 是 FSM 会话的持久化接口。实现必须是并发安全的。
 // 默认实现是 [MemoryStorage]。
+//
+// # 所有权契约
+//
+//   - Get 返回的 *Session 归调用方临时持有：引擎在**会话锁内**原地改写
+//     Current/UpdatedAt/Data 后调用 Save 回写，因此实现不得在 Get 返回后
+//     复用该对象（Load/Save 语义）。
+//   - 只读枚举路径（如 [Engine.ListSessions]）必须使用快照：如果后端支持
+//     List，返回的会话必须是深拷贝（含 Data），不得暴露存储内部的活对象，
+//     否则枚举会与并发迁移竞争（数据竞争 / concurrent map read and write）。
+//   - 实现必须保证 Get 返回的会话 Data 非 nil（[Engine] 会直接写入）。
 type Storage interface {
 	// Get 按 ID 检索会话。未找到或已过期时返回 nil。
 	Get(sessionID string) *Session
@@ -75,7 +88,12 @@ func (s *MemoryStorage) Save(session *Session) {
 	s.sessions[session.ID] = session
 }
 
-// List 返回当前所有会话的浅拷贝快照（过期会话同样返回，由调用方自行过滤）。
+// List 返回当前所有会话（过期会话同样返回，由调用方自行过滤）。
+//
+// 返回的是存储内部会话的引用（与 Get 一致）：字段与 Data 的读取必须由
+// 调用方在会话锁内进行——引擎在迁移时于会话锁内原地改写
+// Current/UpdatedAt/Data，任何锁外读取都会与迁移竞争。
+// [Engine.ListSessions] 正是在会话锁内深拷贝出快照的。
 func (s *MemoryStorage) List() []*Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -84,10 +102,19 @@ func (s *MemoryStorage) List() []*Session {
 		if sess == nil {
 			continue
 		}
-		cp := *sess
-		out = append(out, &cp)
+		out = append(out, sess)
 	}
 	return out
+}
+
+// snapshot 深拷贝会话（含 Data），调用方必须持有该会话的会话锁。
+func (s *Session) snapshot() Session {
+	cp := *s
+	if s.Data != nil {
+		cp.Data = make(map[string]any, len(s.Data))
+		maps.Copy(cp.Data, s.Data)
+	}
+	return cp
 }
 
 // Delete 按 ID 删除一个会话。如果会话不存在则为空操作。
