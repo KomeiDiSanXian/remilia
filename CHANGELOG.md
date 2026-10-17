@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.74.0 (2026-10-17)
 
 ### 🛠 修复
 
@@ -9,10 +9,13 @@
 - Android 发布工作流补齐 dashboard 依赖：桌面端前端通过 `@dashboard` 别名直接引用 dashboard 源码，只装桌面依赖时 `tsc` 会因解析不到 `react` 类型而失败（打标签后的首次真实运行即暴露，此前 release 因之缺少 APK）。
 - Android 工作流的手动触发新增可选 `tag` 入参：填了便按该标签同步版本号并把 APK 发布到对应 Release（无需移动标签即可补包），留空仍只产出 workflow artifact。
 - 桌面端 Tauri 依赖改为按 minor 配对（npm 与 Rust 两侧都写 `~x.y`）：此前两侧范围过松，任一次单边 lock 刷新都可能把一侧顶到新 minor，触发 `version mismatched Tauri packages` 导致构建与发布失败。
-- `builtin/ai` 会话存储的构造不再对 nil 客户端 panic，而是返回 `session.ErrNilStorageClient`：装配侧本就把非 nil error 当作「无持久化，回退内存存储」处理，插件构造函数不该用 panic 处理调用方传参；显式判空同时避免依赖一次真实的 nil 内存解引——该访问违例在 Windows + `-race` 下偶发被运行时升级为 `fatal error`（0xc0000005），会让整个测试二进制崩溃（master CI 出现过一次，同一提交重跑即绿）。
 - Release 正文改为取自 `CHANGELOG.md` 的对应版本段落（`scripts/release-notes.mjs`，由发布工作流抽取；段落缺失时回退 GoReleaser 自动 changelog）：此前正文只有一份被过滤过的提交与哈希，现在直接是给用户看的整理稿，并在末尾附上与上一版本的完整 diff 链接；v1.73.0 的 Release 正文已按同一来源补全。
 - 发布产物新增来源证明（attestation）：打 `v*` 标签时，Go 归档（按 `dist/checksums.txt` 一次性覆盖）、Windows 安装包与 Android APK 都会生成 GitHub 产物来源证明（`actions/attest`，SLSA Build L2，Sigstore 签名），用户可用 `gh attestation verify <文件> --repo KomeiDiSanXian/remilia` 核对它们由本仓库的发布工作流构建。
 - 容器镜像改用 GoReleaser 的 `dockers_v2`（buildx）构建：一次产出 `linux/amd64`、`linux/arm64` 与 `linux/arm/v7` 三个平台的索引（此前只有 amd64，ARM 设备拉取后直接 `exec format error`），镜像同时带上产物来源证明（按 `dist/digests.txt`）与 buildx SBOM；快照（nightly）不构建镜像。
+
+**内置插件**
+
+- `builtin/ai` 会话存储的构造不再对 nil 客户端 panic，而是返回 `session.ErrNilStorageClient`：装配侧本就把非 nil error 当作「无持久化，回退内存存储」处理，插件构造函数不该用 panic 处理调用方传参；显式判空同时避免依赖一次真实的 nil 内存解引——该访问违例在 Windows + `-race` 下偶发被运行时升级为 `fatal error`（0xc0000005），会让整个测试二进制崩溃（master CI 出现过一次，同一提交重跑即绿）。
 
 **核心框架**
 
