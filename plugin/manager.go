@@ -28,9 +28,9 @@ type DrainingInfo struct {
 	Err       string    `json:"error,omitempty"`
 }
 
-// drainingEntry 内部 draining 实例跟踪记录。
+// drainingEntry 内部 draining 实例跟踪记录（每次蓝绿重载一条）。
 type drainingEntry struct {
-	inst      *Instance
+	name      string
 	startedAt time.Time
 	done      bool
 	err       error

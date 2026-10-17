@@ -20,15 +20,18 @@ type GoroutineSummary struct {
 
 // statsController 管理插件运行时统计和蓝绿重载的 draining 追踪。
 type statsController struct {
-	pm                *Manager
-	mu                sync.RWMutex // draining 专用锁，与 Manager.mu 分离
-	drainingInstances map[string]*drainingEntry
+	pm     *Manager
+	mu     sync.RWMutex // draining 专用锁，与 Manager.mu 分离
+	nextID uint64
+	// drainingInstances 以「每次追踪的令牌」为 key（不是插件名）：同一插件
+	// 连续两次蓝绿重载各自拥有独立条目，第一次的清理回调不会把第二次标成完成。
+	drainingInstances map[uint64]*drainingEntry
 }
 
 func newStatsController(pm *Manager) *statsController {
 	return &statsController{
 		pm:                pm,
-		drainingInstances: make(map[string]*drainingEntry),
+		drainingInstances: make(map[uint64]*drainingEntry),
 	}
 }
 
@@ -114,21 +117,28 @@ func (sc *statsController) GoroutineSummary() GoroutineSummary {
 
 // --- Draining 追踪 ---
 
-// trackDraining 记录蓝绿重载中正在清理的旧实例。
-func (sc *statsController) trackDraining(name string, inst *Instance) {
+// trackDraining 记录一次蓝绿重载中正在清理的旧实例，返回该次追踪的令牌。
+//
+// 以令牌为 key（而非插件名）：同一插件连续两次蓝绿重载各自独立，
+// 第一次的清理回调不会把第二次误标为完成——那会让 StopAll 不再等待第二次
+// 的旧实例 Teardown。
+func (sc *statsController) trackDraining(name string) uint64 {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	sc.drainingInstances[name] = &drainingEntry{
-		inst:      inst,
+	sc.nextID++
+	token := sc.nextID
+	sc.drainingInstances[token] = &drainingEntry{
+		name:      name,
 		startedAt: time.Now(),
 	}
+	return token
 }
 
-// markDrainingDone 标记 draining 实例清理完成（或失败）。
-func (sc *statsController) markDrainingDone(name string, err error) {
+// markDrainingDone 标记某一次 draining 清理完成（或失败）。
+func (sc *statsController) markDrainingDone(token uint64, err error) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	if e, ok := sc.drainingInstances[name]; ok {
+	if e, ok := sc.drainingInstances[token]; ok {
 		e.done = true
 		e.err = err
 	}
@@ -141,24 +151,24 @@ func (sc *statsController) drainDrainingInstances(ctx context.Context) {
 		ctx = context.Background()
 	}
 	sc.mu.RLock()
-	names := make([]string, 0, len(sc.drainingInstances))
-	for name, e := range sc.drainingInstances {
+	tokens := make([]uint64, 0, len(sc.drainingInstances))
+	for token, e := range sc.drainingInstances {
 		if !e.done {
-			names = append(names, name)
+			tokens = append(tokens, token)
 		}
 	}
 	sc.mu.RUnlock()
-	if len(names) == 0 {
+	if len(tokens) == 0 {
 		return
 	}
-	done := make(chan struct{}, len(names))
-	for _, name := range names {
-		go func(n string) {
+	done := make(chan struct{}, len(tokens))
+	for _, token := range tokens {
+		go func(tok uint64) {
 			for {
 				// e.done 必须在锁内读取：markDrainingDone 在锁内写该字段，
 				// 锁外读取与 BG teardown 并发构成数据竞争（CI race 检出）。
 				sc.mu.RLock()
-				e, ok := sc.drainingInstances[n]
+				e, ok := sc.drainingInstances[tok]
 				finished := ok && e.done
 				sc.mu.RUnlock()
 				if finished {
@@ -172,9 +182,9 @@ func (sc *statsController) drainDrainingInstances(ctx context.Context) {
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
-		}(name)
+		}(token)
 	}
-	for range names {
+	for range tokens {
 		select {
 		case <-done:
 		case <-ctx.Done():
@@ -184,21 +194,29 @@ func (sc *statsController) drainDrainingInstances(ctx context.Context) {
 	}
 }
 
-// ListDraining 返回所有正在清理或已完成的旧实例状态。
+// ListDraining 返回正在清理或已完成的旧实例状态（按插件名聚合）。
+//
+// 同名插件可能有多条追踪（连续重载）：Done 表示该插件的全部清理都已完成，
+// Err 取第一个失败原因，StartedAt 取最早一次的开始时间。
 func (sc *statsController) ListDraining() map[string]*DrainingInfo {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	result := make(map[string]*DrainingInfo, len(sc.drainingInstances))
-	for name, e := range sc.drainingInstances {
-		info := &DrainingInfo{
-			Name:      name,
-			StartedAt: e.startedAt,
-			Done:      e.done,
+	for _, e := range sc.drainingInstances {
+		info, ok := result[e.name]
+		if !ok {
+			info = &DrainingInfo{Name: e.name, StartedAt: e.startedAt, Done: true}
+			result[e.name] = info
 		}
-		if e.err != nil {
+		if e.startedAt.Before(info.StartedAt) {
+			info.StartedAt = e.startedAt
+		}
+		if !e.done {
+			info.Done = false
+		}
+		if e.err != nil && info.Err == "" {
 			info.Err = e.err.Error()
 		}
-		result[name] = info
 	}
 	return result
 }
