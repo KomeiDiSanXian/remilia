@@ -31,6 +31,15 @@ func (p *Plugin) toolCapabilities() catalog.Capabilities {
 		caps.Reminders = reminderAccessor{m: p.reminders}
 		caps.Scheduler = pluginReminderScheduler{p: p}
 	}
+	if p.remote != nil {
+		// remote 模式：文件与进程能力整体指向远程执行节点，边界由节点侧强制。
+		caps.Files = p.remote
+		if p.cfg != nil && p.cfg.WorkspaceAllowWrite {
+			caps.FileWrite = p.remote
+		}
+		caps.Process = p.remote
+		return caps
+	}
 	if p.files != nil {
 		files := fileAccessor{w: p.files}
 		caps.Files = files

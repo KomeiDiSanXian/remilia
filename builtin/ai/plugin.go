@@ -25,6 +25,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execnode"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
@@ -215,33 +216,68 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				}
 			}
 
-			// 工作区文件能力（workspace_roots 配置时启用，只读）：
-			// 根目录之外的路径、绝对路径与逃逸的符号链接由 workspace 包拒绝。
-			var files *workspace.Manager
-			if len(cfg.WorkspaceRoots) > 0 {
-				if ws, werr := workspace.New(cfg.WorkspaceRoots); werr != nil {
-					ctx.Log.Warnf("Invalid workspace_roots, file tools disabled: %v", werr)
-				} else {
-					files = ws
-					ctx.Log.Infof("AI workspace file tools enabled (%d root(s), read-only)", len(ws.Roots()))
+			// 执行能力归属：默认在本机（local），也可以整体转发到远程执行节点
+			// （remote）。远程节点持有自己的工作区与命令白名单；任务、策略、
+			// 预算与产物登记逻辑完全不变。
+			var (
+				files      *workspace.Manager
+				proc       *procexec.Manager
+				remote     *execnode.Client
+				remoteExec bool
+			)
+			switch strings.ToLower(strings.TrimSpace(cfg.ExecNode)) {
+			case "remote":
+				if cfg.ExecRemoteURL == "" || cfg.ExecRemoteToken == "" {
+					ctx.Log.Warn("exec_node=remote requires exec_remote_url and exec_remote_token; execution capabilities disabled")
+					break
 				}
-			}
-
-			// 受控进程执行（workspace_roots 与 exec_allowlist 同时配置时启用）：
-			// 命令白名单、环境变量清洗、输出上限与整树回收见 procexec 包。
-			var proc *procexec.Manager
-			if files != nil && len(cfg.ExecAllowlist) > 0 {
-				if pmgr, perr := procexec.New(procexec.Config{
-					Workspace:      files,
-					Allowlist:      cfg.ExecAllowlist,
-					EnvAllowlist:   cfg.ExecEnvAllowlist,
-					Timeout:        cfg.ExecTimeout,
-					MaxOutputBytes: cfg.ExecMaxOutputBytes,
-				}); perr != nil {
-					ctx.Log.Warnf("Invalid exec configuration, process_run disabled: %v", perr)
-				} else {
-					proc = pmgr
-					ctx.Log.Infof("AI process execution enabled (%d allowed command(s))", len(pmgr.Allowed()))
+				rc, rerr := execnode.NewClient(execnode.ClientConfig{
+					BaseURL: cfg.ExecRemoteURL,
+					Token:   cfg.ExecRemoteToken,
+					Timeout: cfg.ExecRemoteTimeout,
+				})
+				if rerr != nil {
+					ctx.Log.Warnf("Invalid exec_remote configuration, execution capabilities disabled: %v", rerr)
+					break
+				}
+				readyCtx, cancelReady := context.WithTimeout(context.Background(), 5*time.Second)
+				ready, rerr := rc.Ready(readyCtx)
+				cancelReady()
+				if rerr != nil {
+					ctx.Log.Warnf("Remote execution node %s is unreachable, execution capabilities disabled: %v",
+						cfg.ExecRemoteURL, rerr)
+					break
+				}
+				remote = rc
+				remoteExec = len(ready.Allowed) > 0
+				ctx.Log.Infof("AI execution uses remote node %s (roots=%d, allowed=%v)",
+					cfg.ExecRemoteURL, ready.Roots, ready.Allowed)
+			default:
+				// 本机模式：工作区文件能力（workspace_roots 配置时启用，只读）；
+				// 根目录之外的路径、绝对路径与逃逸的符号链接由 workspace 包拒绝。
+				if len(cfg.WorkspaceRoots) > 0 {
+					if ws, werr := workspace.New(cfg.WorkspaceRoots); werr != nil {
+						ctx.Log.Warnf("Invalid workspace_roots, file tools disabled: %v", werr)
+					} else {
+						files = ws
+						ctx.Log.Infof("AI workspace file tools enabled (%d root(s), read-only)", len(ws.Roots()))
+					}
+				}
+				// 受控进程执行（workspace_roots 与 exec_allowlist 同时配置时启用）：
+				// 命令白名单、环境变量清洗、输出上限与整树回收见 procexec 包。
+				if files != nil && len(cfg.ExecAllowlist) > 0 {
+					if pmgr, perr := procexec.New(procexec.Config{
+						Workspace:      files,
+						Allowlist:      cfg.ExecAllowlist,
+						EnvAllowlist:   cfg.ExecEnvAllowlist,
+						Timeout:        cfg.ExecTimeout,
+						MaxOutputBytes: cfg.ExecMaxOutputBytes,
+					}); perr != nil {
+						ctx.Log.Warnf("Invalid exec configuration, process_run disabled: %v", perr)
+					} else {
+						proc = pmgr
+						ctx.Log.Infof("AI process execution enabled (%d allowed command(s))", len(pmgr.Allowed()))
+					}
 				}
 			}
 
@@ -269,6 +305,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				memory:          memory,
 				files:           files,
 				proc:            proc,
+				remote:          remote,
 				replyGate:       initReplyGate(),
 			}
 
@@ -299,15 +336,15 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 					p.registerCatalogTool(t)
 				}
 			}
-			// 工作区文件动作仅在配置了根目录时注册（未启用时模型不可见）；
+			// 工作区文件动作在任意执行节点下都可注册（未启用时模型不可见）；
 			// 写入动作还需要 workspace_allow_write 显式开启。
-			if files != nil {
+			if files != nil || remote != nil {
 				for _, t := range catalog.BuildFileTools(catalog.FileToolOptions{AllowWrite: cfg.WorkspaceAllowWrite}) {
 					p.registerCatalogTool(t)
 				}
 			}
-			// 进程执行动作仅在同时配置了工作区与命令白名单时注册。
-			if proc != nil {
+			// 进程执行动作需要本机执行器或具备命令白名单的远程节点。
+			if proc != nil || remoteExec {
 				for _, t := range catalog.BuildExecTools(catalog.ExecToolOptions{RequireApproval: cfg.ExecRequireApproval}) {
 					p.registerCatalogTool(t)
 				}

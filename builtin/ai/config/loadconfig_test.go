@@ -49,6 +49,32 @@ func TestLoadConfigWorkspaceRoots(t *testing.T) {
 	}
 }
 
+func TestLoadConfigExecNode(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"exec_node":           "remote",
+			"exec_remote_url":     "http://10.0.0.19:9020",
+			"exec_remote_token":   "tok-123",
+			"exec_remote_timeout": "30s",
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	got := Load(ctx)
+	if got.ExecNode != "remote" || got.ExecRemoteURL != "http://10.0.0.19:9020" ||
+		got.ExecRemoteToken != "tok-123" || got.ExecRemoteTimeout != 30*time.Second {
+		t.Fatalf("exec node config = %q %q %q %s", got.ExecNode, got.ExecRemoteURL, got.ExecRemoteToken, got.ExecRemoteTimeout)
+	}
+
+	// 未配置时默认本机。
+	emptyCtx := plugintest.NewSetupContext("ai", nil)
+	defer plugintest.StopSetupContext(emptyCtx)
+	if empty := Load(emptyCtx); empty.ExecNode != "local" {
+		t.Fatalf("ExecNode default = %q, want local", empty.ExecNode)
+	}
+}
+
 func TestLoadConfigCustomValues(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{

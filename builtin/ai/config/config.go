@@ -95,6 +95,16 @@ type Config struct {
 	// TaskMaxDuration 单个任务的执行时长上限（默认 2h；<=0 不限制）。
 	// 由运行时强制执行：超限时任务置为失败并取消计划。
 	TaskMaxDuration time.Duration `yaml:"task_max_duration"`
+	// ExecNode 执行能力的运行节点："local"（默认，本机工作区 + exec_allowlist）
+	// 或 "remote"（文件与进程能力整体转发到 exec_remote_url 指定的执行节点）。
+	// 远程节点的边界（根目录与命令白名单）由节点进程自己持有并强制。
+	ExecNode string `yaml:"exec_node"`
+	// ExecRemoteURL 远程执行节点地址（如 http://10.0.0.19:9020）。
+	ExecRemoteURL string `yaml:"exec_remote_url"`
+	// ExecRemoteToken 远程执行节点访问令牌。
+	ExecRemoteToken string `yaml:"exec_remote_token"`
+	// ExecRemoteTimeout 远程节点单次请求超时（<=0 时取客户端默认 120s）。
+	ExecRemoteTimeout time.Duration `yaml:"exec_remote_timeout"`
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -459,6 +469,7 @@ var DefaultConfig = Config{
 	ExecRequireApproval:    true,
 	TaskMaxToolCalls:       200,
 	TaskMaxDuration:        2 * time.Hour,
+	ExecNode:               "local",
 	SystemPrompt:           "你是 Remilia Bot 的 AI 助手。",
 	TriggerCmd:             "/ai",
 	AtBot:                  true,
@@ -725,6 +736,20 @@ func Load(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetDuration("task_max_duration", 0); v != 0 {
 		cfg.TaskMaxDuration = v
+	}
+
+	// 执行节点归属：默认为本机。
+	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("exec_node", ""))); v != "" {
+		cfg.ExecNode = v
+	}
+	if v := strings.TrimSpace(ctx.Config.GetString("exec_remote_url", "")); v != "" {
+		cfg.ExecRemoteURL = v
+	}
+	if v := ctx.Config.GetString("exec_remote_token", ""); v != "" {
+		cfg.ExecRemoteToken = v
+	}
+	if v := ctx.Config.GetDuration("exec_remote_timeout", 0); v > 0 {
+		cfg.ExecRemoteTimeout = v
 	}
 
 	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)

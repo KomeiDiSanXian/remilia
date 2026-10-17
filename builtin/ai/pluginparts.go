@@ -26,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/execnode"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
@@ -67,6 +68,9 @@ type catalogState struct {
 	// proc 受控进程执行器（workspace_roots 与 exec_allowlist 同时配置时启用）。
 	// 命令白名单、环境变量清洗与进程树回收见 builtin/ai/procexec。
 	proc *procexec.Manager
+	// remote 远程执行节点客户端（exec_node=remote 时启用）：与本地实现实现
+	// 同一组能力端口，边界由节点侧强制（见 builtin/ai/execnode）。
+	remote *execnode.Client
 }
 
 // catalogRuntime 将目录代数与其聚合状态放在同一字段中，保证快照和变更

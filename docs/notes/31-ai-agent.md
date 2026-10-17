@@ -1274,7 +1274,7 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 | 4 编码场景闭环 | 🚧 部分 | `builtin/ai/evidence.go`、`catalog/plantool.go`、`builtin/ai/artifacts.go` | 已落地计划完成闸门（最近一次进程执行失败时拒绝完成计划）与任务产物登记（文件新建/修改）；端到端场景编排待真实部署验证 |
 | 5 任务 UX 与管理面 | ✅ | `/ai task` 命令、`/api/v1/ai/tasks*`、Dashboard「AI 任务」页 | 查询/取消/进度下钻（步骤与产物）齐备；进度播报复用既有计划消息与后台推进 |
 | 6 第二真实场景 | ⏳ 待做 | — | 依赖真实部署环境（运维巡检或报表生成） |
-| 7 隔离执行 | ⏳ 待评估 | — | 远程/容器 executor 独立设计，接口在第二个节点类型出现时固化 |
+| 7 隔离执行 | ✅ 单节点 | `builtin/ai/execnode`、`cmd/executor`、`ai.exec_node=remote` | 远程节点（HTTP + Bearer、节点侧工作区/白名单、取消传播终止进程树）已落地并在 10.0.0.19 实测：认证、文件读写/替换/列举、越界拒绝、远程执行与取消传播全部通过。多节点选择、mTLS 与节点注册中心待需要时再做 |
 | 8 扩展 | ⏳ 待评估 | — | 浏览器/桌面/多 Agent，按需独立评估 |
 
 已落地的关键约定（供后续维护者对照）：
@@ -1300,6 +1300,39 @@ plugins:
 ```
 
 尚未实施且刻意留待有真实消费者时再做的项（避免无消费者的抽象）：`ActionID` 成为路由/去重键与目录可用性状态机（文档 30 的 M0，等第二个来源出现同名冲突时做）、能力效应/风险/幂等元数据（等远程节点或高风险能力接入时做）、任务事件总线接入（等第二个订阅方出现时做）。
+
+远程执行节点（可选）：
+
+```bash
+# 构建（Linux amd64 静态二进制）并部署
+make executor-build
+scp bin/remilia-executor-linux-amd64 <node>:/home/ubuntu/remilia-executor
+ssh <node> 'chmod +x ~/remilia-executor && mkdir -p ~/remilia-ws'
+
+# 在节点上启动（token 必填；-allow 为空时只提供文件能力）
+ssh <node> 'setsid nohup ~/remilia-executor -addr 0.0.0.0:9020 \
+    -token <token> -roots ~/remilia-ws -allow go,git,uname,ls \
+    < /dev/null > ~/remilia-executor.log 2>&1 &'
+```
+
+机器人侧配置（本地 `workspace_roots` / `exec_allowlist` 在 remote 模式下不再使用）：
+
+```yaml
+plugins:
+  ai:
+    exec_node: "remote"
+    exec_remote_url: "http://10.0.0.19:9020"
+    exec_remote_token: "<token>"
+    workspace_allow_write: true
+    exec_require_approval: true
+```
+
+联调（需要 `network` 构建标签，覆盖认证、文件、替换、越界拒绝、远程执行与取消传播）：
+
+```bash
+REMILIA_EXEC_NODE_URL=http://10.0.0.19:9020 REMILIA_EXEC_NODE_TOKEN=<token> \
+  go test -tags network ./builtin/ai/execnode -run TestLiveRemoteNode -v
+```
 
 ## 修订记录
 

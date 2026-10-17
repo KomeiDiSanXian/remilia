@@ -15,7 +15,7 @@ import (
 // pluginStateOwners 字段分区的唯一对照表：owner 结构名 → 它承载的字段名。
 func pluginStateOwners() map[string][]string {
 	return map[string][]string{
-		"catalogState":   {"coord", "reg", "catalogGen", "skillReg", "perms", "cmdMu", "cmdPatterns", "files", "proc"},
+		"catalogState":   {"coord", "reg", "catalogGen", "skillReg", "perms", "cmdMu", "cmdPatterns", "files", "proc", "remote"},
 		"contextState":   {"history", "emb", "memory"},
 		"executionState": {"syncer", "realCmdMu", "approvals"},
 		"runtimeState":   {"sm", "tasks", "taskMu", "execEvidence", "evidenceMu", "taskUsage", "taskUsageMu", "triggerCmd", "defOnce", "def", "lifecycleCtx", "lifecycleCancel"},

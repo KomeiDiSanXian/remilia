@@ -387,6 +387,20 @@ messagelog:
 #                                         #     由运行时强制：超限时任务置为失败并取消计划
 #     task_max_duration: "2h"             # [R] 单个任务的执行时长上限（默认 2h；<=0 不限制）。
 #                                         #     由运行时强制：超限时任务置为失败并取消计划
+#
+#     # —— 执行节点（可选）——
+#     # 默认在本机执行（exec_node: local，使用上面的 workspace_roots / exec_allowlist）。
+#     # 设为 remote 后，文件与进程能力整体转发到远程执行节点：
+#     #   - 节点进程：cmd/executor（go build ./cmd/executor，或 make executor-build）
+#     #     启动示例：remilia-executor -addr 0.0.0.0:9020 -token <token> \
+#     #         -roots /home/ubuntu/remilia-ws -allow go,git,uname,ls
+#     #   - 节点侧持有工作区根目录与命令白名单；机器人侧即使配置被改也无法越界
+#     #   - 所有端点要求 Bearer 认证；执行超时/取消会终止节点侧整棵进程树
+#     #   - 远程模式下 workspace_allow_write / exec_require_approval 仍由机器人侧控制
+#     exec_node: "local"                  # [R] local | remote（默认 local）
+#     # exec_remote_url: "http://10.0.0.19:9020"
+#     # exec_remote_token: "${EXEC_NODE_TOKEN}"
+#     # exec_remote_timeout: "120s"
 #     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
 #                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用
