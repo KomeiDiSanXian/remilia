@@ -50,10 +50,12 @@ type taskPlanAccess struct {
 }
 
 // SetPlan 建立新计划：先把会话中此前的活动任务置为取消（保留历史），
-// 再为新计划创建任务。
+// 再为新计划创建任务。新计划同时清除旧的执行证据，避免上一个任务的失败
+// 结果阻塞新任务的完成判定。
 func (a taskPlanAccess) SetPlan(plan *session.Plan) {
 	a.p.taskMu.Lock()
 	defer a.p.taskMu.Unlock()
+	a.p.clearExecEvidence(a.sess.ID)
 	a.sess.SetPlan(plan)
 	a.p.startTaskForPlan(a.ctx, a.sess, plan)
 }
@@ -75,6 +77,20 @@ func (a taskPlanAccess) PlanSnapshot() *session.Plan { return a.sess.PlanSnapsho
 
 // ResetPlanAuto 重置后台自动推进预算（委托会话）。
 func (a taskPlanAccess) ResetPlanAuto() { a.sess.ResetPlanAuto() }
+
+// CompletionGuard 实现 catalog.PlanAccess：计划即将全部完成时检查进程执行证据。
+//
+// 最近一次命令以非零退出码结束时拒绝完成：模型不能把"测试/构建失败"的任务
+// 宣称成功，必须修复后重新执行验证命令，或如实把步骤标记为 failed。
+// 没有执行过任何命令的任务不触发该闸门（纯文件任务不受影响）。
+func (a taskPlanAccess) CompletionGuard() error {
+	evidence, ok := a.p.lastExecEvidence(a.sess.ID)
+	if !ok || evidence.ExitCode == 0 {
+		return nil
+	}
+	return fmt.Errorf("最近一次进程执行 `%s` 的退出码为 %d（%s），请先修复问题并重新执行验证命令，或将该步骤标记为 failed 并说明原因",
+		evidence.Command, evidence.ExitCode, evidence.At.Format(time.DateTime))
+}
 
 // startTaskForPlan 用新计划创建任务：取消旧活动任务 → 创建并启动新任务 → 落库。
 func (p *Plugin) startTaskForPlan(ctx *eventctx.Context, sess *session.Session, plan *session.Plan) {

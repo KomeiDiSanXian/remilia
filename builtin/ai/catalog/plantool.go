@@ -51,6 +51,9 @@ type PlanAccess interface {
 	PlanSnapshot() *session.Plan
 	// ResetPlanAuto 重置后台自动推进预算（用户侧重新获得完整轮次）。
 	ResetPlanAuto()
+	// CompletionGuard 在"本次更新将把计划标记为全部完成"时调用；
+	// 返回非 nil 表示拒绝完成（例如缺少成功的验证证据）。实现由装配侧提供。
+	CompletionGuard() error
 }
 
 // ctxKeyPlanAccess 是 context 中存储计划端口的键。
@@ -157,6 +160,14 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				}
 				newStatus := session.PlanStepStatus(status)
 
+				// 完成闸门：本次更新将把计划标记为全部完成时，向端口确认是否
+				// 允许完成（确定性证据不足时拒绝，模型必须先修复并重新验证）。
+				if newStatus == session.PlanDone {
+					if err := planCompletionGuard(plans, stepID); err != nil {
+						return "错误: " + err.Error(), nil
+					}
+				}
+
 				// 顺序强制：目标步骤置任何非 pending 状态前，其前序步骤必须
 				// 全部终态（done/failed）——计划按序执行，不允许跳步。
 				plan, err := plans.UpdatePlan(func(plan *session.Plan) error {
@@ -190,6 +201,31 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 			},
 		},
 	}
+}
+
+// planCompletionGuard 判断本次「标记 done」是否会让计划全部完成；是则请求
+// 端口确认（完成闸门）。中间步骤的完成不触发闸门：模型在推进过程中自行判断，
+// 只有整个计划的完成必须接受证据校验。
+func planCompletionGuard(plans PlanAccess, stepID string) error {
+	current := plans.PlanSnapshot()
+	if current == nil {
+		return nil
+	}
+	otherSteps := 0
+	for _, step := range current.Steps {
+		if step.ID == stepID {
+			continue
+		}
+		if !session.TerminalStatus(step) {
+			return nil
+		}
+		otherSteps++
+	}
+	if otherSteps == 0 {
+		// 空计划或单步计划的防御分支：没有"全部完成"的语义，放行。
+		return nil
+	}
+	return plans.CompletionGuard()
 }
 
 // stringSliceArg 将参数值转换为字符串切片（兼容 []any / []string）。

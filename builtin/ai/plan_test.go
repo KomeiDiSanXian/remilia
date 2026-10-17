@@ -98,7 +98,7 @@ func TestCreatePlanTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
 
 	// 正常创建
 	result, err := create.Execute(ctx, map[string]any{
@@ -153,7 +153,7 @@ func TestUpdatePlanStepTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
 
 	// 无计划时更新报错
 	result, _ := update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "done"})

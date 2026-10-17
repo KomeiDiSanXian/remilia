@@ -6,9 +6,24 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// testPlanAccess 把会话直接暴露为 catalog.PlanAccess：完成闸门默认放行，
+// 需要闸门行为的用例走装配侧实现（taskPlanAccess）。
+type testPlanAccess struct {
+	*session.Session
+}
+
+// CompletionGuard 默认放行，保证既有计划工具用例与生产闸门解耦。
+func (testPlanAccess) CompletionGuard() error { return nil }
+
+// planAccessForTest 包装会话为测试用计划端口。
+func planAccessForTest(sess *session.Session) catalog.PlanAccess {
+	return testPlanAccess{Session: sess}
+}
 
 // openAIProviderForTest / anthropicProviderForTest 用插件配置构造协议层提供商：
 // 与装配侧（providerOptions）走同一映射，用例因此不必各自拼 ProviderOptions。

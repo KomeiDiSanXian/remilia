@@ -209,7 +209,7 @@ func TestUpdatePlanStepOrderEnforced(t *testing.T) {
 		}
 	}
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), sess)
+	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
 	create.Execute(ctx, map[string]any{"task": "t", "steps": []any{"第一步", "第二步", "第三步"}})
 
 	// 跳过 step_1 直接完成 step_2 → 拒绝

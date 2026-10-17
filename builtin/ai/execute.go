@@ -57,7 +57,12 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 		Platform: ctx.GetEventPlatform(),
 		IsGroup:  ctx.GetChatInfo().IsGroup,
 	}, ctx.GetPlatformSender())
-	callerCtx = catalog.WithCapabilities(callerCtx, p.toolCapabilities())
+	// 进程执行端口外再加一层证据记录：计划完成闸门依赖"最近一次命令的退出码"。
+	caps := p.toolCapabilities()
+	if runner := p.evidenceRecordingRunner(ctx, caps.Process); runner != nil {
+		caps.Process = runner
+	}
+	callerCtx = catalog.WithCapabilities(callerCtx, caps)
 	// 执行路径的能力端口在同一装配点构造：调用器只依赖端口，不依赖插件实例。
 	// 这两个端口刻意不进入 capabilitySet——工具回调不应获得"跑命令 / 跑技能"的能力。
 	skills := pluginSkillRunner{p: p}

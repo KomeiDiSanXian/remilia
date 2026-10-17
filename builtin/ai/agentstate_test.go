@@ -196,6 +196,7 @@ func agentStatePluginNonAgent() map[string]string {
 		"actionRate": "按钮/命令动作的限流状态",
 		"replyGate":  "群自主发言接话策略的概率器（smart 档），信号数据实时取自 messagelog",
 		"taskMu":     "任务记录同步的串行化互斥（不承载业务状态）",
+		"evidenceMu": "execEvidence 的互斥锁",
 	}
 }
 

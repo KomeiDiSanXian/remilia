@@ -130,6 +130,11 @@ type runtimeState struct {
 	// taskMu 串行化"读取活动任务 → 刷新 → 保存"的镜像过程：计划动作可并行
 	// 执行（tool_parallel），不加锁会让较旧的计划快照后写、回退已完成步骤。
 	taskMu sync.Mutex
+	// execEvidence 会话最近一次进程执行结果（进程内）。
+	// 用于计划完成闸门：最近一次验证命令失败时拒绝把计划标记为全部完成。
+	execEvidence map[string]execEvidence
+	// evidenceMu 保护 execEvidence。
+	evidenceMu sync.Mutex
 	// triggerCmd 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离。
 	triggerCmd string
 	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。

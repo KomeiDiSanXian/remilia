@@ -1271,7 +1271,7 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 | 1 任务化 | ✅ | `builtin/ai/task`、`builtin/ai/tasks.go`、`builtin/ai/taskapi.go`、`api/aitasks.go` | 持久任务（`ai_tasks` 表）、计划镜像、`/ai task` 命令、取消联动、重启恢复、任务指标、REST 查询与取消 |
 | 2 能力抽象与策略扩展 | 🚧 部分 | `builtin/ai/protocol/argvalidate.go` | 已落地调用前 Schema 校验；`ActionID` 路由与效应/风险/幂等字段待做 |
 | 3 本地执行 | 🚧 部分 | `builtin/ai/workspace`、`builtin/ai/procexec`、`builtin/ai/catalog/filetool.go`、`catalog/exectool.go` | 工作区只读/写入、精确替换与 diff、白名单进程执行（强制审批、RBAC、环境清洗、整树回收、输出上限）；容器与系统级沙箱未做 |
-| 4 编码场景闭环 | ⏳ 待做 | — | 需把阶段 3 能力组合成端到端场景，并补确定性验证器与产物登记 |
+| 4 编码场景闭环 | 🚧 部分 | `builtin/ai/evidence.go`、`catalog/plantool.go` | 已落地计划完成闸门（最近一次进程执行失败时拒绝完成计划，模型不能自称成功）；端到端场景编排与产物登记待做 |
 | 5 任务 UX 与管理面 | 🚧 部分 | `/ai task` 命令、`/api/v1/ai/tasks*` | Dashboard 任务页待做 |
 | 6 第二真实场景 | ⏳ 待做 | — | 依赖真实部署环境（运维巡检或报表生成） |
 | 7 隔离执行 | ⏳ 待评估 | — | 远程/容器 executor 独立设计，接口在第二个节点类型出现时固化 |
