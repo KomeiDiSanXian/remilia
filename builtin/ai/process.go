@@ -450,7 +450,7 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 	defer cancel()
 	// 计划端口由装配侧直接注入：runtime 只承载与具体动作无关的机制，
 	// 不反向依赖内置动作包（catalog）。
-	toolCtx = catalog.WithPlanAccess(toolCtx, session)
+	toolCtx = catalog.WithPlanAccess(toolCtx, p.planAccessFor(ctx, session))
 	// SendTo 能力仅在本次调用通过审批门后注入（sendToAllowed）；
 	// 嵌套 Skill 工具调用继承同一 context，无法绕过审批。
 	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: verdict.sendToGranted, budget: budget}

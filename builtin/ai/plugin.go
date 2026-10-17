@@ -27,6 +27,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
@@ -135,6 +136,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			}
 
 			var store session.SessionStore = &session.NoopStore{}
+			var tasks task.Store = task.NoopStore{}
 			if !ctx.DryRun {
 				if storageSvc, ok := ctx.TryService[*infrastorage.Plugin]("storage"); ok {
 					if s, err := session.NewGormSessionStore(storageSvc); err == nil {
@@ -143,8 +145,16 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 					} else {
 						ctx.Log.Warnf("Failed to init session store: %v, using in-memory only", err)
 					}
+					if ts, err := task.NewGormStore(storageSvc); err == nil {
+						tasks = ts
+						ctx.Log.Info("Task persistence enabled via storage plugin")
+					} else {
+						ctx.Log.Warnf("Failed to init task store: %v, using in-memory only", err)
+						tasks = task.NewMemStore()
+					}
 				} else {
 					ctx.Log.Info("Storage plugin not available, using in-memory session storage")
+					tasks = task.NewMemStore()
 				}
 			}
 
@@ -210,6 +220,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				prov:            prov,
 				reg:             toolkit.NewToolRegistry(),
 				sm:              session.NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
+				tasks:           tasks,
 				cmdPatterns:     make(map[string]string),
 				skillReg:        toolkit.NewSkillRegistry(),
 				summaries:       make(map[string]bool),
@@ -469,6 +480,11 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("plan").Description("查看/取消任务计划").
 			SubCommand(command.NewDef("status").Description("查看当前计划进度").Build()).
 			SubCommand(command.NewDef("cancel").Description("取消当前计划").Build()).
+			Build()).
+		SubCommand(command.NewDef("task").Description("查看持久化的任务记录").
+			SubCommand(command.NewDef("status").Description("查看当前任务进度与状态").Build()).
+			SubCommand(command.NewDef("list").Description("列出最近的任务记录").Build()).
+			SubCommand(command.NewDef("cancel").Description("取消当前任务").Build()).
 			Build()).
 		SubCommand(command.NewDef("remind").Description("设置定时提醒（如：remind 5分钟 去喝水）").
 			SubCommand(command.NewDef("list").Description("列出本会话的提醒").Build()).

@@ -29,6 +29,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -114,6 +115,13 @@ type executionState struct {
 type runtimeState struct {
 	// sm 会话管理器，负责会话的 LRU 缓存、持久化、过期清理。
 	sm *session.SessionManager
+	// tasks 任务记录存储：会话计划在计划动作的调用点镜像为持久任务
+	// （见 tasks.go）。storage 插件可用时为 GORM（ai_tasks 表），
+	// 否则为进程内存；未装配时为零值，访问一律经 taskStore() 退化。
+	tasks task.Store
+	// taskMu 串行化"读取活动任务 → 刷新 → 保存"的镜像过程：计划动作可并行
+	// 执行（tool_parallel），不加锁会让较旧的计划快照后写、回退已完成步骤。
+	taskMu sync.Mutex
 	// triggerCmd 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离。
 	triggerCmd string
 	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。

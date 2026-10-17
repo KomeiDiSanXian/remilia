@@ -265,6 +265,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "\n  `%s memory` — 查看/清空长期记忆", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s todo` — 管理会话待办清单", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s plan` — 查看/取消任务计划", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s task` — 查看持久化的任务记录（list / cancel）", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s remind` — 设置定时提醒（如 `%s remind 5分钟 去喝水`）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s approve <ID>` — 批准工具执行（`%s deny <ID>` 拒绝）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s group` — 管理本群 AI 策略（提示词/工具白名单/审批/@触发）", p.cfg.TriggerCmd)
@@ -283,6 +284,9 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "plan", "计划":
 		return p.handlePlanCommand(ctx, p.subCommandRest(ctx, "plan", "计划"))
+
+	case "task", "任务":
+		return p.handleTaskCommand(ctx, p.subCommandRest(ctx, "task", "任务"))
 
 	case "remind", "提醒":
 		// 从消息内容中提取 "remind" 之后的参数（时长 + 内容）
@@ -366,6 +370,8 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		err = p.handleTodoCommand(ctx, p.subCommandRest(ctx, "todo", "待办"))
 	case "plan", "计划":
 		err = p.handlePlanCommand(ctx, p.subCommandRest(ctx, "plan", "计划"))
+	case "task", "任务":
+		err = p.handleTaskCommand(ctx, p.subCommandRest(ctx, "task", "任务"))
 	default:
 		return false
 	}
@@ -416,6 +422,11 @@ func (p *Plugin) handleStopCommand(ctx *eventctx.Context) error {
 		// 取消是回合外的状态变更（生成可能已空闲），显式落库，
 		// 避免重启后旧计划从持久化快照复活。
 		p.sm.SaveSession(s)
+	}
+	// 任务记录与计划同生共死：停止生成/取消计划时活动任务一并取消，
+	// 防止重启后从任务记录里"复活"一个已停止的目标。
+	if p.cancelActiveTask(s) {
+		planCancelled = true
 	}
 	switch {
 	case stopped && planCancelled:

@@ -386,12 +386,16 @@ func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 		ctx.Reply(p.maybeAttachQQPlanButtons(ctx, msg, sess.TurnActive()))
 		return nil
 	case "cancel", "取消":
-		if sess.CancelPlan() {
+		planCancelled := sess.CancelPlan()
+		taskCancelled := p.cancelActiveTask(sess)
+		if planCancelled {
 			// 计划变更经会话持久化：不保存的话重启/换实例后，已被用户取消的
 			// 计划会从库里的旧快照"复活"并继续自动推进（回合内的计划变更由
 			// processWithTools 的回合末保存覆盖，这里补上回合外的显式保存）。
 			p.sm.SaveSession(sess)
-			p.replyFormatted(ctx, "🛑 已取消当前计划（剩余步骤不再自动推进）")
+		}
+		if planCancelled || taskCancelled {
+			p.replyFormatted(ctx, "🛑 已取消当前任务计划（剩余步骤不再自动推进）")
 		} else {
 			p.replyFormatted(ctx, "📭 当前没有进行中的计划可取消")
 		}
@@ -407,6 +411,7 @@ func (a *adminState) planHelpText(triggerCmd string) string {
 
   `+"`%s plan`"+`            — 查看当前计划进度
   `+"`%s plan cancel`"+`     — 取消当前计划
+  `+"`%s task`"+`            — 查看持久化的任务记录与状态
 
-复杂任务由 AI 自动创建计划并逐步推进（create_plan），此命令用于查看进度与取消。`, triggerCmd, triggerCmd)
+复杂任务由 AI 自动创建计划并逐步推进（create_plan），此命令用于查看进度与取消。`, triggerCmd, triggerCmd, triggerCmd)
 }

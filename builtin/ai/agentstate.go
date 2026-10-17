@@ -151,6 +151,11 @@ func agentStateInventory() []agentStateItem {
 			Note:   "长期事实记忆：LevelDB（data/ai_memory）自带持久化，不随 SessionRecord 落库",
 		},
 		{
+			Name: "task", Class: agentStateProcessPersisted,
+			Plugin: []string{"tasks"},
+			Note:   "任务记录：storage 可用时为 GORM（ai_tasks 表）自带持久化，否则为进程内存；不随 SessionRecord 落库",
+		},
+		{
 			Name: "group_policy", Class: agentStateProcessPersisted,
 			Plugin: []string{"groupPolicies"},
 			Note:   "per-group 工具策略/提示词：LevelDB（data/ai）自带持久化，属进程级配置态",
