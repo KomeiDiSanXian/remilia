@@ -1286,6 +1286,21 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 - **运行时预算**：任务级预算（`task_max_tool_calls` / `task_max_duration`）在工具调用前检查并累加，超限时任务失败并取消计划；预算计数在会话内按计划重置。
 - **执行信任模型**：能力默认关闭；`workspace_roots` 开启只读，`workspace_allow_write` 开启写入（强制审批 + `ai.file.write`），`exec_allowlist` 开启进程执行（强制审批 + `ai.exec.run`、命令白名单、环境变量白名单、工作区工作目录、整树回收）。
 
+编码场景的最小可用配置（自托管、管理员使用）：
+
+```yaml
+plugins:
+  ai:
+    workspace_roots: ["./data/workspace"]   # 只读文件能力
+    workspace_allow_write: true             # 写入与精确替换（每次强制审批）
+    exec_allowlist: ["go", "git"]           # 允许的验证/构建命令
+    exec_require_approval: true             # 默认强制审批，保持开启
+    task_max_tool_calls: 200
+    task_max_duration: "2h"
+```
+
+尚未实施且刻意留待有真实消费者时再做的项（避免无消费者的抽象）：`ActionID` 成为路由/去重键与目录可用性状态机（文档 30 的 M0，等第二个来源出现同名冲突时做）、能力效应/风险/幂等元数据（等远程节点或高风险能力接入时做）、任务事件总线接入（等第二个订阅方出现时做）。
+
 ## 修订记录
 
 | 版本 | 修订 |
