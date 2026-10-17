@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -177,6 +178,10 @@ type Engine struct {
 	fsms   map[string]*FSM
 	order  []string
 	stores Storage
+
+	// cleanupStarted 保证同一 Engine 只有一个清理 goroutine（重复调用
+	// StartCleanup 会叠加多个 goroutine 重复扫描同一存储）。
+	cleanupStarted atomic.Bool
 
 	// sessionLocks 按 sessionID 维护互斥锁（sync.Map[string]*sync.Mutex）。
 	// 条目常驻不回收：bot 场景下 sessionID 基数 = 会话/聊天数，
@@ -366,25 +371,24 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 			if fsm.Timeout > 0 {
 				session.ExpireAt = time.Now().Add(fsm.Timeout).Unix()
 			}
-			e.stores.Save(session)
 			fsmCtx := &FSMContext{
 				Context: ctx, SessionID: sessionID, Current: fsm.Initial,
 				Data: session.Data, FSM: fsm, engine: e,
 			}
+			// 先执行回调，最后才落库：此前先 Save 再回调，回调返回错误时只能
+			// 靠补偿 Delete 清理（回调 panic 会绕过补偿，留下半成品会话）；
+			// 会话锁已由本方法持有，回调期间不会有并发迁移看到这个会话。
 			if fn := fsm.OnExit[fsm.Initial]; fn != nil {
 				if err := fn(fsmCtx); err != nil {
-					e.stores.Delete(sessionID)
 					return false, fmt.Errorf("fsm: OnExit initial %q: %w", fsm.Initial, err)
 				}
 			}
 			if event.Action != nil {
 				if err := event.Action(fsmCtx); err != nil {
-					e.stores.Delete(sessionID)
 					return false, fmt.Errorf("fsm: start action %q: %w", event.Name, err)
 				}
 			}
 			if fsmCtx.ended || event.To == "" {
-				e.stores.Delete(sessionID)
 				return true, nil
 			}
 			session.Current = event.To
@@ -392,8 +396,7 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 			fsmCtx.Current = event.To
 			if fn := fsm.OnEnter[event.To]; fn != nil {
 				if err := fn(fsmCtx); err != nil {
-					e.stores.Delete(sessionID)
-					return false, fmt.Errorf("fsm: OnEnter start %q rollback: %w", event.To, err)
+					return false, fmt.Errorf("fsm: OnEnter %q: %w", event.To, err)
 				}
 			}
 			e.stores.Save(session)
@@ -579,9 +582,24 @@ func (e *Engine) StartSession(ctx *corectx.Context, fsmName, sessionID string) e
 // EndSession 终止一个 FSM 会话并将其从存储中删除。
 // 会话被永久删除；后续针对此 sessionID 的 [TryTransition] 调用将返回 ("", false, nil)。
 //
-// 本方法不获取会话锁（Storage 自身并发安全），因此可以在
-// Action/OnEnter/OnExit 回调内安全调用（[FSMContext.EndSession] 即此路径）。
+// 在会话锁内删除：与并发的 TryTransition（读-改-写后会 Save）串行化，
+// 避免"删除后又被旧快照写回"的复活。回调内请使用 [FSMContext.EndSession]：
+// 它在已持有的会话锁内直接删除，不会自死锁。
 func (e *Engine) EndSession(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+	e.stores.Delete(sessionID)
+}
+
+// endSessionLocked 删除会话，调用方必须已持有该会话的会话锁。
+func (e *Engine) endSessionLocked(sessionID string) {
+	if sessionID == "" {
+		return
+	}
 	e.stores.Delete(sessionID)
 }
 
@@ -640,17 +658,30 @@ func (e *Engine) GetSession(sessionID string) *Session {
 // 当 stop 通道被关闭时 goroutine 停止。
 //
 // 如果 interval <= 0，默认使用 1 分钟。
+//
+// 语义：
+//   - stop 为 nil 表示"不主动停止"（随进程结束），清理照常执行并记录数量；
+//   - 重复调用是幂等的：同一 Engine 只保留一个清理 goroutine，重复调用记录
+//     告警并忽略；停止（关闭 stop 通道）后可再次启动；
+//   - 每次实际删除会话时记录 debug 日志（此前静默，无法确认清理是否在工作）。
 func (e *Engine) StartCleanup(interval time.Duration, stop <-chan struct{}) {
 	if interval <= 0 {
 		interval = 1 * time.Minute
 	}
+	if !e.cleanupStarted.CompareAndSwap(false, true) {
+		logger.Warn("[fsm] StartCleanup called more than once; the running cleaner keeps working (close its stop channel first to replace it)")
+		return
+	}
 	go func() {
+		defer e.cleanupStarted.Store(false) // 停止后可重新启动
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				e.stores.Cleanup(time.Now().Unix())
+				if n := e.stores.Cleanup(time.Now().Unix()); n > 0 {
+					logger.WithField("deleted", n).Debug("[fsm] expired sessions cleaned up")
+				}
 			case <-stop:
 				return
 			}

@@ -43,9 +43,13 @@ type FSMContext struct {
 }
 
 // EndSession 结束当前 FSM 会话。调用后无论 event.To 是否为空，框架都会结束会话。
+//
+// 只能在 Action/OnEnter/OnExit 回调内调用（引擎在会话锁内执行回调）：
+// 其它上下文请使用 [Engine.EndSession]。
 func (ctx *FSMContext) EndSession() {
 	ctx.ended = true
 	if ctx.engine != nil {
-		ctx.engine.EndSession(ctx.SessionID)
+		// 回调运行在会话锁内：用不加锁的删除路径，避免自死锁。
+		ctx.engine.endSessionLocked(ctx.SessionID)
 	}
 }
