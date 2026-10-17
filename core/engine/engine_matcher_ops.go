@@ -113,6 +113,10 @@ func (e *Engine) DeleteMatchers(matchers []*Matcher) {
 
 // registerMatcher 注册一个已初始化的匹配器（内部方法，COW 写操作）
 func (e *Engine) registerMatcher(m *Matcher) *Matcher {
+	// 进入运行时索引前固定规则快照（见 publishInitialRules）：此后框架读侧
+	// 只读快照，与链式规则追加并发安全。
+	m.publishInitialRules()
+
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
@@ -234,6 +238,8 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		},
 	}
 	matcher.priority.Store(50)
+	// 临时 matcher 也参与路由：进入 TempManager 前固定规则快照
+	matcher.publishInitialRules()
 	if b := e.registerBatch; b != nil {
 		// 批处理会话：收集临时 matcher，Flush 时统一入 TempManager
 		b.temps = append(b.temps, matcher)

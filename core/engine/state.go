@@ -242,6 +242,9 @@ func (s *state) withClearedMatchers() *state {
 // 仅设置了 Definition.Name 的普通 matcher 保留在常规索引中按规则匹配，
 // 避免其被移入 commandIndex 后 Match 跳过 Rules[0] 造成语义漂移。
 func (s *state) withAddedMatcher(m *Matcher) *state {
+	// 进入索引前固定规则快照（见 Matcher.publishInitialRules）
+	m.publishInitialRules()
+
 	cmd := m.GetCommand()
 	et := m.EventType
 	grp := m.GetGroup()
@@ -383,6 +386,8 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		if m.handlerLocked() != nil {
 			m.hasHandler.Store(true)
 		}
+		// 直接经 BatchRegisterMatchers 提交的 matcher 同样固定规则快照
+		m.publishInitialRules()
 
 		cmd := m.GetCommand()
 		et := m.EventType

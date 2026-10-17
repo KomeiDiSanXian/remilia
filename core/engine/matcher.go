@@ -192,6 +192,22 @@ func (m *Matcher) publishRules(rules []context.Rule) {
 	m.rules.Store(&ruleSet{rules: rules})
 }
 
+// publishInitialRules 在 matcher 进入运行时索引前固定一份规则快照。
+//
+// 注册点（registerMatcher/OnTemp/索引构建）调用：此后框架读侧一律走
+// [Matcher.ruleSnapshot]，链式追加只发布新快照，读侧不再触碰公开字段，
+// 因此"首次追加"也不会与事件派发读同一份切片头（此前读侧在快照为空时
+// 回退读公开字段，与首次追加的字段写入构成竞争）。
+//
+// 未注册的 matcher（构造期、测试字面量）没有快照，读侧直接读公开字段——
+// 与历史行为一致。
+func (m *Matcher) publishInitialRules() {
+	if m == nil || m.rules.Load() != nil {
+		return
+	}
+	m.rules.Store(&ruleSet{rules: m.Rules})
+}
+
 // appendRule 追加一条规则（框架内部，供链式规则方法使用）。
 //
 // COW：复制当前切片再追加，绝不在已发布的底层数组上就地追加。
