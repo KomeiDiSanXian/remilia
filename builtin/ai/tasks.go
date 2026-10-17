@@ -83,6 +83,7 @@ func (p *Plugin) startTaskForPlan(ctx *eventctx.Context, sess *session.Session, 
 		// 同一会话出现新计划 = 旧任务不再执行：取消而不是删除，
 		// 已完成步骤与结果保留为可查询的历史。
 		if cerr := old.Cancel(); cerr == nil {
+			recordTaskStatus(old.Status)
 			if serr := store.Save(old); serr != nil {
 				logger.Errorf("[AI] Failed to persist superseded task %s: %v", old.ID, serr)
 			}
@@ -92,13 +93,18 @@ func (p *Plugin) startTaskForPlan(ctx *eventctx.Context, sess *session.Session, 
 	}
 
 	t := task.New(plan.Task, sess.ID, ctx.GetSenderInfo().ID, ctx.GetChatInfo().ID, ctx.GetEventPlatform())
+	recordTaskCreated()
 	if err := t.Start(); err != nil {
 		logger.Errorf("[AI] Failed to start task %s: %v", t.ID, err)
 		return
 	}
+	recordTaskStatus(t.Status)
 	if err := t.SyncPlan(plan); err != nil {
 		logger.Errorf("[AI] Failed to sync plan into task %s: %v", t.ID, err)
 		return
+	}
+	if t.Status != task.StatusRunning {
+		recordTaskStatus(t.Status)
 	}
 	if err := store.Save(t); err != nil {
 		logger.Errorf("[AI] Failed to persist task %s: %v", t.ID, err)
@@ -113,18 +119,24 @@ func (p *Plugin) syncActiveTask(ctx *eventctx.Context, sess *session.Session, pl
 	switch {
 	case errors.Is(err, task.ErrNotFound):
 		t = task.New(plan.Task, sess.ID, ctx.GetSenderInfo().ID, ctx.GetChatInfo().ID, ctx.GetEventPlatform())
+		recordTaskCreated()
 		if serr := t.Start(); serr != nil {
 			logger.Errorf("[AI] Failed to start task %s: %v", t.ID, serr)
 			return
 		}
+		recordTaskStatus(t.Status)
 	case err != nil:
 		logger.Errorf("[AI] Failed to look up active task for session %s: %v", sess.ID, err)
 		return
 	}
+	previous := t.Status
 	if err := t.SyncPlan(plan); err != nil {
 		// 终态任务拒绝刷新；这是预期内的竞态（取消与工具结果并发），不重复报错。
 		logger.Debugf("[AI] Task %s not refreshed: %v", t.ID, err)
 		return
+	}
+	if t.Status != previous {
+		recordTaskStatus(t.Status)
 	}
 	if err := store.Save(t); err != nil {
 		logger.Errorf("[AI] Failed to persist task %s: %v", t.ID, err)
@@ -150,6 +162,7 @@ func (p *Plugin) cancelActiveTask(sess *session.Session) bool {
 		logger.Debugf("[AI] Task %s cannot be cancelled: %v", t.ID, err)
 		return false
 	}
+	recordTaskStatus(t.Status)
 	if err := store.Save(t); err != nil {
 		logger.Errorf("[AI] Failed to persist cancelled task %s: %v", t.ID, err)
 	}
@@ -178,6 +191,7 @@ func (p *Plugin) recoverInterruptedTasks() {
 			logger.Debugf("[AI] Task %s cannot be marked interrupted: %v", t.ID, err)
 			continue
 		}
+		recordTaskStatus(t.Status)
 		if err := store.Save(t); err != nil {
 			logger.Errorf("[AI] Failed to persist interrupted task %s: %v", t.ID, err)
 			continue

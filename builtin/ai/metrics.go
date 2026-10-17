@@ -15,6 +15,9 @@
 //   - ai_toolset_size                        每轮发送的工具数量分布
 //   - ai_catalog_changes_total{reason}        目录代数推进次数（reason: add/remove/update）
 //   - ai_catalog_generation                   当前目录内容版本
+//   - ai_tasks_created_total                  任务创建次数（新计划取代旧任务同样计数）
+//   - ai_task_transitions_total{status}       任务进入各目标状态的次数
+//     （status: running/succeeded/failed/cancelled/interrupted 等）
 //
 // 目录版本会在成员、动作定义、策略或来源身份变化时推进；每次推进都会让
 // 会话级选择缓存失效。ai_catalog_changes_total 的变化率可与
@@ -35,6 +38,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -112,6 +116,23 @@ var (
 			Help:      "当前目录内容版本（成员、动作定义、策略或来源身份）",
 		},
 	)).(prometheus.Gauge)
+
+	taskCreated = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "tasks_created_total",
+			Help:      "任务创建次数（新计划取代旧任务同样计数）",
+		},
+	)).(prometheus.Counter)
+
+	taskTransitions = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "task_transitions_total",
+			Help:      "任务进入各目标状态的次数",
+		},
+		[]string{"status"},
+	)).(*prometheus.CounterVec)
 )
 
 // recordToolSet 记录一次工具集决策结果。
@@ -160,6 +181,14 @@ func recordToolCall(tool string, err error) {
 		result = "error"
 	}
 	toolCalls.WithLabelValues(tool, result).Inc()
+}
+
+// recordTaskCreated 记录一次任务创建。
+func recordTaskCreated() { taskCreated.Inc() }
+
+// recordTaskStatus 记录任务进入目标状态。
+func recordTaskStatus(s task.Status) {
+	taskTransitions.WithLabelValues(string(s)).Inc()
 }
 
 // metricsProvider 装饰 Provider，采集 LLM 调用指标。
