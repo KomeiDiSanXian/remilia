@@ -36,6 +36,9 @@ type Store interface {
 	ActiveBySession(sessionID string) (*Task, error)
 	// ListBySession 返回会话的全部任务，按创建时间倒序；无记录时返回空切片。
 	ListBySession(sessionID string) ([]*Task, error)
+	// ListActive 返回全部活动（非终态）任务，按创建时间正序；无记录时返回空切片。
+	// 供进程启动时恢复中断任务使用。
+	ListActive() ([]*Task, error)
 }
 
 // Record 对应数据库表 ai_tasks 的任务持久化记录。
@@ -180,18 +183,34 @@ func (s *GormStore) ListBySession(sessionID string) ([]*Task, error) {
 		Find(&recs); err != nil {
 		return nil, err
 	}
+	return recordsToTasks(recs), nil
+}
+
+// ListActive 返回全部活动任务，按创建时间正序。
+func (s *GormStore) ListActive() ([]*Task, error) {
+	var recs []Record
+	if err := s.client.
+		Where("status NOT IN ?", terminalStatusStrings()).
+		Order("created_at ASC").
+		Find(&recs); err != nil {
+		return nil, err
+	}
+	return recordsToTasks(recs), nil
+}
+
+// recordsToTasks 转换记录集；单条损坏（跨版本降级、手工改库）只跳过该条，
+// 不让整个查询失败。
+func recordsToTasks(recs []Record) []*Task {
 	out := make([]*Task, 0, len(recs))
 	for i := range recs {
 		t, err := recs[i].ToTask()
 		if err != nil {
-			// 单条记录损坏（跨版本降级、手工改库）不应让整个列表失败；
-			// 保留其余记录并留下可排查的日志。
 			logger.Warnf("[AI] Skipping corrupted task record %s: %v", recs[i].ID, err)
 			continue
 		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out
 }
 
 // firstValidTask 返回记录集中的首条有效任务；全部损坏时返回 [ErrNotFound]。
@@ -290,6 +309,25 @@ func (m *MemStore) ListBySession(sessionID string) ([]*Task, error) {
 	return out, nil
 }
 
+// ListActive 返回全部活动任务，按创建时间正序。
+func (m *MemStore) ListActive() ([]*Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Task, 0, len(m.tasks))
+	for _, t := range m.tasks {
+		if t.Active() {
+			out = append(out, t.Clone())
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return strings.Compare(out[i].ID, out[j].ID) < 0
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
 // NoopStore 空实现，不进行任何持久化（DryRun 装配使用）。
 type NoopStore struct{}
 
@@ -304,3 +342,6 @@ func (NoopStore) ActiveBySession(string) (*Task, error) { return nil, ErrNotFoun
 
 // ListBySession 空实现，始终返回空切片。
 func (NoopStore) ListBySession(string) ([]*Task, error) { return nil, nil }
+
+// ListActive 空实现，始终返回空切片。
+func (NoopStore) ListActive() ([]*Task, error) { return nil, nil }

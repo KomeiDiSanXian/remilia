@@ -268,6 +268,10 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			p.registerHandlers(ctx)
 
+			// 进程重启后，上次退出时仍在执行的任务置为 interrupted：
+			// 记录保留可查，但在途调用已不存在，不能继续显示为进行中。
+			p.recoverInterruptedTasks()
+
 			// 多模态配置警告
 			if cfg.VisionEnabled || cfg.AudioEnabled {
 				nonVisionModels := []string{"deepseek-chat", "deepseek-reasoner", "gpt-3.5-turbo", "gpt-3.5-turbo-16k"}

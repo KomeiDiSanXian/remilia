@@ -204,6 +204,33 @@ func TestCancelIdempotentAndTerminal(t *testing.T) {
 	}
 }
 
+func TestInterruptedTaskResumesOnPlanProgress(t *testing.T) {
+	tk := New("task", "s", "u", "c", "p")
+	if err := tk.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := tk.SyncPlan(planOf("目标",
+		step("step_1", "第一步", session.PlanInProgress),
+		step("step_2", "第二步", session.PlanPending),
+	)); err != nil {
+		t.Fatalf("SyncPlan: %v", err)
+	}
+	if err := tk.Transition(StatusInterrupted); err != nil {
+		t.Fatalf("Transition(interrupted): %v", err)
+	}
+
+	// 恢复后收到新的进度：任务回到执行中，而不是停留在中断态。
+	if err := tk.SyncPlan(planOf("目标",
+		step("step_1", "第一步", session.PlanDone),
+		step("step_2", "第二步", session.PlanInProgress),
+	)); err != nil {
+		t.Fatalf("SyncPlan after recovery: %v", err)
+	}
+	if tk.Status != StatusRunning {
+		t.Fatalf("status = %q, want running after recovery", tk.Status)
+	}
+}
+
 func TestStartIdempotentAndTerminal(t *testing.T) {
 	tk := New("task", "s", "u", "c", "p")
 	if err := tk.Start(); err != nil {

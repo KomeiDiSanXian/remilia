@@ -156,6 +156,39 @@ func (p *Plugin) cancelActiveTask(sess *session.Session) bool {
 	return true
 }
 
+// recoverInterruptedTasks 把上次进程退出时仍在执行的任务置为 interrupted。
+//
+// 任务记录跨重启保留，但执行环境与在途调用已经不存在；继续显示为"进行中"
+// 会误导用户与后续调度。恢复只改状态、不重放任何步骤：下一次计划推进到达时
+// 任务会自然回到 running（见 task.Task.SyncPlan），无法安全恢复的操作由
+// 用户显式取消或重试。
+func (p *Plugin) recoverInterruptedTasks() {
+	store := p.taskStore()
+	list, err := store.ListActive()
+	if err != nil {
+		logger.Errorf("[AI] Failed to list active tasks for recovery: %v", err)
+		return
+	}
+	recovered := 0
+	for _, t := range list {
+		if t.Status != task.StatusRunning && t.Status != task.StatusPlanning {
+			continue
+		}
+		if err := t.Transition(task.StatusInterrupted); err != nil {
+			logger.Debugf("[AI] Task %s cannot be marked interrupted: %v", t.ID, err)
+			continue
+		}
+		if err := store.Save(t); err != nil {
+			logger.Errorf("[AI] Failed to persist interrupted task %s: %v", t.ID, err)
+			continue
+		}
+		recovered++
+	}
+	if recovered > 0 {
+		logger.Infof("[AI] Marked %d task(s) as interrupted after restart", recovered)
+	}
+}
+
 // --- /ai task ---
 
 // handleTaskCommand 处理 /ai task 子命令（status / list / cancel）。

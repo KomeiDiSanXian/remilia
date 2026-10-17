@@ -10,6 +10,24 @@ import (
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 )
 
+// openTaskTestDB 为每个用例打开独立的内存 SQLite。
+//
+// infrastorage.NewMemory 使用 file::memory:?cache=shared，同一进程内的多个
+// 连接会看到彼此的表；任务表名固定，直接复用会让用例相互污染，因此按用例名
+// 构造独立 DSN。
+func openTaskTestDB(t *testing.T) *infrastorage.Plugin {
+	t.Helper()
+	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
+	client, err := infrastorage.Open(infrastorage.WithDSN("file:" + name + "?mode=memory&cache=shared"))
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	if sqlDB, err := client.DB().DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	return client
+}
+
 func TestNewGormStoreNilClient(t *testing.T) {
 	store, err := NewGormStore(nil)
 	if !errors.Is(err, ErrNilStorageClient) {
@@ -27,10 +45,7 @@ func TestGormStoreTableName(t *testing.T) {
 }
 
 func TestGormStoreRoundTrip(t *testing.T) {
-	client, err := infrastorage.NewMemory()
-	if err != nil {
-		t.Fatalf("NewMemory: %v", err)
-	}
+	client := openTaskTestDB(t)
 	store, err := NewGormStore(client)
 	if err != nil {
 		t.Fatalf("NewGormStore: %v", err)
@@ -89,10 +104,7 @@ func TestGormStoreRoundTrip(t *testing.T) {
 }
 
 func TestGormStoreActivePicksNewestAndListsDescending(t *testing.T) {
-	client, err := infrastorage.NewMemory()
-	if err != nil {
-		t.Fatalf("NewMemory: %v", err)
-	}
+	client := openTaskTestDB(t)
 	store, err := NewGormStore(client)
 	if err != nil {
 		t.Fatalf("NewGormStore: %v", err)
@@ -126,10 +138,7 @@ func TestGormStoreActivePicksNewestAndListsDescending(t *testing.T) {
 }
 
 func TestGormStoreSkipsCorruptedRecords(t *testing.T) {
-	client, err := infrastorage.NewMemory()
-	if err != nil {
-		t.Fatalf("NewMemory: %v", err)
-	}
+	client := openTaskTestDB(t)
 	store, err := NewGormStore(client)
 	if err != nil {
 		t.Fatalf("NewGormStore: %v", err)
@@ -167,10 +176,7 @@ func TestGormStoreSkipsCorruptedRecords(t *testing.T) {
 }
 
 func TestGormStoreNotFound(t *testing.T) {
-	client, err := infrastorage.NewMemory()
-	if err != nil {
-		t.Fatalf("NewMemory: %v", err)
-	}
+	client := openTaskTestDB(t)
 	store, err := NewGormStore(client)
 	if err != nil {
 		t.Fatalf("NewGormStore: %v", err)
@@ -184,6 +190,35 @@ func TestGormStoreNotFound(t *testing.T) {
 	list, err := store.ListBySession("missing")
 	if err != nil || len(list) != 0 {
 		t.Fatalf("ListBySession(missing) = (%v, %v)", list, err)
+	}
+}
+
+func TestGormStoreListActive(t *testing.T) {
+	client := openTaskTestDB(t)
+	store, err := NewGormStore(client)
+	if err != nil {
+		t.Fatalf("NewGormStore: %v", err)
+	}
+
+	base := time.Now()
+	older := New("活动一", "s1", "u1", "c1", "qq")
+	older.CreatedAt = base.Add(-time.Minute)
+	newer := New("活动二", "s2", "u1", "c1", "qq")
+	newer.CreatedAt = base
+	done := New("已完成", "s3", "u1", "c1", "qq")
+	done.Status = StatusSucceeded
+	for _, tk := range []*Task{older, newer, done} {
+		if err := store.Save(tk); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	active, err := store.ListActive()
+	if err != nil {
+		t.Fatalf("ListActive: %v", err)
+	}
+	if len(active) != 2 || active[0].ID != older.ID || active[1].ID != newer.ID {
+		t.Fatalf("ListActive = %+v, want oldest first and terminal excluded", active)
 	}
 }
 
@@ -259,6 +294,32 @@ func TestMemStoreActiveAndList(t *testing.T) {
 	}
 }
 
+func TestMemStoreListActive(t *testing.T) {
+	store := NewMemStore()
+	base := time.Now()
+	older := New("活动一", "s1", "u1", "c1", "qq")
+	older.CreatedAt = base.Add(-time.Minute)
+	newer := New("活动二", "s2", "u1", "c1", "qq")
+	newer.CreatedAt = base
+	done := New("已完成", "s1", "u1", "c1", "qq")
+	if err := done.Cancel(); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	for _, tk := range []*Task{older, newer, done} {
+		if err := store.Save(tk); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	active, err := store.ListActive()
+	if err != nil {
+		t.Fatalf("ListActive: %v", err)
+	}
+	if len(active) != 2 || active[0].ID != older.ID || active[1].ID != newer.ID {
+		t.Fatalf("ListActive = %+v, want oldest first and terminal excluded", active)
+	}
+}
+
 func TestNoopStore(t *testing.T) {
 	var store NoopStore
 	if err := store.Save(New("目标", "s", "u", "c", "p")); err != nil {
@@ -273,6 +334,10 @@ func TestNoopStore(t *testing.T) {
 	list, err := store.ListBySession("x")
 	if err != nil || len(list) != 0 {
 		t.Fatalf("ListBySession = (%v, %v)", list, err)
+	}
+	active, err := store.ListActive()
+	if err != nil || len(active) != 0 {
+		t.Fatalf("ListActive = (%v, %v)", active, err)
 	}
 }
 

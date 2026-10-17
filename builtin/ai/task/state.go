@@ -23,7 +23,7 @@ var taskTransitions = map[Status][]Status{
 	},
 	StatusPlanning: {
 		StatusReady, StatusRunning, StatusWaitingInput, StatusPaused,
-		StatusSucceeded, StatusFailed, StatusCancelled,
+		StatusSucceeded, StatusFailed, StatusCancelled, StatusInterrupted,
 	},
 	StatusReady: {
 		StatusRunning, StatusPaused, StatusSucceeded, StatusFailed, StatusCancelled,

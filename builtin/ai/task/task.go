@@ -251,6 +251,11 @@ func (t *Task) SyncPlan(plan *session.Plan) error {
 	if t.Completed() {
 		return t.settle()
 	}
+	// 恢复后的任务在下一次计划推进时回到执行中：interrupted 表示"进程退出时
+	// 仍在执行"，不是失败；有新的进度即说明执行已继续。
+	if t.Status == StatusInterrupted {
+		return t.Transition(StatusRunning)
+	}
 	return nil
 }
 

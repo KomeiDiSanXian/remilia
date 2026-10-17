@@ -184,6 +184,39 @@ func TestParallelPlanUpdatesKeepTaskConsistent(t *testing.T) {
 	}
 }
 
+func TestRecoverInterruptedTasks(t *testing.T) {
+	p := newTaskPlugin(t)
+	ctx := makeManageCtx("/ai", false)
+	sess := p.sm.GetOrCreate("synthetic:chat:user", "user", "chat")
+	pa := p.planAccessFor(ctx, sess)
+	execPlanTool(t, planToolForTest(t, catalog.PlanCreateToolName), pa,
+		map[string]any{"task": "重启恢复", "steps": []any{"第一步", "第二步"}})
+
+	// 模拟进程重启：任务记录仍在 running，插件重新装配时执行恢复。
+	p.recoverInterruptedTasks()
+	interrupted, err := p.tasks.ActiveBySession(sess.ID)
+	if err != nil {
+		t.Fatalf("ActiveBySession: %v", err)
+	}
+	if interrupted.Status != task.StatusInterrupted {
+		t.Fatalf("status = %q, want interrupted", interrupted.Status)
+	}
+
+	// 下一次计划推进把任务带回执行中。
+	execPlanTool(t, planToolForTest(t, catalog.PlanUpdateToolName), pa,
+		map[string]any{"step_id": "step_1", "status": "in_progress"})
+	recovered, err := p.tasks.ActiveBySession(sess.ID)
+	if err != nil {
+		t.Fatalf("ActiveBySession: %v", err)
+	}
+	if recovered.Status != task.StatusRunning {
+		t.Fatalf("status = %q, want running after recovery", recovered.Status)
+	}
+	if recovered.Steps[0].Status != task.StepRunning {
+		t.Fatalf("step_1 = %q, want running", recovered.Steps[0].Status)
+	}
+}
+
 func TestTaskCommandStatusListCancel(t *testing.T) {
 	p := newTaskPlugin(t)
 	ctx := makeManageCtx("/ai task", false)
