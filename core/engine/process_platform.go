@@ -170,6 +170,10 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 	plan := e.strategy.Load().Plan(state, ctx)
 	defer plan.Release()
 
+	// metaInjected 记录上一个候选是否注入过 Meta：无 Meta 的候选只在其后清除
+	// （热路径上"从未注入"的常见情况不做任何写操作，见下方注入/清除分支）。
+	var metaInjected bool
+
 	for plan.Next() {
 		m := plan.Matcher()
 
@@ -225,9 +229,10 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 				// 每个入池事件都会留下一个永不取消的派生 context）
 				defer pooledCtx.Cancel()
 				pooledCtx.SetMatcher(m)
-				if meta != nil {
-					pooledCtx.SetCandidateMeta(meta)
-				}
+				// 无论有无 Meta 都显式写入：克隆可能继承了上一个候选的 Meta
+				// （SetCandidateMeta(nil) 会清除），handler 否则会读到不存在的
+				// 正则捕获组
+				pooledCtx.SetCandidateMeta(meta)
 				start := time.Now()
 				e.invokeHandler(pooledCtx, m)
 				if p := m.execProfile; p != nil {
@@ -243,8 +248,14 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		}
 
 		ctx.SetMatcher(m)
+		// Meta 注入/清除：无 Meta 的候选必须清掉上一个候选留下的值。
+		// 只有确实注入过 Meta 才需要清除，热路径（快带候选）不做任何写入。
 		if meta := plan.Meta(); meta != nil {
 			ctx.SetCandidateMeta(meta)
+			metaInjected = true
+		} else if metaInjected {
+			ctx.SetCandidateMeta(nil)
+			metaInjected = false
 		}
 		start := time.Now()
 		e.invokeHandler(ctx, m)

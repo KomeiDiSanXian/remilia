@@ -25,9 +25,16 @@ type candidateMeta struct {
 }
 
 // SetCandidateMeta 设置当前候选携带的匹配结果（框架内部，由引擎注入）。
-// meta 为 nil 时为空操作。
+//
+// meta 为 nil 时清除已有 Meta：同一 Context 会被多个候选复用，
+// 无 Meta 的候选（快带）必须清掉上一个候选（慢带，如正则捕获组）注入的值，
+// 否则 handler 会读到不存在的匹配结果。
 func (ctx *Context) SetCandidateMeta(meta any) {
-	if ctx == nil || meta == nil {
+	if ctx == nil {
+		return
+	}
+	if meta == nil {
+		ctx.Ext().DeleteTyped[candidateMeta]()
 		return
 	}
 	ctx.Ext().SetTyped(candidateMeta{Meta: meta})

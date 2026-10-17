@@ -68,6 +68,21 @@ func (e *Extensions) Set(t reflect.Type, v any) {
 	e.mu.Unlock()
 }
 
+// Delete 删除类型键值（不存在时为空操作）。
+func (e *Extensions) Delete(t reflect.Type) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	delete(e.m, t)
+	e.mu.Unlock()
+}
+
+// DeleteTyped 删除类型键值（泛型封装，存在时删除）。
+func (e *Extensions) DeleteTyped[T any]() {
+	e.Delete(extTypeOf[T]())
+}
+
 // GetOrInit 根据类型返回扩展值，若不存在则初始化并存储。
 func (e *Extensions) GetOrInit(t reflect.Type, init func() any) any {
 	if e == nil {
