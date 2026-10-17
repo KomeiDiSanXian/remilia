@@ -3,6 +3,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # 手动重跑：发布失败（或需要补产物）时按同一个标签重新触发，无需移动/重推标签。
+  # tag 必填，工作流会检出该标签而不是当前分支。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的标签（例：v1.74.0）"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +27,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # 手动触发时检出目标标签；标签推送时 github.ref_name 本身就是该标签
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-go@v7
         with:
@@ -55,13 +65,18 @@ jobs:
 
       - name: Extract release notes from CHANGELOG.md
         id: notes
-        # CHANGELOG 里对应版本的段落就是发布说明；缺失时回退 GoReleaser 自动 changelog
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        # CHANGELOG 里对应版本的段落就是发布说明；缺失时回退 GoReleaser 自动 changelog。
+        # 写到 runner 临时目录：GoReleaser 会把未跟踪文件也算作"脏工作区"并拒绝发布。
         run: |
-          if node scripts/release-notes.mjs "${GITHUB_REF_NAME}" > release-notes.md; then
+          notes="${RUNNER_TEMP}/release-notes.md"
+          if node scripts/release-notes.mjs "$TAG" > "$notes"; then
             echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CHANGELOG.md 中没有 ${GITHUB_REF_NAME} 的段落，改用自动生成的 changelog"
+            echo "::warning::CHANGELOG.md 中没有 $TAG 的段落，改用自动生成的 changelog"
           fi
 
       - name: Run GoReleaser
@@ -69,9 +84,11 @@ jobs:
         with:
           version: latest
           # --release-notes 会让 GoReleaser 跳过自带 changelog，直接用该文件作为 Release 正文
-          args: release --clean ${{ steps.notes.outputs.found == 'true' && '--release-notes=release-notes.md' || '' }}
+          args: release --clean ${{ steps.notes.outputs.found == 'true' && format('--release-notes={0}', steps.notes.outputs.path) || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 手动触发时固定当前标签，避免 GoReleaser 从检出状态推断出别的版本
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag || github.ref_name }}
 
       - name: Attest build provenance
         # subject-checksums 把 checksums.txt 里列出的每个文件登记为 subject —— 11 个归档一次覆盖
@@ -104,6 +121,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 与 GoReleaser 同一个标签：手动触发时也要构建该标签的代码
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-go@v7
         with:
@@ -134,7 +154,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force desktop/src-tauri/binaries | Out-Null
           $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-          $ldflags = "-s -w -X github.com/KomeiDiSanXian/remilia.Version=${{ github.ref_name }} -X main.commit=${{ github.sha }} -X main.date=$date"
+          $ldflags = "-s -w -X github.com/KomeiDiSanXian/remilia.Version=${{ inputs.tag || github.ref_name }} -X main.commit=${{ github.sha }} -X main.date=$date"
           go build -trimpath -ldflags $ldflags -o desktop/src-tauri/binaries/remilia-bot-x86_64-pc-windows-msvc.exe ./cmd/bot
 
       - name: Install desktop dependencies
@@ -143,7 +163,7 @@ jobs:
 
       - name: Sync desktop version from tag
         # 桌面端内置 sidecar，每个框架版本都应作为一次桌面端发布
-        run: node desktop/scripts/sync-version.mjs ${{ github.ref_name }}
+        run: node desktop/scripts/sync-version.mjs ${{ inputs.tag || github.ref_name }}
 
       - name: Build and publish desktop release
         uses: tauri-apps/tauri-action@v1
@@ -152,7 +172,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           projectPath: desktop
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ inputs.tag || github.ref_name }}
 
       - name: Attest build provenance
         # 安装包在应用内更新链路之外没有任何签名，来源证明是它们唯一的可验证出处
@@ -167,6 +187,10 @@ jobs:
     # 复用 android.yml：等 GoReleaser 建好 Release 再上传 APK，避免两个 job 竞争创建
     needs: [goreleaser]
     uses: ./.github/workflows/android.yml
+    with:
+      # 显式传标签：手动重跑时复用工作流内的 GITHUB_REF 是触发分支，
+      # 不传会导致它只产出 artifact、不上传 APK
+      tag: ${{ inputs.tag || github.ref_name }}
     secrets: inherit
     permissions:
       contents: write

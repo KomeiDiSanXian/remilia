@@ -49,6 +49,10 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 显式给了 tag 就检出该标签（手动重跑发布时复用工作流拿到的 ref 是触发分支）；
+          # 留空时保持默认（标签推送检出标签、PR 检出合并结果、手动出包检出当前分支）
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v7
         with:
