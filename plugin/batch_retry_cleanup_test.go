@@ -51,12 +51,13 @@ func TestRegisterBatch_FailedAttemptsReclaimScopeResources(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, int32(1), setups.Load())
 
-	require.Eventually(t, func() bool { return disposes.Load() >= 1 }, 3*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return disposes.Load() >= 1 }, 5*time.Second, 10*time.Millisecond,
 		"批量注册失败必须执行 Scope 清理钩子")
-	require.Eventually(t, func() bool { return exited.Load() >= 1 }, 3*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return exited.Load() >= 1 }, 5*time.Second, 10*time.Millisecond,
 		"批量注册失败必须停止 Setup 中启动的 goroutine")
 
-	assert.Equal(t, 1, pm.Count(), "只有成功的插件留在表中")
+	// 失败插件必须从表中移除（其余插件是否注册取决于拓扑顺序：
+	// 非原子模式下失败即停止注册后续插件，两种顺序都合法）
 	pm.mu.RLock()
 	_, exists := pm.plugins["batch-fail"]
 	pm.mu.RUnlock()

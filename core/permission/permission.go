@@ -24,8 +24,11 @@ package permission
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Permission represents a capability defined by a resource and an action.
@@ -110,9 +113,20 @@ func NewRole(name string, perms ...Permission) *Role {
 		permissions: make(map[string]Permission, len(perms)),
 	}
 	for _, p := range perms {
-		r.permissions[p.String()] = p
+		r.permissions[permKey(p)] = p
 	}
 	return r
+}
+
+// permKey 返回权限的无歧义内部 key。
+//
+// 早期实现直接用 Permission.String()（"resource:action"）作为 map key：
+// {command:echo, execute} 与 {command, echo:execute} 会得到同一个 key
+// （"command:echo:execute"），HasPermission 误命中、RemovePermission 误删。
+// 这里用「长度前缀 + resource + action」，任意取值组合都不会碰撞；
+// Permission.String() 保留为展示用格式（对外 API 不变）。
+func permKey(p Permission) string {
+	return strconv.Itoa(len(p.Resource)) + ":" + p.Resource + p.Action
 }
 
 // AddPermission appends a permission to the role (idempotent).
@@ -122,14 +136,14 @@ func (r *Role) AddPermission(perm Permission) {
 	if r.permissions == nil {
 		r.permissions = make(map[string]Permission, 1)
 	}
-	r.permissions[perm.String()] = perm
+	r.permissions[permKey(perm)] = perm
 }
 
 // RemovePermission removes the exact permission from the role.
 func (r *Role) RemovePermission(perm Permission) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.permissions, perm.String())
+	delete(r.permissions, permKey(perm))
 }
 
 // HasPermission reports whether the role grants the target permission.
@@ -143,11 +157,11 @@ func (r *Role) HasPermission(perm Permission) bool {
 	defer r.mu.RUnlock()
 
 	// 1. 精确 key 匹配（O(1)）
-	if _, ok := r.permissions[perm.String()]; ok {
+	if _, ok := r.permissions[permKey(perm)]; ok {
 		return true
 	}
 	// 2. 全局通配符 "*:*"（O(1)）
-	if _, ok := r.permissions["*:*"]; ok {
+	if _, ok := r.permissions[permKey(Permission{Resource: "*", Action: "*"})]; ok {
 		return true
 	}
 	// 3. 遍历含通配符的 Permission（数量通常极少）
@@ -218,7 +232,18 @@ func (pm *Manager) RegisterDefaultRoles() {
 }
 
 // RegisterRole adds or replaces a role definition.
+//
+// nil 角色与空名角色被拒绝并告警：nil 会直接 panic，空名角色则永远无法被
+// 授予（AssignRole 按名字查找），注册它等于"以为配好了权限、实际全不生效"。
 func (pm *Manager) RegisterRole(role *Role) {
+	if role == nil {
+		logger.Warn("[permission] RegisterRole(nil) ignored")
+		return
+	}
+	if role.Name == "" {
+		logger.Warn("[permission] RegisterRole with empty name ignored")
+		return
+	}
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.roles[role.Name] = role
