@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -51,6 +52,10 @@ func (lc *lifecycleController) metaManager() *goroutineManager {
 // 已处于 Loaded 状态的插件会跳过（幂等）。
 // ctx 用于控制超时：若 context 在插件 Setup 完成前到期，返回 ctx.Err()。
 func (lc *lifecycleController) StartAll(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// StopAll 会停掉 metaGM；支持 Stop → Start 循环（StartAll 文档宣称幂等）
 	lc.ensureMetaGM()
 
@@ -116,6 +121,10 @@ func (lc *lifecycleController) StartAll(ctx context.Context) error {
 // 若某个插件 Teardown 失败，继续处理其余插件并收集错误。
 // ctx 用于控制超时：若 context 在插件 Teardown 完成前到期，返回 ctx.Err()。
 func (lc *lifecycleController) StopAll(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	lc.pm.mu.RLock()
 	// 逆序：最后加载的最先卸载
 	order := make([]string, len(lc.pm.loadOrder))
@@ -366,17 +375,48 @@ func (lc *lifecycleController) AddListener(listener LifecycleListener) {
 	lc.listeners = append(lc.listeners, listener)
 }
 
-// RemoveListener 移除生命周期监听器
+// RemoveListener 移除生命周期监听器。
+//
+// 比较通过 sameListener 进行：接口值直接 `==` 在动态类型不可比较时 panic，
+// 这里按动态类型分派（指针比地址、可比较类型用 ==、函数/映射/切片等
+// 不可比较类型无法判定同一性，跳过并告警）。
 func (lc *lifecycleController) RemoveListener(listener LifecycleListener) {
 	lc.pm.mu.Lock()
 	defer lc.pm.mu.Unlock()
 	newListeners := make([]LifecycleListener, 0, len(lc.listeners))
 	for _, l := range lc.listeners {
-		if l != listener {
+		if !sameListener(l, listener) {
 			newListeners = append(newListeners, l)
 		}
 	}
 	lc.listeners = newListeners
+}
+
+// sameListener 判定两个监听器是否为同一对象（不 panic）。
+func sameListener(a, b LifecycleListener) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	va := reflect.ValueOf(a)
+	vb := reflect.ValueOf(b)
+	if va.Type() != vb.Type() {
+		return false
+	}
+	switch va.Kind() {
+	case reflect.Pointer, reflect.Chan, reflect.UnsafePointer:
+		return va.Pointer() == vb.Pointer()
+	case reflect.Func, reflect.Map, reflect.Slice:
+		// 不可比较的动态类型：无法判定同一性（不允许用 panic 换取移除），
+		// 视为不同对象，监听器保留。
+		logger.Warn("[PluginManager] RemoveListener: listener has a non-comparable dynamic type, kept in place")
+		return false
+	default:
+		if va.Comparable() {
+			return a == b
+		}
+		logger.Warn("[PluginManager] RemoveListener: listener has a non-comparable dynamic type, kept in place")
+		return false
+	}
 }
 
 // --- 生命周期事件通知 ---
