@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -169,6 +170,7 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 
 	pm.mu.Lock()
 	delete(pm.plugins, name)
+	pm.removeLoadOrderLocked(name)
 	pm.mu.Unlock()
 
 	// 容器清理同样在锁外：Container 自身线程安全，且 Remove 会同步触发
@@ -216,7 +218,11 @@ func (pm *Manager) registerInstanceInContainer(name string) {
 //   - 插件处于 Error 状态，Unload 已无法正常执行
 //   - 需要强制清理损坏的插件
 //
-// 注意：强制注销不会调用插件的资源清理逻辑，可能造成资源泄漏。
+// 注意：强制注销不会调用插件的 Teardown 逻辑，但会做幂等资源回收——
+// Scope（EventBus 订阅、中间件、OnDispose 钩子）、受管 goroutine（带上限）、
+// 引擎分组与容器引用。旧实现只 RemoveGroup + 清容器：被移除插件的订阅仍在
+// 总线上响应事件、后台 goroutine 继续运行，且 Retry（经 ForceUnregister）
+// 会与旧资源双重持有。
 func (pm *Manager) ForceUnregister(name string) error {
 	pm.mu.Lock()
 	inst, exists := pm.plugins[name]
@@ -226,21 +232,18 @@ func (pm *Manager) ForceUnregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
-	// 先释放锁再清理 engine 端资源，避免在持有 Manager 锁的情况下操作 engine
-	pm.mu.Unlock()
-
-	if pm.coordinator != nil {
-		pm.coordinator.RemoveGroup(name)
-	}
-
-	pm.mu.Lock()
+	// 先释放锁再清理 engine/Scope 资源，避免在持有 Manager 锁的情况下操作
+	// engine（RemoveGroup 会触发引擎 COW 写）或执行插件钩子。
 	delete(pm.plugins, name)
+	pm.removeLoadOrderLocked(name)
 	pm.mu.Unlock()
+
+	inst.cleanupFailedLoad(pm.coordinator, nil)
 
 	// 容器清理在锁外（Remove 会同步触发 Watch 回调）
 	pm.removeExportedKeys(inst, name)
 
-	logger.Warnf("[PluginManager] Plugin %s force unregistered (Unload skipped, engine group/cleanup done)", name)
+	logger.Warnf("[PluginManager] Plugin %s force unregistered (Teardown skipped, scope/goroutines/engine group cleaned)", name)
 	pm.notifyUnloaded(name)
 	return nil
 }
@@ -886,12 +889,13 @@ func (pm *Manager) registerPostSetupSingle(inst *Instance, desc *Descriptor, loa
 	name := desc.Name
 
 	if loadErr != nil {
+		// 失败收尾：先回收 Scope/goroutine（幂等），再摘除实例与容器引用
+		inst.cleanupFailedLoad(pm.coordinator, nil)
+
 		pm.mu.Lock()
 		delete(pm.plugins, name)
+		pm.removeLoadOrderLocked(name)
 		pm.mu.Unlock()
-		if pm.coordinator != nil {
-			pm.coordinator.RemoveGroup(name)
-		}
 		pm.removeExportedKeys(inst, name)
 		logger.WithError(loadErr).Errorf("[PluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", loadErr)
@@ -993,13 +997,35 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 		}
 	}
 
-	pm.loadOrder = append(pm.loadOrder, name)
+	// 防御：同名条目已存在时不重复追加（历史上 loadOrder 从不清理，
+	// 重试注册会累积重复项，导致 StartAll 对同一插件重复 Setup）。
+	if !slices.Contains(pm.loadOrder, name) {
+		pm.loadOrder = append(pm.loadOrder, name)
+	}
 
 	// 注意：容器注册不在此处进行——Container.Register 会同步触发 Watch 回调，
 	// 而本方法在 pm.mu 写锁内执行。调用方在解锁后通过 registerInstanceInContainer 完成。
 
 	logger.Infof("[PluginManager] Plugin %s registered", name)
 	return false
+}
+
+// removeLoadOrderLocked 从加载顺序中移除插件名（需持有 pm.mu）。
+//
+// 注销/加载失败/强制卸载都必须调用：loadOrder 是 StartAll/StopAll/配置广播
+// 的遍历来源，残留名字会让这些路径反复处理已不存在的插件；重试注册还会把
+// 同一个名字追加第二次（StartAll 重复 Setup 的隐患）。
+func (pm *Manager) removeLoadOrderLocked(name string) {
+	if len(pm.loadOrder) == 0 {
+		return
+	}
+	filtered := make([]string, 0, len(pm.loadOrder))
+	for _, n := range pm.loadOrder {
+		if n != name {
+			filtered = append(filtered, n)
+		}
+	}
+	pm.loadOrder = filtered
 }
 
 // --- 生命周期通知委托 ---
