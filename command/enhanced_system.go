@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Definition 表示命令定义。
@@ -102,7 +103,11 @@ type Parsed struct {
 // Parser 表示命令解析器。
 //
 // 它维护已注册的根命令列表，并根据 prefix（例如“/”）进行命令匹配。
+//
+// 并发：Register 与 Parse 可并发调用（rootCommands 由 mu 保护，Parse 在
+// 锁下取快照后遍历）。
 type Parser struct {
+	mu           sync.RWMutex
 	rootCommands []*Definition
 	prefix       string
 }
@@ -116,7 +121,16 @@ func NewParser(prefix string) *Parser {
 
 // Register 注册一个根命令定义到解析器中。
 func (p *Parser) Register(cmd *Definition) {
+	p.mu.Lock()
 	p.rootCommands = append(p.rootCommands, cmd)
+	p.mu.Unlock()
+}
+
+// rootCommandsSnapshot 返回根命令列表快照（调用方不持有锁）。
+func (p *Parser) rootCommandsSnapshot() []*Definition {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return append([]*Definition(nil), p.rootCommands...)
 }
 
 // Parse 将输入字符串解析为 Parsed。
@@ -146,7 +160,7 @@ func (p *Parser) Parse(input string) (*Parsed, error) {
 	// Locate the root command definition.
 	cmdName := strings.TrimPrefix(rawArgs.Command, p.prefix)
 	var rootDef *Definition
-	for _, cmd := range p.rootCommands {
+	for _, cmd := range p.rootCommandsSnapshot() {
 		if cmd.Name == cmdName || contains(cmd.Aliases, cmdName) {
 			rootDef = cmd
 			break

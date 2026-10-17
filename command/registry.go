@@ -455,20 +455,82 @@ func (cr *Registry) LookupByPattern(input string) []*Meta {
 
 // Complete 命令补全（返回匹配的命令列表）
 //
-// 优化: 使用简单的字符串前缀匹配替代 Trie，简化实现
+// 返回按「优先级降序、名称升序」排序的确定顺序副本，并过滤 Hidden=true 的
+// 隐藏命令（自动生成的别名 Matcher 即为隐藏项，不应出现在补全候选里）。
+//
+// 优化: 使用 Trie 前缀搜索定位候选，随后排序保证输出稳定。
 // 对于命令补全这种非高频操作，性能损失可以忽略（通常 < 1ms）
 func (cr *Registry) Complete(prefix string) []*Meta {
-	// 使用 Trie 进行前缀搜索
-	return cr.trie.SearchPrefix(prefix)
+	return visibleSorted(cr.trie.SearchPrefix(prefix))
 }
 
-// List 列出所有命令
+// List 列出所有对用户可见的命令（不含 Hidden）。
+//
+// 返回编译快照的副本，调用方修改返回值不会影响注册表；顺序为
+// 「优先级降序、名称升序」，与重新编译无关（此前依赖 map/trie 迭代顺序，
+// 同优先级命令的顺序会在重建之间抖动）。
 func (cr *Registry) List() []*Meta {
-	compiled := cr.compiled.Load()
-	return compiled.commandList
+	return visibleSorted(cr.compiled.Load().commandList)
 }
 
-// ListByCategory 按分类列出命令
+// ListAll 列出全部命令（含 Hidden）。
+//
+// 供需要完整集合的内部工具使用（诊断、审计）；面向用户的列表请用 [List]。
+func (cr *Registry) ListAll() []*Meta {
+	return sortedCopy(cr.compiled.Load().commandList)
+}
+
+// visibleSorted 过滤隐藏项后排序并复制（无结果时返回 nil，与 Trie 查询口径一致）。
+func visibleSorted(src []*Meta) []*Meta {
+	out := make([]*Meta, 0, len(src))
+	for _, meta := range src {
+		if meta == nil || isHiddenMeta(meta) {
+			continue
+		}
+		out = append(out, meta)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sortCommandsDeterministic(out)
+	return out
+}
+
+// sortedCopy 排序并复制（不过滤隐藏项；无结果时返回 nil）。
+func sortedCopy(src []*Meta) []*Meta {
+	out := make([]*Meta, 0, len(src))
+	for _, meta := range src {
+		if meta == nil {
+			continue
+		}
+		out = append(out, meta)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sortCommandsDeterministic(out)
+	return out
+}
+
+// isHiddenMeta 报告命令是否标记为隐藏。
+func isHiddenMeta(meta *Meta) bool {
+	return meta.Definition != nil && meta.Definition.Hidden
+}
+
+// sortCommandsDeterministic 按「优先级降序、名称升序」排序。
+//
+// 同优先级时按名称升序：编译快照来自 trie 遍历（顺序不稳定），
+// 只按优先级排序会让同优先级命令的输出顺序在每次 recompile 后抖动。
+func sortCommandsDeterministic(commands []*Meta) {
+	slices.SortStableFunc(commands, func(a, b *Meta) int {
+		if a.Priority != b.Priority {
+			return b.Priority - a.Priority
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+}
+
+// ListByCategory 按分类列出命令（返回副本，顺序确定）。
 func (cr *Registry) ListByCategory(category string) []*Meta {
 	compiled := cr.compiled.Load()
 
@@ -478,6 +540,7 @@ func (cr *Registry) ListByCategory(category string) []*Meta {
 			result = append(result, meta)
 		}
 	}
+	sortCommandsDeterministic(result)
 
 	return result
 }
@@ -532,18 +595,11 @@ func (cr *Registry) recompile() {
 	// 复制别名映射
 	maps.Copy(newCompiled.aliasMap, cr.aliases)
 
-	// 按优先级排序命令列表
-	sortCommandsByPriority(newCompiled.commandList)
+	// 按「优先级降序、名称升序」排序命令列表（顺序确定，不受 trie 遍历顺序影响）
+	sortCommandsDeterministic(newCompiled.commandList)
 
 	// 原子更新
 	cr.compiled.Store(newCompiled)
-}
-
-// sortCommandsByPriority 按优先级降序排列命令列表
-func sortCommandsByPriority(commands []*Meta) {
-	slices.SortStableFunc(commands, func(a, b *Meta) int {
-		return b.Priority - a.Priority // 降序：优先级高的在前
-	})
 }
 
 // ExtractCommandFast 使用自定义前缀快速提取命令名称

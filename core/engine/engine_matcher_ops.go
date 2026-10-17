@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
+
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -466,6 +468,12 @@ func (e *Engine) UpdateMatcherIndex(m *Matcher) {
 }
 
 // UpdateCommandCache 更新指定 matcher 的命令缓存（COW 写操作）
+//
+// 同时把 matcher 的 Definition 同步到 command.Registry：GetAllCommands/
+// FindCommand（走 commandInfoCache）与 Registry.Lookup/List（走 Trie + Meta）
+// 是两条独立读路径，定义变更（SetDefinition/BindCommand/SetSource/链式元数据
+// 方法）后必须一起刷新，否则会出现元数据漂移——例如 /help 显示新描述、
+// Registry.Lookup 仍返回注册时的旧定义。
 func (e *Engine) UpdateCommandCache(m *Matcher) {
 	if m == nil {
 		return
@@ -475,13 +483,24 @@ func (e *Engine) UpdateCommandCache(m *Matcher) {
 		return
 	}
 
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
+	def := m.GetDefinition()
+	source := m.sourceLocked()
 
-	if b := e.registerBatch; b != nil && b.contains(m) {
-		// 批处理会话：Flush 统一重建 commandInfoCache
+	e.writeMu.Lock()
+	reg := e.internals.commandRegistry
+	batchDeferred := e.registerBatch != nil && e.registerBatch.contains(m)
+	if !batchDeferred {
+		e.state.Store(e.state.Load().withUpdatedCommandCache(m))
+	}
+	e.writeMu.Unlock()
+
+	if reg == nil || def == nil || def.Name == "" {
 		return
 	}
-
-	e.state.Store(e.state.Load().withUpdatedCommandCache(m))
+	if err := reg.Upsert(def, command.RegisterOptions{Source: source}); err != nil {
+		logger.WithError(err).WithFields(logger.Fields{
+			"command": def.Name,
+			"source":  source,
+		}).Warn("[engine] sync command metadata to registry failed")
+	}
 }
