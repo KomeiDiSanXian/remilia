@@ -33,6 +33,11 @@ type Module struct {
 	// CommAreaOffset 通信区互相覆盖。
 	callMu sync.Mutex
 
+	// closeOnce/closeErr 保证 Close 幂等：实例与编译产物只释放一次，
+	// 重复调用返回同一结果（Manager 的失败路径与卸载路径都可能调用）。
+	closeOnce sync.Once
+	closeErr  error
+
 	runtime *Runtime
 }
 
@@ -193,8 +198,37 @@ func (m *Module) allocOrCommArea(ctx context.Context, size uint32) (uint32, erro
 	return CommAreaOffset, nil
 }
 
+// Close 释放模块实例与其编译产物（幂等）。
+//
+// 编译产物（wazero.CompiledModule）持有编译后的代码与类型信息，此前只关闭
+// 实例：每次卸载/重载一个 WASM 插件都会留下一份编译产物，直到整个运行时
+// 关闭才回收——长时间运行且频繁重载的场景会持续累积内存。
 func (m *Module) Close(ctx context.Context) error {
-	return m.instance.Close(ctx)
+	if m == nil {
+		return nil
+	}
+	m.closeOnce.Do(func() {
+		if m.instance != nil {
+			m.closeErr = m.instance.Close(ctx)
+			m.instance = nil
+		}
+		if m.compiled != nil {
+			// 实例已关闭后再释放编译产物；wazero 保证两者独立可关。
+			if err := m.compiled.Close(ctx); err != nil && m.closeErr == nil {
+				m.closeErr = err
+			}
+			m.compiled = nil
+		}
+		if m.runtime != nil {
+			m.runtime.openModules.Add(-1)
+		}
+	})
+	return m.closeErr
+}
+
+// Closed 报告模块是否已关闭。
+func (m *Module) Closed() bool {
+	return m == nil || m.instance == nil
 }
 
 func (m *Module) Name() string           { return m.name }
@@ -232,6 +266,18 @@ type Runtime struct {
 	wazeroRuntime wazero.Runtime
 	hostRegistry  *HostFuncRegistry
 	moduleConfigs sync.Map // module name → map[string]any 配置
+
+	// openModules 记录"已实例化但未 Close"的模块数：
+	// 供调用方观察卸载/重载是否真正释放了编译产物（见 Module.Close）。
+	openModules atomic.Int64
+}
+
+// OpenModules 返回当前未释放的模块数量（实例 + 编译产物）。
+func (r *Runtime) OpenModules() int {
+	if r == nil {
+		return 0
+	}
+	return int(r.openModules.Load())
 }
 
 // NewRuntime 创建 WASM 运行时。
@@ -394,7 +440,7 @@ func (r *Runtime) InstantiateModule(ctx context.Context, name string, wasmBytes 
 		return nil, fmt.Errorf("wasm: module %q declares ABI v%d, host requires v%d", name, abiVersion, CurrentABIVersion)
 	}
 
-	return &Module{
+	mod := &Module{
 		name:       name,
 		compiled:   compiled,
 		instance:   instance,
@@ -403,7 +449,9 @@ func (r *Runtime) InstantiateModule(ctx context.Context, name string, wasmBytes 
 		metadata:   metadata,
 		sandbox:    sandbox,
 		runtime:    r,
-	}, nil
+	}
+	r.openModules.Add(1)
+	return mod, nil
 }
 
 func (r *Runtime) Close(ctx context.Context) error {
