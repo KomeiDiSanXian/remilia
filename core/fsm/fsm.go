@@ -444,6 +444,11 @@ func (e *Engine) TryTransition(ctx *corectx.Context, sessionID string) (State, b
 	if session == nil {
 		return "", false, nil
 	}
+	// 契约兜底：第三方 Storage 可能返回 Data 为 nil 的会话（见 Storage 文档），
+	// 而 Action 回调会直接写入 Data，nil map 写入会 panic。
+	if session.Data == nil {
+		session.Data = make(map[string]any)
+	}
 
 	// 归属校验：OwnerScoped 的会话只接受归属者推进（群聊里其它成员的消息
 	// 不会接管他人的多步流程）。归属者未知（平台未提供发送者 ID）时放行。
