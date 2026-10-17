@@ -8,6 +8,7 @@ import { AuditLogView } from './AuditLogView.tsx'
 import { PermissionView } from './PermissionView.tsx'
 import { FSMView } from './FSMView.tsx'
 import { SchedulerView } from './SchedulerView.tsx'
+import { AITasksView } from './AITasksView.tsx'
 import { ConfigEditor } from './ConfigEditor.tsx'
 import { LogViewer } from './LogViewer.tsx'
 import { ToastProvider } from './Toast.tsx'
@@ -20,7 +21,7 @@ interface DashboardProps {
 
 type Tab =
   | 'overview' | 'plugins' | 'platforms' | 'commands' | 'matchers'
-  | 'auditlog' | 'permission' | 'fsm' | 'scheduler' | 'config' | 'logs'
+  | 'auditlog' | 'permission' | 'fsm' | 'scheduler' | 'aitasks' | 'config' | 'logs'
 
 interface TabDef {
   key: Tab
@@ -39,6 +40,7 @@ const TABS: TabDef[] = [
   { key: 'matchers', label: '匹配器', icon: 'matcher', group: '引擎' },
   { key: 'fsm', label: '状态机', icon: 'fsm', group: '引擎' },
   { key: 'scheduler', label: '调度器', icon: 'clock', group: '引擎' },
+  { key: 'aitasks', label: 'AI 任务', icon: 'activity', group: '引擎' },
   { key: 'auditlog', label: '审计日志', icon: 'audit', group: '管理' },
   { key: 'permission', label: '权限', icon: 'shield', group: '管理' },
   { key: 'config', label: '配置', icon: 'config', group: '管理' },
@@ -207,6 +209,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
             {tab === 'permission' && <PermissionView />}
             {tab === 'fsm' && <FSMView />}
             {tab === 'scheduler' && <SchedulerView />}
+            {tab === 'aitasks' && <AITasksView />}
             {tab === 'config' && <ConfigEditor />}
             {tab === 'logs' && <LogViewer />}
           </ToastProvider>

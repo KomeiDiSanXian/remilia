@@ -400,6 +400,56 @@ export async function deleteSchedulerJob(id: number): Promise<void> {
   await request('DELETE', `/api/v1/scheduler/jobs/${id}`)
 }
 
+// --- AI Tasks API ---
+
+export interface AITaskStep {
+  id: string
+  description: string
+  status: string
+  result?: string
+}
+
+export interface AITaskArtifact {
+  kind: string
+  name: string
+  size?: number
+  at: string
+}
+
+export interface AITask {
+  id: string
+  session_id: string
+  owner_id: string
+  chat_id: string
+  platform: string
+  goal: string
+  status: string
+  plan_version: number
+  steps?: AITaskStep[]
+  artifacts?: AITaskArtifact[]
+  created_at: string
+  updated_at: string
+}
+
+export async function getAITasks(limit = 50): Promise<{ count: number; tasks: AITask[] }> {
+  return request<{ count: number; tasks: AITask[] }>('GET', `/api/v1/ai/tasks?limit=${limit}`)
+}
+
+export async function getAITasksBySession(session: string, limit = 50): Promise<{ count: number; tasks: AITask[] }> {
+  return request<{ count: number; tasks: AITask[] }>(
+    'GET',
+    `/api/v1/ai/tasks?session=${encodeURIComponent(session)}&limit=${limit}`,
+  )
+}
+
+export async function getAITask(id: string): Promise<AITask> {
+  return request<AITask>('GET', `/api/v1/ai/tasks/${encodeURIComponent(id)}`)
+}
+
+export async function cancelAITask(id: string): Promise<void> {
+  await request('POST', `/api/v1/ai/tasks/${encodeURIComponent(id)}/cancel`)
+}
+
 // --- Config API ---
 
 export async function getConfig(): Promise<Record<string, unknown>> {

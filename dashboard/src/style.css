@@ -754,6 +754,15 @@ form button[type="submit"] {
 .job-row .job-name { flex: 1; min-width: 0; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ==========================================================================
+   AI 任务
+   ========================================================================== */
+.task-detail { padding: 0.6rem 0.2rem; font-size: 0.82rem; }
+.task-detail .task-steps { margin: 0.5rem 0 0.25rem; padding-left: 1.1rem; }
+.task-detail .task-steps li { margin-bottom: 0.2rem; }
+.task-detail .task-note { color: var(--text-dim); }
+.task-detail .task-artifacts { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+
+/* ==========================================================================
    配置编辑
    ========================================================================== */
 .config-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
