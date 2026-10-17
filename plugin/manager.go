@@ -656,7 +656,9 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	for i, desc := range sorted {
 		instance, tdeps, topts, loadErr := pm.registerPreSetup(ctx, desc)
 		if loadErr != nil {
-			// 清理失败插件的 Lock #2 残留（已存入 plugins 但无法继续）。
+			// 清理失败插件的残留：Setup 可能已经跑过（注册订阅、Spawn goroutine、
+			// 挂 Matcher），只删表项/分组会让这些资源永久泄漏；重试路径还会再跑
+			// 一次 Setup，形成"两次 Setup 的资源同时存活"。
 			// 仅当 instance != nil（确实完成过插入）才清理——
 			// 例如 ErrPluginAlreadyExists 时 instance 为 nil，此时若无条件
 			// delete/RemoveGroup 会误删已注册的同名插件（历史 bug）。
@@ -665,9 +667,7 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 				pm.mu.Lock()
 				delete(pm.plugins, desc.Name)
 				pm.mu.Unlock()
-				if pm.coordinator != nil {
-					pm.coordinator.RemoveGroup(desc.Name)
-				}
+				instance.cleanupFailedLoad(pm.coordinator, nil)
 				pm.removeExportedKeys(instance, desc.Name)
 			}
 
@@ -723,9 +723,10 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 					pm.mu.Lock()
 					delete(pm.plugins, p.desc.Name)
 					pm.mu.Unlock()
-					if pm.coordinator != nil {
-						pm.coordinator.RemoveGroup(p.desc.Name)
-					}
+					// 与首次尝试同一套清理：Scope（订阅/OnDispose 钩子）、
+					// goroutine、引擎分组。缺少它意味着每次重试都会叠加一层
+					// 上一次的订阅与后台任务。
+					instance.cleanupFailedLoad(pm.coordinator, nil)
 					pm.removeExportedKeys(instance, p.desc.Name)
 				}
 				nextPending = append(nextPending, p)
