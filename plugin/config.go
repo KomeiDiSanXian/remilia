@@ -100,8 +100,11 @@ func (pc *pluginConfig) loadFromGlobal() {
 
 	// ConfigProvider 路径（推荐方式）
 	if pc.configProvider != nil {
+		// 防御：provider 实现可能返回其内部活 map（自定义 provider 不受
+		// 内置实现的深拷贝契约约束），这里再拷一层，保证 Override 与热重载
+		// 的写入永远不会回写到配置源。
 		if settings := pc.configProvider.Sub(pc.pluginName); settings != nil {
-			pc.values = settings
+			pc.values = deepCopyConfigMap(settings)
 		} else {
 			pc.values = make(map[string]any)
 		}

@@ -66,7 +66,11 @@ func NewYAMLConfigProvider(cfg *config.Config, configManager ...*config.Manager)
 	return p
 }
 
-// Sub 返回 plugins.<pluginName> 下的所有配置项。
+// Sub 返回 plugins.<pluginName> 下的所有配置项（深拷贝）。
+//
+// 深拷贝是接口契约的一部分：早期实现直接返回 config.Config.Plugins 中的活
+// map，调用方（pluginConfig.values）就地写入会反向改写全局配置，且写入不受
+// 任何锁保护（与其它读配置的 goroutine 并发即 concurrent map writes）。
 func (p *YAMLConfigProvider) Sub(pluginName string) map[string]any {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -74,7 +78,37 @@ func (p *YAMLConfigProvider) Sub(pluginName string) map[string]any {
 		return nil
 	}
 	cfg, _ := p.cfg.PluginConfig(pluginName)
-	return cfg
+	return deepCopyConfigMap(cfg)
+}
+
+// deepCopyConfigMap 递归复制 map[string]any / []any。
+//
+// 只复制容器，叶子值（string/number/bool 等）按值复制；非容器类型的值
+// 直接共享引用（不可变值或调用方自负责同步的可变值）。
+func deepCopyConfigMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = deepCopyConfigValue(v)
+	}
+	return out
+}
+
+func deepCopyConfigValue(v any) any {
+	switch typed := v.(type) {
+	case map[string]any:
+		return deepCopyConfigMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = deepCopyConfigValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // OnConfigChange 注册配置变更回调。
