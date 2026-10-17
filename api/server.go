@@ -122,6 +122,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/scheduler/jobs/{id}", s.auth(s.handleDeleteSchedulerJob))
 	mux.HandleFunc("GET /api/v1/scheduler/history", s.auth(s.handleGetSchedulerHistory))
 
+	// AI Tasks
+	mux.HandleFunc("GET /api/v1/ai/tasks", s.auth(s.handleListAITasks))
+	mux.HandleFunc("GET /api/v1/ai/tasks/{id}", s.auth(s.handleGetAITask))
+	mux.HandleFunc("POST /api/v1/ai/tasks/{id}/cancel", s.auth(s.handleCancelAITask))
+
 	// Logs
 	mux.HandleFunc("GET /api/v1/logs", s.auth(s.handleGetLogs))
 	mux.HandleFunc("GET /api/v1/logs/stream", s.auth(s.handleLogStream))

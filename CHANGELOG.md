@@ -13,6 +13,7 @@
 - **任务指标**：新增 `ai_tasks_created_total` 与 `ai_task_transitions_total{status}`，用于观测任务创建、完成、取消与重启恢复。
 - **工作区写入能力（opt-in）**：`workspace_allow_write: true` 后注册 `file_write`（整文件覆盖，父目录按需创建）与 `file_edit`（唯一匹配的精确替换并返回 diff，匹配不唯一时拒绝执行）。两者要求 RBAC 权限 `ai.file.write`，且在任何审批模式下都强制人工审批。
 - **受控进程执行（opt-in）**：配置 `exec_allowlist`（裸命令名白名单，如 `["go", "git"]`）后注册 `process_run`：命令与参数分开传入、不经过 Shell，工作目录限制在工作区内，子进程只继承基础环境变量白名单（密钥令牌默认不继承），标准输出/标准错误有字节上限，超时或取消时终止整棵进程树。动作要求 RBAC 权限 `ai.exec.run`，默认在任何审批模式下都强制人工审批（`exec_require_approval` 可显式关闭强审批）。
+- **任务管理 API**：新增 `GET /api/v1/ai/tasks?session=<id>&limit=50`（会话任务记录）、`GET /api/v1/ai/tasks/{id}`（任务详情）与 `POST /api/v1/ai/tasks/{id}/cancel`（取消任务并同步取消会话计划）；AI 插件未加载时返回 404，便于区分"没有任务"与"能力不可用"。
 
 ## v1.74.0 (2026-10-17)
 
