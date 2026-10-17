@@ -268,7 +268,7 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 		// 正则桶按 Handler 过滤：慢带预匹配是最贵的候选生成操作，
 		// 无 handler 的 matcher 不应消耗正则求值（首次 Handle 绑定
 		// 会触发全量重建纳入，见 matcher.Handle）
-		if m.Handler != nil {
+		if m.handlerLocked() != nil {
 			dst.regexIndex = copyRegexIndex(s.regexIndex)
 			dst.regexIndex[et] = append(dst.regexIndex[et][:len(dst.regexIndex[et]):len(dst.regexIndex[et])], m)
 			sortMatchersByPriority(dst.regexIndex[et])
@@ -380,7 +380,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 
 	for _, m := range matchers {
 		// 与 addMatcher 一致：直接设置 Handler 字段的 matcher 也纳入可运行集合
-		if m.Handler != nil {
+		if m.handlerLocked() != nil {
 			m.hasHandler.Store(true)
 		}
 
@@ -402,7 +402,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 			dst.commandIndex[cmd][et] = append(dst.commandIndex[cmd][et], m)
 			touchedCmds[cmdKey{cmd: cmd, et: et}] = struct{}{}
 		} else if m.regexIndexed.Load() {
-			if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+			if m.handlerLocked() != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
 				dst.regexIndex[et] = append(dst.regexIndex[et], m)
 				touchedRegex[et] = struct{}{}
 			}
@@ -715,7 +715,7 @@ func (s *state) rebuildIndex() {
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 		} else if m.regexIndexed.Load() {
-			if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+			if m.handlerLocked() != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
 				s.regexIndex[m.EventType] = append(s.regexIndex[m.EventType], m)
 			}
 		} else {
@@ -818,7 +818,7 @@ func (s *state) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
 
 	// 自动推导 hasHandler：直接设置 Handler 字段（非 Handle() 调用）也生效
-	if m.Handler != nil {
+	if m.handlerLocked() != nil {
 		m.hasHandler.Store(true)
 	}
 
@@ -832,7 +832,7 @@ func (s *state) addMatcher(m *Matcher) {
 		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
 		s.rebuildCommandInfoCache(m, cmd)
 	} else if m.regexIndexed.Load() {
-		if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+		if m.handlerLocked() != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
 			s.regexIndex[m.EventType] = append(s.regexIndex[m.EventType], m)
 			sortMatchersByPriority(s.regexIndex[m.EventType])
 		}

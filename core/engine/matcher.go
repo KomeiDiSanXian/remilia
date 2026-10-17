@@ -27,6 +27,11 @@ type matcherRuntime struct {
 	isTemp      int32
 }
 
+// ruleSet 是规则切片的不可变快照（见 [Matcher.ruleSnapshot] / [Matcher.publishRules]）。
+type ruleSet struct {
+	rules []context.Rule
+}
+
 // Matcher 事件匹配器
 type Matcher struct {
 	rt matcherRuntime
@@ -52,6 +57,10 @@ type Matcher struct {
 	// regexIndex（慢带）在候选生成阶段隐式验证，避免正则重复执行。
 	// 约定：Regex() 必须是第一条规则（与 OnCommand 的 Rules[0] 约定一致）。
 	regexIndexed atomic.Bool
+	// rules 是运行时规则切片快照（COW 发布，见 publishRules）。
+	// 仅当链式规则方法修改过已注册 matcher 的规则时非 nil；
+	// nil 时读侧直接使用公开字段 Rules（构造期给定的规则，如 On/OnCommand）。
+	rules atomic.Pointer[ruleSet]
 	// regexPattern 是 Regex() 注册的正则模式，供 regexIndex 候选预匹配使用。
 	regexPattern string
 	hasHandler   atomic.Bool
@@ -115,36 +124,138 @@ type compiledChain struct {
 	version uint64          // 编译时 m.compiledVersion 的快照
 }
 
-func (m *Matcher) copy() *Matcher {
-	newRules := make([]context.Rule, len(m.Rules))
-	copy(newRules, m.Rules)
+// handlerLocked 在 matcher 锁下读取 Handler（框架内部）。
+//
+// Handler 由 [Matcher.Handle] 持锁写入，也可能被注册期代码直接赋值；
+// 运行期读取统一走此方法，热路径由 rt.hasHandler 原子标志承担。
+func (m *Matcher) handlerLocked() context.Handler {
+	if m == nil {
+		return nil
+	}
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.Handler
+}
 
-	newMiddlewares := make([]context.Middleware, len(m.middlewares))
-	copy(newMiddlewares, m.middlewares)
+// sourceLocked 在 matcher 锁下读取 Source（框架内部）。
+//
+// Source 由 SetSource/SetMatcherGroup 在运行期改写；错误与查询路径
+// 读取它做展示/过滤，必须与写侧互斥。
+func (m *Matcher) sourceLocked() string {
+	if m == nil {
+		return ""
+	}
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.Source
+}
+
+// rulesLocked 在 matcher 锁下读取规则切片（框架内部，冷路径使用）。
+//
+// 热路径（Match）走 [Matcher.ruleSnapshot]，只做一次 atomic 读取。
+func (m *Matcher) rulesLocked() []context.Rule {
+	if m == nil {
+		return nil
+	}
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.Rules
+}
+
+// ruleSnapshot 返回规则切片快照（框架内部热路径使用，零锁）。
+//
+// 链式规则方法可作用于已注册的 matcher（如 eng.On(...).Regex(...)、
+// Where），它们通过 [Matcher.publishRules] 以 COW 方式发布新切片：
+//
+//   - 未经内部修改的 matcher（绝大多数：规则在构造时给定）没有快照，
+//     直接读取公开字段，行为与开销与过去一致；
+//   - 被内部链式方法修改过的 matcher 以快照为准，读取是一次原子加载，
+//     不会与并发追加竞争（公开字段仅作为 API 视图保留）。
+func (m *Matcher) ruleSnapshot() []context.Rule {
+	if m == nil {
+		return nil
+	}
+	if rs := m.rules.Load(); rs != nil {
+		return rs.rules
+	}
+	return m.Rules
+}
+
+// publishRules 以 COW 方式发布新的规则切片（框架内部，链式规则方法使用）。
+//
+// 先在锁内更新公开字段（写侧互斥，避免两个并发追加互相覆盖），再用
+// atomic 发布快照；读侧只读快照，因此不会观察到部分写入。
+func (m *Matcher) publishRules(rules []context.Rule) {
+	m.rt.mu.Lock()
+	m.Rules = rules
+	m.rt.mu.Unlock()
+	m.rules.Store(&ruleSet{rules: rules})
+}
+
+// appendRule 追加一条规则（框架内部，供链式规则方法使用）。
+//
+// COW：复制当前切片再追加，绝不在已发布的底层数组上就地追加。
+func (m *Matcher) appendRule(rule context.Rule) {
+	m.rt.mu.Lock()
+	current := m.Rules
+	if rs := m.rules.Load(); rs != nil {
+		current = rs.rules
+	}
+	next := make([]context.Rule, len(current), len(current)+1)
+	copy(next, current)
+	next = append(next, rule)
+	m.Rules = next
+	m.rt.mu.Unlock()
+	m.rules.Store(&ruleSet{rules: next})
+}
+
+func (m *Matcher) copy() *Matcher {
+	// 规则走 COW 快照（不会被就地修改，可在锁外读取）；
+	// 其余可变字段统一在锁下取快照：并发 Handle/SetSource 可能正在改写它们。
+	rules := m.ruleSnapshot()
+	m.rt.mu.RLock()
+	middlewares := m.middlewares
+	handler := m.Handler
+	source := m.Source
+	group := m.group
+	definition := m.definition
+	triggerPrefix := m.triggerPrefix
+	regexPattern := m.regexPattern
+	rt := matcherRuntime{
+		isTemp:      atomic.LoadInt32(&m.rt.isTemp),
+		useCount:    m.rt.useCount,
+		maxUseCount: m.rt.maxUseCount,
+		createdAt:   m.rt.createdAt,
+		expiresAt:   m.rt.expiresAt,
+	}
+	m.rt.mu.RUnlock()
+
+	newRules := append([]context.Rule(nil), rules...)
+	newMiddlewares := append([]context.Middleware(nil), middlewares...)
 
 	newM := &Matcher{
 		rt: matcherRuntime{
-			isTemp:      atomic.LoadInt32(&m.rt.isTemp),
-			useCount:    m.rt.useCount,
-			maxUseCount: m.rt.maxUseCount,
-			createdAt:   m.rt.createdAt,
-			expiresAt:   m.rt.expiresAt,
+			isTemp:      rt.isTemp,
+			useCount:    rt.useCount,
+			maxUseCount: rt.maxUseCount,
+			createdAt:   rt.createdAt,
+			expiresAt:   rt.expiresAt,
 		},
 		EventType:     m.EventType,
 		Rules:         newRules,
-		Handler:       m.Handler,
-		Source:        m.Source,
-		group:         m.group,
+		Handler:       handler,
+		Source:        source,
+		group:         group,
 		middlewares:   newMiddlewares,
-		definition:    m.definition,
-		triggerPrefix: m.triggerPrefix,
+		definition:    definition,
+		triggerPrefix: triggerPrefix,
 		execProfile:   m.execProfile,
 	}
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
 	newM.commandIndexed.Store(m.commandIndexed.Load())
 	newM.regexIndexed.Store(m.regexIndexed.Load())
-	newM.regexPattern = m.regexPattern
+	newM.regexPattern = regexPattern
 	newM.hasHandler.Store(m.hasHandler.Load())
 	return newM
 }
@@ -276,14 +387,15 @@ func (m *Matcher) enable() {
 
 // isNoop 检查是否为 noop matcher
 func (m *Matcher) isNoop() bool {
-	return m == nil || m.Source == "noop"
+	return m == nil || m.sourceLocked() == "noop"
 }
 
 // Match 检查事件是否匹配此 Matcher
 //
 // 性能优化：
 //   - deleted/disabled 是 atomic.Bool，无需 RWMutex 即可读取。
-//   - Rules 在注册后不再修改，也无需加锁读取。
+//   - Rules 在锁下取快照：链式规则方法可作用于已注册的 matcher
+//     （如 eng.On(...).Regex(...)），直接读字段会与 append 竞争。
 //   - commandIndexed 为 true 时跳过 Rules[0]（OnCommand 前缀规则）——
 //     该规则已由 commandIndex O(1) 查找隐式验证，节省约 10% CPU。
 //   - regexIndexed 为 true 时跳过 Rules[0]（OnRegex 规则）——
@@ -293,7 +405,7 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 		return false
 	}
 
-	rules := m.Rules
+	rules := m.ruleSnapshot()
 	// 对于通过命令索引或正则索引匹配的 matcher，跳过 Rules[0]
 	// （OnCommand 前缀检查 / OnRegex 规则）：
 	// 索引查找已确认匹配，无需重复检查。
@@ -569,7 +681,7 @@ func (m *Matcher) Command(cmd string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, context.OnCommand(cmd))
+	m.appendRule(context.OnCommand(cmd))
 	return m
 }
 
@@ -578,7 +690,7 @@ func (m *Matcher) Keyword(keyword string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, context.OnKeyword(keyword))
+	m.appendRule(context.OnKeyword(keyword))
 	return m
 }
 
@@ -587,7 +699,7 @@ func (m *Matcher) Prefix(prefix string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, context.OnPrefix(prefix))
+	m.appendRule(context.OnPrefix(prefix))
 	return m
 }
 
@@ -596,7 +708,7 @@ func (m *Matcher) Suffix(suffix string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, context.OnSuffix(suffix))
+	m.appendRule(context.OnSuffix(suffix))
 	return m
 }
 
@@ -605,7 +717,7 @@ func (m *Matcher) FullMatch(text string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, context.OnFullMatch(text))
+	m.appendRule(context.OnFullMatch(text))
 	return m
 }
 
@@ -624,9 +736,9 @@ func (m *Matcher) FullMatch(text string) *Matcher {
 //     以迁移到正则索引（冷路径操作，O(N) 可接受）
 //   - 临时 matcher（OnTemp）不进入正则索引：规则仍生效，但不跳过
 //
-// 链式修改限定：对已注册 matcher 追加规则会改写 Rules（Match 无锁读取），
-// 与 Where/Keyword 等既有链式方法同类限制——仅应在注册阶段（启动期）
-// 使用；活跃引擎上并发修改规则存在数据竞争。
+// 链式修改限定：链式规则方法（本方法与 Where/Keyword 等）现在都在 matcher
+// 锁内改写 Rules，与事件派发的读取互斥；但仍建议在注册阶段（启动期）完成
+// 规则配置——运行期修改会触发索引/链重建，属于高代价操作。
 //
 // 慢带语义：regex 索引的 matcher 仅在快带（permanent/command/temp）
 // 未阻断时参与执行，且优先级应低于快带 matcher（见 docs/notes/25 Fast/Slow）。
@@ -634,24 +746,42 @@ func (m *Matcher) Regex(pattern string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	if len(m.Rules) > 0 {
+
+	// 判定「是否首条规则」与追加必须原子：否则两个并发 Regex 调用会各自
+	// 看到空 Rules 并同时置位 regexIndexed（Rules[0] 语义漂移）。
+	m.rt.mu.Lock()
+	current := m.Rules
+	if rs := m.rules.Load(); rs != nil {
+		current = rs.rules
+	}
+	first := len(current) == 0
+	if !first {
 		// 防御：regexIndexed 的跳过语义要求 Regex 是第一条规则（Match 跳过
 		// Rules[0] = 本 OnRegex 规则，由索引预匹配验证）。已有规则时置位
 		// 会导致 Rules[0] 被误跳——退化为普通规则路径（行为正确，仅不经索引）。
-		logger.Warnf("[matcher] Regex() must be the first rule to enable regexIndex pre-match; %d existing rule(s) found, falling back to regular matching", len(m.Rules))
-		m.Rules = append(m.Rules, context.OnRegex(pattern))
-		return m
+		logger.Warnf("[matcher] Regex() must be the first rule to enable regexIndex pre-match; %d existing rule(s) found, falling back to regular matching", len(current))
 	}
-	m.Rules = append(m.Rules, context.OnRegex(pattern))
+	next := make([]context.Rule, len(current), len(current)+1)
+	copy(next, current)
+	next = append(next, context.OnRegex(pattern))
+	m.Rules = next
+	if first {
+		m.regexPattern = pattern
+	}
 	// 临时 matcher 走 TempManager（快带），不参与正则索引，跳过语义不适用
-	if m.rt.isTemp != 0 {
+	isTemp := m.rt.isTemp != 0
+	m.rt.mu.Unlock()
+	m.rules.Store(&ruleSet{rules: next})
+
+	if !first || isTemp {
 		return m
 	}
-	m.regexPattern = pattern
 	m.regexIndexed.Store(true)
 	if m.coordinator != nil {
 		// 已注册（eng.On(...).Regex(...) 链式）：全量重建索引，
 		// 按 regexIndexed 标志把 matcher 重新路由到正则索引。
+		// 必须在释放 m.rt.mu 之后调用：索引重建会取 Engine.writeMu，
+		// 而 writeMu → m.rt.mu 是既有加锁顺序（见 withAddedMatcher）。
 		m.coordinator.UpdateMatcherIndex(nil)
 	}
 	return m
@@ -662,7 +792,7 @@ func (m *Matcher) Where(rule context.Rule) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.Rules = append(m.Rules, rule)
+	m.appendRule(rule)
 	return m
 }
 

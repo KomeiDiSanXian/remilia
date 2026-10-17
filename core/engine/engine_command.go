@@ -76,7 +76,7 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 
 	registered := e.registerMatcher(m)
 	// 同步到可选的外部 Registry（Trie + 元数据）
-	e.syncToRegistry(registered.definition, registered.Source)
+	e.syncToRegistry(registered.GetDefinition(), registered.sourceLocked())
 
 	// 注入基础别名自动注册回调（引擎级，适用于 v1 API 或直接调用 Engine.OnCommand 的场景）。
 	// 通过 liveRegistryWriter.RegisterCommand 注册的 Matcher 会在此之后被 plugin 层
@@ -198,7 +198,7 @@ func (e *Engine) RegisterCommandDefWithPrefix(
 		})
 	}
 	// 更新带完整元数据的 def 到 Registry
-	e.syncToRegistry(def, m.Source)
+	e.syncToRegistry(def, m.sourceLocked())
 	return m
 }
 

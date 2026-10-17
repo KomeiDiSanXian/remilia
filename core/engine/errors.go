@@ -63,7 +63,7 @@ func WrapError(err error, ctx *context.Context, m *Matcher, attempt int) error {
 		EventID: eventID,
 	}
 	if m != nil {
-		herr.Source = m.Source
+		herr.Source = m.sourceLocked()
 	}
 
 	if remiliaerrors.ShouldCaptureStack() {

@@ -54,11 +54,12 @@ func (e *Engine) GetMatcherStats() MatcherStats {
 		Total: len(state.matchers)}
 
 	for _, m := range state.matchers {
-		if m.Source == "global" || m.Source == "" {
+		src := m.sourceLocked()
+		if src == "global" || src == "" {
 			stats.Global++
 			continue
 		}
-		if after, ok := strings.CutPrefix(m.Source, "plugin:"); ok {
+		if after, ok := strings.CutPrefix(src, "plugin:"); ok {
 			stats.ByPlugin[after]++
 		}
 	}

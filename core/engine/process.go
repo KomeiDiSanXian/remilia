@@ -120,7 +120,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	}
 
 	recordHandlerError := func(err error) {
-		logger.WithError(err).Debugf("[engine] Handler error in matcher: %s", m.Source)
+		logger.WithError(err).Debugf("[engine] Handler error in matcher: %s", m.sourceLocked())
 
 		if mc := e.internals.metricsCollector.Load(); mc != nil {
 			mc.RecordEventDropped("handler_error")
@@ -134,7 +134,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			panicErr = fmt.Errorf("panic in handler: %v", r)
 			logger.WithFields(logger.Fields{
 				"panic":      r,
-				"matcher":    m.Source,
+				"matcher":    m.sourceLocked(),
 				"event_type": ctx.GetEventType(),
 			}).Error("[engine] Handler panic recovered")
 			// panic 路径同样触发 metrics 记录
