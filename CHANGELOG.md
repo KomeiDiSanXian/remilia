@@ -16,41 +16,18 @@
 
 **核心框架（core / command / plugin）**
 
-本次对 `core/`、`command/`、`plugin/` 做了一轮逐项核查，修复项见下（每项都有配套回归测试），完整核查记录与遗留事项见 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md)。
+本次核查覆盖 `core/`、`command/`、`plugin/`，修复项见下（每项都有配套回归测试）；完整核查记录见 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md)。
 
-- 命令解析统一按 Unicode 空白切分：全角空格（`/cmd　hello`）此前让整条消息变成单个 token，解析报 `command mismatch` 后消息被静默丢弃；引擎侧的命令词提取改为同一口径。
-- 负数位置参数不再被当作短标志：`/roll -1 100` 此前得到 `Flags[1]=100`、位置参数为空，现在 `-1` 正确进入位置参数。
-- 未定义的转义序列保留反斜杠：`/ai C:\Users\name` 不再被改写成 `C:Users<换行>ames`；引号内的 `\n`/`\t`/`\r` 仍按转义处理。
-- 子命令命中后父层的 flag 与位置参数会被绑定到 `Parsed`（`/cmd --mode fast sub` 不再丢 `--mode`）；`required` 只在实际执行的叶子层校验，父层 `Validator` 不运行（父命令只是命名空间时不因父层必填失败）。
-- 命令注册表：重复注册同一命令会替换旧元数据（`FindCommand`/`/help` 列表不再返回旧描述、不再出现重复项），注销会清空同名全部条目；`Upsert` 遇到非法正则模式改为告警忽略，不再 panic。
-- 引擎中间件链不再用过期快照填充缓存：运行期 `Use`/`ResetGroupMiddleware` 与事件派发并发时，matcher 不会长期跳过全部中间件（鉴权、日志、限流）。
-- `ProcessEventSync` 走与异步路径相同的事件守卫：停机过程的同步派发受控，规则/链构造期 panic 同样被回收。
-- `ExecPool` 排空会响应停机上下文：队列里有阻塞任务时不再让 30s 超时形同虚设（已开始执行的任务按 Go 语义无法中断）。
-- 事件类型为空时不再重复投递候选：此前各索引把 specific/generic 两路指向同一个桶，导致 handler 每个事件执行两次。
-- `OnCommand("/")` 这类只有前缀、没有命令名的模式改为普通规则匹配：不再出现「注册后静默失效、一次索引重建后又匹配一切」。
-- `WithTimeout` 包装的规则改在上下文副本上执行：超时后不再与引擎并发读写匹配状态，迟到登记的延迟副作用不会被后续 matcher 提交（超时前返回的副作用照常提交，触发前的扩展状态仍可读）。
-- `OnCooldown` 默认 key 带上每条规则的命名空间：不同命令共用默认 key 导致 `/sign` 冷却期间 `/daily` 静默不响应的问题修复；显式传入 `keyFn` 时 key 仍完全由调用方控制。
-- `ReplyWithContext` 真正接入调用方 context：取消/超时中止发送，已取消的 context 不再入队，取消原因可用 `context.Cause` 读取。
-- 插件 Setup 进行中（`Loading`）的实例不会再被并发卸载/重载：注销与重载先等待 Setup 结束（受调用方 ctx 约束），避免清理先于 Setup 完成、随后又被 Setup 收尾写回（幽灵命令、容器残留）；Setup 挂起时返回「still loading」错误，`ForceUnregister` 仍是兜底。
-- 插件根 Scope 与元数据 goroutine 管理器改为无竞争访问：并发首次 `Scope()`/`Subscribe` 不再建出两个根 Scope（订阅与清理钩子不再泄漏），`StopAll` → `StartAll` 交叠不再竞争。
-- FSM 的 `From:"*"` 在会话存活判断与定义校验中生效：声明「任意状态 /cancel」的流程不再因用户发来无关消息而把会话连同 `Data` 静默删除，只有通配启动事件的 FSM 也能注册。
-- 权限前缀通配要求命名空间边界：`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目（导出与持久化不再被污染）。
-
-**核心框架（第二轮）**
-
-核查记录 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md) 中其余待处理事项已修复（`plugin/wasm` 的三项除外），用户可见变化如下：
-
-- 命令注册表：`Upsert` 现在返回错误（别名冲突会拒绝写入并报错，非法模式忽略但可感知）；别名遮蔽已存在的命令名会被拒绝；`List`/`Complete` 返回副本、过滤隐藏命令、顺序稳定（优先级降序 + 名称升序）。
-- 命令元数据不再漂移：`SetDefinition`、链式元数据方法、`BindCommand`、`SetSource` 的变更会同步进 `command.Registry`，`FindCommand`/`/help` 与 `Lookup`/`Complete` 看到同一份定义。
-- 引擎：批量注册中 `Delete`/`SetTemp` 会在 Flush 时结算（不再留下僵尸条目或双倍执行）；`Handler`/`Source`/`Rules` 的并发访问不再竞争（规则追加改为 COW 快照，热路径零锁）；候选流容量与索引预算对齐，超限限频告警而不是静默丢候选。
-- 出站发送：调度器放弃队列（worker panic、停机）时会唤醒被丢弃的任务，`Future` 得到取消错误而不是永久等待；`Reply` 文档建议给 `Wait` 设超时。
-- 规则副作用绑定匹配会话：非引擎路径（FSM 直接求值、业务代码手工求值）登记的副作用不再被无关 matcher 提交（冷却不会被错误消耗）。
-- `Context.Cancel` 并发安全（幂等），池化任务结束会释放克隆的 std context；`SetCandidateMeta(nil)` 可清除候选 Meta（无 Meta 的候选不再继承正则捕获组）；`Clone` 的复制契约写入文档（字符串键整表拷贝、类型键共享引用）。
-- 群成员查询错误可见：新增 `GetGroupMembers`（区分"平台不支持"与下游故障），事件类型常量改为由 `platform.EventKind` 派生；`OnParseCommand` 解析失败会记录 debug 日志。
-- 插件：加载失败/超时、强制卸载、重试与停机路径统一走幂等回收（Scope/goroutine/引擎分组/容器 key），`StopAll` 等待在飞加载与重载、跳过项会告警；`stopAndWait` 改为受 ctx 约束的 `stopAndWaitCtx`；文件配置源与服务导出的 key 不再与插件配置/其它插件互为别名；蓝绿重载的 draining 追踪按次独立、旧 cron 调度器会被停掉；框架生命周期通知改用带超时的发布；卸载中的实例不再接受新的注册。
-- FSM：`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；新增 `OwnerScoped` 会话（只接受归属者推进，群内不互相接管多步流程）；`EndSession` 加锁、启动改为"先回调后落库"、`StartCleanup` 幂等且有日志。
-- 权限：外部 Provider 故障会记录日志并可通过 `SetProviderErrorHandler` 上报（失败即短路，不再每次拒绝打两次外部请求）；新增角色等级原语（`Role.Level`、`UserLevel`、`HasLevelAtLeast`、`AssignRoleChecked`，用于提权防护）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
-- WASM 插件：卸载/重载会同时释放模块实例与编译产物（此前每次重载泄漏一份编译产物，`Runtime.OpenModules()` 可观察）；宿主函数常量和 [`docs/notes/14-wasm-plugin.md`](docs/notes/14-wasm-plugin.md) 与实现对齐——框架默认只提供 `log`/`get_config`/两个自描述函数，`register_command`/`send_message`/`storage_*`/`http_request` 是"约定名"，需要宿主应用注册后再加载模块（插件可用 `__host_functions` 探测能力），默认集合有测试固定；无平台事件的 Context 不再让桥接层空指针崩溃；加载流程的编译/初始化已移出管理器锁，一个慢插件的编译不再阻塞其它插件的查询与卸载。
+- **命令解析**：分词与命令词提取统一按 Unicode 空白（全角空格 `/cmd　hello` 不再让整条消息变成单个 token 而被静默丢弃）；`-1` 之类的负数按位置参数处理；未定义的转义保留反斜杠（`C:\Users\name` 不再被改写，引号内的 `\n`/`\t`/`\r` 仍是控制字符）；子命令命中后父层的 flag 与位置参数会绑定到 `Parsed`，`required` 只在执行的叶子层校验（父层 `Validator` 不运行）。
+- **命令注册表**：重复注册替换旧元数据、注销清空同名全部条目（`FindCommand`/`/help` 列表不再显示旧描述或重复项）；`Upsert` 改为返回错误（别名冲突拒绝写入、非法正则模式忽略但可感知，不再 panic）；别名遮蔽已存在的命令名会被拒绝；`List`/`Complete` 返回副本、过滤隐藏命令、顺序稳定；`SetDefinition`/链式元数据方法/`BindCommand`/`SetSource` 的变更会同步进 `command.Registry`，`FindCommand`/`/help` 与 `Lookup`/`Complete` 不再元数据漂移。
+- **引擎（路由与执行）**：中间件链不再用过期快照填充缓存（运行期 `Use`/`ResetGroupMiddleware` 不会让 matcher 长期跳过鉴权、日志、限流）；`ProcessEventSync` 走与异步路径相同的事件守卫；`ExecPool` 排空响应停机上下文；事件类型为空时不再重复投递候选（handler 每个事件只执行一次）；只有前缀、没有命令名的 `OnCommand("/")` 改为普通规则匹配；候选流容量与索引预算对齐，超限限频告警而不是静默丢候选。
+- **引擎（并发与批注册）**：批注册中 `Delete`/`SetTemp` 会在 Flush 时结算（不再留下僵尸条目或双倍执行）；`Handler`/`Source`/`Rules` 的并发访问不再竞争（规则追加改为 COW 快照，热路径保持零锁）。
+- **上下文与规则**：`WithTimeout` 包装的规则在上下文副本上执行（超时后不再与引擎并发读写匹配状态，迟到登记的延迟副作用不会被后续 matcher 提交，超时前返回的副作用照常提交）；`ReplyWithContext` 真正接入调用方 context（取消/超时中止发送，已取消的 context 不再入队）；`OnCooldown` 默认 key 带上每条规则的命名空间（`/sign` 冷却期间 `/daily` 不再静默失效）；延迟副作用绑定匹配会话（FSM/手工求值登记的副作用不再被无关 matcher 提交）；`Cancel` 并发安全且池化任务会释放克隆的 std context；`SetCandidateMeta(nil)` 可清除候选 Meta（无 Meta 的候选不再继承正则捕获组）；`Clone` 的复制契约写入文档；新增 `GetGroupMembers` 区分「平台不支持」与下游故障；事件类型常量改由 `platform.EventKind` 派生；`OnParseCommand` 解析失败会记录 debug 日志。
+- **插件生命周期**：Setup 进行中（`Loading`）的实例不会再被并发卸载/重载（先等待 Setup 结束，Setup 挂起时返回「still loading」，`ForceUnregister` 仍是兜底）；根 Scope 与元数据 goroutine 管理器改为无竞争访问；加载失败/超时、强制卸载、重试与停机路径统一走幂等回收（Scope/goroutine/引擎分组/容器 key），`StopAll` 等待在飞加载与重载并对跳过项告警，`stopAndWaitCtx` 受调用方 ctx 约束。
+- **插件配置与重载细节**：文件配置源不再与插件配置互为别名（`Override` 不回写全局配置）；服务导出的 key 记录归属，先注册者注销不再删掉后来者的同名服务；蓝绿重载的 draining 追踪按次独立、旧 cron 调度器会被停掉；框架生命周期通知改用带超时的发布；卸载中的实例不再接受新的注册。
+- **FSM**：`From:"*"` 在会话存活判断与定义校验中生效（声明「任意状态 /cancel」的流程不会被无关消息连同 `Data` 静默清掉，只有通配启动事件的 FSM 也能注册）；`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；新增 `OwnerScoped` 会话（群内只接受归属者推进多步流程）；`EndSession` 加锁、启动改为「先回调后落库」、`StartCleanup` 幂等且有日志。
+- **权限**：前缀通配要求命名空间边界（`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`）；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目；外部 Provider 故障会记录日志并可通过 `SetProviderErrorHandler` 上报（失败即短路，不再每次拒绝打两次外部请求）；新增角色等级原语（`Role.Level`、`UserLevel`、`HasLevelAtLeast`、`AssignRoleChecked`）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
+- **WASM 插件**：卸载/重载会同时释放模块实例与编译产物（`Runtime.OpenModules()` 可观察未释放模块数）；宿主函数常量与 [`docs/notes/14-wasm-plugin.md`](docs/notes/14-wasm-plugin.md) 与实现对齐（框架默认只提供 `log`/`get_config`/两个自描述函数，`register_command`/`send_message`/`storage_*`/`http_request` 是「约定名」，需宿主应用注册后再加载模块，插件可用 `__host_functions` 探测能力）；无平台事件的 Context 不再让桥接层空指针崩溃；加载流程的编译/初始化移出管理器锁，一个慢插件不再阻塞其它插件的查询与卸载。
 
 ## v1.73.0 (2026-10-16)
 
