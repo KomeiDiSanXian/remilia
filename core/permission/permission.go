@@ -23,6 +23,7 @@ package permission
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -102,8 +103,15 @@ func matchWithWildcard(pattern, value string) bool {
 //   - Permissions()：返回 []Permission 切片副本（新增，替代直接访问字段）
 type Role struct {
 	Name        string
-	permissions map[string]Permission // key = "resource:action"
+	permissions map[string]Permission // key = permKey（无歧义内部编码）
 	mu          sync.RWMutex
+
+	// Level 是角色的等级（越大越高，0 表示未声明）。
+	//
+	// 内核不假设任何具体等级体系：它只提供比较与"受保护操作"的判定原语
+	// （[Manager.UserLevel]/[Manager.HasLevelAtLeast]/[Manager.AssignRoleChecked]），
+	// 让各命令层不再各自重复实现"谁是管理员"的判断（漏一处即提权）。
+	Level int
 }
 
 // NewRole creates a Role with the given name and initial permission set.
@@ -204,6 +212,8 @@ type Manager struct {
 	userPerms    map[string][]Permission
 	mu           sync.RWMutex
 	permProvider Provider
+	// providerErrorHandler 是外部权限源故障回调（见 SetProviderErrorHandler）。
+	providerErrorHandler func(userID string, err error)
 }
 
 // NewPermissionManager creates a Manager pre-loaded with the three
@@ -291,6 +301,68 @@ func (pm *Manager) RemoveRole(name string) bool {
 		pm.userRoles[userID] = filtered
 	}
 	return true
+}
+
+// UserLevel 返回用户当前等级：其所有已注册角色中 Level 的最大值。
+//
+// 未授予任何角色（或角色未声明 Level）时返回 0。
+func (pm *Manager) UserLevel(userID string) int {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	level := 0
+	for _, roleName := range pm.userRoles[userID] {
+		if role, ok := pm.roles[roleName]; ok && role.Level > level {
+			level = role.Level
+		}
+	}
+	return level
+}
+
+// HasLevelAtLeast 报告用户等级是否达到 minLevel。
+func (pm *Manager) HasLevelAtLeast(userID string, minLevel int) bool {
+	return pm.UserLevel(userID) >= minLevel
+}
+
+// AssignRoleChecked 在等级约束下授予角色：调用方（actorID）的等级必须
+//
+//   - 不低于目标角色的 Level（不能授予高于自己的角色），且
+//   - 不低于目标用户当前等级（不能改动与自己同级或更高的用户）。
+//
+// 这是给权限管理命令使用的提权防护原语：此前"管理员"判断散落在各命令层，
+// 漏一处即可自我提权。返回错误说明被拒绝的原因，错误信息可直接回显。
+func (pm *Manager) AssignRoleChecked(actorID, targetID, roleName string) error {
+	if roleName == "" {
+		return errors.New("role name is required")
+	}
+	pm.mu.RLock()
+	role, ok := pm.roles[roleName]
+	actorLevel := 0
+	for _, rn := range pm.userRoles[actorID] {
+		if r, ok := pm.roles[rn]; ok && r.Level > actorLevel {
+			actorLevel = r.Level
+		}
+	}
+	targetLevel := 0
+	for _, rn := range pm.userRoles[targetID] {
+		if r, ok := pm.roles[rn]; ok && r.Level > targetLevel {
+			targetLevel = r.Level
+		}
+	}
+	pm.mu.RUnlock()
+
+	if !ok {
+		return errors.New("role not found: " + roleName)
+	}
+	if role.Level > actorLevel {
+		return fmt.Errorf("cannot assign role %q (level %d) above actor level %d", roleName, role.Level, actorLevel)
+	}
+	if targetLevel > actorLevel {
+		return fmt.Errorf("cannot modify user %q at level %d from actor level %d", targetID, targetLevel, actorLevel)
+	}
+	if targetLevel > role.Level {
+		return fmt.Errorf("cannot downgrade user %q (level %d) with role %q (level %d)", targetID, targetLevel, roleName, role.Level)
+	}
+	return pm.AssignRole(targetID, roleName)
 }
 
 // AssignRole grants roleName to userID.
@@ -403,26 +475,62 @@ func (pm *Manager) HasPermission(userID string, perm Permission) bool {
 	}
 
 	// 3. external provider（锁外调用）
+	//
+	// 失败必须可见：此前 provider 错误被静默吞掉，下游故障表现为"全员无权限"
+	// 且没有任何日志；同时首个调用失败时不再继续调用第二个（provider 不可用时
+	// 每次拒绝都要付两次外部请求的代价）。
 	if provider != nil {
-		if perms, err := provider.GetUserPermissions(userID); err == nil {
-			for _, p := range perms {
-				if p.Match(perm) {
-					return true
-				}
+		perms, permsErr := provider.GetUserPermissions(userID)
+		if permsErr != nil {
+			pm.reportProviderError(userID, "GetUserPermissions", permsErr)
+			return false
+		}
+		for _, p := range perms {
+			if p.Match(perm) {
+				return true
 			}
 		}
-		if roleNames, err := provider.GetUserRoles(userID); err == nil {
-			for _, roleName := range roleNames {
-				if role, ok := pm.GetRole(roleName); ok {
-					if role.HasPermission(perm) {
-						return true
-					}
+
+		roleNames, rolesErr := provider.GetUserRoles(userID)
+		if rolesErr != nil {
+			pm.reportProviderError(userID, "GetUserRoles", rolesErr)
+			return false
+		}
+		for _, roleName := range roleNames {
+			if role, ok := pm.GetRole(roleName); ok {
+				if role.HasPermission(perm) {
+					return true
 				}
 			}
 		}
 	}
 
 	return false
+}
+
+// reportProviderError 记录外部权限源故障（日志 + 可选回调）。
+func (pm *Manager) reportProviderError(userID, method string, err error) {
+	logger.WithError(err).WithFields(logger.Fields{
+		"user_id": userID,
+		"method":  method,
+	}).Warn("[permission] external provider call failed; permission denied by default")
+
+	pm.mu.RLock()
+	handler := pm.providerErrorHandler
+	pm.mu.RUnlock()
+	if handler != nil {
+		handler(userID, err)
+	}
+}
+
+// SetProviderErrorHandler 注册外部权限源故障回调（可选，用于告警/指标）。
+//
+// 回调在权限检查的调用方 goroutine 上执行，应保持轻量且不得回调本 Manager
+// 的写方法（会与权限检查并发）。
+func (pm *Manager) SetProviderErrorHandler(fn func(userID string, err error)) {
+	pm.mu.Lock()
+	pm.providerErrorHandler = fn
+	pm.mu.Unlock()
 }
 
 // SetPermissionProvider sets an external authorization source.
