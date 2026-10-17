@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -346,6 +347,28 @@ func (lc *lifecycleController) RemoveListener(listener LifecycleListener) {
 
 // --- 生命周期事件通知 ---
 
+// pluginLifecyclePublishTimeout 是框架内部生命周期通知的发布预算。
+//
+// 通知在业务调用链内同步发布（注册/卸载/重载/失败），而 Publish 在 worker
+// 池满时会一直等待槽位——订阅者互相等待即把管理命令整体挂死。给内部通知
+// 一个有界预算：超时丢弃并告警，管理操作照常返回。
+const pluginLifecyclePublishTimeout = 2 * time.Second
+
+// publishLifecycle 发布框架内部生命周期通知（有界等待，超时丢弃并告警）。
+func publishLifecycle(bus EventBus, topic, pluginName string) {
+	if bus == nil {
+		return
+	}
+	if err := PublishWithTimeout(bus, topic, pluginName, pluginLifecyclePublishTimeout); err != nil {
+		logger.WithFields(logger.Fields{
+			"topic":      topic,
+			"plugin":     pluginName,
+			"timeout":    pluginLifecyclePublishTimeout,
+			"subscriber": "framework",
+		}).Warn("[PluginManager] Lifecycle notification dropped: event bus saturated")
+	}
+}
+
 func (lc *lifecycleController) notifyLoaded(name string) {
 	lc.pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(lc.listeners))
@@ -356,9 +379,7 @@ func (lc *lifecycleController) notifyLoaded(name string) {
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginLoaded", func() { listener.OnPluginLoaded(name) })
 	}
-	if bus != nil {
-		_ = bus.Publish("plugin.loaded", name)
-	}
+	publishLifecycle(bus, "plugin.loaded", name)
 }
 
 func (lc *lifecycleController) notifyUnloaded(name string) {
@@ -371,9 +392,7 @@ func (lc *lifecycleController) notifyUnloaded(name string) {
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginUnloaded", func() { listener.OnPluginUnloaded(name) })
 	}
-	if bus != nil {
-		_ = bus.Publish("plugin.unloaded", name)
-	}
+	publishLifecycle(bus, "plugin.unloaded", name)
 }
 
 func (lc *lifecycleController) notifyReloaded(name string) {
@@ -386,9 +405,7 @@ func (lc *lifecycleController) notifyReloaded(name string) {
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginReloaded", func() { listener.OnPluginReloaded(name) })
 	}
-	if bus != nil {
-		_ = bus.Publish("plugin.reloaded", name)
-	}
+	publishLifecycle(bus, "plugin.reloaded", name)
 }
 
 func (lc *lifecycleController) notifyError(name string, operation string, err error) {
