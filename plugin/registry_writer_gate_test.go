@@ -50,7 +50,7 @@ func TestLiveRegistryWriter_RefusesRegistrationForInactiveInstance(t *testing.T)
 			2*time.Second, 10*time.Millisecond, "迟到的 Matcher 必须被撤销")
 	}
 
-	inst.SetState(Unloaded)
+	inst.SetState(Error)
 	assert.Nil(t, rw.RegisterCommand("", "/late2"))
 
 	// 恢复活动（重载完成后）后可以继续注册

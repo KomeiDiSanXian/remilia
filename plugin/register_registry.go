@@ -161,15 +161,14 @@ type liveRegistryWriter struct {
 
 // gateRegistration 校验本次注册是否应被接受，并返回当前分组名与注册后回调。
 //
-// 失效实例（Unloaded/Unloading/Error）的注册被拒绝：蓝绿重载会
-// RemoveGroup 旧分组，旧实例的后台 goroutine 若继续注册，Matcher 会落进
-// 已被清空的临时组——此后无人管理（不再被任何 RemoveGroup 覆盖）。
+// 失效实例（Unloading/Error，见 instanceActive）的注册被拒绝：卸载中或卸载
+// 失败的实例不得再往引擎里注册，否则 Matcher 会落进已被 RemoveGroup 的分组，
+// 此后无人管理。
 func (r *liveRegistryWriter) gateRegistration() (group string, hook func(*engine.Matcher), ok bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	switch r.instance.GetState() {
-	case Unloaded, Unloading, Error:
+	if !r.instanceActive() {
 		logger.WithField("plugin", r.name).
 			Warn("[plugin] registration refused: instance is no longer active")
 		return "", nil, false
@@ -201,11 +200,14 @@ func (r *liveRegistryWriter) currentName() string {
 	return r.name
 }
 
-// instanceActive 报告绑定实例是否仍处于可注册状态（Unloaded/Unloading/Error
-// 视为失效：卸载中或重载迁移后的实例不得再往引擎里注册）。
+// instanceActive 报告绑定实例是否仍处于可注册状态。
+//
+// 失效状态取 Unloading/Error：卸载中或卸载失败的实例不得再往引擎里注册。
+// Unloaded 视为可用（插件尚未 StartAll 时也可能先注册，测试脚手架即如此），
+// Disabled/Loading/Loaded/Reloading 均允许注册。
 func (r *liveRegistryWriter) instanceActive() bool {
 	switch r.instance.GetState() {
-	case Unloaded, Unloading, Error:
+	case Unloading, Error:
 		return false
 	default:
 		return true
