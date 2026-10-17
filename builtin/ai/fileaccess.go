@@ -46,3 +46,36 @@ func (a fileAccessor) List(rel string, maxEntries int) (catalog.FileListing, err
 		Truncated: listing.Truncated,
 	}, nil
 }
+
+// Write 覆盖写入工作区内的文本文件。
+func (a fileAccessor) Write(rel, content string) (catalog.FileWriteResult, error) {
+	result, err := a.w.Write(rel, content)
+	if err != nil {
+		return catalog.FileWriteResult{}, err
+	}
+	return catalog.FileWriteResult{
+		Path:          result.Path,
+		Bytes:         result.Bytes,
+		PreviousBytes: result.PreviousBytes,
+		Created:       result.Created,
+	}, nil
+}
+
+// Edit 对工作区内现有文件做一次唯一匹配的精确替换。
+func (a fileAccessor) Edit(rel, oldString, newString string) (catalog.FileEditResult, error) {
+	result, err := a.w.Edit(rel, oldString, newString)
+	if err != nil {
+		return catalog.FileEditResult{}, err
+	}
+	return catalog.FileEditResult{
+		Path:  result.Path,
+		Bytes: result.Bytes,
+		Diff:  result.Diff,
+	}, nil
+}
+
+// 端口实现断言：只读动作使用 FileAccess，写入动作使用 FileWriteAccess。
+var (
+	_ catalog.FileAccess      = fileAccessor{}
+	_ catalog.FileWriteAccess = fileAccessor{}
+)

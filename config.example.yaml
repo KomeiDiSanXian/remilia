@@ -367,6 +367,10 @@ messagelog:
 #                                         #     绝对路径与指向区外的符号链接一律拒绝，读取内容包数据边界
 #                                         #     标记。动作要求 RBAC 权限 ai.file.read，未授权时模型不可见。
 #                                         #     示例：workspace_roots: ["./data/workspace", "D:/repos/project"]
+#     workspace_allow_write: false        # [R] 是否允许 AI 修改工作区文件（默认 false）。开启后注册
+#                                         #     file_write（整文件覆盖，父目录按需创建）与 file_edit
+#                                         #     （唯一匹配的精确替换，返回替换处 diff）；两者要求 RBAC
+#                                         #     权限 ai.file.write，且在任何审批模式下都强制人工审批
 #     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
 #                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用

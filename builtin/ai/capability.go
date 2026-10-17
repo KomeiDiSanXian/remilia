@@ -32,7 +32,13 @@ func (p *Plugin) toolCapabilities() catalog.Capabilities {
 		caps.Scheduler = pluginReminderScheduler{p: p}
 	}
 	if p.files != nil {
-		caps.Files = fileAccessor{w: p.files}
+		files := fileAccessor{w: p.files}
+		caps.Files = files
+		// 写入端口只在显式开启后注入：动作注册同样受配置控制，
+		// 两层都关闭写入能力，避免只读部署出现任何写入路径。
+		if p.cfg != nil && p.cfg.WorkspaceAllowWrite {
+			caps.FileWrite = files
+		}
 	}
 	return caps
 }

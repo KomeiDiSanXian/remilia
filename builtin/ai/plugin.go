@@ -279,9 +279,10 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 					p.registerCatalogTool(t)
 				}
 			}
-			// 工作区文件动作仅在配置了根目录时注册（只读；未启用时模型不可见）。
+			// 工作区文件动作仅在配置了根目录时注册（未启用时模型不可见）；
+			// 写入动作还需要 workspace_allow_write 显式开启。
 			if files != nil {
-				for _, t := range catalog.BuildFileTools() {
+				for _, t := range catalog.BuildFileTools(catalog.FileToolOptions{AllowWrite: cfg.WorkspaceAllowWrite}) {
 					p.registerCatalogTool(t)
 				}
 			}

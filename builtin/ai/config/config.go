@@ -71,6 +71,10 @@ type Config struct {
 	// 为空表示禁用文件能力（默认）；非空时每个根目录必须已存在（构造时校验）。
 	// 文件动作只读，且要求 RBAC 权限 ai.file.read。
 	WorkspaceRoots []string `yaml:"workspace_roots"`
+	// WorkspaceAllowWrite 是否允许 AI 修改工作区文件（默认 false）。
+	// 开启后注册 file_write / file_edit：两者要求 RBAC 权限 ai.file.write，
+	// 且在任何审批模式下都强制人工审批。
+	WorkspaceAllowWrite bool `yaml:"workspace_allow_write"`
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -659,6 +663,7 @@ func Load(ctx *plugin.SetupContext) *Config {
 			}
 		}
 	}
+	cfg.WorkspaceAllowWrite = ctx.Config.GetBool("workspace_allow_write", cfg.WorkspaceAllowWrite)
 
 	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)
 	cfg.IncludeMentionInfo = ctx.Config.GetBool("include_mention_info", cfg.IncludeMentionInfo)

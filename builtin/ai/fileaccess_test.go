@@ -3,8 +3,10 @@ package ai
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/workspace"
 )
 
@@ -46,6 +48,48 @@ func TestFileAccessorReadAndList(t *testing.T) {
 	}
 }
 
+func TestFileAccessorWriteAndEdit(t *testing.T) {
+	dir := t.TempDir()
+	ws, err := workspace.New([]string{dir})
+	if err != nil {
+		t.Fatalf("workspace.New: %v", err)
+	}
+	accessor := fileAccessor{w: ws}
+
+	// 写入新文件（父目录按需创建）。
+	write, err := accessor.Write(filepath.Join("sub", "new.txt"), "hello")
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if !write.Created || write.Bytes != 5 || write.PreviousBytes != 0 {
+		t.Fatalf("unexpected write result: %+v", write)
+	}
+	content, err := accessor.Read(filepath.Join("sub", "new.txt"), 0)
+	if err != nil || content.Text != "hello" {
+		t.Fatalf("read back = (%+v, %v)", content, err)
+	}
+
+	// 精确替换并返回 diff。
+	edit, err := accessor.Edit(filepath.Join("sub", "new.txt"), "hello", "world")
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if edit.Bytes != 5 || !strings.Contains(edit.Diff, "+world") || !strings.Contains(edit.Diff, "-hello") {
+		t.Fatalf("unexpected edit result: %+v", edit)
+	}
+
+	// 越界写入与不唯一替换都被拒绝。
+	if _, err := accessor.Write(filepath.Join("..", "escape.txt"), "x"); err == nil {
+		t.Fatal("write outside the workspace must be rejected")
+	}
+	if _, err := accessor.Write("dup.txt", "a a a"); err != nil {
+		t.Fatalf("Write(dup): %v", err)
+	}
+	if _, err := accessor.Edit("dup.txt", "a", "b"); err == nil {
+		t.Fatal("non-unique replacement must be rejected")
+	}
+}
+
 func TestToolCapabilitiesIncludeFiles(t *testing.T) {
 	p := &Plugin{}
 	if caps := p.toolCapabilities(); caps.Files != nil {
@@ -57,7 +101,16 @@ func TestToolCapabilitiesIncludeFiles(t *testing.T) {
 		t.Fatalf("workspace.New: %v", err)
 	}
 	p.files = ws
+	p.cfg = &config.Config{}
 	if caps := p.toolCapabilities(); caps.Files == nil {
 		t.Fatal("files port should be present when a workspace is configured")
+	}
+	if caps := p.toolCapabilities(); caps.FileWrite != nil {
+		t.Fatal("write port must stay nil unless workspace_allow_write is set")
+	}
+
+	p.cfg.WorkspaceAllowWrite = true
+	if caps := p.toolCapabilities(); caps.FileWrite == nil {
+		t.Fatal("write port should be present when writes are enabled")
 	}
 }

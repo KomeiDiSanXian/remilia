@@ -92,6 +92,8 @@ type Capabilities struct {
 	Scheduler ReminderScheduler
 	// Files 工作区只读文件访问（workspace_roots 配置时由装配侧注入）。
 	Files FileAccess
+	// FileWrite 工作区写入（workspace_roots 且 workspace_allow_write 时注入）。
+	FileWrite FileWriteAccess
 }
 
 // WithCapabilities 将能力端口注入 context（装配侧构造后注入）。

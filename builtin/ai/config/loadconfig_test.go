@@ -24,7 +24,8 @@ func TestLoadConfigNil(t *testing.T) {
 func TestLoadConfigWorkspaceRoots(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{
-			"workspace_roots": []any{"./data/ws", " /tmp/other ", 42, "  "},
+			"workspace_roots":       []any{"./data/ws", " /tmp/other ", 42, "  "},
+			"workspace_allow_write": true,
 		},
 	}
 	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
@@ -35,12 +36,16 @@ func TestLoadConfigWorkspaceRoots(t *testing.T) {
 	if !slices.Equal(got.WorkspaceRoots, want) {
 		t.Fatalf("WorkspaceRoots = %v, want %v", got.WorkspaceRoots, want)
 	}
+	if !got.WorkspaceAllowWrite {
+		t.Fatal("WorkspaceAllowWrite should follow the configuration")
+	}
 
-	// 未配置时保持禁用（默认空）。
+	// 未配置时保持禁用（默认空、默认只读）。
 	emptyCtx := plugintest.NewSetupContext("ai", nil)
 	defer plugintest.StopSetupContext(emptyCtx)
-	if empty := Load(emptyCtx); len(empty.WorkspaceRoots) != 0 {
-		t.Fatalf("WorkspaceRoots should default to empty, got %v", empty.WorkspaceRoots)
+	if empty := Load(emptyCtx); len(empty.WorkspaceRoots) != 0 || empty.WorkspaceAllowWrite {
+		t.Fatalf("workspace defaults = (%v, %v), want empty and read-only",
+			empty.WorkspaceRoots, empty.WorkspaceAllowWrite)
 	}
 }
 
