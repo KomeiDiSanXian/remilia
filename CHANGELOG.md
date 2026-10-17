@@ -2,6 +2,13 @@
 
 ## v1.74.0 (2026-10-17)
 
+### ✨ 新特性
+
+- **FSM 会话归属（opt-in）**：`FSM.OwnerScoped` 会记录会话的启动者（`Session.OwnerID`），此后只有该用户能推进这个多步流程；群聊里不再出现「别人填到一半的表单被另一名成员接管」。默认关闭，行为不变。
+- **权限等级原语**：`Role.Level` 声明角色等级，配套 `Manager.UserLevel` / `HasLevelAtLeast`，以及带提权防护的 `AssignRoleChecked`（不能授予高于自己的角色、不能改动同级或更高级的用户）；外部权限源故障新增 `SetProviderErrorHandler` 回调，便于接告警与指标。
+- **可区分错误的群成员查询**：新增 `Context.GetGroupMembers`（返回错误）与 `ErrGroupInfoUnsupported`，把「平台不支持该能力」与「下游查询失败（网络/权限/限流）」分开，`TryGetGroupMembers` 保持原语义不变。
+- **可观测性与小工具**：WASM 侧新增 `Runtime.OpenModules()` / `Module.Closed()`（确认卸载是否真正释放了模块与编译产物）；扩展存储新增 `Extensions.Delete` / `DeleteTyped`（删除类型键）；命令注册表新增 `Registry.ListAll()`（含隐藏命令的完整列表）。
+
 ### 🛠 修复
 
 **构建 / CI**
@@ -23,12 +30,12 @@
 - **命令注册表**：重复注册替换旧元数据、注销清空同名全部条目（`FindCommand`/`/help` 列表不再显示旧描述或重复项）；`Upsert` 改为返回错误（别名冲突拒绝写入、非法正则模式忽略但可感知，不再 panic）；别名遮蔽已存在的命令名会被拒绝；`List`/`Complete` 返回副本、过滤隐藏命令、顺序稳定；`SetDefinition`/链式元数据方法/`BindCommand`/`SetSource` 的变更会同步进 `command.Registry`，`FindCommand`/`/help` 与 `Lookup`/`Complete` 不再元数据漂移。
 - **引擎（路由与执行）**：中间件链不再用过期快照填充缓存（运行期 `Use`/`ResetGroupMiddleware` 不会让 matcher 长期跳过鉴权、日志、限流）；`ProcessEventSync` 走与异步路径相同的事件守卫；`ExecPool` 排空响应停机上下文；事件类型为空时不再重复投递候选（handler 每个事件只执行一次）；只有前缀、没有命令名的 `OnCommand("/")` 改为普通规则匹配；候选流容量与索引预算对齐，超限限频告警而不是静默丢候选。
 - **引擎（并发与批注册）**：批注册中 `Delete`/`SetTemp` 会在 Flush 时结算（不再留下僵尸条目或双倍执行）；`Handler`/`Source`/`Rules` 的并发访问不再竞争（规则追加改为 COW 快照，热路径保持零锁）。
-- **上下文与规则**：`WithTimeout` 包装的规则在上下文副本上执行（超时后不再与引擎并发读写匹配状态，迟到登记的延迟副作用不会被后续 matcher 提交，超时前返回的副作用照常提交）；`ReplyWithContext` 真正接入调用方 context（取消/超时中止发送，已取消的 context 不再入队）；`OnCooldown` 默认 key 带上每条规则的命名空间（`/sign` 冷却期间 `/daily` 不再静默失效）；延迟副作用绑定匹配会话（FSM/手工求值登记的副作用不再被无关 matcher 提交）；`Cancel` 并发安全且池化任务会释放克隆的 std context；`SetCandidateMeta(nil)` 可清除候选 Meta（无 Meta 的候选不再继承正则捕获组）；`Clone` 的复制契约写入文档；新增 `GetGroupMembers` 区分「平台不支持」与下游故障；事件类型常量改由 `platform.EventKind` 派生；`OnParseCommand` 解析失败会记录 debug 日志。
+- **上下文与规则**：`WithTimeout` 包装的规则在上下文副本上执行（超时后不再与引擎并发读写匹配状态，迟到登记的延迟副作用不会被后续 matcher 提交，超时前返回的副作用照常提交）；`ReplyWithContext` 真正接入调用方 context（取消/超时中止发送，已取消的 context 不再入队）；`OnCooldown` 默认 key 带上每条规则的命名空间（`/sign` 冷却期间 `/daily` 不再静默失效）；延迟副作用绑定匹配会话（FSM/手工求值登记的副作用不再被无关 matcher 提交）；`Cancel` 并发安全且池化任务会释放克隆的 std context；`SetCandidateMeta(nil)` 可清除候选 Meta（无 Meta 的候选不再继承正则捕获组）；`Clone` 的复制契约写入文档；事件类型常量改由 `platform.EventKind` 派生；`OnParseCommand` 解析失败会记录 debug 日志。
 - **插件生命周期**：Setup 进行中（`Loading`）的实例不会再被并发卸载/重载（先等待 Setup 结束，Setup 挂起时返回「still loading」，`ForceUnregister` 仍是兜底）；根 Scope 与元数据 goroutine 管理器改为无竞争访问；加载失败/超时、强制卸载、重试与停机路径统一走幂等回收（Scope/goroutine/引擎分组/容器 key），`StopAll` 等待在飞加载与重载并对跳过项告警，`stopAndWaitCtx` 受调用方 ctx 约束。
 - **插件配置与重载细节**：文件配置源不再与插件配置互为别名（`Override` 不回写全局配置）；服务导出的 key 记录归属，先注册者注销不再删掉后来者的同名服务；蓝绿重载的 draining 追踪按次独立、旧 cron 调度器会被停掉；框架生命周期通知改用带超时的发布；卸载中的实例不再接受新的注册。
-- **FSM**：`From:"*"` 在会话存活判断与定义校验中生效（声明「任意状态 /cancel」的流程不会被无关消息连同 `Data` 静默清掉，只有通配启动事件的 FSM 也能注册）；`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；新增 `OwnerScoped` 会话（群内只接受归属者推进多步流程）；`EndSession` 加锁、启动改为「先回调后落库」、`StartCleanup` 幂等且有日志。
-- **权限**：前缀通配要求命名空间边界（`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`）；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目；外部 Provider 故障会记录日志并可通过 `SetProviderErrorHandler` 上报（失败即短路，不再每次拒绝打两次外部请求）；新增角色等级原语（`Role.Level`、`UserLevel`、`HasLevelAtLeast`、`AssignRoleChecked`）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
-- **WASM 插件**：卸载/重载会同时释放模块实例与编译产物（`Runtime.OpenModules()` 可观察未释放模块数）；宿主函数常量与 [`docs/notes/14-wasm-plugin.md`](docs/notes/14-wasm-plugin.md) 与实现对齐（框架默认只提供 `log`/`get_config`/两个自描述函数，`register_command`/`send_message`/`storage_*`/`http_request` 是「约定名」，需宿主应用注册后再加载模块，插件可用 `__host_functions` 探测能力）；无平台事件的 Context 不再让桥接层空指针崩溃；加载流程的编译/初始化移出管理器锁，一个慢插件不再阻塞其它插件的查询与卸载。
+- **FSM**：`From:"*"` 在会话存活判断与定义校验中生效（声明「任意状态 /cancel」的流程不会被无关消息连同 `Data` 静默清掉，只有通配启动事件的 FSM 也能注册）；`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；`EndSession` 加锁、启动改为「先回调后落库」、`StartCleanup` 幂等且有日志。
+- **权限**：前缀通配要求命名空间边界（`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`）；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目；外部权限源故障会记录日志并在失败后短路（不再每次拒绝打两次外部请求）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
+- **WASM 插件**：卸载/重载会同时释放模块实例与编译产物；宿主函数常量与 [`docs/notes/14-wasm-plugin.md`](docs/notes/14-wasm-plugin.md) 与实现对齐（框架默认只提供 `log`/`get_config`/两个自描述函数，`register_command`/`send_message`/`storage_*`/`http_request` 是「约定名」，需宿主应用注册后再加载模块，插件可用 `__host_functions` 探测能力）；无平台事件的 Context 不再让桥接层空指针崩溃；加载流程的编译/初始化移出管理器锁，一个慢插件不再阻塞其它插件的查询与卸载。
 
 ## v1.73.0 (2026-10-16)
 
