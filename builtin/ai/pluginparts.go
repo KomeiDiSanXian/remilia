@@ -31,6 +31,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/workspace"
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
@@ -59,6 +60,9 @@ type catalogState struct {
 	cmdMu sync.RWMutex
 	// cmdPatterns 工具名到完整命令模式的映射，用于 execution.RunCommand 构造合成事件。
 	cmdPatterns map[string]string
+	// files 工作区只读文件访问管理器（workspace_roots 配置时启用）。
+	// 路径边界、符号链接与大小限制见 builtin/ai/workspace。
+	files *workspace.Manager
 }
 
 // catalogRuntime 将目录代数与其聚合状态放在同一字段中，保证快照和变更

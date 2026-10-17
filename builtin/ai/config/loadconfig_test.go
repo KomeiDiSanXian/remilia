@@ -21,6 +21,29 @@ func TestLoadConfigNil(t *testing.T) {
 	}
 }
 
+func TestLoadConfigWorkspaceRoots(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"workspace_roots": []any{"./data/ws", " /tmp/other ", 42, "  "},
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	got := Load(ctx)
+	want := []string{"./data/ws", "/tmp/other"}
+	if !slices.Equal(got.WorkspaceRoots, want) {
+		t.Fatalf("WorkspaceRoots = %v, want %v", got.WorkspaceRoots, want)
+	}
+
+	// 未配置时保持禁用（默认空）。
+	emptyCtx := plugintest.NewSetupContext("ai", nil)
+	defer plugintest.StopSetupContext(emptyCtx)
+	if empty := Load(emptyCtx); len(empty.WorkspaceRoots) != 0 {
+		t.Fatalf("WorkspaceRoots should default to empty, got %v", empty.WorkspaceRoots)
+	}
+}
+
 func TestLoadConfigCustomValues(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{

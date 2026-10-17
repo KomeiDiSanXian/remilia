@@ -361,6 +361,12 @@ messagelog:
 #     # —— AI 工具 ——
 #     tool_allowlist: []                  # [R] 显式允许暴露为 AI 工具的命令白名单；
 #                                         #     [] = 自动发现所有无权限命令（旧行为）；非空 = 仅列表中的命令
+#     workspace_roots: []                 # [R] 允许 AI 文件能力访问的根目录列表（默认空 = 禁用）。
+#                                         #     非空时每个根目录必须已存在；启用后注册只读动作
+#                                         #     file_read / file_list，路径都相对根目录解释，越界路径、
+#                                         #     绝对路径与指向区外的符号链接一律拒绝，读取内容包数据边界
+#                                         #     标记。动作要求 RBAC 权限 ai.file.read，未授权时模型不可见。
+#                                         #     示例：workspace_roots: ["./data/workspace", "D:/repos/project"]
 #     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
 #                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用

@@ -28,6 +28,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/workspace"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
@@ -213,6 +214,18 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				}
 			}
 
+			// 工作区文件能力（workspace_roots 配置时启用，只读）：
+			// 根目录之外的路径、绝对路径与逃逸的符号链接由 workspace 包拒绝。
+			var files *workspace.Manager
+			if len(cfg.WorkspaceRoots) > 0 {
+				if ws, werr := workspace.New(cfg.WorkspaceRoots); werr != nil {
+					ctx.Log.Warnf("Invalid workspace_roots, file tools disabled: %v", werr)
+				} else {
+					files = ws
+					ctx.Log.Infof("AI workspace file tools enabled (%d root(s), read-only)", len(ws.Roots()))
+				}
+			}
+
 			p := &Plugin{
 				cfg:             cfg,
 				coord:           coord,
@@ -235,6 +248,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				groupPolicies:   groupPolicies,
 				emb:             emb,
 				memory:          memory,
+				files:           files,
 				replyGate:       initReplyGate(),
 			}
 
@@ -262,6 +276,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 长期记忆工具仅在 memory_enabled 开启时注册（未开启时不让模型看到）。
 			if memory != nil {
 				for _, t := range catalog.BuildMemoryTools() {
+					p.registerCatalogTool(t)
+				}
+			}
+			// 工作区文件动作仅在配置了根目录时注册（只读；未启用时模型不可见）。
+			if files != nil {
+				for _, t := range catalog.BuildFileTools() {
 					p.registerCatalogTool(t)
 				}
 			}

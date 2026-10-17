@@ -31,6 +31,9 @@ func (p *Plugin) toolCapabilities() catalog.Capabilities {
 		caps.Reminders = reminderAccessor{m: p.reminders}
 		caps.Scheduler = pluginReminderScheduler{p: p}
 	}
+	if p.files != nil {
+		caps.Files = fileAccessor{w: p.files}
+	}
 	return caps
 }
 

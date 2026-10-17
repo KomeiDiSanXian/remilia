@@ -177,6 +177,7 @@ func agentStatePluginNonAgent() map[string]string {
 		"syncer":    "事件处理器（vevent）",
 		"sm":        "会话管理器：清单里的会话状态由它承载",
 		"fsmEngine": "FSM 引擎句柄",
+		"files":     "工作区文件访问管理器（由 workspace_roots 配置构造，静态服务句柄）",
 		// 装配管道与并发原语。
 		"cmdMu":           "cmdPatterns 的读写锁",
 		"cmdPatterns":     "工具名 → 命令模式映射（发现结果）",

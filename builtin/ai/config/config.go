@@ -67,6 +67,10 @@ type Config struct {
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
 	ToolAllowlist []string `yaml:"tool_allowlist"`
+	// WorkspaceRoots 允许 AI 文件能力访问的根目录列表。
+	// 为空表示禁用文件能力（默认）；非空时每个根目录必须已存在（构造时校验）。
+	// 文件动作只读，且要求 RBAC 权限 ai.file.read。
+	WorkspaceRoots []string `yaml:"workspace_roots"`
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -638,6 +642,19 @@ func Load(ctx *plugin.SetupContext) *Config {
 			for _, item := range list {
 				if s, ok := item.(string); ok && s != "" {
 					cfg.ToolAllowlist = append(cfg.ToolAllowlist, s)
+				}
+			}
+		}
+	}
+
+	if v := ctx.Config.Get("workspace_roots"); v != nil {
+		if list, ok := v.([]any); ok {
+			cfg.WorkspaceRoots = make([]string, 0, len(list))
+			for _, item := range list {
+				if s, ok := item.(string); ok {
+					if trimmed := strings.TrimSpace(s); trimmed != "" {
+						cfg.WorkspaceRoots = append(cfg.WorkspaceRoots, trimmed)
+					}
 				}
 			}
 		}

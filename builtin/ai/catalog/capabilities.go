@@ -90,6 +90,8 @@ type Capabilities struct {
 	Todos     TodoAccess
 	Reminders ReminderAccess
 	Scheduler ReminderScheduler
+	// Files 工作区只读文件访问（workspace_roots 配置时由装配侧注入）。
+	Files FileAccess
 }
 
 // WithCapabilities 将能力端口注入 context（装配侧构造后注入）。
