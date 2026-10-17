@@ -61,6 +61,9 @@ func TestGormStoreRoundTrip(t *testing.T) {
 	if err := tk.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileUpdated, Name: "sub/a.go", Size: 12}); err != nil {
+		t.Fatalf("RecordArtifact: %v", err)
+	}
 	if err := store.Save(tk); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -74,6 +77,9 @@ func TestGormStoreRoundTrip(t *testing.T) {
 	}
 	if len(got.Steps) != 2 || got.Steps[0].Status != StepSucceeded || got.Steps[1].Status != StepRunning {
 		t.Fatalf("steps not preserved: %+v", got.Steps)
+	}
+	if len(got.Artifacts) != 1 || got.Artifacts[0].Name != "sub/a.go" || got.Artifacts[0].Size != 12 {
+		t.Fatalf("artifacts not preserved: %+v", got.Artifacts)
 	}
 
 	active, err := store.ActiveBySession("s1")

@@ -100,6 +100,29 @@ type Step struct {
 	Result string `json:"result,omitempty"`
 }
 
+// 产物种类。
+const (
+	// ArtifactFileCreated 任务新建的文件。
+	ArtifactFileCreated = "file_create"
+	// ArtifactFileUpdated 任务修改的文件。
+	ArtifactFileUpdated = "file_update"
+)
+
+// Artifact 任务过程中登记的产物引用。
+//
+// 第一版只登记"任务改了哪些文件"：路径、大小与时间。diff、截图等更丰富的
+// 产物形态在真实场景需要时再扩展，避免提前引入无人消费的模型。
+type Artifact struct {
+	// Kind 产物种类（如 file_create / file_update）。
+	Kind string `json:"kind"`
+	// Name 产物名称（工作区相对路径）。
+	Name string `json:"name"`
+	// Size 产物大小（字节；未知为 0）。
+	Size int `json:"size,omitempty"`
+	// At 登记时间。
+	At time.Time `json:"at"`
+}
+
 // Task 一个持久化的任务实例。
 type Task struct {
 	// ID 任务唯一标识。
@@ -120,6 +143,8 @@ type Task struct {
 	PlanVersion uint64 `json:"plan_version"`
 	// Steps 当前步骤快照（最新一次计划刷新）。
 	Steps []Step `json:"steps,omitempty"`
+	// Artifacts 任务登记过的产物引用（按登记顺序，同名产物就地更新）。
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 	// CreatedAt 创建时间。
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt 最后一次变更时间。
@@ -162,6 +187,8 @@ func (t *Task) Clone() *Task {
 	cp := *t
 	cp.Steps = make([]Step, len(t.Steps))
 	copy(cp.Steps, t.Steps)
+	cp.Artifacts = make([]Artifact, len(t.Artifacts))
+	copy(cp.Artifacts, t.Artifacts)
 	return &cp
 }
 
@@ -227,9 +254,36 @@ func (t *Task) Transition(to Status) error {
 	return nil
 }
 
-// SyncPlan 用会话计划刷新任务：更新目标、步骤与计划版本；计划全部终结时
-// 收敛任务状态（无失败步骤为 succeeded，否则为 failed）。
+// RecordArtifact 登记一个产物引用；同名同类的产物就地更新（大小与时间）。
 //
+// 终态任务拒绝登记：任务取消/完成后到达的迟到写入不再属于该任务的产物。
+func (t *Task) RecordArtifact(a Artifact) error {
+	if t == nil {
+		return errors.New("task: nil task")
+	}
+	if a.Kind == "" || a.Name == "" {
+		return errors.New("task: artifact kind and name are required")
+	}
+	if t.Status.IsTerminal() {
+		return ErrTaskTerminal
+	}
+	if a.At.IsZero() {
+		a.At = time.Now()
+	}
+	for i := range t.Artifacts {
+		if t.Artifacts[i].Kind == a.Kind && t.Artifacts[i].Name == a.Name {
+			t.Artifacts[i] = a
+			t.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	t.Artifacts = append(t.Artifacts, a)
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// SyncPlan 用会话计划刷新任务：更新目标、步骤与计划版本；计划全部终结时
+// 收敛任务状态（无失败步骤为 succeeded，否则为 failed）。//
 // 终态任务拒绝刷新并返回 [ErrTaskTerminal]——这是"取消后迟到的工具结果
 // 不得覆盖状态"的落点。
 func (t *Task) SyncPlan(plan *session.Plan) error {

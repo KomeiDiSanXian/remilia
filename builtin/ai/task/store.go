@@ -59,7 +59,9 @@ type Record struct {
 	// PlanVersion 计划内容修订号。
 	PlanVersion uint64
 	// Steps 步骤快照（JSON 序列化）。
-	Steps     string `gorm:"type:text"`
+	Steps string `gorm:"type:text"`
+	// Artifacts 产物引用快照（JSON 序列化）。
+	Artifacts string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -77,6 +79,14 @@ func (t *Task) ToRecord() *Record {
 			logger.Errorf("[AI] Failed to marshal task steps for %s: %v", t.ID, err)
 		}
 	}
+	var artifactsJSON string
+	if len(t.Artifacts) > 0 {
+		if data, err := json.Marshal(t.Artifacts); err == nil {
+			artifactsJSON = string(data)
+		} else {
+			logger.Errorf("[AI] Failed to marshal task artifacts for %s: %v", t.ID, err)
+		}
+	}
 	return &Record{
 		ID:          t.ID,
 		SessionID:   t.SessionID,
@@ -87,6 +97,7 @@ func (t *Task) ToRecord() *Record {
 		Status:      string(t.Status),
 		PlanVersion: t.PlanVersion,
 		Steps:       stepsJSON,
+		Artifacts:   artifactsJSON,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
@@ -114,6 +125,11 @@ func (r *Record) ToTask() (*Task, error) {
 	if r.Steps != "" {
 		if err := json.Unmarshal([]byte(r.Steps), &t.Steps); err != nil {
 			return nil, fmt.Errorf("task: unmarshal steps for %s: %w", r.ID, err)
+		}
+	}
+	if r.Artifacts != "" {
+		if err := json.Unmarshal([]byte(r.Artifacts), &t.Artifacts); err != nil {
+			return nil, fmt.Errorf("task: unmarshal artifacts for %s: %w", r.ID, err)
 		}
 	}
 	return t, nil

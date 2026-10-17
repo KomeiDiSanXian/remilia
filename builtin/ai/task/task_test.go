@@ -277,13 +277,45 @@ func TestCompletedRequiresSteps(t *testing.T) {
 	}
 }
 
+func TestRecordArtifactUpsertAndTerminal(t *testing.T) {
+	tk := New("task", "s", "u", "c", "p")
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileCreated, Name: "main.go", Size: 10}); err != nil {
+		t.Fatalf("RecordArtifact: %v", err)
+	}
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileUpdated, Name: "main.go", Size: 42}); err != nil {
+		t.Fatalf("RecordArtifact(update): %v", err)
+	}
+	if len(tk.Artifacts) != 2 {
+		t.Fatalf("artifacts = %+v, want create and update", tk.Artifacts)
+	}
+	// 同名同类就地更新。
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileUpdated, Name: "main.go", Size: 99}); err != nil {
+		t.Fatalf("RecordArtifact(upsert): %v", err)
+	}
+	if len(tk.Artifacts) != 2 || tk.Artifacts[1].Size != 99 {
+		t.Fatalf("upsert failed: %+v", tk.Artifacts)
+	}
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileUpdated}); err == nil {
+		t.Fatal("artifact without a name must be rejected")
+	}
+
+	if err := tk.Cancel(); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if err := tk.RecordArtifact(Artifact{Kind: ArtifactFileUpdated, Name: "late.go"}); !errors.Is(err, ErrTaskTerminal) {
+		t.Fatalf("terminal task artifact error = %v, want ErrTaskTerminal", err)
+	}
+}
+
 func TestCloneIsDeepCopy(t *testing.T) {
 	tk := New("task", "s", "u", "c", "p")
 	tk.Steps = []Step{{ID: "step_1", Description: "d", Status: StepPending}}
+	tk.Artifacts = []Artifact{{Kind: ArtifactFileCreated, Name: "a.go", Size: 1}}
 	cp := tk.Clone()
 	cp.Steps[0].Description = "changed"
-	if tk.Steps[0].Description != "d" {
-		t.Fatal("Clone must not share the steps slice")
+	cp.Artifacts[0].Name = "changed"
+	if tk.Steps[0].Description != "d" || tk.Artifacts[0].Name != "a.go" {
+		t.Fatal("Clone must not share the steps or artifacts slices")
 	}
 	if (*Task)(nil).Clone() != nil {
 		t.Fatal("nil Clone should be nil")

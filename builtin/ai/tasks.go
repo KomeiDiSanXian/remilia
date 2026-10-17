@@ -306,7 +306,32 @@ func formatTaskDetail(t *task.Task) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(t.Artifacts) > 0 {
+		fmt.Fprintf(&b, "\n  产物（%d）：\n", len(t.Artifacts))
+		for i, a := range t.Artifacts {
+			if i >= taskMaxArtifactLines {
+				fmt.Fprintf(&b, "  …（共 %d 项）\n", len(t.Artifacts))
+				break
+			}
+			fmt.Fprintf(&b, "  - %s %s（%d 字节）\n", artifactKindText(a.Kind), a.Name, a.Size)
+		}
+	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// taskMaxArtifactLines 任务详情里展示的产物条数上限。
+const taskMaxArtifactLines = 10
+
+// artifactKindText 产物种类的中文展示名。
+func artifactKindText(kind string) string {
+	switch kind {
+	case task.ArtifactFileCreated:
+		return "新建"
+	case task.ArtifactFileUpdated:
+		return "修改"
+	default:
+		return kind
+	}
 }
 
 // formatTaskList 格式化任务列表（最近创建的在前）。

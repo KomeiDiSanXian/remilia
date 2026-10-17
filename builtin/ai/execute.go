@@ -62,6 +62,10 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 	if runner := p.evidenceRecordingRunner(ctx, caps.Process); runner != nil {
 		caps.Process = runner
 	}
+	// 工作区写入端口外加一层产物登记：任务报告需要"这次改了什么"。
+	if recorder := p.fileArtifactRecordingWriter(ctx, caps.FileWrite); recorder != nil {
+		caps.FileWrite = recorder
+	}
 	callerCtx = catalog.WithCapabilities(callerCtx, caps)
 	// 执行路径的能力端口在同一装配点构造：调用器只依赖端口，不依赖插件实例。
 	// 这两个端口刻意不进入 capabilitySet——工具回调不应获得"跑命令 / 跑技能"的能力。
