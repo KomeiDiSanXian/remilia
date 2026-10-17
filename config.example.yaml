@@ -371,6 +371,18 @@ messagelog:
 #                                         #     file_write（整文件覆盖，父目录按需创建）与 file_edit
 #                                         #     （唯一匹配的精确替换，返回替换处 diff）；两者要求 RBAC
 #                                         #     权限 ai.file.write，且在任何审批模式下都强制人工审批
+#     exec_allowlist: []                  # [R] 允许执行的命令白名单（裸命令名，默认空 = 禁用进程执行）。
+#                                         #     非空且配置了 workspace_roots 时注册 process_run：命令与参数
+#                                         #     分开传入、不经过 Shell，工作目录限制在工作区内，子进程只继承
+#                                         #     基础环境变量白名单（密钥令牌默认不继承）。动作要求 RBAC 权限
+#                                         #     ai.exec.run，默认强制人工审批
+#                                         #     示例：exec_allowlist: ["go", "git", "python"]
+#     exec_env_allowlist: []              # [R] 额外允许子进程继承的环境变量名（默认空）
+#     exec_timeout: "120s"                # [R] 单次进程执行超时（默认 120s），超时终止整棵进程树
+#     exec_max_output_bytes: 32768        # [R] 标准输出与标准错误各自的捕获上限（默认 32 KiB），
+#                                         #     超限截断但持续排空管道
+#     exec_require_approval: true         # [R] 是否在任何审批模式下都强制人工审批 process_run
+#                                         #     （默认 true）；false 时仍需 tool_approval=restricted
 #     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
 #                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用

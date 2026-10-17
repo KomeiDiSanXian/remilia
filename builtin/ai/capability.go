@@ -40,6 +40,9 @@ func (p *Plugin) toolCapabilities() catalog.Capabilities {
 			caps.FileWrite = files
 		}
 	}
+	if p.proc != nil {
+		caps.Process = processAccessor{m: p.proc}
+	}
 	return caps
 }
 

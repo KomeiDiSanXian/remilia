@@ -75,6 +75,20 @@ type Config struct {
 	// 开启后注册 file_write / file_edit：两者要求 RBAC 权限 ai.file.write，
 	// 且在任何审批模式下都强制人工审批。
 	WorkspaceAllowWrite bool `yaml:"workspace_allow_write"`
+	// ExecAllowlist 允许执行的命令白名单（裸命令名，默认空 = 禁用进程执行）。
+	// 非空且已配置 workspace_roots 时注册 process_run 动作；具体限制见
+	// builtin/ai/procexec（命令与参数分开传入、不经过 Shell、环境变量清洗、
+	// 输出上限与超时后整树回收）。
+	ExecAllowlist []string `yaml:"exec_allowlist"`
+	// ExecEnvAllowlist 在基础白名单之外额外允许子进程继承的环境变量名。
+	ExecEnvAllowlist []string `yaml:"exec_env_allowlist"`
+	// ExecTimeout 单次进程执行超时（默认 120s）。
+	ExecTimeout time.Duration `yaml:"exec_timeout"`
+	// ExecMaxOutputBytes 标准输出与标准错误各自的捕获上限（默认 32 KiB）。
+	ExecMaxOutputBytes int `yaml:"exec_max_output_bytes"`
+	// ExecRequireApproval 进程执行是否在任何审批模式下都强制人工审批
+	// （默认 true）。设为 false 时仍需 tool_approval=restricted 才审批。
+	ExecRequireApproval bool `yaml:"exec_require_approval"`
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -434,6 +448,9 @@ var DefaultConfig = Config{
 	ToolTimeout:            30 * time.Second,
 	ToolRetryLimit:         2,
 	SessionTTL:             24 * time.Hour,
+	ExecTimeout:            120 * time.Second,
+	ExecMaxOutputBytes:     32 << 10,
+	ExecRequireApproval:    true,
 	SystemPrompt:           "你是 Remilia Bot 的 AI 助手。",
 	TriggerCmd:             "/ai",
 	AtBot:                  true,
@@ -664,6 +681,35 @@ func Load(ctx *plugin.SetupContext) *Config {
 		}
 	}
 	cfg.WorkspaceAllowWrite = ctx.Config.GetBool("workspace_allow_write", cfg.WorkspaceAllowWrite)
+
+	for _, listOpt := range []struct {
+		key string
+		dst *[]string
+	}{
+		{"exec_allowlist", &cfg.ExecAllowlist},
+		{"exec_env_allowlist", &cfg.ExecEnvAllowlist},
+	} {
+		if v := ctx.Config.Get(listOpt.key); v != nil {
+			if list, ok := v.([]any); ok {
+				out := make([]string, 0, len(list))
+				for _, item := range list {
+					if s, ok := item.(string); ok {
+						if trimmed := strings.TrimSpace(s); trimmed != "" {
+							out = append(out, trimmed)
+						}
+					}
+				}
+				*listOpt.dst = out
+			}
+		}
+	}
+	if v := ctx.Config.GetDuration("exec_timeout", 0); v > 0 {
+		cfg.ExecTimeout = v
+	}
+	if v := ctx.Config.GetInt("exec_max_output_bytes", 0); v > 0 {
+		cfg.ExecMaxOutputBytes = v
+	}
+	cfg.ExecRequireApproval = ctx.Config.GetBool("exec_require_approval", cfg.ExecRequireApproval)
 
 	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)
 	cfg.IncludeMentionInfo = ctx.Config.GetBool("include_mention_info", cfg.IncludeMentionInfo)

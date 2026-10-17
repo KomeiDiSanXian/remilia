@@ -94,6 +94,8 @@ type Capabilities struct {
 	Files FileAccess
 	// FileWrite 工作区写入（workspace_roots 且 workspace_allow_write 时注入）。
 	FileWrite FileWriteAccess
+	// Process 受控进程执行（workspace_roots 与 exec_allowlist 同时配置时注入）。
+	Process ProcessRunner
 }
 
 // WithCapabilities 将能力端口注入 context（装配侧构造后注入）。

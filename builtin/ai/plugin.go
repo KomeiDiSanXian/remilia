@@ -26,6 +26,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/workspace"
@@ -226,6 +227,24 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				}
 			}
 
+			// 受控进程执行（workspace_roots 与 exec_allowlist 同时配置时启用）：
+			// 命令白名单、环境变量清洗、输出上限与整树回收见 procexec 包。
+			var proc *procexec.Manager
+			if files != nil && len(cfg.ExecAllowlist) > 0 {
+				if pmgr, perr := procexec.New(procexec.Config{
+					Workspace:      files,
+					Allowlist:      cfg.ExecAllowlist,
+					EnvAllowlist:   cfg.ExecEnvAllowlist,
+					Timeout:        cfg.ExecTimeout,
+					MaxOutputBytes: cfg.ExecMaxOutputBytes,
+				}); perr != nil {
+					ctx.Log.Warnf("Invalid exec configuration, process_run disabled: %v", perr)
+				} else {
+					proc = pmgr
+					ctx.Log.Infof("AI process execution enabled (%d allowed command(s))", len(pmgr.Allowed()))
+				}
+			}
+
 			p := &Plugin{
 				cfg:             cfg,
 				coord:           coord,
@@ -249,6 +268,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				emb:             emb,
 				memory:          memory,
 				files:           files,
+				proc:            proc,
 				replyGate:       initReplyGate(),
 			}
 
@@ -283,6 +303,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// 写入动作还需要 workspace_allow_write 显式开启。
 			if files != nil {
 				for _, t := range catalog.BuildFileTools(catalog.FileToolOptions{AllowWrite: cfg.WorkspaceAllowWrite}) {
+					p.registerCatalogTool(t)
+				}
+			}
+			// 进程执行动作仅在同时配置了工作区与命令白名单时注册。
+			if proc != nil {
+				for _, t := range catalog.BuildExecTools(catalog.ExecToolOptions{RequireApproval: cfg.ExecRequireApproval}) {
 					p.registerCatalogTool(t)
 				}
 			}

@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
@@ -63,6 +64,9 @@ type catalogState struct {
 	// files 工作区只读文件访问管理器（workspace_roots 配置时启用）。
 	// 路径边界、符号链接与大小限制见 builtin/ai/workspace。
 	files *workspace.Manager
+	// proc 受控进程执行器（workspace_roots 与 exec_allowlist 同时配置时启用）。
+	// 命令白名单、环境变量清洗与进程树回收见 builtin/ai/procexec。
+	proc *procexec.Manager
 }
 
 // catalogRuntime 将目录代数与其聚合状态放在同一字段中，保证快照和变更
