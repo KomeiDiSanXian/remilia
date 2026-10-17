@@ -174,6 +174,18 @@ jobs:
           projectPath: desktop
           tagName: ${{ inputs.tag || github.ref_name }}
 
+      - name: Restore release notes from CHANGELOG.md
+        # tauri-action 会"Updating name and body of existing release"，其 releaseBody
+        # 默认为空：GoReleaser 写入的发布说明会被冲掉。这里按同一来源写回，
+        # 保证 Release 正文始终是 CHANGELOG 的对应版本段落。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        shell: pwsh
+        run: |
+          node scripts/release-notes.mjs $env:TAG > "$env:RUNNER_TEMP/notes.md"
+          gh release edit $env:TAG --notes-file "$env:RUNNER_TEMP/notes.md"
+
       - name: Attest build provenance
         # 安装包在应用内更新链路之外没有任何签名，来源证明是它们唯一的可验证出处
         uses: actions/attest@v4
