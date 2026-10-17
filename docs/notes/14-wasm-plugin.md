@@ -56,20 +56,32 @@ WASM 插件的定位：**在隔离性和便捷性之间取得平衡**——无�
 
 ### 宿主函数（remilia_host 模块）
 
-```go
-// 通过 remilia_host 模块暴露给 WASM
-"remilia_host": map[string]interface{}{
-    "log":           func(level, msg uint32) { /* level=0debug,1info,2warn,3error */ },
-    "get_config":    func(key, defaultVal uint32) uint32,
-    "register_command": func(pattern uint32) uint32,
-    "get_sender":    func() uint32,
-    "reply_message": func(content uint32) uint32,
-    "get_event":     func() uint32,
-    "now":           func() uint64,
-}
+宿主函数以 **TLV** 编码传参（与事件/响应一致），名字定义在 `plugin/wasm/abi.go`。
+
+`NewRuntime` 之后**框架默认提供**的只有：
+
+```
+log              level/message，写结构化日志
+get_config       m=模块名, k=键，读取插件配置（Runtime 注入实现）
+__host_abi_version   宿主 ABI 版本（自描述）
+__host_functions     宿主可用函数名列表（自描述，插件用来探测能力）
 ```
 
-所有字符串参数通过线性内存传递：Guest 分配内存 → Host 写入 → 函数签名使用内存偏移量。
+以下名字是**约定名，框架不内置实现**——它们需要宿主应用的业务依赖，由宿主通过
+`HostFuncRegistry.Register` 提供后再加载模块：
+
+```
+register_command   注册命令（宿主侧需要 Bridge/Engine）
+send_message       主动发送消息（需要平台 Sender）
+storage_get        读取键值存储
+storage_set        写入键值存储
+http_request       发起 HTTP 请求（需要客户端与出站策略）
+```
+
+注意：wazero 的宿主函数是**模块导入**，导入未提供的函数会让模块实例化失败。
+插件不应硬编码导入上面的可选函数，推荐先调用 `__host_functions` 探测（或由宿主
+注册后再加载模块）。`plugin/wasm` 的测试会固定默认集合，防止文档与实现漂移。
+
 
 ### Runtime 核心流程
 

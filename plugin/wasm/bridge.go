@@ -51,6 +51,13 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 
 	mod := b.module
 	matcher.Handle(func(ctx *corectx.Context) error {
+		// 平台事件可能缺失（合成事件、无事件绑定的 Context）：ID 为空字符串
+		// 而不是 nil 解引用。
+		eventID := ""
+		if ev := ctx.GetPlatformEvent(); ev != nil {
+			eventID = ev.ID()
+		}
+
 		// 使用 TLV 编码事件
 		eventTLV := NewTLVBuilder().
 			WriteString("c", ctx.GetMessageContent()).
@@ -58,7 +65,7 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 			WriteString("p", ctx.GetEventPlatform()).
 			WriteString("i", ctx.GetChatInfo().ID).
 			WriteString("t", chatTypeString(ctx.GetChatInfo().IsGroup)).
-			WriteString("e", ctx.GetPlatformEvent().ID()).
+			WriteString("e", eventID).
 			Bytes()
 
 		to := mod.callTimeout()

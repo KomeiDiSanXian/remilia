@@ -28,16 +28,35 @@ const (
 
 // Host module and function names — 宿主导入的模块和函数名
 const (
-	HostModuleName        = "remilia_host"
+	HostModuleName = "remilia_host"
+
+	// ── 框架默认提供（RegisterDefaultHostFuncs）────────────────────────────
+	//
+	// 只有这三个（外加两个自描述函数）在 NewRuntime 后必定可用：
+	//
+	//	HostFuncLog           写日志（TLV: level/message）
+	//	HostFuncGetConfig     读取插件配置（TLV: m=模块名, k=键；由 Runtime 注入实现）
+	//	HostFuncABIVersion    宿主 ABI 版本（自描述）
+	//	HostFuncListFunctions 宿主可用函数列表（自描述，插件用来探测能力）
+	//
+	// 宿主函数是 wazero 的模块导入：**模块导入未提供的函数会导致实例化失败**。
+	// 因此插件不应硬编码导入下面的可选函数，而应先调用 HostFuncListFunctions
+	// 探测（或由宿主应用按需注册后再加载模块）。
 	HostFuncLog           = "log"
-	HostFuncRegisterCmd   = "register_command"
-	HostFuncSendMessage   = "send_message"
 	HostFuncGetConfig     = "get_config"
-	HostFuncStorageGet    = "storage_get"
-	HostFuncStorageSet    = "storage_set"
-	HostFuncHTTPRequest   = "http_request"
 	HostFuncListFunctions = "__host_functions"   // 返回宿主可用函数列表（TLV）
 	HostFuncABIVersion    = "__host_abi_version" // 返回宿主 ABI 版本（i32）
+
+	// ── 约定名（可选，由宿主应用通过 HostFuncRegistry.Register 提供）───────
+	//
+	// 框架不内置这些实现：它们需要宿主应用的业务依赖（命令注册、
+	// 平台发送、存储、HTTP 客户端与出站策略）。名字在此固定，避免宿主与
+	// 插件各自发明导致 ABI 漂移。
+	HostFuncRegisterCmd = "register_command" // 注册命令（宿主侧需要 Bridge/Engine）
+	HostFuncSendMessage = "send_message"     // 主动发送消息（需要平台 Sender）
+	HostFuncStorageGet  = "storage_get"      // 读取键值存储（需要存储后端）
+	HostFuncStorageSet  = "storage_set"      // 写入键值存储
+	HostFuncHTTPRequest = "http_request"     // 发起 HTTP 请求（需要客户端与出站策略）
 )
 
 // EncodeResult 将 ptr 和 len 编码成单个 uint64 以兼容不支持多值返回的 WASM 版本
