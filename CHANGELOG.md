@@ -14,9 +14,7 @@
 - 发布产物新增来源证明（attestation）：打 `v*` 标签时，Go 归档（按 `dist/checksums.txt` 一次性覆盖）、Windows 安装包与 Android APK 都会生成 GitHub 产物来源证明（`actions/attest`，SLSA Build L2，Sigstore 签名），用户可用 `gh attestation verify <文件> --repo KomeiDiSanXian/remilia` 核对它们由本仓库的发布工作流构建。
 - 容器镜像改用 GoReleaser 的 `dockers_v2`（buildx）构建：一次产出 `linux/amd64`、`linux/arm64` 与 `linux/arm/v7` 三个平台的索引（此前只有 amd64，ARM 设备拉取后直接 `exec format error`），镜像同时带上产物来源证明（按 `dist/digests.txt`）与 buildx SBOM；快照（nightly）不构建镜像。
 
-**核心框架（core / command / plugin）**
-
-本次核查覆盖 `core/`、`command/`、`plugin/`，修复项见下（每项都有配套回归测试）；完整核查记录见 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md)。
+**核心框架**
 
 - **命令解析**：分词与命令词提取统一按 Unicode 空白（全角空格 `/cmd　hello` 不再让整条消息变成单个 token 而被静默丢弃）；`-1` 之类的负数按位置参数处理；未定义的转义保留反斜杠（`C:\Users\name` 不再被改写，引号内的 `\n`/`\t`/`\r` 仍是控制字符）；子命令命中后父层的 flag 与位置参数会绑定到 `Parsed`，`required` 只在执行的叶子层校验（父层 `Validator` 不运行）。
 - **命令注册表**：重复注册替换旧元数据、注销清空同名全部条目（`FindCommand`/`/help` 列表不再显示旧描述或重复项）；`Upsert` 改为返回错误（别名冲突拒绝写入、非法正则模式忽略但可感知，不再 panic）；别名遮蔽已存在的命令名会被拒绝；`List`/`Complete` 返回副本、过滤隐藏命令、顺序稳定；`SetDefinition`/链式元数据方法/`BindCommand`/`SetSource` 的变更会同步进 `command.Registry`，`FindCommand`/`/help` 与 `Lookup`/`Complete` 不再元数据漂移。
