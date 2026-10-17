@@ -1261,9 +1261,34 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 
 实施过程中需要回填到本文件的内容：Task/Plan/Step 的最终 Go 类型与存储 schema；Agent↔Task 最小接口；Task↔Session 映射与进度播报策略；能力效应/风险/幂等字段定义；`ActionID` 路由的落地记录；执行子系统配置边界与信任模型；任务 API 与 Dashboard 的形态；各阶段验收的实测数据。
 
+其中已完成回填：任务类型与存储 schema、Task↔Session 映射、执行子系统信任模型、任务 API 形态（见 §17.9）；待回填：Agent↔Task 最小接口的最终形态、能力效应/风险字段、`ActionID` 路由、Dashboard 形态、各阶段验收实测数据。
+
+### 17.9 实施状态（滚动更新）
+
+| 路线阶段 | 状态 | 落点 | 说明 |
+|---|---|---|---|
+| 0 设计冻结 | ✅ 初版 | 本文件 §17、`builtin/ai/task` | 任务/计划/步骤类型与状态机（含终态保护）已定稿并落地 |
+| 1 任务化 | ✅ | `builtin/ai/task`、`builtin/ai/tasks.go`、`builtin/ai/taskapi.go`、`api/aitasks.go` | 持久任务（`ai_tasks` 表）、计划镜像、`/ai task` 命令、取消联动、重启恢复、任务指标、REST 查询与取消 |
+| 2 能力抽象与策略扩展 | 🚧 部分 | `builtin/ai/protocol/argvalidate.go` | 已落地调用前 Schema 校验；`ActionID` 路由与效应/风险/幂等字段待做 |
+| 3 本地执行 | 🚧 部分 | `builtin/ai/workspace`、`builtin/ai/procexec`、`builtin/ai/catalog/filetool.go`、`catalog/exectool.go` | 工作区只读/写入、精确替换与 diff、白名单进程执行（强制审批、RBAC、环境清洗、整树回收、输出上限）；容器与系统级沙箱未做 |
+| 4 编码场景闭环 | ⏳ 待做 | — | 需把阶段 3 能力组合成端到端场景，并补确定性验证器与产物登记 |
+| 5 任务 UX 与管理面 | 🚧 部分 | `/ai task` 命令、`/api/v1/ai/tasks*` | Dashboard 任务页待做 |
+| 6 第二真实场景 | ⏳ 待做 | — | 依赖真实部署环境（运维巡检或报表生成） |
+| 7 隔离执行 | ⏳ 待评估 | — | 远程/容器 executor 独立设计，接口在第二个节点类型出现时固化 |
+| 8 扩展 | ⏳ 待评估 | — | 浏览器/桌面/多 Agent，按需独立评估 |
+
+已落地的关键约定（供后续维护者对照）：
+
+- **任务类型与存储**：`task.Task`（ID / SessionID / OwnerID / ChatID / Platform / Goal / Status / PlanVersion / Steps / CreatedAt / UpdatedAt）；存储表 `ai_tasks`（显式表名，避免与同库 `records` 冲突）。
+- **状态机**：任务 11 态、步骤 8 态；终态（succeeded/failed/cancelled）无出边，`SyncPlan` 对终态任务返回 `ErrTaskTerminal`（迟到的工具结果不能覆盖取消）。
+- **Task ↔ Session**：任务按 `platform:chatID:userID` 归属；计划动作（create_plan / update_plan_step）在调用点镜像到任务；取消有三个入口（`/ai stop`、`/ai plan cancel`、`/ai task cancel`）且都会同时取消计划与任务。
+- **重启恢复**：启动时把 running/planning 任务置为 interrupted，下一次计划推进回到 running，不重放步骤。
+- **执行信任模型**：能力默认关闭；`workspace_roots` 开启只读，`workspace_allow_write` 开启写入（强制审批 + `ai.file.write`），`exec_allowlist` 开启进程执行（强制审批 + `ai.exec.run`、命令白名单、环境变量白名单、工作区工作目录、整树回收）。
+
 ## 修订记录
 
 | 版本 | 修订 |
 |------|------|
 | v1 | 初稿：六运行时逻辑架构、状态机、分阶段路线与验收标准 |
 | v1.1 | 追加 §17 评审补充：现状核对、设计收敛、修订路线、兼容性、风险与验收细化 |
+| v1.2 | 追加 §17.9 实施状态：任务化、工作区、受控进程执行、任务 API 的落地记录与剩余阶段状态 |
