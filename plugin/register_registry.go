@@ -2,11 +2,13 @@ package plugin
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // RegistryWriter Matcher/Command 注册接口
@@ -143,13 +145,44 @@ type registryBackend interface {
 // liveRegistryWriter 正常运行阶段的 RegistryWriter，绑定到具体 engine 和 Instance
 type liveRegistryWriter struct {
 	eng      registryBackend
-	name     string
 	instance *Instance
+
+	// mu 保护 name/postRegister：蓝绿重载会在运行期把 writer 从临时组切换到
+	// 正式组（rw.name = pluginName、rw.postRegister = nil），而插件后台
+	// goroutine 可能同时经 ctx.Reg 注册（历史实现无锁改写，构成数据竞争）。
+	mu   sync.RWMutex
+	name string
 
 	// postRegister 每个 Matcher（含别名 Matcher）注册完成后的回调（可选）。
 	// 蓝绿重载用它在注册后立即 DisableGroup(tempGroup)，
 	// 把"新旧两组同时活跃"的窗口从整个 Setup 时长压缩到微秒级。
 	postRegister func(*engine.Matcher)
+}
+
+// gateRegistration 校验本次注册是否应被接受，并返回当前分组名与注册后回调。
+//
+// 失效实例（Unloaded/Unloading/Error）的注册被拒绝：蓝绿重载会
+// RemoveGroup 旧分组，旧实例的后台 goroutine 若继续注册，Matcher 会落进
+// 已被清空的临时组——此后无人管理（不再被任何 RemoveGroup 覆盖）。
+func (r *liveRegistryWriter) gateRegistration() (group string, hook func(*engine.Matcher), ok bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	switch r.instance.GetState() {
+	case Unloaded, Unloading, Error:
+		logger.WithField("plugin", r.name).
+			Warn("[plugin] registration refused: instance is no longer active")
+		return "", nil, false
+	}
+	return r.name, r.postRegister, true
+}
+
+// setName 切换分组名与注册后回调（蓝绿重载迁移时调用）。
+func (r *liveRegistryWriter) setName(name string, hook func(*engine.Matcher)) {
+	r.mu.Lock()
+	r.name = name
+	r.postRegister = hook
+	r.mu.Unlock()
 }
 
 func newLiveRegistryWriter(eng registryBackend, name string, instance *Instance) RegistryWriter {
@@ -161,10 +194,48 @@ func newLiveRegistryWriterWithHook(eng registryBackend, name string, instance *I
 	return &liveRegistryWriter{eng: eng, name: name, instance: instance, postRegister: hook}
 }
 
-// afterRegister 触发 postRegister 回调（matcher 为 nil 时跳过）。
+// currentName 返回当前分组名（锁内读取）。
+func (r *liveRegistryWriter) currentName() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.name
+}
+
+// instanceActive 报告绑定实例是否仍处于可注册状态（Unloaded/Unloading/Error
+// 视为失效：卸载中或重载迁移后的实例不得再往引擎里注册）。
+func (r *liveRegistryWriter) instanceActive() bool {
+	switch r.instance.GetState() {
+	case Unloaded, Unloading, Error:
+		return false
+	default:
+		return true
+	}
+}
+
+// afterRegister 完成一次注册的收尾：
+//   - 失效实例：撤销本次注册（DeleteMatcher）并告警——蓝绿重载会 RemoveGroup
+//     旧分组，旧实例后台 goroutine 的迟到注册若保留下来会成为无人管理的
+//     Matcher（继续处理事件、不被任何后续清理覆盖）；
+//   - 正常情况：触发 postRegister 回调（蓝绿重载依赖它立即禁用临时组）。
 func (r *liveRegistryWriter) afterRegister(m *engine.Matcher) {
-	if r.postRegister != nil && m != nil {
-		r.postRegister(m)
+	if m == nil {
+		return
+	}
+	if !r.instanceActive() {
+		// registryBackend 覆盖 MatcherWriter + Reader；删除能力通过
+		// MatcherRemover 可选接口探测（Mock/脚手架不实现时退化为仅告警）。
+		if remover, ok := r.eng.(interface{ DeleteMatcher(*engine.Matcher) }); ok {
+			remover.DeleteMatcher(m)
+		}
+		logger.WithField("plugin", r.currentName()).
+			Warn("[plugin] registration rolled back: instance is no longer active")
+		return
+	}
+	r.mu.RLock()
+	hook := r.postRegister
+	r.mu.RUnlock()
+	if hook != nil {
+		hook(m)
 	}
 }
 
@@ -172,11 +243,15 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 	if r.eng == nil {
 		return nil
 	}
+	group, hook, ok := r.gateRegistration()
+	if !ok {
+		return nil
+	}
 	matcher := r.eng.OnCommand(eventType, pattern, extraRules...)
-	if matcher != nil && r.name != "" {
+	if matcher != nil && group != "" {
 		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
 		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+		r.eng.SetMatcherGroup(matcher, group, "plugin:"+group)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -187,7 +262,9 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 		// 从而支持插件级别的 Disable/Enable 联动。
 		// 传入 extraRules 确保别名 Matcher 具有与主命令相同的额外规则（如权限检查）。
 		r.injectAliasRegistrar(matcher, eventType, extraRules)
-		r.afterRegister(matcher)
+		if hook != nil {
+			hook(matcher)
+		}
 	}
 	return matcher
 }
@@ -197,6 +274,12 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, eventType string, extraRules []context.Rule) {
 	primary.SetAliasRegistrar(func(def *command.Definition, handler context.Handler) {
 		if def == nil || len(def.Aliases) == 0 {
+			return
+		}
+		// 失效实例（卸载/重载迁移后）不再注册别名：落进已清空的分组会成为
+		// 无人管理的 Matcher
+		_, hook, ok := r.gateRegistration()
+		if !ok {
 			return
 		}
 		prefix := primary.GetPrefix()
@@ -227,7 +310,9 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 				r.instance.addMatcher(aliasMatcher)
 			}
 			// 别名 Matcher 同样触发注册后回调（蓝绿重载依赖它保持禁用态）
-			r.afterRegister(aliasMatcher)
+			if hook != nil {
+				hook(aliasMatcher)
+			}
 		}
 	})
 }
@@ -237,10 +322,11 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.
 		return nil
 	}
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
+	name := r.currentName()
+	if matcher != nil && name != "" {
 		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
 		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -274,8 +360,9 @@ func (r *liveRegistryWriter) RegisterPrefix(eventType string, prefixes []string,
 	rules = append(rules, extraRules...)
 
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+	name := r.currentName()
+	if matcher != nil && name != "" {
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -305,8 +392,9 @@ func (r *liveRegistryWriter) RegisterRegex(eventType string, pattern string, ext
 	rules = append(rules, extraRules...)
 
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+	name := r.currentName()
+	if matcher != nil && name != "" {
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -340,8 +428,9 @@ func (r *liveRegistryWriter) RegisterFullMatch(eventType string, texts []string,
 	rules = append(rules, extraRules...)
 
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+	name := r.currentName()
+	if matcher != nil && name != "" {
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -375,8 +464,9 @@ func (r *liveRegistryWriter) RegisterSuffix(eventType string, suffixes []string,
 	rules = append(rules, extraRules...)
 
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+	name := r.currentName()
+	if matcher != nil && name != "" {
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -408,8 +498,9 @@ func (r *liveRegistryWriter) RegisterKeyword(eventType string, keywords []string
 	rules = append(rules, extraRules...)
 
 	matcher := r.eng.On(eventType, rules...)
-	if matcher != nil && r.name != "" {
-		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
+	name := r.currentName()
+	if matcher != nil && name != "" {
+		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}

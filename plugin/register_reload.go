@@ -265,8 +265,7 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	// 此后运行期注册会落到临时组并被清理。更新 writer 的分组与回调，
 	// 使后续注册进入正式插件组并保持活跃。
 	if rw, ok := newContext.Reg.(*liveRegistryWriter); ok {
-		rw.name = pluginName
-		rw.postRegister = nil
+		rw.setName(pluginName, nil)
 	}
 
 	// Step 5: 更新容器中的 API 指针，使依赖方重新解析到新实例
