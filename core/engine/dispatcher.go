@@ -98,6 +98,25 @@ func (r *ringBuffer) pop() (queuedTask, bool) {
 	return t, true
 }
 
+// takeAll 取出并清空剩余任务（保持 FIFO 顺序）。
+//
+// 用于队列被放弃时（worker panic 恢复、停机上下文结束）让每个任务都能
+// 得到明确结果，见 [OutboundDispatcher.failDroppedTasks]。
+func (r *ringBuffer) takeAll() []queuedTask {
+	if r.len == 0 {
+		return nil
+	}
+	out := make([]queuedTask, 0, r.len)
+	for {
+		t, ok := r.pop()
+		if !ok {
+			break
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 // ── Chat 队列 ─────────────────────────────────────────────────────────────
 
 // chatQueue 维护单个 Chat 的出站任务队列和 Worker 状态。
@@ -217,6 +236,36 @@ func (d *OutboundDispatcher) reject(chatID string, err error) {
 	}
 }
 
+// failDroppedTasks 让被放弃的队列任务得到明确结果。
+//
+// 队列会在两种情况下被放弃：worker 恢复 panic 后重建队列、worker 因停机
+// 上下文结束而退出。此前这些任务（以及它们各自的 Future）被静默丢弃，
+// 调用方可能正卡在 Wait 上永久等待。
+//
+// 处理方式是用已取消的 context 运行任务：发送层立即失败并把错误写入
+// Future，消息不会真的发出。在独立 goroutine 中执行，避免调用点
+// （worker 的恢复/退出路径）阻塞。
+func (d *OutboundDispatcher) failDroppedTasks(chatID string, tasks []queuedTask) {
+	if len(tasks) == 0 {
+		return
+	}
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		ctx, cancel := context.WithCancel(d.baseCtx)
+		cancel() // 立即取消：任务只应快速失败，不应真正发送
+		for _, t := range tasks {
+			if t.run == nil {
+				continue
+			}
+			err := t.run(ctx)
+			if h := d.config.Hooks.OnDone; h != nil {
+				h(DispatchInfo{ChatID: chatID, Err: err})
+			}
+		}
+	}()
+}
+
 // worker 是单个 Chat 的消息流处理 goroutine。
 //
 // Worker 自行竞争全局 semaphore（不阻塞 Submit），空队列时自删除。
@@ -227,9 +276,16 @@ func (d *OutboundDispatcher) worker(q *chatQueue) {
 	select {
 	case d.sem <- struct{}{}:
 	case <-d.baseCtx.Done():
+		// 停机：本 worker 不再执行队列任务，但要保证队列里的任务
+		// 各自得到结果（此前直接返回，任务与 Future 一起被静默丢弃）
 		q.mu.Lock()
+		dropped := q.q.takeAll()
 		q.running = false
+		if actual, ok := d.queues.Load(q.chatID); ok && actual == q {
+			d.queues.Delete(q.chatID)
+		}
 		q.mu.Unlock()
+		d.failDroppedTasks(q.chatID, dropped)
 		return
 	}
 	defer func() { <-d.sem }()
@@ -240,12 +296,15 @@ func (d *OutboundDispatcher) worker(q *chatQueue) {
 			stack := string(debug.Stack())
 			err := fmt.Errorf("panic in dispatcher worker [%s]: %v\n%s", q.chatID, r, stack)
 			q.mu.Lock()
+			dropped := q.q.takeAll()
 			q.q = *newRingBuffer(d.config.QueueSize)
 			q.running = false
 			if actual, ok := d.queues.Load(q.chatID); ok && actual == q {
 				d.queues.Delete(q.chatID)
 			}
 			q.mu.Unlock()
+			// 队列中的其它任务必须拿到结果，而不是随队列一起消失
+			d.failDroppedTasks(q.chatID, dropped)
 			if fn := d.config.Recover; fn != nil {
 				fn(r)
 			}

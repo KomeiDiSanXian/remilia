@@ -135,6 +135,10 @@ func (ctx *Context) GetEventPlatform() string {
 //	result, err := future.Wait(ctx.Context())
 //	if err != nil { return err }
 //
+// 建议给 Wait 传一个带超时的 context（如 stdctx.WithTimeout(ctx.Context(), 5*time.Second)）：
+// 调度器放弃队列（停机、worker panic 后重建队列）时会唤醒被丢弃任务的
+// Future，但等待设上限仍是最稳妥的写法。
+//
 // Future 的 Resolve 仅会被调用一次（即使发生 panic），
 // 通过 sync.Once 保护，安全使用 pattern。
 //
