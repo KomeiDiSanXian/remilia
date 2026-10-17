@@ -39,8 +39,11 @@ type Context struct {
 	// 标准库 context，由中间件通过 SetStdContext 注入
 	stdCtx atomic.Pointer[ctxHolder]
 
-	// cancel 由 Clone 设置，可调用 Cancel() 主动释放 Clone 的 context
-	cancel stdctx.CancelFunc
+	// cancel 由 Clone 设置，可调用 Cancel() 主动释放 Clone 的 context。
+	// 受 cancelMu 保护：Cancel 可能被多个 goroutine 并发调用
+	// （如池任务收尾 + 调用方主动取消）。
+	cancelMu sync.Mutex
+	cancel   stdctx.CancelFunc
 
 	matcher        Matcher
 	platformEvent  platform.Event
@@ -151,15 +154,19 @@ func (ctx *Context) adoptRuleEffects(from *Context) {
 }
 
 // Cancel 主动释放 Clone 创建的 context 资源。
-// 对非 Clone 的 Context 调用无效果。
+// 对非 Clone 的 Context 调用无效果；可被并发调用（幂等）。
 // 不调用也不会泄露 — GC 会在 Context 不可达后自动清理。
 func (ctx *Context) Cancel() {
 	if ctx == nil {
 		return
 	}
-	if ctx.cancel != nil {
-		ctx.cancel()
-		ctx.cancel = nil
+	// 取走撤销函数再调用：并发 Cancel 只有一个真正执行，且不会读写竞争
+	ctx.cancelMu.Lock()
+	cancel := ctx.cancel
+	ctx.cancel = nil
+	ctx.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

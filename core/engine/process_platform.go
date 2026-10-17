@@ -221,6 +221,9 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 			// Meta 必须在提交前取值：池任务异步执行时 plan 游标可能已前进/释放
 			meta := plan.Meta()
 			if execPool != nil && execPool.TrySubmit(func() {
+				// 池任务结束即释放克隆的 std context（此前从不 Cancel，
+				// 每个入池事件都会留下一个永不取消的派生 context）
+				defer pooledCtx.Cancel()
 				pooledCtx.SetMatcher(m)
 				if meta != nil {
 					pooledCtx.SetCandidateMeta(meta)
