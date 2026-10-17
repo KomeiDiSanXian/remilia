@@ -152,22 +152,17 @@ func (pi *Instance) load(ctx context.Context) error {
 		pi.mu.Unlock()
 		go func() {
 			<-resCh
-			waitCtx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
-			defer cancel()
-			if err := gm.stopAndWaitCtx(waitCtx); err != nil {
-				logger.WithField("plugin", pi.desc.Name).WithError(err).
-					Warn("[Instance] Timed out reclaiming goroutines of a timed-out setup")
-			}
+			// Setup 结束后再清理一次（幂等）：超时那一刻它可能还在注册订阅/
+			// Matcher，只有等它真正结束才能保证这些资源被回收。
+			pi.cleanupFailedLoad(pi.coordinatorOrNil(), gm)
 		}()
 		return ctx.Err()
 	}
 
 	if res.err != nil {
-		// Setup 失败：同样受调用方 ctx 约束地回收 goroutine
-		if err := gm.stopAndWaitCtx(ctx); err != nil {
-			logger.WithField("plugin", pi.desc.Name).WithError(err).
-				Warn("[Instance] Timed out stopping goroutines after setup failure")
-		}
+		// Setup 失败：回收其可能已创建的 Scope 资源与 goroutine（幂等清理，
+		// 否则 rootScope 上的订阅/OnDispose 钩子会永久泄漏）
+		pi.cleanupFailedLoad(pi.coordinatorOrNil(), gm)
 		pi.mu.Lock()
 		pi.state = Error
 		pi.lastError = res.err
@@ -290,6 +285,64 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	pi.mu.Unlock()
 
 	return err
+}
+
+// cleanupFailedLoad 幂等回收"加载失败/超时"留下的资源。
+//
+// 加载失败（Setup 返回错误、ctx 超时）此前只停掉 goroutine 管理器：rootScope
+// 上的 EventBus 订阅、中间件、OnDispose 钩子、子 Scope 全部无人回收——插件
+// 已被判定失败，这些钩子却还在总线上响应事件、清理逻辑永不执行。超时路径更
+// 隐蔽：Setup 仍在后台运行，清理之后它继续注册的 Matcher 会落进已清空的分组。
+//
+// 因此调用两次：
+//   - 失败路径立即调用（回收已产生的资源）；
+//   - 超时路径在 Setup 自然结束后再调用一次（幂等，回收其后创建的资源）。
+//
+// gm 为 nil 时使用实例当前的 goroutine 管理器（超时路径已把它从实例上摘除，
+// 需显式传入）。幂等：Scope.Dispose 有 disposed 标记，gm 停止与 RemoveGroup
+// 都可重复调用。
+func (pi *Instance) cleanupFailedLoad(coordinator engine.GroupWriter, gm *goroutineManager) {
+	if pi == nil {
+		return
+	}
+	pi.mu.RLock()
+	name := ""
+	if pi.desc != nil {
+		name = pi.desc.Name
+	}
+	setupCtx := pi.setupContext
+	if gm == nil {
+		gm = pi.goroutineMgr
+	}
+	pi.mu.RUnlock()
+
+	if setupCtx != nil {
+		if sc := setupCtx.rootScopeOrNil(); sc != nil {
+			if err := sc.Dispose(context.Background()); err != nil {
+				logger.WithField("plugin", name).WithError(err).
+					Warn("[Instance] Scope dispose failed after failed load")
+			}
+		}
+	}
+	if gm != nil {
+		waitCtx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
+		if err := gm.stopAndWaitCtx(waitCtx); err != nil {
+			logger.WithField("plugin", name).WithError(err).
+				Warn("[Instance] Timed out stopping goroutines after failed load")
+		}
+		cancel()
+	}
+	if coordinator != nil {
+		coordinator.RemoveGroup(name)
+	}
+}
+
+// coordinatorOrNil 返回实例所属 Manager 的引擎协调器（无 Manager 时返回 nil）。
+func (pi *Instance) coordinatorOrNil() engine.GroupWriter {
+	if m := pi.managerRef(); m != nil {
+		return m.coordinator
+	}
+	return nil
 }
 
 // dependencies 返回依赖列表（实现 pluginInternal）
