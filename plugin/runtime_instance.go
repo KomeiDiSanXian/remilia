@@ -142,6 +142,9 @@ func (pi *Instance) load(ctx context.Context) error {
 	case <-ctx.Done():
 		// Setup 仍在后台运行：标记失败，等它自然结束后回收其 goroutine。
 		// 不导出其 API、不改写容器——调用方会按失败流程清理本实例。
+		//
+		// 收尾 goroutine 带超时：Setup 里 Spawn 的 goroutine 若不响应取消，
+		// 无超时的 stopAndWait 会永久挂在这里（泄漏一个 goroutine）。
 		pi.mu.Lock()
 		pi.state = Error
 		pi.lastError = ctx.Err()
@@ -149,13 +152,22 @@ func (pi *Instance) load(ctx context.Context) error {
 		pi.mu.Unlock()
 		go func() {
 			<-resCh
-			gm.stopAndWait()
+			waitCtx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
+			defer cancel()
+			if err := gm.stopAndWaitCtx(waitCtx); err != nil {
+				logger.WithField("plugin", pi.desc.Name).WithError(err).
+					Warn("[Instance] Timed out reclaiming goroutines of a timed-out setup")
+			}
 		}()
 		return ctx.Err()
 	}
 
 	if res.err != nil {
-		gm.stopAndWait()
+		// Setup 失败：同样受调用方 ctx 约束地回收 goroutine
+		if err := gm.stopAndWaitCtx(ctx); err != nil {
+			logger.WithField("plugin", pi.desc.Name).WithError(err).
+				Warn("[Instance] Timed out stopping goroutines after setup failure")
+		}
 		pi.mu.Lock()
 		pi.state = Error
 		pi.lastError = res.err
@@ -227,8 +239,19 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	}
 
 	// Step 1: 停止所有生命周期绑定的 goroutine（在 Teardown 前）
+	//
+	// 受调用方 ctx 约束：不受限的等待会让 unload 在插件 goroutine 卡住时
+	// 无限阻塞，与"卸载/停机受 ctx 超时约束"的契约矛盾。
 	if gm != nil {
-		gm.stopAndWait()
+		if err := gm.stopAndWaitCtx(ctx); err != nil {
+			logger.WithField("plugin", pi.desc.Name).WithError(err).
+				Warn("[Instance] Timed out waiting for plugin goroutines during unload")
+			pi.mu.Lock()
+			pi.state = Error
+			pi.lastError = err
+			pi.mu.Unlock()
+			return err
+		}
 	}
 
 	select {

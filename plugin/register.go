@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"runtime/debug"
@@ -115,9 +116,15 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 	}
 
 	// 停止所有 DryRun 阶段启动的 goroutine（Spawn 创建的 goroutine 可能仍在 runCtx.Done() 等待）
+	// 带等待上限：DryRun 是启动期预跑，不能让一个不响应取消的 goroutine 卡住整个注册流程。
 	for _, p := range plugins {
 		if p.ctx != nil && p.ctx.goroutineMgr != nil {
-			p.ctx.goroutineMgr.stopAndWait()
+			waitCtx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
+			if err := p.ctx.goroutineMgr.stopAndWaitCtx(waitCtx); err != nil {
+				logger.WithField("plugin", p.name).WithError(err).
+					Warn("[plugin] DryRun: timed out stopping goroutines")
+			}
+			cancel()
 		}
 	}
 

@@ -284,7 +284,13 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 			}
 		}()
 		if oldGM != nil {
-			oldGM.stopAndWait()
+			// 后台清理：自带上限，避免旧实例 goroutine 不响应取消时永久挂住
+			waitCtx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
+			if err := oldGM.stopAndWaitCtx(waitCtx); err != nil {
+				logger.WithField("plugin", pluginName).WithError(err).
+					Warn("[plugin] Blue-green: timed out waiting for old instance goroutines")
+			}
+			cancel()
 		}
 		// 清理旧实例的 rootScope：EventBus 订阅、OnDispose 钩子、子 Scope。
 		// 否则旧 handler 持续留在总线上，事件会被新旧实例各处理一次（历史 bug）。

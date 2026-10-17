@@ -106,11 +106,45 @@ func (gm *goroutineManager) listGoroutines() []GoroutineInfo {
 	return result
 }
 
-// stopAndWait 取消所有 goroutine 的 context 并等待它们全部退出。
+// pluginGoroutineStopTimeout 是"清理僵尸 Setup"等后台收尾等待 goroutine 退出的上限。
+//
+// 这些收尾发生在后台（无调用方 ctx 可用），必须自带上限，否则插件 goroutine
+// 不响应取消时会永久挂住一个收尾 goroutine。
+const pluginGoroutineStopTimeout = 30 * time.Second
+
+// stopAndWaitCtx 取消所有 goroutine 的 context 并等待它们全部退出。
+//
+// ctx 到期即返回 ctx.Err()：停机路径（unload/StopAll/Shutdown）有调用方
+// 给定的停机预算，不能被单个卡住的插件 goroutine 无限阻塞；ctx 到期只放弃
+// 等待，cancel 已经发出，goroutine 仍会在自行退出时被回收。
+func (gm *goroutineManager) stopAndWaitCtx(ctx context.Context) error {
+	if gm == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	gm.cancel()
+
+	done := make(chan struct{})
+	go func() {
+		gm.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stopAndWait 取消所有 goroutine 的 context 并等待它们全部退出（无超时）。
+//
+// 保留给测试与没有停机预算的场景；生命周期路径应使用 [goroutineManager.stopAndWaitCtx]。
 // 由框架在调用 TeardownFunc 之前调用。
 func (gm *goroutineManager) stopAndWait() {
-	gm.cancel()
-	gm.wg.Wait()
+	_ = gm.stopAndWaitCtx(context.Background())
 }
 
 // isStopped 返回 GM 是否已被停止（ctx 已取消）。

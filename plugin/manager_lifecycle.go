@@ -162,9 +162,18 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 }
 
 // Shutdown 停止 Manager 管理的所有内部后台 goroutine（如 notifyDependents 等元数据 goroutine）。
+//
+// 自带等待上限：元数据 goroutine（依赖通知回调）可能等待插件侧资源，
+// 无上限的等待会让停机卡死且没有任何日志。
 func (lc *lifecycleController) Shutdown() {
-	if gm := lc.metaManager(); gm != nil {
-		gm.stopAndWait()
+	gm := lc.metaManager()
+	if gm == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pluginGoroutineStopTimeout)
+	defer cancel()
+	if err := gm.stopAndWaitCtx(ctx); err != nil {
+		logger.WithError(err).Warn("[PluginManager] Timed out stopping metadata goroutines")
 	}
 }
 
