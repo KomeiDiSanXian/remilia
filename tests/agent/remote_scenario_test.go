@@ -2,9 +2,9 @@
 
 // Package agent 提供 Agent 能力的端到端联调用例（需要 network 构建标签）。
 //
-// 用例组装与 cmd/bot 一致的插件运行时（storage + vevent + ai），使用 Mock 平台
-// 发送真实用户消息，AI 调用真实 LLM 并在远程执行节点上完成任务；审批请求由
-// 用例自动批准（等价于用户点"允许"）。
+// 用例组装与 cmd/bot 一致的插件运行时（storage + permission + vevent + ai），
+// 使用 Mock 平台发送真实用户消息，AI 调用真实 LLM 并在远程执行节点上完成
+// 任务；审批请求由用例自动批准（等价于用户点"允许"）。
 //
 // 环境变量：
 //
@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	builtinstorage "github.com/KomeiDiSanXian/remilia/builtin/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
@@ -53,15 +54,32 @@ func (mapConfigProvider) OnConfigChange(func()) {}
 // approvalIDPattern 从审批消息中提取审批 ID（"`/ai approve A1-2`"）。
 var approvalIDPattern = regexp.MustCompile(`approve ([A-Za-z0-9-]+)`)
 
-// TestRemoteCodingScenario 端到端场景：真实 LLM + 远程执行节点完成一个多步骤
-// 文件任务（写脚本 → 运行 → 检查环境 → 汇报），全程自动批准工具调用。
-func TestRemoteCodingScenario(t *testing.T) {
-	apiKey := strings.TrimSpace(os.Getenv("REMILIA_AI_API_KEY"))
-	nodeURL := strings.TrimSpace(os.Getenv("REMILIA_EXEC_NODE_URL"))
-	nodeToken := strings.TrimSpace(os.Getenv("REMILIA_EXEC_NODE_TOKEN"))
+// scenarioResult 一次场景运行的结果。
+type scenarioResult struct {
+	// Task 结束后落库的任务记录。
+	Task *task.Task
+	// Messages 全部出站消息。
+	Messages []platform.OutboundMessage
+	// Approvals 自动批准的审批 ID。
+	Approvals []string
+}
+
+// requireScenarioEnv 读取联调所需的环境变量；缺失时跳过用例。
+func requireScenarioEnv(t *testing.T) (apiKey, nodeURL, nodeToken string) {
+	t.Helper()
+	apiKey = strings.TrimSpace(os.Getenv("REMILIA_AI_API_KEY"))
+	nodeURL = strings.TrimSpace(os.Getenv("REMILIA_EXEC_NODE_URL"))
+	nodeToken = strings.TrimSpace(os.Getenv("REMILIA_EXEC_NODE_TOKEN"))
 	if apiKey == "" || nodeURL == "" || nodeToken == "" {
 		t.Skip("REMILIA_AI_API_KEY / REMILIA_EXEC_NODE_URL / REMILIA_EXEC_NODE_TOKEN not set")
 	}
+	return apiKey, nodeURL, nodeToken
+}
+
+// runAgentScenario 组装真实运行时、发送提示词、自动批准审批，直到任务终结。
+func runAgentScenario(t *testing.T, prompt string) scenarioResult {
+	t.Helper()
+	apiKey, nodeURL, nodeToken := requireScenarioEnv(t)
 
 	cfg := map[string]any{
 		"provider":              "openai",
@@ -119,24 +137,16 @@ func TestRemoteCodingScenario(t *testing.T) {
 		}
 	}
 
-	inst, ok := mgr.Get("ai")
+	aiInst, ok := mgr.Get("ai")
 	if !ok {
 		t.Fatal("ai plugin instance not found")
 	}
-	aiPlugin, ok := inst.GetAPI().(*ai.Plugin)
+	aiPlugin, ok := aiInst.GetAPI().(*ai.Plugin)
 	if !ok || aiPlugin == nil {
-		t.Fatalf("unexpected ai plugin API %T", inst.GetAPI())
+		t.Fatalf("unexpected ai plugin API %T", aiInst.GetAPI())
 	}
 
 	sender := &testbot.MockSender{}
-	prompt := strings.Join([]string{
-		"请完成一个远程工作区任务：",
-		"1. 在工作区创建 Python 脚本 fib.py，打印斐波那契数列前 10 项；",
-		"2. 用 python3 运行它并确认输出；",
-		"3. 运行 uname -a 确认执行节点环境；",
-		"4. 汇报创建的文件与运行结果。",
-	}, "\n")
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -145,24 +155,23 @@ func TestRemoteCodingScenario(t *testing.T) {
 		eng.WaitForAsyncHandlers()
 	}()
 
+	result := scenarioResult{}
 	approved := map[string]bool{}
 	seen := 0
 	deadline := time.Now().Add(8 * time.Minute)
-	var finalTaskStatus string
+	var lastStatus string
 
 	for time.Now().Before(deadline) {
 		messages := sender.Sent()
 		for ; seen < len(messages); seen++ {
-			msg := messages[seen]
-			text := messageText(msg)
+			text := messageText(messages[seen])
 			if text == "" {
 				continue
 			}
 			t.Logf("[bot] %s", truncate(text, 500))
-
-			// 自动批准：解析审批消息中的 ID 并发送 /ai approve 命令。
 			if m := approvalIDPattern.FindStringSubmatch(text); len(m) == 2 && !approved[m[1]] {
 				approved[m[1]] = true
+				result.Approvals = append(result.Approvals, m[1])
 				t.Logf("[user] /ai approve %s", m[1])
 				eng.ProcessPlatformEvent(
 					testbot.MakePlatformC2CEvent("scenario-user", "/ai approve "+m[1]), sender)
@@ -172,52 +181,90 @@ func TestRemoteCodingScenario(t *testing.T) {
 		tasks, err := aiPlugin.RecentTasks(5)
 		if err == nil && len(tasks) > 0 {
 			status := string(tasks[0].Status)
-			if status != finalTaskStatus {
+			if status != lastStatus {
 				t.Logf("[task] %s -> %s (steps=%d artifacts=%d)",
 					tasks[0].Goal, status, len(tasks[0].Steps), len(tasks[0].Artifacts))
-				finalTaskStatus = status
+				lastStatus = status
 			}
-			switch status {
-			case "succeeded", "failed", "cancelled":
-				goto done
+			if status == "succeeded" || status == "failed" || status == "cancelled" {
+				result.Task = tasks[0]
+				break
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-done:
 	wg.Wait()
 
-	tasks, err := aiPlugin.RecentTasks(5)
-	if err != nil || len(tasks) == 0 {
-		t.Fatalf("no task recorded: (%v, %v); approvals=%v", tasks, err, approved)
+	result.Messages = sender.Sent()
+	if result.Task == nil {
+		t.Fatalf("scenario did not finish: approvals=%v", result.Approvals)
 	}
-	task := tasks[0]
-	t.Logf("task %s: status=%s goal=%q", task.ID, task.Status, task.Goal)
-	for _, step := range task.Steps {
+	t.Logf("task %s: status=%s goal=%q", result.Task.ID, result.Task.Status, result.Task.Goal)
+	for _, step := range result.Task.Steps {
 		t.Logf("  step %s [%s] %s", step.ID, step.Status, step.Description)
 	}
-	for _, artifact := range task.Artifacts {
+	for _, artifact := range result.Task.Artifacts {
 		t.Logf("  artifact %s %s (%d bytes)", artifact.Kind, artifact.Name, artifact.Size)
 	}
+	return result
+}
 
-	if len(approved) == 0 {
+// TestRemoteCodingScenario 编码场景：真实 LLM 在远程节点完成多步骤文件任务
+// （写脚本 → 运行 → 检查环境 → 汇报），全程自动批准工具调用。
+func TestRemoteCodingScenario(t *testing.T) {
+	prompt := strings.Join([]string{
+		"请完成一个远程工作区任务：",
+		"1. 在工作区创建 Python 脚本 fib.py，打印斐波那契数列前 10 项；",
+		"2. 用 python3 运行它并确认输出；",
+		"3. 运行 uname -a 确认执行节点环境；",
+		"4. 汇报创建的文件与运行结果。",
+	}, "\n")
+	result := runAgentScenario(t, prompt)
+
+	if len(result.Approvals) == 0 {
 		t.Error("expected at least one tool approval request")
 	}
-	if task.Status != "succeeded" {
-		t.Errorf("task status = %s, want succeeded", task.Status)
+	if result.Task.Status != task.StatusSucceeded {
+		t.Errorf("task status = %s, want succeeded", result.Task.Status)
 	}
 	foundFile := false
-	for _, artifact := range task.Artifacts {
+	for _, artifact := range result.Task.Artifacts {
 		if strings.Contains(artifact.Name, "fib.py") {
 			foundFile = true
 		}
 	}
 	if !foundFile {
-		t.Errorf("expected fib.py to be registered as an artifact, got %+v", task.Artifacts)
+		t.Errorf("expected fib.py to be registered as an artifact, got %+v", result.Task.Artifacts)
 	}
-	allText := strings.ToLower(joinMessages(sender.Sent()))
-	if !strings.Contains(allText, "fib") {
+	if all := strings.ToLower(joinMessages(result.Messages)); !strings.Contains(all, "fib") {
 		t.Error("final replies should mention fib")
+	}
+}
+
+// TestRemoteOpsInspectionScenario 运维巡检场景（只读）：同一套任务与能力契约
+// 完成系统巡检并输出报告，验证通用架构不绑定编码场景。
+func TestRemoteOpsInspectionScenario(t *testing.T) {
+	prompt := strings.Join([]string{
+		"请对执行节点做一次只读巡检并输出中文报告：",
+		"1. 查看系统版本与内核（uname -a）；",
+		"2. 查看磁盘使用情况（df -h）；",
+		"3. 查看内存使用情况（free -h）；",
+		"4. 查看运行时长与负载（uptime）；",
+		"5. 汇总成一份巡检结论（正常/异常与关注点）。",
+	}, "\n")
+	result := runAgentScenario(t, prompt)
+
+	if result.Task.Status != task.StatusSucceeded {
+		t.Errorf("task status = %s, want succeeded", result.Task.Status)
+	}
+	all := joinMessages(result.Messages)
+	for _, keyword := range []string{"磁盘", "内存"} {
+		if !strings.Contains(all, keyword) {
+			t.Errorf("inspection report should mention %q; replies:\n%s", keyword, all)
+		}
+	}
+	if len(result.Task.Artifacts) != 0 {
+		t.Logf("inspection task produced %d artifact(s) (read-only scenario)", len(result.Task.Artifacts))
 	}
 }
 

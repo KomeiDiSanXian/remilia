@@ -1273,7 +1273,7 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 | 3 本地执行 | 🚧 部分 | `builtin/ai/workspace`、`builtin/ai/procexec`、`builtin/ai/catalog/filetool.go`、`catalog/exectool.go` | 工作区只读/写入、精确替换与 diff、白名单进程执行（强制审批、RBAC、环境清洗、整树回收、输出上限）；容器与系统级沙箱未做 |
 | 4 编码场景闭环 | ✅ 实测通过 | `builtin/ai/evidence.go`、`catalog/plantool.go`、`builtin/ai/artifacts.go`、`tests/agent` | 完成闸门 + 产物登记 + 端到端实测：真实 LLM（deepseek-flash）在远程节点上完成 5 步任务（列目录 → 写 fib.py → python3 运行 → uname -a → 汇报），3 次工具审批全部经人工批准，任务 succeeded、产物 `fib.py` 417 字节，节点侧文件与输出经 SSH 复核。实测数据：总耗时约 11s，预算消耗 3 次工具调用 |
 | 5 任务 UX 与管理面 | ✅ | `/ai task` 命令、`/api/v1/ai/tasks*`、Dashboard「AI 任务」页 | 查询/取消/进度下钻（步骤与产物）齐备；进度播报复用既有计划消息与后台推进 |
-| 6 第二真实场景 | ⏳ 待做 | — | 依赖真实部署环境（运维巡检或报表生成） |
+| 6 第二真实场景 | ✅ 实测通过 | `tests/agent` | 运维只读巡检：同一套任务/能力/策略契约完成 4 条只读命令（df/uname/uptime/free）采集与中文报告，3 步计划全部成功、0 产物、4 次审批；证明通用架构不绑定编码场景 |
 | 7 隔离执行 | ✅ 单节点 | `builtin/ai/execnode`、`cmd/executor`、`ai.exec_node=remote` | 远程节点（HTTP + Bearer、节点侧工作区/白名单、取消传播终止进程树）已落地并在 10.0.0.19 实测：认证、文件读写/替换/列举、越界拒绝、远程执行与取消传播全部通过。多节点选择、mTLS 与节点注册中心待需要时再做 |
 | 8 扩展 | ⏳ 待评估 | — | 浏览器/桌面/多 Agent，按需独立评估 |
 
@@ -1350,3 +1350,4 @@ REMILIA_EXEC_NODE_URL=http://10.0.0.19:9020 REMILIA_EXEC_NODE_TOKEN=<token> \
 | v1 | 初稿：六运行时逻辑架构、状态机、分阶段路线与验收标准 |
 | v1.1 | 追加 §17 评审补充：现状核对、设计收敛、修订路线、兼容性、风险与验收细化 |
 | v1.2 | 追加 §17.9 实施状态：任务化、工作区、受控进程执行、任务 API 的落地记录与剩余阶段状态 |
+| v1.3 | §17.9 更新：阶段 4/6/7 完成端到端实测（编码场景与运维巡检场景，真实 LLM + 远程节点） |
