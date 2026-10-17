@@ -41,6 +41,12 @@ func (m *Manager) Register(desc *FSMDescriptor) error {
 	if err := desc.Validate(); err != nil {
 		return err
 	}
+	// 管理器以 desc.Name 为 key、引擎以 FSM.Name 为索引键：两者不一致时
+	// Unregister(desc.Name) 会"成功"但 FSM 仍在拦截消息（引擎里删的是
+	// desc.Name，而实际注册的是 FSM.Name）。注册期直接拒绝这种定义。
+	if desc.FSM != nil && desc.FSM.Name != desc.Name {
+		return fmt.Errorf("fsm: FSMDescriptor.Name %q must equal FSM.Name %q", desc.Name, desc.FSM.Name)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.fsmDescs[desc.Name]; exists {

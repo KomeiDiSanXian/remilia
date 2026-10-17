@@ -162,8 +162,10 @@ func (f *FSM) canTransitionFrom(s State) bool {
 // 回调中调用 [FSMContext.EndSession] 是安全的，但**不要**对同一 sessionID
 // 再调用 TryTransition/TryStartSession/StartSession（会自死锁）。
 type Engine struct {
+	// 定义表与注册顺序：order 决定 TryStartSession 的遍历顺序
 	mu     sync.RWMutex
 	fsms   map[string]*FSM
+	order  []string
 	stores Storage
 
 	// sessionLocks 按 sessionID 维护互斥锁（sync.Map[string]*sync.Mutex）。
@@ -196,6 +198,9 @@ func (e *Engine) sessionLock(sessionID string) *sync.Mutex {
 // Register 将 FSM 定义添加到引擎。注册前会校验 FSM。返回错误的情况：
 //   - FSM 为 nil 或校验失败
 //   - 同名 FSM 已经注册
+//
+// 注册顺序被记录（e.order）：TryStartSession 按注册顺序遍历，多个 FSM 同时
+// 匹配同一消息时的胜者由此确定（此前遍历 map，顺序随机）。
 func (e *Engine) Register(f *FSM) error {
 	if f == nil {
 		return fmt.Errorf("fsm: cannot register nil FSM")
@@ -209,6 +214,7 @@ func (e *Engine) Register(f *FSM) error {
 		return fmt.Errorf("fsm: FSM %q already registered", f.Name)
 	}
 	e.fsms[f.Name] = f
+	e.order = append(e.order, f.Name)
 	return nil
 }
 
@@ -216,7 +222,17 @@ func (e *Engine) Register(f *FSM) error {
 func (e *Engine) Unregister(name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if _, exists := e.fsms[name]; !exists {
+		return
+	}
 	delete(e.fsms, name)
+	filtered := make([]string, 0, len(e.order))
+	for _, n := range e.order {
+		if n != name {
+			filtered = append(filtered, n)
+		}
+	}
+	e.order = filtered
 }
 
 // GetFSM 按名称返回 FSM 定义，未找到时返回 nil。
@@ -309,10 +325,15 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 	// 在锁内快照 FSM 列表，用户回调（Match/Action/OnEnter/OnExit）在 e.mu
 	// 之外执行：此前整个遍历持有 e.mu.RLock，回调内调用 Register/Unregister
 	// 会直接死锁，有写者排队时回调内再进任何 RLock 方法也可能死锁。
+	//
+	// 顺序取注册顺序（e.order）：多个 FSM 匹配同一消息时胜者稳定可预测，
+	// 不再依赖 map 迭代顺序（此前每次调用顺序都可能不同）。
 	e.mu.RLock()
-	fsmList := make([]*FSM, 0, len(e.fsms))
-	for _, f := range e.fsms {
-		fsmList = append(fsmList, f)
+	fsmList := make([]*FSM, 0, len(e.order))
+	for _, name := range e.order {
+		if f, ok := e.fsms[name]; ok {
+			fsmList = append(fsmList, f)
+		}
 	}
 	e.mu.RUnlock()
 
