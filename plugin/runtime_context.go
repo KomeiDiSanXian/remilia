@@ -48,7 +48,9 @@ type setupContextInternal struct {
 	rootScope atomic.Pointer[Scope]
 
 	// RegisterCron 懒初始化字段（framework #31）
-	cronInitOnce  sync.Once
+	// cronMu 保护 cronScheduler 的创建/停止（RegisterCron 与 stopCron 可并发：
+	// 重载路径停旧调度器时，插件 goroutine 可能仍在注册定时任务）。
+	cronMu        sync.Mutex
 	cronScheduler *cron.Cron
 
 	// pendingTypes 在三色 DryRun 中记录所有类型解析失败的 pending 类型。
@@ -382,23 +384,47 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 		return nil
 	}
 
-	// 懒初始化：首次 RegisterCron 调用时创建 cron scheduler 并绑定生命周期
-	ctx.cronInitOnce.Do(func() {
+	// 懒初始化：首次 RegisterCron 调用时创建 cron scheduler 并绑定生命周期。
+	//
+	// 用互斥锁 + nil 判断而不是 sync.Once：stopCron（InPlace 重载停旧调度器）
+	// 会把指针置空，Once 已触发则后续 RegisterCron 会 nil 解引用 panic。
+	ctx.cronMu.Lock()
+	defer ctx.cronMu.Unlock()
+	if ctx.cronScheduler == nil {
 		c := cron.New(cron.WithSeconds())
 		c.Start()
 		ctx.cronScheduler = c
 		// 绑定插件生命周期：goroutineMgr cancel 时停止 cron
 		ctx.goroutineMgr.goNamed_("plugin-cron:"+ctx.pluginName, func(runCtx stdctx.Context) {
 			<-runCtx.Done()
-			stopCtx := ctx.cronScheduler.Stop()
-			<-stopCtx.Done()
+			ctx.stopCron()
 		})
-	})
+	}
 
 	if _, err := ctx.cronScheduler.AddFunc(expr, fn); err != nil {
 		return fmt.Errorf("plugin %q: RegisterCron invalid expr %q: %w", ctx.pluginName, expr, err)
 	}
 	return nil
+}
+
+// stopCron 停止并释放该上下文的 cron 调度器（幂等；未创建时为空操作）。
+//
+// InPlace 重载不经过 unload：旧 SetupContext 的调度器仍绑定在继承的
+// goroutine 管理器上，热重载时新 Setup 每次 RegisterCron 都会再建一个——
+// 同一个定时任务按重载次数重复执行。重载路径因此在切换上下文前调用它。
+func (ctx *SetupContext) stopCron() {
+	if ctx == nil {
+		return
+	}
+	ctx.cronMu.Lock()
+	c := ctx.cronScheduler
+	ctx.cronScheduler = nil
+	ctx.cronMu.Unlock()
+
+	if c == nil {
+		return
+	}
+	<-c.Stop().Done()
 }
 
 // 说明：Go 1.27 已支持泛型方法；需要类型安全访问时请使用

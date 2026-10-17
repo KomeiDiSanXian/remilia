@@ -128,6 +128,11 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		}
 		// 原地重载不卸载旧实例：新 context 继承旧 rootScope（及已导出 key 记录），
 		// 保证订阅/清理钩子仍归本插件生命周期管理，后续 Unregister 时能被 Dispose。
+		//
+		// 旧 Setup 的 cron 调度器先停掉：InPlace 不经过 unload，它仍绑在继承的
+		// goroutine 管理器上，新 Setup 再注册定时任务会得到第二个调度器——
+		// 同一个任务按重载次数重复执行。
+		oldContext.stopCron()
 		newContext.setRootScope(oldContext.rootScopeOrNil())
 		newContext.exportedNames = oldContext.exportedKeysSnapshot()
 		pi.mu.Lock()
