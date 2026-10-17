@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/command"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // OnCommandMatch creates a Rule that matches by the given enhanced command parser.
@@ -42,6 +43,16 @@ func OnParseCommand(def *command.Definition) Rule {
 		prefix, _ := SplitCommandPattern(content)
 		parsed, err := command.ParseFromDefinition(content, def, prefix)
 		if err != nil {
+			// 解析失败意味着整条消息不再匹配：没有日志时现场只剩"消息被静默
+			// 丢弃"（命令名/参数/全角空白等都会走到这里），排障成本极高。
+			name := ""
+			if def != nil {
+				name = def.Name
+			}
+			logger.WithError(err).WithFields(logger.Fields{
+				"command": name,
+				"prefix":  prefix,
+			}).Debug("[Rule] OnParseCommand: parse failed, message does not match this command")
 			return false
 		}
 		ctx.SetParsedCommand(parsed)

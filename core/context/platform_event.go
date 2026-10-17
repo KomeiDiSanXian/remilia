@@ -4,6 +4,8 @@ package context
 
 import (
 	stdctx "context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/future"
@@ -341,6 +343,9 @@ func (ctx *Context) IsFromSelf() bool {
 // 底层通过 platform.GroupInfoProvider 接口实现；若平台 Sender 不支持
 // 此接口，或当前不是群组会话，返回 (nil, false)。
 //
+// 注意：查询失败（网络/权限/限流）与"平台不支持"都被折叠为 false。
+// 需要区分二者（例如决定是否重试）时请使用 [Context.GetGroupMembers]。
+//
 // 使用场景：需要获取群成员列表时（如随机选择成员、统计等）。
 //
 // 注意：大型群组下成员列表可能很长，各平台可能有分页限制；
@@ -356,22 +361,37 @@ func (ctx *Context) IsFromSelf() bool {
 //	    fmt.Println(m.DisplayName)
 //	}
 func (ctx *Context) TryGetGroupMembers() ([]platform.GroupMemberInfo, bool) {
+	members, err := ctx.GetGroupMembers()
+	return members, err == nil
+}
+
+// ErrGroupInfoUnsupported 表示当前上下文或平台不支持群成员查询
+// （非群组会话，或平台 Sender 未实现 platform.GroupInfoProvider）。
+var ErrGroupInfoUnsupported = errors.New("group member list is not supported")
+
+// GetGroupMembers 获取当前群成员列表，错误可见。
+//
+// 与 [Context.TryGetGroupMembers] 的区别：平台/上下文的限制返回
+// [ErrGroupInfoUnsupported]，平台错误原样透出（附 chat 上下文），
+// 调用方可以据此区分"不支持"与"查询失败"，而不是把下游故障当成
+// "平台不支持"静默降级。
+func (ctx *Context) GetGroupMembers() ([]platform.GroupMemberInfo, error) {
 	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
-		return nil, false
+		return nil, ErrGroupInfoUnsupported
 	}
 	chat := ctx.platformEvent.Chat()
 	if !chat.IsGroup || chat.ID == "" {
-		return nil, false
+		return nil, ErrGroupInfoUnsupported
 	}
 	gip, ok := ctx.platformSender.(platform.GroupInfoProvider)
 	if !ok {
-		return nil, false
+		return nil, ErrGroupInfoUnsupported
 	}
 	members, err := gip.GetGroupMemberList(ctx.Context(), chat.ID)
 	if err != nil {
-		return nil, false
+		return nil, fmt.Errorf("get group member list (chat %s): %w", chat.ID, err)
 	}
-	return members, true
+	return members, nil
 }
 
 // TryDeleteMemberMessage 尝试撤回当前消息。

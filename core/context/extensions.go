@@ -121,7 +121,9 @@ func (e *Extensions) Snapshot() map[reflect.Type]any {
 }
 
 // Clear 从容器中移除所有扩展值。
-// 在将 context 归还对象池前用于清理。
+//
+// 供需要复用同一个 Context 的调用方重置扩展状态（Clone 后的清理、测试等）；
+// Context 本身每事件新鲜分配、不经过对象池，正常流程无需手动 Clear。
 func (e *Extensions) Clear() {
 	if e == nil {
 		return
