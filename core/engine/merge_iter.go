@@ -31,12 +31,38 @@ package engine
 
 import (
 	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // mergeIterMaxStreams 是 MergeIter 支持的有序流数量上限。
-// 对应 Source Budget 的硬上限：每个索引最多贡献 2 路（specific/generic），
-// 16 路 ≈ 8 个索引，正落在"推荐 K_reg ≤ 8"的预算内。
-const mergeIterMaxStreams = 16
+//
+// 与 Source Budget 的关系：每个索引最多贡献 2 路（specific/generic），
+// 硬上限 routingBudgetLimit 个索引因此需要 2× 的流容量。该常量此前等于
+// 索引上限本身（16），于是合法预算（如 9 个索引 × 2 路）下超出的候选流
+// 被静默丢弃——表现为"部分 matcher 莫名其妙不匹配"。
+const mergeIterMaxStreams = 2 * routingBudgetLimit
+
+// routingDropWarnInterval 限制"候选流失超限"告警的频率：
+// 超限按事件发生，不限频会刷爆日志。
+const routingDropWarnInterval = time.Second
+
+var routingDropLastWarn atomic.Int64
+
+// warnStreamDropped 限频告警候选流失超限（见 mergeIterMaxStreams）。
+func warnStreamDropped() {
+	now := time.Now().UnixNano()
+	last := routingDropLastWarn.Load()
+	if now-last < int64(routingDropWarnInterval) {
+		return
+	}
+	if !routingDropLastWarn.CompareAndSwap(last, now) {
+		return
+	}
+	logger.Warnf("[engine] routing candidate streams exceeded the merge capacity (%d): candidates were dropped for this event. Reduce the number of matcher indexes or merge them (see docs/notes/25-routing-strategy.md).", mergeIterMaxStreams)
+}
 
 // matcherMergeIter 对最多 16 个已按优先级升序排列的 Matcher 列表进行惰性合并。
 //
@@ -54,22 +80,41 @@ type matcherMergeIter struct {
 }
 
 // add 追加一个有序候选流（无 Meta）。空列表直接跳过（K_act 自然衰减）。
+//
+// 超出容量上限的流会被限频告警而不是静默丢弃（见 mergeIterMaxStreams）。
 func (it *matcherMergeIter) add(list []*Matcher) {
-	if len(list) > 0 && it.n < mergeIterMaxStreams {
-		it.lists[it.n] = list
-		it.hasMeta[it.n] = false // 覆写旧槽位的 meta 标记（池化复用）
-		it.n++
+	if len(list) == 0 {
+		return
 	}
+	if it.n >= mergeIterMaxStreams {
+		warnStreamDropped()
+		return
+	}
+	it.lists[it.n] = list
+	it.hasMeta[it.n] = false // 覆写旧槽位的 meta 标记（池化复用）
+	it.n++
 }
 
 // addMeta 追加一个携带逐条 Meta 的有序候选流（metas 与 list 1:1 对齐）。
 func (it *matcherMergeIter) addMeta(list []*Matcher, metas []any) {
-	if len(list) > 0 && len(metas) == len(list) && it.n < mergeIterMaxStreams {
-		it.lists[it.n] = list
-		it.metas[it.n] = metas
-		it.hasMeta[it.n] = true
-		it.n++
+	if len(list) == 0 {
+		return
 	}
+	if len(metas) != len(list) {
+		// Meta 与候选不同步：宁可丢 Meta 也不能丢候选（handler 会读不到捕获组，
+		// 但匹配本身不能失效）
+		logger.Warnf("[engine] candidate meta length mismatch (%d metas for %d matchers): meta dropped", len(metas), len(list))
+		it.add(list)
+		return
+	}
+	if it.n >= mergeIterMaxStreams {
+		it.add(list)
+		return
+	}
+	it.lists[it.n] = list
+	it.metas[it.n] = metas
+	it.hasMeta[it.n] = true
+	it.n++
 }
 
 // Next 前进到下一个优先级最低的 Matcher。
