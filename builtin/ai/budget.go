@@ -71,6 +71,37 @@ func (p *Plugin) resetTaskUsage(sessionID string) {
 	delete(p.taskUsage, sessionID)
 }
 
+// pruneSessionState 清理过期的会话级运行时状态（执行证据与预算计数）。
+//
+// 这两张表按会话键累积，长跑进程里会随会话数量无界增长；会话 TTL 之后它们
+// 已无意义（重启恢复与闸门都不依赖过期会话的旧证据），由插件的周期清理调用。
+func (p *Plugin) pruneSessionState(cutoff time.Time) int {
+	if p == nil {
+		return 0
+	}
+	removed := 0
+
+	p.evidenceMu.Lock()
+	for sessionID, evidence := range p.execEvidence {
+		if evidence.At.Before(cutoff) {
+			delete(p.execEvidence, sessionID)
+			removed++
+		}
+	}
+	p.evidenceMu.Unlock()
+
+	p.taskUsageMu.Lock()
+	for sessionID, usage := range p.taskUsage {
+		if usage.StartedAt.Before(cutoff) {
+			delete(p.taskUsage, sessionID)
+			removed++
+		}
+	}
+	p.taskUsageMu.Unlock()
+
+	return removed
+}
+
 // terminateTaskForBudget 预算超限的终结动作：活动任务置为失败并取消会话计划。
 // 终态任务不受影响（迟到结果不能覆盖已终结的任务）。
 func (p *Plugin) terminateTaskForBudget(sess *session.Session, reason string) {

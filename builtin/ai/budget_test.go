@@ -89,6 +89,46 @@ func TestNewPlanResetsTaskBudget(t *testing.T) {
 	}
 }
 
+func TestPruneSessionState(t *testing.T) {
+	p := newTaskPlugin(t)
+	ctx := makeManageCtx("/ai", false)
+	sess := p.sm.GetOrCreate("synthetic:chat:user", "user", "chat")
+
+	p.recordExecEvidence(ctx, catalog.ExecResult{Command: "go", ExitCode: 0})
+	p.chargeTaskBudget(sess)
+
+	// 把两份运行时状态改为已过期，验证按 TTL 清理。
+	stale := time.Now().Add(-48 * time.Hour)
+	p.evidenceMu.Lock()
+	evidence := p.execEvidence["synthetic:chat:user"]
+	evidence.At = stale
+	p.execEvidence["synthetic:chat:user"] = evidence
+	p.evidenceMu.Unlock()
+	p.taskUsageMu.Lock()
+	usage := p.taskUsage["synthetic:chat:user"]
+	usage.StartedAt = stale
+	p.taskUsageMu.Unlock()
+
+	if removed := p.pruneSessionState(time.Now().Add(-24 * time.Hour)); removed != 2 {
+		t.Fatalf("pruned = %d, want 2", removed)
+	}
+	if _, ok := p.lastExecEvidence("synthetic:chat:user"); ok {
+		t.Fatal("expired evidence should be pruned")
+	}
+	p.taskUsageMu.Lock()
+	_, usageLeft := p.taskUsage["synthetic:chat:user"]
+	p.taskUsageMu.Unlock()
+	if usageLeft {
+		t.Fatal("expired usage should be pruned")
+	}
+
+	// 新鲜状态不受影响。
+	p.recordExecEvidence(ctx, catalog.ExecResult{Command: "go", ExitCode: 0})
+	if removed := p.pruneSessionState(time.Now().Add(-24 * time.Hour)); removed != 0 {
+		t.Fatalf("fresh state should not be pruned, removed %d", removed)
+	}
+}
+
 func TestExecOneToolRejectsOverBudget(t *testing.T) {
 	p := &Plugin{
 		cfg:      &config.Config{TaskMaxToolCalls: 1, ToolTimeout: time.Second},

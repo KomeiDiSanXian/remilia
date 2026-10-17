@@ -351,6 +351,15 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 					select {
 					case <-ticker.C:
 						p.sm.CleanupExpired()
+						// 会话级运行时状态按会话 TTL 清理：执行证据与预算计数
+						// 按会话键累积，长跑进程里需要随过期会话回收。
+						ttl := p.cfg.SessionTTL
+						if ttl <= 0 {
+							ttl = 24 * time.Hour
+						}
+						if pruned := p.pruneSessionState(time.Now().Add(-ttl)); pruned > 0 {
+							logger.Debugf("[AI] Pruned %d expired session runtime entries", pruned)
+						}
 						// 审批请求的兜底清理：正常超时路径已由 requestApproval
 						// 的本地兜底移除，这里捕获异常路径残留的请求，避免
 						// pending map 无界增长。判定用 EffectiveApprovalTimeout
