@@ -222,7 +222,20 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	ctx.stdCtx.Store(&ctxHolder{Context: stdCtx})
 }
 
-// copyExtensions 将 src 的两套扩展存储（类型键 + 字符串键）深拷贝到 dst。
+// copyExtensions 把 src 的扩展存储复制到 dst。
+//
+// # 复制语义（契约）
+//
+// 此前注释自称"深拷贝"，与实现不符；实际语义如下：
+//
+//   - 字符串键存储（ctx.Set/Get 的 extensionState）：整表拷贝，
+//     两侧后续写入互不影响；
+//   - 类型键存储（Ext().Set/SetTyped）：逐条复制**引用**，值本身与 src 共享。
+//     可变值（切片/映射/指针）在两侧是同一个对象：需要修改时应先自行拷贝，
+//     或依赖该类型自带的锁（如 *extensionState 自带 mutex）。
+//
+// 因此 Clone 适合"读隔离 + 独立写入"：读取 src 已写入的数据安全，
+// 但直接改写共享的可变值会同时影响两边（可能并发访问）。
 //
 // 空存储快速路径：src 从未初始化扩展（extInitialized == false）时直接返回。
 // 此前无条件调用 src.Ext()/dst.Ext() 会触发两侧的惰性初始化，并为从未使用
@@ -290,7 +303,11 @@ func (ctx *Context) cloneBase() *Context {
 	return base
 }
 
-// Clone 克隆 Context 用于异步操作
+// Clone 克隆 Context 用于异步操作。
+//
+// 复制语义见 [copyExtensions]：字符串键存储整表拷贝、类型键存储共享值引用；
+// 平台事件/发送器等只读字段直接共享，std context 独立派生（可用 [Context.Cancel]
+// 提前释放）。因此适合"读隔离 + 独立写入"，不适合把共享的可变值当作私有副本。
 func (ctx *Context) Clone() *Context {
 	newCtx := ctx.cloneBase()
 	copyExtensions(ctx, newCtx)
