@@ -20,6 +20,12 @@ type Session struct {
 	Data map[string]any
 	// ExpireAt 是此会话被认为过期的 Unix 时间戳。零值表示无过期。
 	ExpireAt int64
+	// OwnerID 是会话归属者（启动会话的用户 ID），仅在 [FSM.OwnerScoped]
+	// 为 true 时写入。
+	//
+	// 非空时 [Engine.TryTransition] 只接受归属者推进，避免群聊里其它成员
+	// 接管他人的多步流程。空值表示未启用归属校验。
+	OwnerID string
 	// CreatedAt 是会话创建的 Unix 时间戳。
 	CreatedAt int64
 	// UpdatedAt 是最近一次迁移的 Unix 时间戳。

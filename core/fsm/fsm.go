@@ -30,6 +30,7 @@ import (
 	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // State 表示有限状态机中的一个节点。是 string 的类型别名，用于类型安全的状态引用。
@@ -79,6 +80,15 @@ type FSM struct {
 	// 过期时间重置为 now+Timeout，长对话只要保持活跃就不会过期。
 	// 仅在 Timeout > 0 时有意义；默认 false（保持既有语义）。
 	RefreshOnActivity bool
+	// OwnerScoped 为 true 时把会话归属到启动它的用户：
+	//
+	//   - 启动会话时记录 Session.OwnerID（ctx.GetSenderInfo().ID）；
+	//   - TryTransition 只接受归属者推进（其它用户的消息不会推动流程），
+	//     避免群聊里任意成员接管他人的多步流程。
+	//
+	// 默认 false（保持既有行为：会话按 sessionID 共享，通常由 Router 以
+	// platform:chatID 粒度分配）。需要按用户隔离时由插件/业务开启。
+	OwnerScoped bool
 }
 
 // Validate 检查 FSM 定义的结构正确性：
@@ -350,6 +360,9 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 				ID: sessionID, FSMName: fsm.Name, Current: fsm.Initial,
 				Data: make(map[string]any), CreatedAt: now, UpdatedAt: now,
 			}
+			if fsm.OwnerScoped {
+				session.OwnerID = actorID(ctx)
+			}
 			if fsm.Timeout > 0 {
 				session.ExpireAt = time.Now().Add(fsm.Timeout).Unix()
 			}
@@ -390,6 +403,17 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 	return false, nil
 }
 
+// actorID 返回事件发送者 ID（平台未提供时为空字符串）。
+//
+// 用于 OwnerScoped 会话的归属校验；空字符串表示"无法判定身份"，
+// 此时放行（保持宽松，避免平台未提供发送者时把正常流程全部拦掉）。
+func actorID(ctx *corectx.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.GetSenderInfo().ID
+}
+
 // TryTransition 尝试推进一个会话在 FSM 中迁移。
 //
 // 通过 sessionID 查找会话，找到其关联的 FSM 定义，
@@ -416,6 +440,17 @@ func (e *Engine) TryTransition(ctx *corectx.Context, sessionID string) (State, b
 	session := e.stores.Get(sessionID)
 	if session == nil {
 		return "", false, nil
+	}
+
+	// 归属校验：OwnerScoped 的会话只接受归属者推进（群聊里其它成员的消息
+	// 不会接管他人的多步流程）。归属者未知（平台未提供发送者 ID）时放行。
+	if session.OwnerID != "" && session.OwnerID != actorID(ctx) {
+		logger.WithFields(logger.Fields{
+			"session": sessionID,
+			"owner":   session.OwnerID,
+			"actor":   actorID(ctx),
+		}).Debug("[fsm] session transition rejected: actor is not the session owner")
+		return session.Current, false, nil
 	}
 
 	e.mu.RLock()
@@ -516,6 +551,9 @@ func (e *Engine) StartSession(ctx *corectx.Context, fsmName, sessionID string) e
 		Data:      make(map[string]any),
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+	if fsm.OwnerScoped {
+		session.OwnerID = actorID(ctx)
 	}
 	if fsm.Timeout > 0 {
 		session.ExpireAt = time.Now().Add(fsm.Timeout).Unix()
