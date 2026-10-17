@@ -50,6 +50,7 @@
 - 插件：加载失败/超时、强制卸载、重试与停机路径统一走幂等回收（Scope/goroutine/引擎分组/容器 key），`StopAll` 等待在飞加载与重载、跳过项会告警；`stopAndWait` 改为受 ctx 约束的 `stopAndWaitCtx`；文件配置源与服务导出的 key 不再与插件配置/其它插件互为别名；蓝绿重载的 draining 追踪按次独立、旧 cron 调度器会被停掉；框架生命周期通知改用带超时的发布；卸载中的实例不再接受新的注册。
 - FSM：`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；新增 `OwnerScoped` 会话（只接受归属者推进，群内不互相接管多步流程）；`EndSession` 加锁、启动改为"先回调后落库"、`StartCleanup` 幂等且有日志。
 - 权限：外部 Provider 故障会记录日志并可通过 `SetProviderErrorHandler` 上报（失败即短路，不再每次拒绝打两次外部请求）；新增角色等级原语（`Role.Level`、`UserLevel`、`HasLevelAtLeast`、`AssignRoleChecked`，用于提权防护）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
+- WASM 插件：卸载/重载会同时释放模块实例与编译产物（此前每次重载泄漏一份编译产物，`Runtime.OpenModules()` 可观察）；宿主函数常量和 [`docs/notes/14-wasm-plugin.md`](docs/notes/14-wasm-plugin.md) 与实现对齐——框架默认只提供 `log`/`get_config`/两个自描述函数，`register_command`/`send_message`/`storage_*`/`http_request` 是"约定名"，需要宿主应用注册后再加载模块（插件可用 `__host_functions` 探测能力），默认集合有测试固定；无平台事件的 Context 不再让桥接层空指针崩溃；加载流程的编译/初始化已移出管理器锁，一个慢插件的编译不再阻塞其它插件的查询与卸载。
 
 ## v1.73.0 (2026-10-16)
 
