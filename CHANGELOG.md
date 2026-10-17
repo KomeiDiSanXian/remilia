@@ -36,6 +36,21 @@
 - FSM 的 `From:"*"` 在会话存活判断与定义校验中生效：声明「任意状态 /cancel」的流程不再因用户发来无关消息而把会话连同 `Data` 静默删除，只有通配启动事件的 FSM 也能注册。
 - 权限前缀通配要求命名空间边界：`admin:*` 不再放行 `administrator`、`command:*` 不再放行 `commander`；`RevokeRole`/`RevokePermission` 不再为不存在的用户留下空条目（导出与持久化不再被污染）。
 
+**核心框架（第二轮）**
+
+核查记录 [`docs/notes/31-core-module-review.md`](docs/notes/31-core-module-review.md) 中其余待处理事项已修复（`plugin/wasm` 的三项除外），用户可见变化如下：
+
+- 命令注册表：`Upsert` 现在返回错误（别名冲突会拒绝写入并报错，非法模式忽略但可感知）；别名遮蔽已存在的命令名会被拒绝；`List`/`Complete` 返回副本、过滤隐藏命令、顺序稳定（优先级降序 + 名称升序）。
+- 命令元数据不再漂移：`SetDefinition`、链式元数据方法、`BindCommand`、`SetSource` 的变更会同步进 `command.Registry`，`FindCommand`/`/help` 与 `Lookup`/`Complete` 看到同一份定义。
+- 引擎：批量注册中 `Delete`/`SetTemp` 会在 Flush 时结算（不再留下僵尸条目或双倍执行）；`Handler`/`Source`/`Rules` 的并发访问不再竞争（规则追加改为 COW 快照，热路径零锁）；候选流容量与索引预算对齐，超限限频告警而不是静默丢候选。
+- 出站发送：调度器放弃队列（worker panic、停机）时会唤醒被丢弃的任务，`Future` 得到取消错误而不是永久等待；`Reply` 文档建议给 `Wait` 设超时。
+- 规则副作用绑定匹配会话：非引擎路径（FSM 直接求值、业务代码手工求值）登记的副作用不再被无关 matcher 提交（冷却不会被错误消耗）。
+- `Context.Cancel` 并发安全（幂等），池化任务结束会释放克隆的 std context；`SetCandidateMeta(nil)` 可清除候选 Meta（无 Meta 的候选不再继承正则捕获组）；`Clone` 的复制契约写入文档（字符串键整表拷贝、类型键共享引用）。
+- 群成员查询错误可见：新增 `GetGroupMembers`（区分"平台不支持"与下游故障），事件类型常量改为由 `platform.EventKind` 派生；`OnParseCommand` 解析失败会记录 debug 日志。
+- 插件：加载失败/超时、强制卸载、重试与停机路径统一走幂等回收（Scope/goroutine/引擎分组/容器 key），`StopAll` 等待在飞加载与重载、跳过项会告警；`stopAndWait` 改为受 ctx 约束的 `stopAndWaitCtx`；文件配置源与服务导出的 key 不再与插件配置/其它插件互为别名；蓝绿重载的 draining 追踪按次独立、旧 cron 调度器会被停掉；框架生命周期通知改用带超时的发布；卸载中的实例不再接受新的注册。
+- FSM：`ListSessions` 在会话锁内深拷贝（管理 API 轮询不再与迁移竞争）；启动按注册顺序确定胜者；管理器描述符名必须与 FSM 名一致；新增 `OwnerScoped` 会话（只接受归属者推进，群内不互相接管多步流程）；`EndSession` 加锁、启动改为"先回调后落库"、`StartCleanup` 幂等且有日志。
+- 权限：外部 Provider 故障会记录日志并可通过 `SetProviderErrorHandler` 上报（失败即短路，不再每次拒绝打两次外部请求）；新增角色等级原语（`Role.Level`、`UserLevel`、`HasLevelAtLeast`、`AssignRoleChecked`，用于提权防护）；权限内部 key 改为无歧义编码（`{command:echo, execute}` 与 `{command, echo:execute}` 不再互相误命中）；`RegisterRole(nil)` 与空名角色被拒绝。
+
 ## v1.73.0 (2026-10-16)
 
 ### ✨ 新特性
