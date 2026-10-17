@@ -364,7 +364,15 @@ func (e *Engine) syncToRegistry(def *command.Definition, source string) {
 	// Upsert: register new or update existing entry (handles the case where
 	// OnCommand already registered a bare definition and RegisterCommandDef
 	// subsequently syncs the full definition with metadata).
-	reg.Upsert(def, opts)
+	//
+	// 错误必须可见：别名冲突会让命令丢失别名路由，非法模式会让命令只按
+	// 精确命令名匹配——静默忽略等于注册了"半个命令"。
+	if err := reg.Upsert(def, opts); err != nil {
+		logger.WithError(err).WithFields(logger.Fields{
+			"command": def.Name,
+			"source":  source,
+		}).Warn("[engine] sync command metadata to registry failed")
+	}
 }
 
 // WithCommandRegistry Engine 选项：注入 command.Registry。

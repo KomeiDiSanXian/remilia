@@ -102,6 +102,39 @@ type RegisterOptions struct {
 	Source   string // 来源标识（如 "plugin:pluginName"）
 }
 
+// validateAliasLocked 校验别名是否可用（需持有 cr.mu）。
+//
+// owner 是本次注册/更新的命令名。冲突包括：
+//   - 空别名；
+//   - 别名等于命令自身名称（Lookup 先查命令名，该别名永远不会生效）；
+//   - 同一定义内重复的别名；
+//   - 别名已被其它命令占用；
+//   - 别名与已注册的命令名相同（Lookup 会命中那个命令，此处注册的别名成为
+//     永不生效的死别名——历史实现会静默写入 aliases 表）。
+func (cr *Registry) validateAliasLocked(owner string, aliases []string) error {
+	seen := make(map[string]struct{}, len(aliases))
+	for _, alias := range aliases {
+		switch {
+		case alias == "":
+			return fmt.Errorf("command %s: empty alias", owner)
+		case alias == owner:
+			return fmt.Errorf("command %s: alias %s equals the command name", owner, alias)
+		}
+		if _, dup := seen[alias]; dup {
+			return fmt.Errorf("command %s: duplicate alias %s", owner, alias)
+		}
+		seen[alias] = struct{}{}
+
+		if existing, exists := cr.aliases[alias]; exists && existing != owner {
+			return fmt.Errorf("command %s: alias %s already used by command %s", owner, alias, existing)
+		}
+		if _, ok := cr.trie.ExactMatch(alias); ok {
+			return fmt.Errorf("command %s: alias %s conflicts with an existing command name", owner, alias)
+		}
+	}
+	return nil
+}
+
 // RegisterWithOptions 使用选项注册命令
 func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) error {
 	if def.Name == "" {
@@ -116,11 +149,9 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 		return fmt.Errorf("command %s already registered", def.Name)
 	}
 
-	// 检查别名冲突
-	for _, alias := range def.Aliases {
-		if existingCmd, exists := cr.aliases[alias]; exists {
-			return fmt.Errorf("alias %s already used by command %s", alias, existingCmd)
-		}
+	// 检查别名冲突（其它命令占用、遮蔽命令名、自身重复等）
+	if err := cr.validateAliasLocked(def.Name, def.Aliases); err != nil {
+		return err
 	}
 
 	// 创建元数据
@@ -159,6 +190,7 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 }
 
 // Upsert 注册或更新注册表中的命令定义。
+//
 // 若命令已存在，则以其为新版元数据（保留调用统计），并刷新编译快照；
 // 若命令尚未注册，则直接插入。
 // 此方法可避免"already registered"错误——当 RegisterCommandDef 先通过 OnCommand
@@ -167,13 +199,27 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 // 更新路径必须重建编译快照：compiledRegistry 中保存的是 *Meta 指针，
 // 只改字段不会让 Lookup/List 看到变化。写入也统一使用 Trie.Replace，
 // 确保同一命令只保留一份元数据。
-func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
+//
+// # 返回值
+//
+// 别名冲突（含遮蔽命令名、与自身同名、重复）视为注册失败：不写入任何数据，
+// 返回错误由调用方告警或修正定义。非法正则模式不阻断注册——模式是可选字段，
+// 此时命令照常写入、模式被忽略，并返回该错误（此前直接对非法模式 panic）。
+//
+// 调用方必须检查返回值：忽略它意味着"命令注册了但输入不完整"。
+func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) error {
 	if def == nil || def.Name == "" {
-		return
+		return fmt.Errorf("command definition name cannot be empty")
 	}
 
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
+
+	if err := cr.validateAliasLocked(def.Name, def.Aliases); err != nil {
+		return err
+	}
+
+	var patternErr error
 
 	if existing, ok := cr.trie.ExactMatch(def.Name); ok {
 		// 别名变更：同步更新 cr.aliases（影响 compiledRegistry.aliasMap）
@@ -196,6 +242,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 			if compiled, err := regexp.Compile(opts.Pattern); err == nil {
 				pattern = compiled
 			} else {
+				patternErr = fmt.Errorf("invalid pattern for %s: %w", def.Name, err)
 				logger.Warnf("[command] upsert %s: invalid pattern %q ignored: %v", def.Name, opts.Pattern, err)
 			}
 		}
@@ -227,7 +274,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 		// 且 Unregister 只能删掉其中一个。
 		cr.trie.Replace(def.Name, newMeta)
 		cr.recompile()
-		return
+		return patternErr
 	}
 
 	// 新建注册
@@ -247,7 +294,8 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 			meta.pattern = pattern
 		} else {
 			// 与 RegisterWithOptions 返回 error、RegisterBatch 跳过的口径一致：
-			// Upsert 没有 error 返回值，非法模式忽略并告警，而不是让进程 panic。
+			// 非法模式忽略（命令本身照常注册）并把错误返回给调用方。
+			patternErr = fmt.Errorf("invalid pattern for %s: %w", def.Name, err)
 			logger.Warnf("[command] upsert %s: invalid pattern %q ignored: %v", def.Name, opts.Pattern, err)
 		}
 	}
@@ -257,6 +305,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 		cr.aliases[alias] = def.Name
 	}
 	cr.recompile()
+	return patternErr
 }
 
 // RegisterBatch 批量注册命令，最终只调用一次 recompile()
@@ -290,15 +339,13 @@ func (cr *Registry) RegisterBatch(defs []*Definition, opts ...RegisterOptions) m
 		}
 
 		aliasConflict := false
-		for _, alias := range def.Aliases {
-			if existingCmd, exists := cr.aliases[alias]; exists {
-				if errs == nil {
-					errs = make(map[string]error)
-				}
-				errs[def.Name] = fmt.Errorf("alias %s already used by command %s", alias, existingCmd)
-				aliasConflict = true
-				break
+		// 与 Register/Upsert 同一套校验：其它命令占用、遮蔽命令名、自身重复
+		if err := cr.validateAliasLocked(def.Name, def.Aliases); err != nil {
+			if errs == nil {
+				errs = make(map[string]error)
 			}
+			errs[def.Name] = err
+			aliasConflict = true
 		}
 		if aliasConflict {
 			continue
