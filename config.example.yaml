@@ -383,6 +383,10 @@ messagelog:
 #                                         #     超限截断但持续排空管道
 #     exec_require_approval: true         # [R] 是否在任何审批模式下都强制人工审批 process_run
 #                                         #     （默认 true）；false 时仍需 tool_approval=restricted
+#     task_max_tool_calls: 200            # [R] 单个任务的工具调用次数上限（默认 200；<=0 不限制）。
+#                                         #     由运行时强制：超限时任务置为失败并取消计划
+#     task_max_duration: "2h"             # [R] 单个任务的执行时长上限（默认 2h；<=0 不限制）。
+#                                         #     由运行时强制：超限时任务置为失败并取消计划
 #     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
 #                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用

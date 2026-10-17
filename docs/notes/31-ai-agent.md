@@ -1283,6 +1283,7 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 - **状态机**：任务 11 态、步骤 8 态；终态（succeeded/failed/cancelled）无出边，`SyncPlan` 对终态任务返回 `ErrTaskTerminal`（迟到的工具结果不能覆盖取消）。
 - **Task ↔ Session**：任务按 `platform:chatID:userID` 归属；计划动作（create_plan / update_plan_step）在调用点镜像到任务；取消有三个入口（`/ai stop`、`/ai plan cancel`、`/ai task cancel`）且都会同时取消计划与任务。
 - **重启恢复**：启动时把 running/planning 任务置为 interrupted，下一次计划推进回到 running，不重放步骤。
+- **运行时预算**：任务级预算（`task_max_tool_calls` / `task_max_duration`）在工具调用前检查并累加，超限时任务失败并取消计划；预算计数在会话内按计划重置。
 - **执行信任模型**：能力默认关闭；`workspace_roots` 开启只读，`workspace_allow_write` 开启写入（强制审批 + `ai.file.write`），`exec_allowlist` 开启进程执行（强制审批 + `ai.exec.run`、命令白名单、环境变量白名单、工作区工作目录、整树回收）。
 
 ## 修订记录

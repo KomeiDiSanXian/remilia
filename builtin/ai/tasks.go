@@ -56,6 +56,7 @@ func (a taskPlanAccess) SetPlan(plan *session.Plan) {
 	a.p.taskMu.Lock()
 	defer a.p.taskMu.Unlock()
 	a.p.clearExecEvidence(a.sess.ID)
+	a.p.resetTaskUsage(a.sess.ID)
 	a.sess.SetPlan(plan)
 	a.p.startTaskForPlan(a.ctx, a.sess, plan)
 }

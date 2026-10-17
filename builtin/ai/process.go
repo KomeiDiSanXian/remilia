@@ -433,6 +433,16 @@ func escalateMaxTokens(current, cap int) int {
 // /ai stop / 用户新消息抢占对已启动的工具与审批等待同样生效
 // （此前工具只用事件 ctx 的 per-tool 超时，中断无法中止在跑工具）。
 func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, session *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
+	// 任务级预算：超限时终止任务并拒绝本次调用（模型只能在剩余预算内动作）。
+	if reason := p.chargeTaskBudget(session); reason != "" {
+		p.terminateTaskForBudget(session, reason)
+		err := fmt.Errorf("任务预算超限：%s", reason)
+		return runtime.ToolExecResult{
+			Result: "错误: " + err.Error() + "；任务已终止，请拆分为更小的任务后重试",
+			Err:    err,
+		}
+	}
+
 	session.Lock()
 	session.ToolCount++
 	session.Unlock()

@@ -161,6 +161,11 @@ func agentStateInventory() []agentStateItem {
 			Note:   "最近一次进程执行结果（会话级，进程内）：计划完成闸门的验证证据，重启后重置",
 		},
 		{
+			Name: "task_usage", Class: agentStateProcessMemory,
+			Plugin: []string{"taskUsage"},
+			Note:   "任务预算计数（会话级，进程内）：工具调用次数与起始时间，超限时任务失败",
+		},
+		{
 			Name: "group_policy", Class: agentStateProcessPersisted,
 			Plugin: []string{"groupPolicies"},
 			Note:   "per-group 工具策略/提示词：LevelDB（data/ai）自带持久化，属进程级配置态",

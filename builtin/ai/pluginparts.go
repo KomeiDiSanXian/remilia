@@ -135,6 +135,11 @@ type runtimeState struct {
 	execEvidence map[string]execEvidence
 	// evidenceMu 保护 execEvidence。
 	evidenceMu sync.Mutex
+	// taskUsage 任务预算的运行时计数器（会话级、进程内）：工具调用次数与
+	// 起始时间。预算由运行时强制执行（见 budget.go），新计划开始时重置。
+	taskUsage map[string]*taskUsage
+	// taskUsageMu 保护 taskUsage。
+	taskUsageMu sync.Mutex
 	// triggerCmd 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离。
 	triggerCmd string
 	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。

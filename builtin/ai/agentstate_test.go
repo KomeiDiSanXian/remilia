@@ -190,13 +190,14 @@ func agentStatePluginNonAgent() map[string]string {
 		"lifecycleCtx":    "插件生命周期上下文",
 		"lifecycleCancel": "生命周期上下文的取消函数",
 		// 后台任务守卫与限流（去重/节流，不是业务状态）。
-		"summaryMu":  "summaries 的互斥锁",
-		"summaries":  "同一会话摘要任务的在途去重集合",
-		"actionMu":   "actionRate 的互斥锁",
-		"actionRate": "按钮/命令动作的限流状态",
-		"replyGate":  "群自主发言接话策略的概率器（smart 档），信号数据实时取自 messagelog",
-		"taskMu":     "任务记录同步的串行化互斥（不承载业务状态）",
-		"evidenceMu": "execEvidence 的互斥锁",
+		"summaryMu":   "summaries 的互斥锁",
+		"summaries":   "同一会话摘要任务的在途去重集合",
+		"actionMu":    "actionRate 的互斥锁",
+		"actionRate":  "按钮/命令动作的限流状态",
+		"replyGate":   "群自主发言接话策略的概率器（smart 档），信号数据实时取自 messagelog",
+		"taskMu":      "任务记录同步的串行化互斥（不承载业务状态）",
+		"evidenceMu":  "execEvidence 的互斥锁",
+		"taskUsageMu": "taskUsage 的互斥锁",
 	}
 }
 

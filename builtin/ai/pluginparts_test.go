@@ -18,7 +18,7 @@ func pluginStateOwners() map[string][]string {
 		"catalogState":   {"coord", "reg", "catalogGen", "skillReg", "perms", "cmdMu", "cmdPatterns", "files", "proc"},
 		"contextState":   {"history", "emb", "memory"},
 		"executionState": {"syncer", "realCmdMu", "approvals"},
-		"runtimeState":   {"sm", "tasks", "taskMu", "execEvidence", "evidenceMu", "triggerCmd", "defOnce", "def", "lifecycleCtx", "lifecycleCancel"},
+		"runtimeState":   {"sm", "tasks", "taskMu", "execEvidence", "evidenceMu", "taskUsage", "taskUsageMu", "triggerCmd", "defOnce", "def", "lifecycleCtx", "lifecycleCancel"},
 		"adminState": {
 			"fsmEngine", "reminders", "todos", "groupPolicies",
 			"summaryMu", "summaries", "actionMu", "actionRate", "replyGate",
