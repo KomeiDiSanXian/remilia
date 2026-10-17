@@ -25,7 +25,7 @@ func TestSetupContext_ScopeConcurrentInit(t *testing.T) {
 	start.Add(1)
 
 	var wg sync.WaitGroup
-	for i := 0; i < callers; i++ {
+	for i := range callers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

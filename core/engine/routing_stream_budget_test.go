@@ -46,7 +46,7 @@ func TestRouting_AllIndexStreamsAreMerged(t *testing.T) {
 	pairs := make([]pair, indexCount)
 
 	opts := make([]Option, 0, indexCount)
-	for i := 0; i < indexCount; i++ {
+	for i := range indexCount {
 		opts = append(opts, WithMatcherIndex(sliceIndex{
 			band: BandFast,
 			get: func() ([]*Matcher, []*Matcher) {
@@ -59,7 +59,7 @@ func TestRouting_AllIndexStreamsAreMerged(t *testing.T) {
 	eng := newEngineForTest(t, opts...)
 
 	var calls atomic.Int32
-	for i := 0; i < indexCount; i++ {
+	for i := range indexCount {
 		a := eng.On(matcherEventType)
 		a.SetPriority(uint64(10 + i*2))
 		a.Handle(func(*context.Context) error {
@@ -89,7 +89,7 @@ func TestRouting_DroppedStreamsAreWarned(t *testing.T) {
 	defer releaseMergeIter(it)
 
 	list := []*Matcher{{}}
-	for i := 0; i < mergeIterMaxStreams+4; i++ {
+	for range mergeIterMaxStreams + 4 {
 		it.add(list)
 	}
 	assert.Equal(t, mergeIterMaxStreams, it.n, "容量内的流应全部保留")

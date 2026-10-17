@@ -7,6 +7,7 @@ package plugin
 // 运行时行为不变），调用方只看到一条 Warn 日志。
 
 import (
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -28,9 +29,7 @@ func TestConfigChangeNotification_SurvivesLongLockHold(t *testing.T) {
 			return nil
 		}
 		cp := make(map[string]any, len(cur))
-		for k, v := range cur {
-			cp[k] = v
-		}
+		maps.Copy(cp, cur)
 		return cp
 	}
 

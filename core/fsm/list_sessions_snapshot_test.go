@@ -67,7 +67,7 @@ func TestListSessions_ConcurrentWithTransitions(t *testing.T) {
 	// 迁移持续改写 Current/UpdatedAt/Data
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			_, _, _ = eng.TryTransition(newTestContext("go"), "chat-race")
 			_ = eng.UpdateSessionData("chat-race", func(data map[string]any) {
 				data["n"] = i
@@ -77,7 +77,7 @@ func TestListSessions_ConcurrentWithTransitions(t *testing.T) {
 	// 管理轮询读取快照
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 300; i++ {
+		for range 300 {
 			for _, s := range eng.ListSessions() {
 				_ = s.Data["n"]
 				_ = s.Current

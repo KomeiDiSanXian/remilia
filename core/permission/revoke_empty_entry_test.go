@@ -62,7 +62,7 @@ func TestRevokePermission_NoEmptyEntry(t *testing.T) {
 func TestRevoke_RepeatedCallsDoNotGrowMaps(t *testing.T) {
 	pm := NewPermissionManager()
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		pm.RevokeRole("ghost-role", "user")
 		pm.RevokePermission("ghost-perm", Permission{Resource: "x", Action: "y"})
 	}

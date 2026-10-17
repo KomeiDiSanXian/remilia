@@ -77,13 +77,13 @@ func TestPluginConfig_OverrideIsRaceFreeWithGlobalReaders(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 300; i++ {
+		for range 300 {
 			_ = pc.Override("k", "v")
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 300; i++ {
+		for range 300 {
 			_ = provider.Sub("demo")
 			_, _ = cfg.PluginString("demo", "k")
 		}

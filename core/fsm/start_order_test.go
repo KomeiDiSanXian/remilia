@@ -35,7 +35,7 @@ func TestTryStartSession_DeterministicRegistrationOrder(t *testing.T) {
 		},
 	}))
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		sessionID := "chat-order-" + string(rune('a'+i))
 		ok, err := eng.TryStartSession(newTestContext("go"), sessionID)
 		require.NoError(t, err)

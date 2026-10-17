@@ -37,14 +37,14 @@ func TestMatcher_RulesAppendRaceFree(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			// 允许规则：追加不应破坏匹配语义
 			m.Where(func(*context.Context) bool { return true })
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			eng.ProcessEvent(newTestCtx("hello"))
 		}
 	}()
@@ -69,14 +69,14 @@ func TestMatcher_HandleRaceWithIndexRebuild(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			// Handle 持锁写 Handler
 			m.Handle(func(*context.Context) error { return nil })
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			// 全量索引重建会读取每个 matcher 的 Handler
 			eng.UpdateMatcherIndex(nil)
 		}
@@ -98,13 +98,13 @@ func TestMatcher_SourceRaceWithQueries(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 500; i++ {
+		for range 500 {
 			m.SetSource("plugin:race")
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 500; i++ {
+		for range 500 {
 			_ = eng.GetMatcherStats()
 			_ = eng.GetAllCommands()
 		}

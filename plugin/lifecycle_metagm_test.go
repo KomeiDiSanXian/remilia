@@ -20,7 +20,7 @@ func TestLifecycleController_MetaGMRestartRace(t *testing.T) {
 	// Shutdown（停机路径）与 ensureMetaGM（StartAll 重启路径）交叠：
 	// 旧实现直接读写 metaGM 字段，-race 会报数据竞争。
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()

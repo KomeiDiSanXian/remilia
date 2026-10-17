@@ -77,14 +77,14 @@ func TestLiveRegistryWriter_SetNameIsRaceFree(t *testing.T) {
 	// 迁移侧持续切换分组与回调
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			rw.setName("rw-race", nil)
 		}
 	}()
 	// 插件后台 goroutine 持续注册
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			_ = rw.RegisterCommand("", "/race")
 		}
 	}()

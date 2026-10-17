@@ -249,9 +249,7 @@ func (d *OutboundDispatcher) failDroppedTasks(chatID string, tasks []queuedTask)
 	if len(tasks) == 0 {
 		return
 	}
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
+	d.wg.Go(func() {
 		ctx, cancel := context.WithCancel(d.baseCtx)
 		cancel() // 立即取消：任务只应快速失败，不应真正发送
 		for _, t := range tasks {
@@ -263,7 +261,7 @@ func (d *OutboundDispatcher) failDroppedTasks(chatID string, tasks []queuedTask)
 				h(DispatchInfo{ChatID: chatID, Err: err})
 			}
 		}
-	}()
+	})
 }
 
 // worker 是单个 Chat 的消息流处理 goroutine。

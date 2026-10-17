@@ -31,7 +31,7 @@ func TestEndSession_ConcurrentWithTransition(t *testing.T) {
 		},
 	}))
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		sessionID := "chat-lifecycle-concurrent"
 		eng.EndSession(sessionID) // 清理上一轮
 		ok, err := eng.TryStartSession(newTestContext(""), sessionID)
