@@ -146,6 +146,10 @@ type SetupContext struct {
 // 保护内置 key：普通插件不得覆盖 manager/engine/coordinator，否则等于劫持
 // 其他插件通过容器获取的核心对象。
 // （插件名恰好等于内置 key 时放行其自身名下的自动导出。）
+//
+// 冲突与归属：允许后来的插件覆盖同名 key（与容器语义一致），但会记录新的
+// 归属者——注销时只有仍属于本插件的 key 才会被移除，避免先注册者注销时把
+// 后来者的同名服务一起删掉。
 func (ctx *SetupContext) exportAs(name string, api any) {
 	if ctx.container == nil {
 		return
@@ -154,10 +158,27 @@ func (ctx *SetupContext) exportAs(name string, api any) {
 		logger.Warnf("[plugin] %q: exportAs(%q) rejected: reserved container key", ctx.pluginName, name)
 		return
 	}
+	if pm := ctx.exportOwnerManager(); pm != nil {
+		if prev := pm.claimExportKey(name, ctx.pluginName); prev != "" && prev != ctx.pluginName {
+			logger.WithFields(logger.Fields{
+				"plugin":     ctx.pluginName,
+				"key":        name,
+				"prev_owner": prev,
+			}).Warn("[plugin] exportAs: key was owned by another plugin, ownership transferred")
+		}
+	}
 	ctx.container.Register(name, api)
 	ctx.exportMu.Lock()
 	ctx.exportedNames = append(ctx.exportedNames, name)
 	ctx.exportMu.Unlock()
+}
+
+// exportOwnerManager 返回可用于记录导出 key 归属的 Manager（无则 nil）。
+func (ctx *SetupContext) exportOwnerManager() *Manager {
+	if ctx == nil || ctx.instance == nil {
+		return nil
+	}
+	return ctx.instance.managerRef()
 }
 
 // UseEngineGlobal 为所有 Matcher 注册全局中间件（跨插件生效）。

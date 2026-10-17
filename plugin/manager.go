@@ -49,6 +49,11 @@ type Manager struct {
 	mu          sync.RWMutex
 	createdAt   time.Time // Manager 创建时间（Stats().Uptime 使用）
 
+	// exportOwners 记录容器 key 当前归属的插件（key → 插件名），
+	// 由 claimExportKey/releaseExportKey 在 pm.mu 下维护：
+	// 同名 key 允许被后来的插件覆盖，注销时只有仍属于本插件的 key 才移除。
+	exportOwners map[string]string
+
 	lifecycle *lifecycleController
 	config    *configController
 	stats     *statsController
@@ -182,16 +187,62 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 	return nil
 }
 
+// claimExportKey 记录 name 这个容器 key 当前归属的插件，返回此前的归属者。
+//
+// 覆盖同名 key 是容器既有语义（后来者胜出），因此这里不做拒绝，只更新归属：
+// 注销时只有"仍属于自己"的 key 才会被移除，避免先注册者注销把后来者的同名
+// 服务一起删掉（见 Manager.removeExportedKeys）。
+func (pm *Manager) claimExportKey(key, plugin string) string {
+	if pm == nil || key == "" || plugin == "" {
+		return ""
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.exportOwners == nil {
+		pm.exportOwners = make(map[string]string)
+	}
+	prev := pm.exportOwners[key]
+	pm.exportOwners[key] = plugin
+	return prev
+}
+
+// releaseExportKey 释放 key 的归属，返回该 key 当前是否仍属于 plugin。
+func (pm *Manager) releaseExportKey(key, plugin string) bool {
+	if pm == nil || key == "" {
+		return false
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	owner, ok := pm.exportOwners[key]
+	if !ok {
+		// 无归属记录（旧路径注册的 key）：保守起见允许移除
+		return true
+	}
+	if owner != plugin {
+		return false
+	}
+	delete(pm.exportOwners, key)
+	return true
+}
+
 // removeExportedKeys 从容器移除插件的主 key 及其通过 exportAs/ExportIface
 // 额外导出的所有 key，避免注销后容器残留悬挂引用。
+//
+// 只移除"归属仍属于该插件"的 key：同名 key 可能已被后来的插件覆盖，
+// 无条件删除会让后来者的服务凭空消失。
 // 必须在不持有 pm.mu 时调用（Remove 会同步触发 Watch 回调）。
 func (pm *Manager) removeExportedKeys(inst *Instance, name string) {
-	pm.container.Remove(name)
+	if pm.releaseExportKey(name, name) {
+		pm.container.Remove(name)
+	}
 	if inst == nil {
 		return
 	}
 	for _, k := range inst.exportedKeys() {
-		if k != name {
+		if k == name {
+			continue
+		}
+		if pm.releaseExportKey(k, name) {
 			pm.container.Remove(k)
 		}
 	}
@@ -210,6 +261,9 @@ func (pm *Manager) registerInstanceInContainer(name string) {
 	if !c.Has(name) {
 		c.Register(name, inst)
 	}
+	// 主 key 的归属同样登记：注销时据此判断是否仍属于本插件
+	// （API 已通过 exportAs 占用同名 key 时归属记录会指向本插件，语义一致）
+	pm.claimExportKey(name, name)
 }
 
 // ForceUnregister 强制注销插件，忽略 Unload 错误直接从管理器中移除。
