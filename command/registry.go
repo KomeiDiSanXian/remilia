@@ -114,10 +114,10 @@ type RegisterOptions struct {
 func (cr *Registry) validateAliasLocked(owner string, aliases []string) error {
 	seen := make(map[string]struct{}, len(aliases))
 	for _, alias := range aliases {
-		switch {
-		case alias == "":
+		switch alias {
+		case "":
 			return fmt.Errorf("command %s: empty alias", owner)
-		case alias == owner:
+		case owner:
 			return fmt.Errorf("command %s: alias %s equals the command name", owner, alias)
 		}
 		if _, dup := seen[alias]; dup {

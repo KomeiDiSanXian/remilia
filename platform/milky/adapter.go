@@ -353,7 +353,11 @@ func (a *Adapter) readLoop(ctx stdctx.Context, conn *websocket.Conn, eventCh cha
 		return err
 	case <-ctx.Done():
 		_ = conn.Close()
-		<-readDone // 等待读取 goroutine 退出
+		// 等读取 goroutine 退出：它写入 readDone 的原因与本次取消同源，
+		// 调用方要的取消原因由下面的 ctx.Err() 给出，这里只记一条 debug。
+		if readErr := <-readDone; readErr != nil {
+			logger.WithError(readErr).Debug("[milky.Adapter] read loop stopped on cancellation")
+		}
 		return ctx.Err()
 	}
 }

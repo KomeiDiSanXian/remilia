@@ -150,22 +150,10 @@ func (m *Matcher) sourceLocked() string {
 	return m.Source
 }
 
-// rulesLocked 在 matcher 锁下读取规则切片（框架内部，冷路径使用）。
-//
-// 热路径（Match）走 [Matcher.ruleSnapshot]，只做一次 atomic 读取。
-func (m *Matcher) rulesLocked() []context.Rule {
-	if m == nil {
-		return nil
-	}
-	m.rt.mu.RLock()
-	defer m.rt.mu.RUnlock()
-	return m.Rules
-}
-
 // ruleSnapshot 返回规则切片快照（框架内部热路径使用，零锁）。
 //
 // 链式规则方法可作用于已注册的 matcher（如 eng.On(...).Regex(...)、
-// Where），它们通过 [Matcher.publishRules] 以 COW 方式发布新切片：
+// Where），它们以 COW 方式发布新切片（见 appendRule 与 publishInitialRules）：
 //
 //   - 未经内部修改的 matcher（绝大多数：规则在构造时给定）没有快照，
 //     直接读取公开字段，行为与开销与过去一致；
@@ -179,17 +167,6 @@ func (m *Matcher) ruleSnapshot() []context.Rule {
 		return rs.rules
 	}
 	return m.Rules
-}
-
-// publishRules 以 COW 方式发布新的规则切片（框架内部，链式规则方法使用）。
-//
-// 先在锁内更新公开字段（写侧互斥，避免两个并发追加互相覆盖），再用
-// atomic 发布快照；读侧只读快照，因此不会观察到部分写入。
-func (m *Matcher) publishRules(rules []context.Rule) {
-	m.rt.mu.Lock()
-	m.Rules = rules
-	m.rt.mu.Unlock()
-	m.rules.Store(&ruleSet{rules: rules})
 }
 
 // publishInitialRules 在 matcher 进入运行时索引前固定一份规则快照。

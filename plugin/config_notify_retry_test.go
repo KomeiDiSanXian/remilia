@@ -7,6 +7,7 @@ package plugin
 // 运行时行为不变），调用方只看到一条 Warn 日志。
 
 import (
+	"context"
 	"maps"
 	"sync"
 	"testing"
@@ -72,5 +73,5 @@ func TestConfigChangeNotification_SurvivesLongLockHold(t *testing.T) {
 
 	// 停机回收元数据 goroutine
 	pm.lifecycle.Shutdown()
-	assert.NoError(t, pm.StopAll(nil))
+	assert.NoError(t, pm.StopAll(context.Background()))
 }
