@@ -75,6 +75,22 @@ func newMockEventWithSender(kind platform.EventKind, senderID string) *mockEvent
 	return e
 }
 
+// evalRuleSession 在匹配会话内求值规则并按结果提交/丢弃副作用，
+// 模拟引擎的 Match → CommitPendingRuleEffects / DiscardPendingRuleEffects 协议。
+//
+// 引擎在 Match 前打开会话（BeginRuleEffectSession），会话外的规则副作用
+// 登记会被直接丢弃（见 Context.DeferRuleEffect）。
+func evalRuleSession(c *Context, rule Rule) bool {
+	c.BeginRuleEffectSession()
+	ok := rule(c)
+	if ok {
+		c.CommitPendingRuleEffects()
+	} else {
+		c.DiscardPendingRuleEffects()
+	}
+	return ok
+}
+
 // newTestCtx 创建一个用于测试的 Context（私聊消息类型）。
 func newTestCtx() *Context {
 	return NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)

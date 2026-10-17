@@ -63,11 +63,16 @@ type Context struct {
 	// （如 OnCooldown 的冷却写入）。由引擎在当前 matcher 的全部规则
 	// 通过后统一提交，任一规则失败则丢弃。
 	//
-	// 写入者约定：只有"正在为本次匹配求值"的规则才登记副作用（引擎 goroutine
-	// 同步调用 Rules，或 [WithTimeout] 在超时前返回后由 adoptRuleEffects 并入），
-	// 因此本字段的读写始终发生在引擎 goroutine 上。超时后仍在运行的规则
-	// goroutine 工作在派生 Context 上，登记项不会进入这里。
-	// 不参与 Clone。
+	// ruleEffectSession 标记"引擎正在为某个 matcher 求值规则"：
+	// 只有会话打开时 [Context.DeferRuleEffect] 才登记，会话外（FSM 直接求值、
+	// 业务代码手工调用规则、handler 内）的登记被丢弃，不会漏进后续 matcher
+	// 的提交窗口。会话由引擎开启、由提交/丢弃关闭。
+	//
+	// 写入者约定：规则由引擎 goroutine 同步调用（或 [WithTimeout] 在超时前
+	// 返回后由 adoptRuleEffects 并入），因此本字段的读写始终发生在引擎
+	// goroutine 上。超时后仍在运行的规则 goroutine 工作在派生 Context 上，
+	// 登记项不会进入这里。不参与 Clone。
+	ruleEffectSession  atomic.Bool
 	pendingRuleEffects []func()
 }
 
@@ -77,19 +82,39 @@ type Context struct {
 // 引擎在该 matcher 的全部规则通过后调用 [Context.CommitPendingRuleEffects]
 // 统一执行，任一规则失败则调用 [Context.DiscardPendingRuleEffects] 丢弃。
 //
-// 注意：只有经 Engine 匹配路径执行的规则才会被提交；在 FSM 的 Event.Match
-// 等场景中直接调用带副作用的规则时，登记的副作用不会执行。
+// 只有引擎正在为某个 matcher 求值规则时（BeginRuleEffectSession 与提交/丢弃
+// 之间）才会真正登记：其它路径直接调用带副作用的规则（如 FSM 的 Event.Match、
+// 业务代码手工求值）不会污染当前 Context，避免登记项被后续某个无关 matcher
+// 的提交执行（文档承诺"这些场景不执行副作用"，此前实现会漏进提交窗口）。
 func (ctx *Context) DeferRuleEffect(fn func()) {
 	if ctx == nil || fn == nil {
+		return
+	}
+	if !ctx.ruleEffectSession.Load() {
 		return
 	}
 	ctx.pendingRuleEffects = append(ctx.pendingRuleEffects, fn)
 }
 
-// CommitPendingRuleEffects 执行并清空所有已登记的延迟规则副作用。
-// 由引擎在 matcher 全部规则通过后调用（框架内部）。
+// BeginRuleEffectSession 打开一次匹配会话的副作用登记（框架内部）。
+//
+// 引擎在调用 Matcher.Match 前打开；[Context.CommitPendingRuleEffects] /
+// [Context.DiscardPendingRuleEffects] 关闭会话。
+func (ctx *Context) BeginRuleEffectSession() {
+	if ctx == nil {
+		return
+	}
+	ctx.ruleEffectSession.Store(true)
+}
+
+// CommitPendingRuleEffects 执行并清空所有已登记的延迟规则副作用，
+// 并关闭本次匹配会话的登记。由引擎在 matcher 全部规则通过后调用（框架内部）。
 func (ctx *Context) CommitPendingRuleEffects() {
-	if ctx == nil || len(ctx.pendingRuleEffects) == 0 {
+	if ctx == nil {
+		return
+	}
+	ctx.ruleEffectSession.Store(false)
+	if len(ctx.pendingRuleEffects) == 0 {
 		return
 	}
 	effects := ctx.pendingRuleEffects
@@ -99,12 +124,13 @@ func (ctx *Context) CommitPendingRuleEffects() {
 	}
 }
 
-// DiscardPendingRuleEffects 丢弃所有已登记的延迟规则副作用。
-// 由引擎在 matcher 匹配失败后调用（框架内部）。
+// DiscardPendingRuleEffects 丢弃所有已登记的延迟规则副作用，
+// 并关闭本次匹配会话的登记。由引擎在 matcher 匹配失败后调用（框架内部）。
 func (ctx *Context) DiscardPendingRuleEffects() {
 	if ctx == nil {
 		return
 	}
+	ctx.ruleEffectSession.Store(false)
 	ctx.pendingRuleEffects = nil
 }
 
@@ -244,6 +270,10 @@ func (ctx *Context) cloneBase() *Context {
 		indepCtx, cancel = stdctx.WithCancel(stdctx.Background())
 	}
 	base.cancel = cancel
+
+	// 匹配会话标记随克隆继承：WithTimeout 的派生 Context 也要能登记副作用
+	// （规则在超时前返回时由 adoptRuleEffects 并回原 Context）。
+	base.ruleEffectSession.Store(ctx.ruleEffectSession.Load())
 
 	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
 		indepCtx = trace.ContextWithSpan(indepCtx, span)

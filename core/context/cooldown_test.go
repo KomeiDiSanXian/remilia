@@ -20,7 +20,7 @@ var cdTestSeq atomic.Int64
 func TestOnCooldown_AllowsFirst(t *testing.T) {
 	rule := OnCooldown(1*time.Second, func(c *Context) string { return "cd_user_first" })
 	c := makeFakeContext()
-	if !rule(c) {
+	if !evalRuleSession(c, rule) {
 		t.Error("first call should be allowed")
 	}
 }
@@ -28,9 +28,8 @@ func TestOnCooldown_BlocksSecond(t *testing.T) {
 	key := fmt.Sprintf("cd_user_second_%d", cdTestSeq.Add(1))
 	rule := OnCooldown(10*time.Second, func(c *Context) string { return key })
 	c := makeFakeContext()
-	rule(c)
 	// 冷却写入是延迟副作用：模拟引擎在 matcher 命中后的提交
-	c.CommitPendingRuleEffects()
+	evalRuleSession(c, rule)
 	if rule(c) {
 		t.Error("second call within cooldown should be blocked")
 	}
@@ -39,8 +38,7 @@ func TestOnCooldown_AllowsAfterExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		rule := OnCooldown(40*time.Millisecond, func(c *Context) string { return "cd_user_expiry" })
 		c := makeFakeContext()
-		rule(c)
-		c.CommitPendingRuleEffects()
+		evalRuleSession(c, rule)
 		time.Sleep(50 * time.Millisecond)
 		if !rule(c) {
 			t.Error("should be allowed after cooldown expiry")
@@ -50,7 +48,7 @@ func TestOnCooldown_AllowsAfterExpiry(t *testing.T) {
 func TestOnCooldown_EmptyKeyAllows(t *testing.T) {
 	rule := OnCooldown(1*time.Hour, func(c *Context) string { return "" })
 	c := makeFakeContext()
-	if !rule(c) {
+	if !evalRuleSession(c, rule) {
 		t.Error("empty key should always allow")
 	}
 }
@@ -62,17 +60,17 @@ func TestOnCooldown_DiscardDoesNotConsume(t *testing.T) {
 	rule := OnCooldown(1*time.Hour, func(c *Context) string { return key })
 	c := makeFakeContext()
 
+	// 会话内通过、随后被丢弃（模拟后续规则失败）
+	c.BeginRuleEffectSession()
 	if !rule(c) {
 		t.Fatal("first check should pass")
 	}
-	// 模拟引擎在后续规则失败后的丢弃
 	c.DiscardPendingRuleEffects()
 
-	// 冷却未被消耗：再次检查仍应通过
-	if !rule(c) {
+	// 冷却未被消耗：再次在会话内求值并通过，这次提交
+	if !evalRuleSession(c, rule) {
 		t.Error("cooldown must not be consumed when pending effects are discarded")
 	}
-	c.CommitPendingRuleEffects()
 
 	// 提交后进入冷却
 	if rule(c) {

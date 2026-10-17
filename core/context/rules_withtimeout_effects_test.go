@@ -27,8 +27,7 @@ func TestWithTimeout_EffectIsolation(t *testing.T) {
 			return true
 		}, time.Second)
 
-		require.True(t, rule(ctx))
-		ctx.CommitPendingRuleEffects()
+		require.True(t, evalRuleSession(ctx, rule))
 		assert.True(t, ran, "规则在超时前返回，副作用应照常提交")
 	})
 
@@ -45,6 +44,7 @@ func TestWithTimeout_EffectIsolation(t *testing.T) {
 			return true
 		}, 5*time.Millisecond)
 
+		ctx.BeginRuleEffectSession()
 		require.False(t, rule(ctx))
 		// 引擎在超时后立即丢弃副作用
 		ctx.DiscardPendingRuleEffects()

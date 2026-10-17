@@ -188,6 +188,9 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 			m.hasHandler.Store(true)
 		}
 
+		// 打开匹配会话：只有会话内的规则副作用登记才会被提交/丢弃
+		// （会话外观测到的 DeferRuleEffect 直接丢弃，详见 Context.DeferRuleEffect）
+		ctx.BeginRuleEffectSession()
 		if !m.Match(ctx) {
 			// 丢弃本 matcher 匹配过程中登记的延迟副作用
 			// （如 OnCooldown：前面的规则通过、后面的规则失败时不消耗冷却）

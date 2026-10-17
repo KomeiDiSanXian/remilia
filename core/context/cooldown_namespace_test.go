@@ -22,12 +22,10 @@ func TestOnCooldown_DefaultKeyNamespacedPerRule(t *testing.T) {
 	sign := OnCooldown(time.Hour, nil)
 	daily := OnCooldown(time.Hour, nil)
 
-	require.True(t, sign(c))
-	c.CommitPendingRuleEffects() // 模拟引擎在 /sign 命中后提交冷却
+	require.True(t, evalRuleSession(c, sign)) // 模拟引擎在 /sign 命中后提交冷却
 
 	assert.False(t, sign(c), "同一规则实例的冷却在窗口内应拦截")
 	assert.True(t, daily(c), "另一条默认 key 规则（＝另一个命令）的冷却必须独立")
-	c.DiscardPendingRuleEffects()
 }
 
 func TestOnCooldown_SharedRuleSharesCooldown(t *testing.T) {
@@ -37,9 +35,7 @@ func TestOnCooldown_SharedRuleSharesCooldown(t *testing.T) {
 	// 同一个规则实例挂到多个 matcher 是显式的"共享冷却"写法，行为保持不变
 	shared := OnCooldown(time.Hour, nil)
 
-	require.True(t, shared(c))
-	c.CommitPendingRuleEffects()
+	require.True(t, evalRuleSession(c, shared))
 
 	assert.False(t, shared(c), "同一规则实例应共享冷却")
-	c.DiscardPendingRuleEffects()
 }
