@@ -1271,7 +1271,7 @@ Remilia 的 AI 插件应演进为通用 Agent 平台，但这一演进不应表�
 | 1 任务化 | ✅ | `builtin/ai/task`、`builtin/ai/tasks.go`、`builtin/ai/taskapi.go`、`api/aitasks.go` | 持久任务（`ai_tasks` 表）、计划镜像、`/ai task` 命令、取消联动、重启恢复、任务指标、REST 查询与取消 |
 | 2 能力抽象与策略扩展 | 🚧 部分 | `builtin/ai/protocol/argvalidate.go` | 已落地调用前 Schema 校验；`ActionID` 路由与效应/风险/幂等字段待做 |
 | 3 本地执行 | 🚧 部分 | `builtin/ai/workspace`、`builtin/ai/procexec`、`builtin/ai/catalog/filetool.go`、`catalog/exectool.go` | 工作区只读/写入、精确替换与 diff、白名单进程执行（强制审批、RBAC、环境清洗、整树回收、输出上限）；容器与系统级沙箱未做 |
-| 4 编码场景闭环 | 🚧 部分 | `builtin/ai/evidence.go`、`catalog/plantool.go`、`builtin/ai/artifacts.go` | 已落地计划完成闸门（最近一次进程执行失败时拒绝完成计划）与任务产物登记（文件新建/修改）；端到端场景编排待真实部署验证 |
+| 4 编码场景闭环 | ✅ 实测通过 | `builtin/ai/evidence.go`、`catalog/plantool.go`、`builtin/ai/artifacts.go`、`tests/agent` | 完成闸门 + 产物登记 + 端到端实测：真实 LLM（deepseek-flash）在远程节点上完成 5 步任务（列目录 → 写 fib.py → python3 运行 → uname -a → 汇报），3 次工具审批全部经人工批准，任务 succeeded、产物 `fib.py` 417 字节，节点侧文件与输出经 SSH 复核。实测数据：总耗时约 11s，预算消耗 3 次工具调用 |
 | 5 任务 UX 与管理面 | ✅ | `/ai task` 命令、`/api/v1/ai/tasks*`、Dashboard「AI 任务」页 | 查询/取消/进度下钻（步骤与产物）齐备；进度播报复用既有计划消息与后台推进 |
 | 6 第二真实场景 | ⏳ 待做 | — | 依赖真实部署环境（运维巡检或报表生成） |
 | 7 隔离执行 | ✅ 单节点 | `builtin/ai/execnode`、`cmd/executor`、`ai.exec_node=remote` | 远程节点（HTTP + Bearer、节点侧工作区/白名单、取消传播终止进程树）已落地并在 10.0.0.19 实测：认证、文件读写/替换/列举、越界拒绝、远程执行与取消传播全部通过。多节点选择、mTLS 与节点注册中心待需要时再做 |
@@ -1325,6 +1325,15 @@ plugins:
     exec_remote_token: "<token>"
     workspace_allow_write: true
     exec_require_approval: true
+```
+
+文件与执行动作要求 RBAC 权限：使用前需要为使用者授予 `ai.file.read`、`ai.file.write`（写入）与 `ai.exec.run`（进程执行）；未授权时动作会被过滤出模型视野（模型会如实回答"没有这些工具"），而不是执行后报错。
+
+端到端场景用例（真实 LLM + 远程节点，自动批准工具调用）：
+
+```bash
+REMILIA_AI_API_KEY=<key> REMILIA_EXEC_NODE_URL=http://10.0.0.19:9020 \
+REMILIA_EXEC_NODE_TOKEN=<token> go test -tags network ./tests/agent -run TestRemoteCodingScenario -v
 ```
 
 联调（需要 `network` 构建标签，覆盖认证、文件、替换、越界拒绝、远程执行与取消传播）：
