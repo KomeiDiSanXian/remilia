@@ -546,10 +546,14 @@ messagelog:
 #     serper_api_key: ""              # [R]  Serper API Key（engine=serper 时必填）
 #     proxy: ""                       # [R]  搜索与网页抓取代理地址（如 "http://127.0.0.1:7890"）；
 #                                     #      空 = 环境变量代理或直连
-#     timeout: "15s"                  # [H]  单次搜索/抓取超时
-#     max_results: 5                  # [H]  单次搜索返回的结果条数
-#     max_fetch_bytes: 2097152        # [R]  网页抓取响应大小上限（字节，默认 2MB）
-#     max_fetch_runes: 4000           # [R]  抓取正文最大字符数（超出截断）
+#     timeout: "15s"                  # [H]  单次搜索/抓取超时（夹在 1s–2m）
+#     max_results: 5                  # [H]  单次搜索返回的结果条数（夹在 1–10）
+#     max_fetch_bytes: 2097152        # [R]  网页抓取响应大小上限（字节，夹在 64KiB–8MiB）
+#     max_fetch_runes: 4000           # [R]  抓取正文最大字符数（夹在 500–20000）
+#     max_concurrent: 4               # [R]  搜索/抓取的并发出网上限（夹在 1–32）。
+#                                     #      模型单轮并发发起大量抓取时，超限调用得到
+#                                     #      可读错误而不是把宿主与实例打满
+#     rate_limit_per_minute: 0        # [R]  每用户每分钟搜索配额（0 = 不限，上限 600）
 #   minecraft:                      # [H]  Minecraft 服务器状态查询（/mc 命令 + AI 工具）
 #     default_server: ""          # [H]  默认服务器（主机[:端口]）；/mc 不带参数时查询
 #     timeout: "10s"              # [H]  单次查询总超时（Java/Bedrock 直连与 API 回退共享预算）

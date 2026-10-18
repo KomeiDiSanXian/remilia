@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -60,13 +61,7 @@ func validateValue(schema ToolParamSchema, value any, path string, depth int) er
 		if !ok {
 			return fmt.Errorf("%s 必须是字符串枚举值，实际为 %s", path, valueTypeName(value))
 		}
-		found := false
-		for _, candidate := range schema.Enum {
-			if s == candidate {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(schema.Enum, s)
 		if !found {
 			return fmt.Errorf("%s 必须是以下值之一：%s", path, strings.Join(schema.Enum, " / "))
 		}

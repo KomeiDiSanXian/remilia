@@ -122,8 +122,12 @@ func (s *loopToolSender) SendTo(ctx context.Context, target toolkit.ChatTarget, 
 
 // ResolveTarget 将目标自动解析为 ChatTarget（见 resolveTarget）。
 // isGroup 提示仅在按原始 ID 兜底时生效。
+//
+// 执行侧把本方法适配为 [toolkit.TargetResolver] 端口注入工具 context；
+// 动作层（builtin/ai/catalog）经 [toolkit.TargetResolverFromContext] 提取后
+// 即可复用同一套解析规则（send_to 的目标、send_message 的 @ 提及）。
 func (s *loopToolSender) ResolveTarget(ctx context.Context, raw string, isGroup bool) (toolkit.ChatTarget, string, error) {
-	return s.resolveTarget(ctx, raw, isGroup)
+	return resolveTarget(ctx, s, raw, isGroup)
 }
 
 // resolveTarget 按优先级解析目标：
@@ -133,7 +137,8 @@ func (s *loopToolSender) ResolveTarget(ctx context.Context, raw string, isGroup 
 //  4. 原始 ID 兜底（仅 ASCII 标识符，isGroup 提示指定类型）
 //
 // 返回 (目标, 展示文本, 错误)。同名歧义时返回候选 ID 列表错误。
-func (s *loopToolSender) resolveTarget(ctx context.Context, raw string, isGroupHint bool) (toolkit.ChatTarget, string, error) {
+// 解析只读、不受审批门控：SendTo 的授权仍是独立闸门。
+func resolveTarget(ctx context.Context, s *loopToolSender, raw string, isGroupHint bool) (toolkit.ChatTarget, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return toolkit.ChatTarget{}, "", fmt.Errorf("target 不能为空")
@@ -141,23 +146,23 @@ func (s *loopToolSender) resolveTarget(ctx context.Context, raw string, isGroupH
 	chat := s.ctx.GetChatInfo()
 
 	// 1. 内置别名
-	if target, display, matched, err := s.specialTarget(raw, chat); matched {
+	if target, display, matched, err := specialTarget(s, raw, chat); matched {
 		return target, display, err
 	}
 
 	// 2. 当前会话近期发言者昵称
-	if target, display, matched, err := s.matchRecentSpeaker(raw, chat); matched {
+	if target, display, matched, err := matchRecentSpeaker(s, raw, chat); matched {
 		return target, display, err
 	}
 
 	// 3. 已加入群群名（平台不支持时自动跳过）
-	if target, display, matched, err := s.matchJoinedGroupName(ctx, raw); matched {
+	if target, display, matched, err := matchJoinedGroupName(ctx, s, raw); matched {
 		return target, display, err
 	}
 
 	// 4. 原始 ID 兜底：仅接受 ASCII 标识符（数字/字母/_-），
 	// 避免把中文昵称等未命中目标静默当作 ID 使用。
-	if s.isPlainID(raw) {
+	if isPlainID(raw) {
 		return toolkit.ChatTarget{ID: raw, IsGroup: isGroupHint}, raw, nil
 	}
 
@@ -166,7 +171,7 @@ func (s *loopToolSender) resolveTarget(ctx context.Context, raw string, isGroupH
 }
 
 // isPlainID 判断字符串是否可作为原始目标 ID（ASCII 标识符，不含空白）。
-func (s *loopToolSender) isPlainID(raw string) bool {
+func isPlainID(raw string) bool {
 	if raw == "" {
 		return false
 	}
@@ -182,7 +187,7 @@ func (s *loopToolSender) isPlainID(raw string) bool {
 
 // specialTarget 处理内置别名（本群/我/对方）。
 // matched=false 表示不是内置别名。
-func (s *loopToolSender) specialTarget(raw string, chat platform.ChatInfo) (toolkit.ChatTarget, string, bool, error) {
+func specialTarget(s *loopToolSender, raw string, chat platform.ChatInfo) (toolkit.ChatTarget, string, bool, error) {
 	switch raw {
 	case "本群", "这个群", "当前群", "本群聊", "群里":
 		if !chat.IsGroup || chat.ID == "" {
@@ -209,7 +214,7 @@ func (s *loopToolSender) specialTarget(raw string, chat platform.ChatInfo) (tool
 
 // matchRecentSpeaker 在当前会话 messagelog 中按昵称匹配近期发言者。
 // 先精确匹配，再大小写不敏感匹配；同名多人返回候选 ID 列表错误。
-func (s *loopToolSender) matchRecentSpeaker(raw string, chat platform.ChatInfo) (toolkit.ChatTarget, string, bool, error) {
+func matchRecentSpeaker(s *loopToolSender, raw string, chat platform.ChatInfo) (toolkit.ChatTarget, string, bool, error) {
 	if s.p.history == nil {
 		return toolkit.ChatTarget{}, "", false, nil
 	}
@@ -260,7 +265,7 @@ func (s *loopToolSender) matchRecentSpeaker(raw string, chat platform.ChatInfo) 
 }
 
 // matchJoinedGroupName 在机器人已加入的群中按群名匹配（平台支持时）。
-func (s *loopToolSender) matchJoinedGroupName(ctx context.Context, raw string) (toolkit.ChatTarget, string, bool, error) {
+func matchJoinedGroupName(ctx context.Context, s *loopToolSender, raw string) (toolkit.ChatTarget, string, bool, error) {
 	sender := s.ctx.GetPlatformSender()
 	if sender == nil {
 		return toolkit.ChatTarget{}, "", false, nil

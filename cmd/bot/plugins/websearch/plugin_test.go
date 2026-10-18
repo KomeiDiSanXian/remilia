@@ -7,16 +7,37 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
+// newTestPlugin 构造测试插件：放行回环目标（httptest 服务器绑定 127.0.0.1），
+// 并初始化共享 Transport。
 func newTestPlugin(engine string) *Plugin {
+	restoreGuard := allowLocalTargets()
 	_ = initWebTransport("")
+	restoreGuard()
 	cfg := DefaultConfig
 	cfg.Engine = engine
-	p := &Plugin{cfg: &cfg}
+	p := &Plugin{cfg: &cfg, limiters: make(map[string]*rate.Limiter)}
 	p.client = newWebClient(5 * time.Second)
+	p.sem = make(chan struct{}, cfg.MaxConcurrent)
 	p.engine = newSearchEngine(&cfg, p.client)
 	return p
+}
+
+// allowLocalTargets 让拨号守卫放行回环地址（仅测试用），返回还原函数。
+func allowLocalTargets() func() {
+	orig := guardDial
+	guardDial = func(tr *http.Transport) *http.Transport { return tr }
+	return func() { guardDial = orig }
+}
+
+// allowLocalSSRF 让 URL 级准入放行任意主机（仅测试用），返回还原函数。
+func allowLocalSSRF() func() {
+	orig := ssrfPolicy
+	ssrfPolicy = func(string) bool { return true }
+	return func() { ssrfPolicy = orig }
 }
 
 func TestSearxngEngine(t *testing.T) {

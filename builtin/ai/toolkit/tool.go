@@ -38,6 +38,37 @@ func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
 // ctxKeyToolSender 是 context 中存储工具消息发送能力的键。
 type ctxKeyToolSenderType struct{}
 
+// TargetResolver 工具可用的目标解析能力（只读，无副作用）。
+//
+// 与 [ToolSender.SendTo] 分开声明：解析不发送、不需要审批，供需要把模型给出的
+// 人名/别名/原始 ID 转成平台 ID 的工具（send_to 的目标、send_message 的 @ 提及）
+// 复用同一套规则。实现方负责按当前调用者与会话上下文解析，并拒绝无法唯一
+// 确定的目标（返回候选列表）。
+//
+// [ToolSender] 上的 ResolveTarget 是同一能力的旧位置（send_to 的审批预览仍
+// 直接使用它）；动作层一律经本接口消费解析能力，不再依赖 ToolSender 的额外
+// 方法——注入由执行路径的适配器统一完成（见 builtin/ai/mentions.go）。
+type TargetResolver interface {
+	// Resolve 解析目标（内置别名/本会话近期发言者昵称/已加入群群名/原始 ID），
+	// 返回 (目标, 展示文本, 错误)。isGroup 提示仅在按原始 ID 兜底时生效。
+	Resolve(ctx context.Context, raw string, isGroup bool) (ChatTarget, string, error)
+}
+
+// WithTargetResolver 将目标解析能力注入 context，供工具 Execute 回调使用。
+func WithTargetResolver(ctx context.Context, r TargetResolver) context.Context {
+	return context.WithValue(ctx, ctxKeyTargetResolverType{}, r)
+}
+
+// TargetResolverFromContext 从 context 中提取目标解析能力。
+// 若 context 中无解析能力，返回 nil 和 false。
+func TargetResolverFromContext(ctx context.Context) (TargetResolver, bool) {
+	r, ok := ctx.Value(ctxKeyTargetResolverType{}).(TargetResolver)
+	return r, ok
+}
+
+// ctxKeyTargetResolverType 是 context 中存储目标解析能力的键。
+type ctxKeyTargetResolverType struct{}
+
 // ToolSender 工具可用的消息发送能力。
 //
 // 由 AI 插件在工具执行前注入工具调用的 context（见 [WithToolSender]），

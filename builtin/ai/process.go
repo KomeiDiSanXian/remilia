@@ -498,7 +498,7 @@ func (p *Plugin) approvalSummaryForAction(ctx *eventctx.Context, tc protocol.Too
 	sender := &loopToolSender{ctx: ctx, p: p}
 	previewCtx, cancel := context.WithTimeout(ctx.Context(), 5*time.Second)
 	defer cancel()
-	if _, display, err := sender.resolveTarget(previewCtx, raw, isGroup); err == nil {
+	if _, display, err := sender.ResolveTarget(previewCtx, raw, isGroup); err == nil {
 		args := make(map[string]any, len(tc.Arguments))
 		maps.Copy(args, tc.Arguments)
 		args["target"] = display

@@ -417,17 +417,17 @@ func (m *Manager) Edit(rel, oldString, newString string) (EditResult, error) {
 
 // buildEditHunk 生成替换处的单块 diff（行号取替换起点所在行）。
 func buildEditHunk(rel, content, oldString, newString string) string {
-	idx := strings.Index(content, oldString)
-	if idx < 0 {
+	before, _, ok := strings.Cut(content, oldString)
+	if !ok {
 		return ""
 	}
-	line := strings.Count(content[:idx], "\n") + 1
+	line := strings.Count(before, "\n") + 1
 	var b strings.Builder
 	fmt.Fprintf(&b, "--- a/%s\n+++ b/%s\n@@ -%d +%d @@\n", rel, rel, line, line)
-	for _, l := range strings.Split(strings.TrimSuffix(oldString, "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSuffix(oldString, "\n"), "\n") {
 		b.WriteString("-" + l + "\n")
 	}
-	for _, l := range strings.Split(strings.TrimSuffix(newString, "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSuffix(newString, "\n"), "\n") {
 		b.WriteString("+" + l + "\n")
 	}
 	return b.String()

@@ -1305,7 +1305,7 @@ plugins:
 
 **现状盘点（实测）**
 
-- 已有能力：`web_search`（SearXNG 自建 / Serper，标题+链接+摘要）与 `fetch_url`（仅 https 公网、SSRF 逐跳校验、2MB / 4000 字上限），来源 `cmd/bot/plugins/websearch`，经 `ToolProvider` 进入目录，类别 `general`（基线保留）。二者覆盖"搜索 + 静态网页正文"。
+- 已有能力：`web_search`（SearXNG 自建 / Serper，标题+链接+摘要）与 `fetch_url`（仅 https 公网：URL 准入 + 拨号层 IP 二次校验 + 重定向逐跳校验，2MB / 4000 字上限，结果带外部数据边界标记，带并发出网上限与抓取缓存），来源 `cmd/bot/plugins/websearch`，经 `ToolProvider` 进入目录，类别 `general`（基线保留）。二者覆盖"搜索 + 静态网页正文"。
 - 能力缺口：JS 渲染页面（现代 SPA 正文抓不到）、登录态与 Cookie 会话、交互（点击/输入/滚动/上传/下载）、等待条件、截图与 PDF、页面内结构化提取。
 - 执行节点环境（10.0.0.19，实测）：无 node/npm/浏览器；`chromium-browser` 仅有 snap 包装；有 `xdotool`、ImageMagick `import`、`xvfb-run`；`graphical.target` **活跃**（存在图形会话，桌面自动化有打扰真人的风险）；30GB 内存 / 16 核 / 27GB 空闲磁盘；`sudo` 免密；Chrome 官方 deb 可下载。
 - **关键前置缺口：多模态工具结果回灌**。当前工具结果回填给模型的只有文本；MCP 的图片/音频附件只进入最终回复通道，模型看不到截图。任何"截图 → 视觉判断 → 下一步动作"的闭环都依赖它（属文档 30 的延后项）。
@@ -1334,9 +1334,9 @@ plugins:
 
 **共同安全约束（无论哪条路径）**
 
-- 域名策略：默认拒绝内网、回环与云元数据地址（复核 `fetch_url` 的 netguard 逻辑并覆盖重定向逐跳与 DNS rebinding）；浏览器不得绕过该策略。
+- 域名策略：默认拒绝内网、回环与云元数据地址。`fetch_url` 已按此复核并补齐：URL 准入（仅 https 公网）、拨号层 IP 二次校验（防 DNS 重绑定，`netguard.GuardTransport`）、重定向逐跳校验（scheme 与目标地址，`netguard.RedirectPolicy`）；后续浏览器与桌面能力必须复用同一策略，不得绕过。
 - 会话隔离：每任务独立浏览器 profile，不复用个人资料与 Cookie，不持久化登录凭证。
-- 内容不可信：页面文本按外部数据标记（复用 MCP 的 `externalContentTag` 与文件能力的数据边界标记）；点击、表单提交、上传等副作用动作强制人工审批。
+- 内容不可信：页面文本按外部数据标记（`fetch_url` 的搜索/抓取结果已包数据边界标记；MCP 外部工具与文件能力同款）；点击、表单提交、上传等副作用动作强制人工审批。
 - 资源：浏览器进程有内存上限与空闲回收，随任务取消终止。
 - 下载/上传：下载落节点工作区并登记为产物（大小上限）；上传仅允许来自工作区的文件。
 - 验证：优先 DOM/文本断言，不把"截图看起来对"当作成功判据。

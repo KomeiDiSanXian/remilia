@@ -157,15 +157,13 @@ func TestParallelPlanUpdatesKeepTaskConsistent(t *testing.T) {
 	update := planToolForTest(t, catalog.PlanUpdateToolName)
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, err := update.Execute(catalog.WithPlanAccess(context.Background(), p.planAccessFor(ctx, sess)),
 				map[string]any{"step_id": "step_1", "status": "done"})
 			if err != nil || strings.Contains(res, "错误") {
 				t.Errorf("parallel update = (%q, %v)", res, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

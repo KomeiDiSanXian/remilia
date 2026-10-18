@@ -155,14 +155,26 @@ func TestBuildOutboundMessage(t *testing.T) {
 
 	msg, err = buildOutboundMessageForTest(mdPlugin, map[string]any{
 		"message":     "pic",
-		"image_url":   "https://example.com/a.png",
+		"image_url":   "https://93.184.216.34/a.png",
 		"mention_ids": []any{"u1", "u2"},
 	})
 	require.NoError(t, err)
 	require.Len(t, msg.Attachments, 1)
 	assert.Equal(t, platform.AttachmentKindImage, msg.Attachments[0].Kind)
-	assert.Equal(t, "https://example.com/a.png", msg.Attachments[0].URL)
+	assert.Equal(t, "https://93.184.216.34/a.png", msg.Attachments[0].URL)
 	assert.Equal(t, []string{"u1", "u2"}, msg.Mentions)
+
+	// image_url 与附件下载同一条 SSRF 准入：仅 https 公网地址
+	for _, badURL := range []string{
+		"http://93.184.216.34/a.png",
+		"https://127.0.0.1/a.png",
+		"https://192.168.1.10/a.png",
+		"https://169.254.169.254/latest/meta-data/",
+		"not a url",
+	} {
+		_, err = buildOutboundMessageForTest(mdPlugin, map[string]any{"message": "pic", "image_url": badURL})
+		assert.Error(t, err, "image_url %q should be rejected", badURL)
+	}
 
 	_, err = buildOutboundMessageForTest(mdPlugin, map[string]any{})
 	assert.Error(t, err)
@@ -541,4 +553,174 @@ func TestApprovalSummaryDrivenByPolicyNotName(t *testing.T) {
 	})
 	assert.NotContains(t, got, "（u1）", "未声明 GrantsSendTo 的动作不应预解析目标")
 	assert.Contains(t, got, "target=张三", "未预解析时应回退原始参数摘要")
+}
+
+// newMentionTestContext 构造带调用源信息的工具执行 context（模拟 execute.go
+// 的注入：会话源 + 发送能力 + 目标解析能力同时进入）。
+func newMentionTestContext(sender toolkit.ToolSender, isGroup bool) context.Context {
+	ctx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{
+		UserID:  "user1",
+		ChatID:  "group_1",
+		IsGroup: isGroup,
+	})
+	ctx = toolkit.WithToolSender(ctx, sender)
+	return toolkit.WithTargetResolver(ctx, targetResolverAdapter{sender: sender})
+}
+
+// sendMessageTool 从构建结果中取出 send_message 工具。
+func sendMessageTool(t *testing.T, tools []toolkit.Tool) toolkit.Tool {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name == catalog.SendMessageToolName {
+			return tool
+		}
+	}
+	t.Fatal("send_message tool not built")
+	return toolkit.Tool{}
+}
+
+// TestSendMessageMentionsResolveNicknames 验证 @ 提及与 send_to 共用同一套
+// 解析规则：本会话近期发言者的昵称被解析为平台 ID，原始 ID 原样通过。
+func TestSendMessageMentionsResolveNicknames(t *testing.T) {
+	mockSender := mock.NewSender()
+	p := withHistory(&Plugin{cfg: &config.Config{}}, true, map[string]string{"u1": "张三"})
+	ctx := newGroupSendTestContext(mockSender)
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	msg, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+		"message":     "进度：正在搜索…",
+		"mention_ids": []any{"张三", "u2", ""},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, msg, "消息已发送")
+
+	calls := mockSender.Snapshot()
+	require.Len(t, calls, 1, "send_message 应只发一条消息")
+	assert.Equal(t, []string{"u1", "u2"}, calls[0].Msg.Mentions, "昵称应解析为 ID，显式 ID 原样通过，空项被丢弃")
+}
+
+// TestExecOneToolSendMessageResolvesMentions 验证执行入口的完整接线：
+// execOneTool 把目标解析能力注入工具 context 后，send_message 的 @ 提及
+// 能完成"昵称 → 平台 ID"的解析（而非只有工具内单测覆盖）。
+func TestExecOneToolSendMessageResolvesMentions(t *testing.T) {
+	mockSender := mock.NewSender()
+	ctx := newGroupSendTestContext(mockSender)
+
+	p := withHistory(&Plugin{
+		cfg:       &config.Config{ToolTimeout: 5 * time.Second},
+		sm:        session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:       toolkit.NewToolRegistry(),
+		skillReg:  toolkit.NewSkillRegistry(),
+		approvals: execution.NewApprovalManager(),
+	}, true, map[string]string{"u1": "张三"})
+	for _, tool := range buildSendToolsForTest(p) {
+		p.reg.Register(tool)
+	}
+	sess := p.sm.GetOrCreate("send:mention", "user1", "group_1")
+
+	res := p.execOneTool(ctx, context.Background(), sess, &execution.CaptureSender{}, &sendBudget{limit: 10}, protocol.ToolCall{
+		Name:      catalog.SendMessageToolName,
+		Arguments: map[string]any{"message": "正在搜索…", "mention_ids": []any{"张三"}},
+	})
+	require.NoError(t, res.Err)
+	assert.Contains(t, res.Result, "消息已发送")
+
+	calls := mockSender.Snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "Send", calls[0].Method)
+	assert.Equal(t, []string{"u1"}, calls[0].Msg.Mentions, "执行入口应注入解析能力，昵称解析为平台 ID")
+}
+
+// TestSendMessageMentionsGroupAliasResolvesToChat 验证群聊里"本群"这类别名
+// 解析出的群目标不能作为 @ 提及对象，避免把群 ID 当成员 ID 塞进 Mentions。
+func TestSendMessageMentionsRejectsGroupTarget(t *testing.T) {
+	p := withHistory(&Plugin{cfg: &config.Config{}}, true, map[string]string{"u1": "张三"})
+	ctx := newGroupSendTestContext(mock.NewSender())
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+		"message":     "进度",
+		"mention_ids": []any{"本群"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "不能作为 @ 提及对象")
+}
+
+// TestSendMessageMentionsUnknownNicknameErrors 验证无法解析的昵称报错而不是
+// 静默塞进 Mentions：模型据此改用原始 ID 重试。
+func TestSendMessageMentionsUnknownNicknameErrors(t *testing.T) {
+	mockSender := mock.NewSender()
+	p := withHistory(&Plugin{cfg: &config.Config{}}, true, map[string]string{"u1": "张三"})
+	ctx := newGroupSendTestContext(mockSender)
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+		"message":     "进度",
+		"mention_ids": []any{"李四"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "无法解析")
+	for _, call := range mockSender.Snapshot() {
+		assert.NotEqual(t, "Send", call.Method, "解析失败时不应发出任何消息")
+	}
+}
+
+// TestSendMessageMentionsPrivateChatPassThrough 验证私聊会话不做解析
+// （@ 没有可解析的对象），显式 ID 原样透传。
+func TestSendMessageMentionsPrivateChatPassThrough(t *testing.T) {
+	mockSender := mock.NewSender()
+	p := withHistory(&Plugin{cfg: &config.Config{}}, false, map[string]string{"u1": "张三"})
+	ctx := newSendTestContext(mockSender)
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	_, err := tool.Execute(newMentionTestContext(sender, false), map[string]any{
+		"message":     "进度",
+		"mention_ids": []any{"张三"},
+	})
+	require.NoError(t, err)
+	calls := mockSender.Snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, []string{"张三"}, calls[0].Msg.Mentions, "私聊会话原样透传")
+}
+
+// TestSendMessageMentionsWithoutResolverPassThrough 验证解析器缺失
+// （非 AI 执行路径）时保持旧行为：mention_ids 原样使用。
+func TestSendMessageMentionsWithoutResolverPassThrough(t *testing.T) {
+	mockSender := mock.NewSender()
+	ctx := newSendTestContext(mockSender)
+	p := &Plugin{cfg: &config.Config{}}
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	_, err := tool.Execute(toolkit.WithToolSender(context.Background(), sender), map[string]any{
+		"message":     "进度",
+		"mention_ids": []any{"张三"},
+	})
+	require.NoError(t, err)
+	calls := mockSender.Snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, []string{"张三"}, calls[0].Msg.Mentions)
+}
+
+// TestSendMessageMentionsSkipsBlankEntries 验证空白项被丢弃，
+// 只有有效目标进入 Mentions。
+func TestSendMessageMentionsSkipsBlankEntries(t *testing.T) {
+	mockSender := mock.NewSender()
+	p := withHistory(&Plugin{cfg: &config.Config{}}, true, map[string]string{"u1": "张三"})
+	ctx := newGroupSendTestContext(mockSender)
+	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
+
+	tool := sendMessageTool(t, buildSendToolsForTest(p))
+	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+		"message":     "进度",
+		"mention_ids": []any{"", "  ", "u9"},
+	})
+	require.NoError(t, err)
+	calls := mockSender.Snapshot()
+	require.Len(t, calls, 1)
+	assert.Equal(t, []string{"u9"}, calls[0].Msg.Mentions, "空白项应被丢弃")
 }

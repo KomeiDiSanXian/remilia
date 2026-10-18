@@ -4,24 +4,29 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 )
 
 // ssrfPolicy 目标主机 SSRF 准入策略（默认仅公网）。
 // 测试可覆盖以访问本地 TLS 服务器（httptest.NewTLSServer 绑定回环地址）。
 var ssrfPolicy = func(host string) bool { return netguard.IsPublicHost(host) }
 
-// fetchPage 抓取网页并提取纯文本（标题 + 正文段落）。
+// fetchPage 抓取网页并提取可读文本。
 //
 // 安全约束：
 //   - 仅允许 https；禁止内网/保留地址（SSRF 防护，含重定向逐跳校验）
+//   - 拨号层由 [netguard.GuardTransport] 二次校验目标 IP（防 DNS 重绑定），
+//     重定向逐跳由 [netguard.RedirectPolicy] 校验 scheme 与目标地址
 //   - 响应大小上限 maxBytes（超限截断）
-//   - 提取的正文按 maxRunes 截断，防止巨型页面撑爆上下文
+//   - 提取的文本按 maxRunes 截断，防止巨型页面撑爆上下文
 func fetchPage(ctx context.Context, client *http.Client, rawURL string, maxBytes int64, maxRunes int) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
@@ -32,17 +37,6 @@ func fetchPage(ctx context.Context, client *http.Client, rawURL string, maxBytes
 	}
 	if !ssrfPolicy(u.Hostname()) {
 		return "", fmt.Errorf("目标地址不是公网地址（SSRF 防护）")
-	}
-
-	// 逐跳校验重定向目标（防重定向到内网）。
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return fmt.Errorf("重定向次数过多")
-		}
-		if !ssrfPolicy(req.URL.Hostname()) {
-			return fmt.Errorf("重定向到非公网地址被阻止（SSRF 防护）")
-		}
-		return nil
 	}
 
 	req, err := newRequest(ctx, u.String())
@@ -63,20 +57,73 @@ func fetchPage(ctx context.Context, client *http.Client, rawURL string, maxBytes
 	if limit <= 0 {
 		limit = 2 << 20
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	data, truncated, err := readBody(resp.Body, limit)
 	if err != nil {
 		return "", err
 	}
-	if int64(len(data)) > limit {
-		data = data[:limit]
+	// 页面编码在响应头未声明时由 HTML meta 标签决定（charset.NewReader 读取
+	// 前 1024 字节完成嗅探），GBK 等中文站点因此不会整页乱码。
+	contentType := resp.Header.Get("Content-Type")
+	reader, err := charset.NewReader(strings.NewReader(string(data)), contentType)
+	if err != nil {
+		return "", err
+	}
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
 	}
 
-	text := extractPageText(data)
+	text := extractContent(contentType, decoded)
 	runes := []rune(text)
 	if maxRunes > 0 && len(runes) > maxRunes {
 		text = string(runes[:maxRunes]) + "\n…(内容过长已截断)"
 	}
+	if truncated {
+		text += "\n…(响应超过大小上限，仅保留前段)"
+	}
 	return text, nil
+}
+
+// readBody 读取响应体并强制大小上限；超限时截断并报告。
+func readBody(body io.Reader, limit int64) ([]byte, bool, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(data)) > limit {
+		return data[:limit], true, nil
+	}
+	return data, false, nil
+}
+
+// extractContent 按内容类型选择提取方式：
+//   - HTML / XHTML（或类型未知，按 HTML 处理）：标题 + 正文文本块；
+//   - 其他类型（JSON / 纯文本 / Markdown 等）：原文直接截断使用，
+//     不按 HTML 解析，避免结构化数据被标签清洗成不可用文本。
+func extractContent(contentType string, data []byte) string {
+	mediaType := normalizeMediaType(contentType)
+	if mediaType == "" || isHTMLMediaType(mediaType) {
+		return extractPageText(data)
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// isHTMLMediaType 报告已归一化的 MIME 类型是否按 HTML 处理。
+func isHTMLMediaType(mediaType string) bool {
+	switch mediaType {
+	case "text/html", "application/xhtml+xml", "application/xml", "text/xml":
+		return true
+	}
+	return strings.HasSuffix(mediaType, "+html") || strings.HasSuffix(mediaType, "+xml")
+}
+
+// normalizeMediaType 归一化 Content-Type 的 MIME 部分（小写、去参数与首尾空白）。
+func normalizeMediaType(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	}
+	return strings.ToLower(mediaType)
 }
 
 // extractPageText 将 HTML 提取为可读纯文本：
@@ -170,4 +217,30 @@ func stripTags(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// fetchTTL 同一 URL 的抓取缓存时长：同一任务内模型重复抓取同一链接时
+// 直接复用结果，避免重复出网（结果本身已按 rune 截断，体积有界）。
+const fetchTTL = 5 * time.Minute
+
+// fetchCached 带 TTL 缓存的抓取：命中缓存直接返回上次结果。
+func (p *Plugin) fetchCached(ctx context.Context, rawURL string) (string, error) {
+	if p.cache != nil {
+		if entry, ok := p.cache.Get(rawURL); ok && entry.text != "" {
+			return entry.text, nil
+		}
+	}
+	if err := p.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer p.release()
+
+	text, err := fetchPage(ctx, p.client, rawURL, p.cfg.MaxFetchBytes, p.cfg.MaxFetchRunes)
+	if err != nil {
+		return "", err
+	}
+	if p.cache != nil && strings.TrimSpace(text) != "" {
+		p.cache.Set(rawURL, fetchEntry{text: text}, fetchTTL)
+	}
+	return text, nil
 }

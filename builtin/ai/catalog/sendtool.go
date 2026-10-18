@@ -26,6 +26,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -55,10 +56,18 @@ type SendOptions struct {
 // BuildSendTools 构建 AI 消息发送动作列表（send_message / send_to，默认启用）。
 func BuildSendTools(opts SendOptions) []toolkit.Tool {
 	msgProps := map[string]protocol.ToolParamSchema{
-		"message":     {Type: "string", Description: "消息文本内容"},
-		"format":      {Type: "string", Description: "消息格式：默认跟随插件 markdown 配置（推荐不传）；显式指定 text=纯文本 / markdown=Markdown", Enum: []string{"text", "markdown"}},
-		"image_url":   {Type: "string", Description: "可选，附带一张图片的 URL"},
-		"mention_ids": {Type: "array", Items: &protocol.ToolParamSchema{Type: "string"}, Description: "可选，需要 @ 的用户 ID 列表"},
+		"message": {Type: "string", Description: "消息文本内容"},
+		"format":  {Type: "string", Description: "消息格式：默认跟随插件 markdown 配置（推荐不传）；显式指定 text=纯文本 / markdown=Markdown", Enum: []string{"text", "markdown"}},
+		"image_url": {
+			Type:        "string",
+			Description: "可选，附带一张图片的 URL（必须是 https 公网地址）",
+		},
+		"mention_ids": {
+			Type:  "array",
+			Items: &protocol.ToolParamSchema{Type: "string"},
+			Description: "可选，需要 @ 的用户。填平台用户 ID，或本会话内近期发言者的昵称、" +
+				"内置别名（我=发起者）；仅群聊生效，同名多人时需改用 ID",
+		},
 	}
 
 	sendMessage := toolkit.Tool{
@@ -75,14 +84,28 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 			if !ok {
 				return "", fmt.Errorf("当前上下文无消息发送能力")
 			}
+			// @ 提及目标与 send_to 的 target 同一套解析规则：昵称/别名
+			// 解析为平台 ID，无法唯一确定时返回可读错误让模型修正。
+			src, _ := toolkit.ToolSourceFromContext(ctx)
+			mentions, err := resolveMentions(ctx, args, src.IsGroup)
+			if err != nil {
+				return "", err
+			}
 			msg, err := BuildOutboundMessage(args, opts.Markdown)
 			if err != nil {
 				return "", err
 			}
+			msg.Mentions = mentions
 			sendCtx, cancel := context.WithTimeout(ctx, SendTimeout)
 			defer cancel()
-			if _, err := sender.ReplyToChat(sendCtx, msg); err != nil {
+			// 回填平台消息 ID（有则带上）：模型在长任务里需要能指认"哪条
+			// 进度消息"，也让"已发送"这一结论有可核对的凭据。
+			result, err := sender.ReplyToChat(sendCtx, msg)
+			if err != nil {
 				return "", err
+			}
+			if result.MessageID != "" {
+				return "消息已发送（ID: " + result.MessageID + "）", nil
 			}
 			return "消息已发送", nil
 		},
@@ -149,6 +172,77 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 	return []toolkit.Tool{sendMessage, sendTo}
 }
 
+// validateImageURL 校验附带图片的 URL：仅 https 公网地址。
+// 与附件下载（builtin/ai/handler.go）走同一套 [netguard] 判定：URL 由模型
+// 给出，QQ 等平台的 URL 附件由平台侧转存（platform/qq/sender.go），
+// 不构成对宿主的 SSRF，但内网/非 https 地址既无意义也属信息外泄面，
+// 统一在动作层拒绝并让模型改用合法链接。
+func validateImageURL(rawURL string) error {
+	if !netguard.AllowURL(rawURL) {
+		return fmt.Errorf("image_url 必须是 https 公网地址")
+	}
+	return nil
+}
+
+// resolveMentions 把模型给出的 mention_ids 解析为平台可用的用户 ID。
+//
+// 与 send_to 的 target 同一套准入语义（解析器经 [toolkit.TargetResolver]
+// 注入，见 builtin/ai/sendtool.go）：ID 直接使用；昵称/别名经解析，命中多个
+// 同名者时返回候选列表错误，未命中时返回可读错误——宁可让模型修正目标，
+// 也不把无效 ID 塞进 Mentions（平台侧通常表现为整条消息发送失败）。
+//
+// 解析器缺失（非 AI 执行路径，如 Skill 子代理上下文）或私聊会话时原样透传，
+// 保持既有行为（私聊里 @ 没有可解析的对象）。
+func resolveMentions(ctx context.Context, args map[string]any, isGroup bool) ([]string, error) {
+	raw := stringSliceArg(args["mention_ids"])
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	resolver, ok := toolkit.TargetResolverFromContext(ctx)
+	if !ok || !isGroup {
+		return raw, nil
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		// 原始 ID 直接使用，不做解析：ID 一定比昵称更明确，解析反而会把
+		// "看起来像 ID 的昵称"误判（见 ai.resolveTarget 的兜底顺序）。
+		if isPlainMentionID(item) {
+			out = append(out, item)
+			continue
+		}
+		target, display, err := resolver.Resolve(ctx, item, false)
+		if err != nil {
+			return nil, fmt.Errorf("@ 目标 %q 无法解析：%w", item, err)
+		}
+		if target.IsGroup {
+			return nil, fmt.Errorf("@ 目标 %q 解析为群聊 %s，不能作为 @ 提及对象", item, display)
+		}
+		out = append(out, target.ID)
+	}
+	return out, nil
+}
+
+// isPlainMentionID 判断字符串是否可直接当作平台用户 ID 使用
+// （ASCII 标识符，与 send_to 的原始 ID 兜底同一判据）。
+func isPlainMentionID(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // BuildOutboundMessage 将 LLM 参数组装为平台消息（文本/Markdown/图片/@提及）。
 //
 // 格式选择与 AI 最终回复一致：默认跟随 markdown 配置（默认 true 即 Markdown
@@ -178,9 +272,13 @@ func BuildOutboundMessage(args map[string]any, markdown bool) (platform.Outbound
 		msg.Text = text
 	}
 	if url, _ := args["image_url"].(string); strings.TrimSpace(url) != "" {
+		url = strings.TrimSpace(url)
+		if err := validateImageURL(url); err != nil {
+			return platform.OutboundMessage{}, err
+		}
 		msg.Attachments = append(msg.Attachments, platform.Attachment{
 			Kind: platform.AttachmentKindImage,
-			URL:  strings.TrimSpace(url),
+			URL:  url,
 		})
 	}
 	if mentions, ok := args["mention_ids"].([]any); ok {

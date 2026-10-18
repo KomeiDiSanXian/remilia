@@ -50,6 +50,9 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 	callerCtx := toolkit.WithCallerInfo(toolCtx, ctx.GetSenderInfo())
 	if sender != nil {
 		callerCtx = toolkit.WithToolSender(callerCtx, sender)
+		// 目标解析能力与发送能力同时注入：解析只读、不受审批门控，
+		// 供 send_message 的 @ 提及复用 send_to 的同一套解析规则。
+		callerCtx = toolkit.WithTargetResolver(callerCtx, targetResolverAdapter{sender: sender})
 	}
 	callerCtx = toolkit.WithToolInvocation(callerCtx, toolkit.ToolSource{
 		UserID:   ctx.GetSenderInfo().ID,

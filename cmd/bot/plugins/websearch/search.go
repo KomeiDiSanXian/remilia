@@ -66,20 +66,26 @@ func (e *searxngEngine) Search(ctx context.Context, query string, limit int) ([]
 	base := strings.TrimRight(e.baseURL, "/")
 
 	// 第一优先：JSON 输出（自建实例通常可用）。
-	results, err := e.searchJSON(ctx, base, query, limit)
-	if err == nil && len(results) > 0 {
+	results, jsonErr := e.searchJSON(ctx, base, query, limit)
+	if jsonErr == nil && len(results) > 0 {
 		return results, nil
 	}
 
 	// 回退：HTML 输出解析（公共实例普遍可用）。
-	if htmlResults, herr := e.searchHTML(ctx, base, query, limit); herr == nil && len(htmlResults) > 0 {
+	htmlResults, htmlErr := e.searchHTML(ctx, base, query, limit)
+	if htmlErr == nil && len(htmlResults) > 0 {
 		return htmlResults, nil
 	}
 
-	if err != nil {
-		return nil, err
+	// 两条通道都没有结果：只要其中一条真的跑通了（无错误），就说明实例正常、
+	// 只是没有命中——如实返回空列表；两条都失败时报告信息量更大的错误。
+	if jsonErr == nil || htmlErr == nil {
+		return nil, nil
 	}
-	return nil, fmt.Errorf("searxng 未返回结果")
+	if jsonErr != nil {
+		return nil, jsonErr
+	}
+	return nil, htmlErr
 }
 
 func (e *searxngEngine) searchJSON(ctx context.Context, base, query string, limit int) ([]Result, error) {
@@ -100,12 +106,13 @@ func (e *searxngEngine) searchJSON(ctx context.Context, base, query string, limi
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("searxng 返回状态 %d", resp.StatusCode)
-	}
-	// 实例禁用了 JSON 输出时返回的是 HTML 页而非 JSON。
+	// 实例禁用了 JSON 输出时返回的是 HTML 页而非 JSON：先按内容形状判断，
+	// 避免把"实例不支持 JSON"误报成 HTTP 状态错误（此时状态码通常是 200）。
 	if !jsonLooksLike(string(body)) {
 		return nil, fmt.Errorf("searxng JSON 输出未启用（实例禁用了 format=json）")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("searxng 返回状态 %d", resp.StatusCode)
 	}
 
 	var parsed searxngResponse
