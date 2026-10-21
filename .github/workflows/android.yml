@@ -62,7 +62,7 @@ jobs:
             dashboard/package-lock.json
             desktop/package-lock.json
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
