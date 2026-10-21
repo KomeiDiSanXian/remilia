@@ -28,7 +28,7 @@ func pluginStateOwners() map[string][]string {
 
 // pluginDirectFields 由 Plugin 自己持有、不归属任何 owner 的共享依赖。
 func pluginDirectFields() []string {
-	return []string{"cfg", "prov", "platforms"}
+	return []string{"cfg", "prov", "mediaSource"}
 }
 
 // TestPluginStateOwnersAreEmbedded 每个声明过的 owner 都必须是 Plugin 的匿名

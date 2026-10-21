@@ -77,6 +77,7 @@ MediaOrigins() []string
 
 - OneBot：优先 `media_base_url`；留空时按 API 端点同源推导（`ws`→`http`、`wss`→`https`）。ReverseWS 没有对端 URL，因此只认显式配置。
 - 插件侧把「适配器声明 + `allow_private_media_hosts`」合并为 `TrustedOrigin` 的来源。`allow_private_media_hosts` 相应降级为**补充名单**（内网图床等适配器不知道的来源）。
+- 注入插件的是最小只读接口 `platform.MediaOriginSource`（只有 `MediaOrigins()` 一个方法），不是 `*platform.Registry`：注册表能注册/注销适配器、改事件分发，把整个句柄交给插件等于开放框架级的平台控制权，而插件需要的只是这一个只读方法。
 
 读取发生在 Setup 期而非每个事件：策略对象是静态句柄，不做 per-event 动态客户端。
 

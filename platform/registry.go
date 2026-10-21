@@ -239,6 +239,18 @@ type MediaOriginProvider interface {
 	MediaOrigins() []string
 }
 
+// MediaOriginSource 是 [Registry.MediaOrigins] 的最小只读视图，供插件读取
+// "平台适配器自声明的媒体来源"。
+//
+// 插件不应持有[Registry] 本身：注册表能注册/注销适配器、改事件分发，把
+// 整个注册表交给插件等于给插件开放框架级的平台控制权，而这些插件真正需要
+// 的只是这一个只读方法。按最小接口注入，插件的依赖面与权限面一致。
+type MediaOriginSource interface {
+	MediaOrigins() []string
+}
+
+var _ MediaOriginSource = (*Registry)(nil)
+
 // MediaOrigins 汇总注册表中所有适配器声明的媒体来源（去重、保序）。
 //
 // 适配器在注册后即可查询，插件 Setup 阶段（平台已注册）一次性取用。

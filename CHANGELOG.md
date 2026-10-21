@@ -1,10 +1,10 @@
 # Changelog
 
-## v1.75.1 (2026-10-22)
+## v1.76.0 (2026-10-22)
 
-### 🛠 修复
+### ✨ 新特性
 
-**安全 · 出站 HTTP 策略统一（`infra/outbound`）**
+**框架 · 出站 HTTP 策略包（`infra/outbound`）**
 
 v1.75.0 的 SSRF 加固是"按组件各写一套"：websearch 的搜索与抓取共用一条 Transport，sauce 与 AI 各有一份受信主机名单，aimage 自己实现"同源即可信"，MCP 则在每次拨号前重做一遍地址校验。结果是同一类问题反复出现——**运维自己配置的端点被公网校验误伤**，而误伤只留一行 Debug 日志，运维看到的现象是"功能坏了"而不是"被策略拦了"。
 
@@ -18,7 +18,15 @@ v1.75.0 的 SSRF 加固是"按组件各写一套"：websearch 的搜索与抓取
 
 - **可观测**：每次拦截计入 `outbound_blocked_total{component,reason}`，并按 (组件, 原因) 限频输出 Warn（同类每分钟最多一条），日志里的 URL 去掉查询串与用户信息。策略决策在构造期以 Info 记录一次（`component/class/origins`），运维不必等到功能不可用才发现端点被分到了哪一类。
 - **执行层兜底**：非受信目标在拨号前解析并校验**全部**解析结果，然后直连已校验的 IP（不只是"校验后按域名再拨一次"，把 DNS 重绑定的窗口关掉）；代理地址（显式或环境变量）单独识别，代理常在本机回环，不参与公网校验。
-- **平台适配器自声明媒体源**：`platform.MediaOriginProvider` 让适配器声明自己托管的媒体来源，OneBot 新增 `media_base_url`（留空时按 `url` 同源推导）。插件 Setup 时把「适配器声明 + `allow_private_media_hosts`」合并为受信来源——自建 OneBot 的媒体接口开箱可用，运维不必再为每个插件手抄主机名。`allow_private_media_hosts` 相应降级为**补充名单**（适配器不知道的内网图床等）。
+- **只判定不下载**：`outbound.Allows` 供"只校验不发起请求"的路径使用（模型给出的图片地址交给平台发送），与下载路径共用同一套准入。
+
+**框架 · 平台适配器自声明媒体源**
+
+- 新增 `platform.MediaOriginProvider`（适配器实现，声明自己托管的媒体来源）与 `platform.Registry.MediaOrigins()`（汇总去重）。OneBot 三套适配器均已实现，并新增配置 `media_base_url`（留空时按 `url` 同源推导；ReverseWS 无对端 URL，仅显式配置生效）。
+- 插件按**最小只读接口** `platform.MediaOriginSource`（只有 `MediaOrigins()` 一个方法）注入，不注入整个 `platform.Registry`：插件只需要读媒体来源，不应获得注册/注销适配器、改事件分发的框架级句柄。
+- 插件 Setup 时把「适配器声明 + `allow_private_media_hosts`」合并为受信来源——自建 OneBot 的媒体接口开箱可用，运维不必再为每个插件手抄主机名。
+
+### 🛠 修复
 
 **插件 · websearch — 搜索端点与抓取路径彻底分层**
 
@@ -30,12 +38,18 @@ v1.75.0 的 SSRF 加固是"按组件各写一套"：websearch 的搜索与抓取
 - **附件下载**：改用 `TrustedOrigin` 客户端，受信来源 = `allow_private_media_hosts` + 平台自声明；响应体仍限 `max_attachment_size`，超限/格式不支持的表现不变（此前是静默丢弃，现在拦截原因进指标与 Warn 日志，便于归因"AI 看不到图片"）。
 - **`send_message` 的 `image_url`**：走 `outbound.Allows`（只判定不下载，`Untrusted` 类），拒绝文案不变。
 - **MCP 服务器**：`allow_insecure_http` / `allow_private_networks` 保留原语义，但**只在启动期校验一次**（字面 IP + 主机名解析结果），运行期按 `OperatorEndpoint` 信任该端点。这也是本次的核心判断：端点由运维写死在配置里，攻击者影响不了这段配置，逐请求重做公网校验挡不住攻击、只会把自建服务器打成"不可用"。重定向仍强制同源（跨源会把自定义认证头转发给另一台服务器）、TLS 1.2+ 与 `ca_cert_file` 不变；另修正该客户端完全不读 `HTTP(S)_PROXY` 的问题。
+- **图片生成后端的自身 URL**：`/aimage` 与 `generate_image` 下载结果时，同源于 `base_url` 的地址（含相对路径）放行，其余目标仍按公网校验；生成端点本身按 `OperatorEndpoint` 处理。
 
 **仓库 · 工作区文件访问加固**
 
 - **工作区文件访问改用 `os.Root`**：`builtin/ai/workspace` 的读写/列目录/写入/编辑全部改经 `*os.Root`（openat 语义），越界路径、盘符路径与逃逸出根目录的符号链接由内核在每次操作时判定，不再依赖"先 `EvalSymlinks` + 字符串前缀比较、再 `os.Open`"的两步校验，同时消除了该设计固有的 TOCTOU 窗口（校验后被替换成越界符号链接即可绕过）。写入仍以临时文件 + 重命名原子落盘并保留原权限位；新增 `Manager.Dir` 供 `procexec` 校验并取得子进程工作目录，`procexec` 不再自行 `os.Stat` 工作区路径。模型可控的路径参数因此无法再触达根目录之外的任何位置。
 - **列目录容量按常量上限分配**：`workspace.List` 的切片容量此前取自调用方传入的 `limit`，超大请求可让单次列目录按请求值预分配内存；现按 `MaxListEntries` 常量预估（实际条目数仍受 `limit` 限制），行为不变。
 - **架构守卫**：新增用例禁止 `infra/outbound` 之外的业务代码直接引用 `infra/netguard`，防止再长出"每个组件一套策略"的分叉。
+
+### ⚙️ 配置与权限说明
+
+- `plugins.ai.allow_private_media_hosts` / `plugins.sauce.allow_private_media_hosts` 由"唯一受信名单"变为**补充名单**：适配器声明（如 OneBot 的 `media_base_url`）已覆盖常见自建部署，名单用于补充内网图床等适配器不知道的来源。未命中的附件仍只接受公网 https。
+- `infra/netguard` 的 `GuardTransport` / `AllowURLOrHosts` / `RedirectPolicy` / `RedirectPolicyWithHosts` / `HostAllowlist.DialAddrs` 标记为 deprecated，仅为兼容保留；新代码请用 `infra/outbound`（架构守卫会拦下 netguard 的越界引用）。
 
 ## v1.75.0 (2026-10-18)
 

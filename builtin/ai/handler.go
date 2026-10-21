@@ -713,6 +713,16 @@ var defaultAttachmentClient = outbound.MustNew(outbound.Policy{
 	MaxRedirects: 5,
 })
 
+// attachmentOrigins 合并附件下载的受信来源：运维名单（allow_private_media_hosts）
+// + 平台适配器自声明的媒体源（见 [platform.MediaOriginSource]）。
+func attachmentOrigins(hosts []string, src platform.MediaOriginSource) []string {
+	origins := append([]string{}, hosts...)
+	if src != nil {
+		origins = append(origins, src.MediaOrigins()...)
+	}
+	return origins
+}
+
 // newAttachmentClient 按受信媒体来源构建附件下载客户端：命中所声明来源的
 // 主机可走内网/明文，其余目标保持严格公网校验。
 func newAttachmentClient(origins []string) (*outbound.Client, error) {

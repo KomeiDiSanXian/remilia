@@ -181,7 +181,7 @@ func agentStatePluginNonAgent() map[string]string {
 		"proc":             "受控进程执行器（由 workspace_roots 与 exec_allowlist 构造，静态服务句柄）",
 		"remote":           "远程执行节点客户端（exec_node=remote 时装配，静态服务句柄）",
 		"attachmentClient": "附件下载客户端（受信来源 = 配置名单 + 平台自声明，静态服务句柄）",
-		"platforms":        "平台注册表（通过 WithPlatformRegistry 注入，Setup 期读取媒体来源）",
+		"mediaSource":      "平台媒体来源的只读视图（通过 WithMediaOriginSource 注入，Setup 期读取媒体来源）",
 		// 装配管道与并发原语。
 		"cmdMu":           "cmdPatterns 的读写锁",
 		"cmdPatterns":     "工具名 → 命令模式映射（发现结果）",

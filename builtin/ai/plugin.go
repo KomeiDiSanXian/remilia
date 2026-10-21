@@ -47,9 +47,9 @@ type Plugin struct {
 	cfg *config.Config
 	// prov LLM 提供商实例，当前支持 OpenAI 兼容 API 和 Anthropic。
 	prov protocol.Provider
-	// platforms 平台注册表（可空，见 WithPlatformRegistry）：用于读取
-	// 适配器自声明的媒体来源。
-	platforms *platform.Registry
+	// mediaSource 平台媒体来源的只读视图（可空，见 WithMediaOriginSource）：
+	// 用于读取适配器自声明的媒体来源。
+	mediaSource platform.MediaOriginSource
 
 	catalogState
 	contextState
@@ -318,11 +318,7 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 			// 附件下载的受信来源：运维名单（allow_private_media_hosts）+
 			// 平台适配器自声明的媒体源（自建 OneBot 的媒体服务常在回环/
 			// 内网，由知道来源的适配器声明，运维不必逐插件手抄）。
-			origins := append([]string{}, cfg.AllowPrivateMediaHosts...)
-			if p.platforms != nil {
-				origins = append(origins, p.platforms.MediaOrigins()...)
-			}
-			attachment, attErr := newAttachmentClient(origins)
+			attachment, attErr := newAttachmentClient(attachmentOrigins(cfg.AllowPrivateMediaHosts, p.mediaSource))
 			if attErr != nil {
 				return nil, fmt.Errorf("ai: attachment client: %w", attErr)
 			}

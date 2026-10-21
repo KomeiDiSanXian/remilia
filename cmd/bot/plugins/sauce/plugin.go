@@ -40,8 +40,9 @@ type Plugin struct {
 	cfg      plugin.ConfigReader
 	log      plugin.Logger
 	reg      plugin.RegistryWriter
-	// platforms 平台注册表（可空）：用于读取适配器自声明的媒体来源。
-	platforms *platform.Registry
+	// mediaSource 平台媒体来源的只读视图（可空）：用于读取适配器自声明的
+	// 媒体来源。
+	mediaSource platform.MediaOriginSource
 }
 
 // New 创建以图搜图插件的描述符。
