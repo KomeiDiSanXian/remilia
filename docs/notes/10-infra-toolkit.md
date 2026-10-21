@@ -206,6 +206,29 @@ type Middleware func(next RoundTripper) RoundTripper
 
 支持请求级中间件链（日志、重试、鉴权熔断等）。
 
+### infra/outbound
+
+出站请求的**统一策略入口**（详见 [32 号笔记](32-outbound-policy.md)）：
+
+```go
+client, err := outbound.New(outbound.Policy{
+    Component: "websearch.fetch",
+    Class:     outbound.Untrusted, // 或 TrustedOrigin / OperatorEndpoint
+    Origins:   []string{"http://127.0.0.1:3000"}, // 受信来源（后两类）
+    Timeout:   15 * time.Second,
+    MaxRedirects: 5,
+})
+```
+
+信任按**目标来源**分层，拨号前校验全部解析结果并直连已校验 IP，重定向逐跳
+重新准入；拦截计入 `outbound_blocked_total` 并限频告警。服务端 API 调用这类
+"地址固定、无需 SSRF 判断"的内部请求仍可用 `infra/httpclient`。
+
+### infra/netguard
+
+SSRF 判定原语（公网 IP/主机判定、受信主机名单语义）。业务代码不要直接用它
+拼装 Transport——`infra/outbound` 之外的引用会被架构守卫测试拦下。
+
 ### infra/server
 
 ```go

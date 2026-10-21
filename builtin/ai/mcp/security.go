@@ -6,13 +6,12 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
-	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
 
 // security.go — 接入外部工具服务器时的安全边界。
@@ -78,8 +77,10 @@ func commandAllowed(allow []string, cmd string) bool {
 }
 
 // checkHTTPURL 校验 http 传输地址：协议、明文限制与 IP 级别 SSRF 防护。
-// allowInsecureHTTP 的语义是"允许明文 http，且仅限回环地址"——开启后也不
-// 得连公网/局域网明文（此前只查 scheme，一个开关就把任意公网明文放行了）。
+// 明文 http 默认要求 allow_insecure_http；目标地址默认只允许回环，
+// 显式开启 allow_private_networks 后私网地址也随之允许（自建 MCP 服务器
+// 通常就在局域网里、只能走明文），公网明文始终拒绝——此前只查 scheme，
+// 一个开关就把任意公网明文放行了。
 func checkHTTPURL(raw string, allowInsecure, allowPrivate bool) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -97,14 +98,25 @@ func checkHTTPURL(raw string, allowInsecure, allowPrivate bool) (*url.URL, error
 	}
 	// 地址为字面 IP 时直接校验；主机名在连接时（拨号前）按解析结果校验。
 	if ip := net.ParseIP(host); ip != nil {
-		if u.Scheme == "http" && !ip.IsLoopback() {
-			return nil, fmt.Errorf("plain http is restricted to loopback addresses, got %s", ip)
+		if u.Scheme == "http" && !plainHTTPDestinationAllowed(ip, allowPrivate) {
+			return nil, fmt.Errorf("plain http is restricted to loopback addresses (or private networks with allow_private_networks), got %s", ip)
 		}
 		if err := forbidIP(ip, allowInsecure, allowPrivate); err != nil {
 			return nil, err
 		}
 	}
 	return u, nil
+}
+
+// plainHTTPDestinationAllowed 判断明文 http 的目标地址是否在允许范围内：
+// 回环地址（allow_insecure_http 的原有语义），以及显式开启
+// allow_private_networks 后的私网地址。公网明文永远不允许，避免"一个开关
+// 就放行任意公网明文"。
+func plainHTTPDestinationAllowed(ip net.IP, allowPrivate bool) bool {
+	if ip.IsLoopback() {
+		return true
+	}
+	return allowPrivate && ip.IsPrivate()
 }
 
 // forbidIP 判断目标 IP 是否被禁止（SSRF 防护）。
@@ -127,23 +139,63 @@ func forbidIP(ip net.IP, allowLoopback, allowPrivate bool) error {
 	return nil
 }
 
-// dialIPCheck 拨号前对目标 IP 的校验：SSRF 防护 + 明文 http 的回环限制。
-func dialIPCheck(ip net.IP, s ServerConfig, plainHTTP bool) error {
+// checkDestinationIP 校验目标 IP 是否在允许范围内：SSRF 防护 + 明文 http
+// 的目标限制。启动期解析主机名后逐个地址过一遍（运行期不再逐请求校验，
+// 见 newHTTPClient 的说明）。
+func checkDestinationIP(ip net.IP, s ServerConfig, plainHTTP bool) error {
 	if err := forbidIP(ip, s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
 		return err
 	}
-	if plainHTTP && !ip.IsLoopback() {
-		return fmt.Errorf("plain http is restricted to loopback addresses, got %s", ip)
+	if plainHTTP && !plainHTTPDestinationAllowed(ip, s.AllowPrivateNetworks) {
+		return fmt.Errorf("plain http is restricted to loopback addresses (or private networks with allow_private_networks), got %s", ip)
 	}
 	return nil
 }
 
-// newHTTPClient 构造始终校验 TLS 的客户端，并在拨号前按解析出的 IP 做 SSRF
-// 防护（直接连接已校验的 IP，抵御 DNS rebinding）。
-func newHTTPClient(s ServerConfig) (*http.Client, error) {
+// checkResolvedHost 在启动期解析主机名一次，并要求所有解析结果都在允许范围内。
+//
+// 此前这一步发生在每次拨号前，代价是：内网自建 MCP 服务器（运维自己配置的
+// 目标）在每次请求时都要重新过一遍 SSRF 判定，一旦实现侧换了解析结果或
+// 配置漏了 allow_private_networks，就表现为"连不上/请求被拒"。端点由运维
+// 写死在配置里，攻击者影响不了这段配置，因此启动期校验一次就够——运行期
+// 的信任决定见 newHTTPClient。
+func checkResolvedHost(ctx context.Context, u *url.URL, s ServerConfig) error {
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, u.Hostname())
+	if err != nil {
+		return fmt.Errorf("resolve %q: %w", u.Hostname(), err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("no address for host %q", u.Hostname())
+	}
+	plainHTTP := u.Scheme == "http"
+	for _, resolved := range ips {
+		if err := checkDestinationIP(resolved.IP, s, plainHTTP); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newHTTPClient 构造 MCP 服务器客户端，策略交给 infra/outbound：
+//
+//   - 类为 OperatorEndpoint：服务器地址由运维配置，命中该源即放行内网/明文，
+//     运行期不再逐请求做公网校验（那只会误伤自建服务器，挡不住真正的攻击者）；
+//   - 启动期仍完整校验：scheme、明文开关、字面 IP / 主机名解析结果；
+//   - 重定向必须同源（MCP 会带自定义认证头，跨源跳转会把它转发给另一台服务器）；
+//   - 强制 TLS 1.2+，支持 ca_cert_file；
+//   - 代理沿用 HTTP(S)_PROXY（此前该客户端完全不读代理，需要代理的部署里
+//     MCP 一律连不上）。
+func newHTTPClient(s ServerConfig) (*outbound.Client, error) {
 	initialURL, err := checkHTTPURL(s.URL, s.AllowInsecureHTTP, s.AllowPrivateNetworks)
 	if err != nil {
 		return nil, err
+	}
+	if net.ParseIP(initialURL.Hostname()) == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := checkResolvedHost(ctx, initialURL, s); err != nil {
+			return nil, err
+		}
 	}
 
 	var tlsCfg *tls.Config
@@ -157,99 +209,15 @@ func newHTTPClient(s ServerConfig) (*http.Client, error) {
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	// plainHTTP：该服务器的 URL 是明文 http（allow_insecure_http 已放行）。
-	// 明文 http 仍要限制在回环地址，防止一个开关把任意公网明文放行。
-	plainHTTP := initialURL.Scheme == "http"
-	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-		if ip := net.ParseIP(host); ip != nil {
-			if err := dialIPCheck(ip, s, plainHTTP); err != nil {
-				return nil, err
-			}
-			return dialer.DialContext(ctx, network, addr)
-		}
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-		for _, resolved := range ips {
-			if err := dialIPCheck(resolved.IP, s, plainHTTP); err != nil {
-				return nil, err
-			}
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("no address for host %q", host)
-		}
-		// 连接已校验的 IP，避免解析结果在拨号时被再次改写（DNS rebinding）。
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
-	}
-
-	client := &http.Client{
-		Timeout: s.timeout(),
-		Transport: &http.Transport{
-			TLSClientConfig:   tlsCfg,
-			DialContext:       dialContext,
-			ForceAttemptHTTP2: true,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("too many redirects")
-			}
-			if !sameHTTPOrigin(initialURL, req.URL) {
-				return fmt.Errorf("redirect to a different origin is not allowed")
-			}
-			if req.URL.User != nil {
-				return fmt.Errorf("redirect URL user info is not allowed")
-			}
-			if _, err := checkHTTPURL(req.URL.String(), s.AllowInsecureHTTP, s.AllowPrivateNetworks); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	return client, nil
-}
-
-// sameHTTPOrigin 比较 scheme、hostname 和有效端口。重定向只能留在服务器配置
-// 的同源地址，避免跨源跳转时把自定义认证头转发给另一台服务器。
-func sameHTTPOrigin(a, b *url.URL) bool {
-	if a == nil || b == nil || !strings.EqualFold(a.Scheme, b.Scheme) {
-		return false
-	}
-	if canonicalHTTPHost(a.Hostname()) != canonicalHTTPHost(b.Hostname()) {
-		return false
-	}
-	return effectiveHTTPPort(a) == effectiveHTTPPort(b)
-}
-
-func canonicalHTTPHost(host string) string {
-	host = strings.TrimSuffix(host, ".")
-	if ip, err := netip.ParseAddr(host); err == nil {
-		return ip.String()
-	}
-	return strings.ToLower(host)
-}
-
-func effectiveHTTPPort(u *url.URL) string {
-	port := u.Port()
-	if port == "" {
-		switch strings.ToLower(u.Scheme) {
-		case "http":
-			return "80"
-		case "https":
-			return "443"
-		default:
-			return ""
-		}
-	}
-	if number, err := strconv.Atoi(port); err == nil {
-		return strconv.Itoa(number)
-	}
-	return port
+	return outbound.New(outbound.Policy{
+		Component:      "mcp." + s.Name,
+		Class:          outbound.OperatorEndpoint,
+		Origins:        []string{initialURL.String()},
+		Timeout:        s.timeout(),
+		MaxRedirects:   5,
+		TLSConfig:      tlsCfg,
+		SameOriginOnly: true,
+	})
 }
 
 // loadCACertPool 从文件加载自定义 CA 证书池。

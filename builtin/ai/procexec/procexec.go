@@ -251,6 +251,8 @@ func (m *Manager) Run(ctx context.Context, req Request) (Result, error) {
 }
 
 // resolveDir 解析工作目录：空目录取第一个根目录，否则解析为根目录内的目录。
+//
+// 目录存在性与边界由 workspace.Dir 经 *os.Root 判定，这里不再自行 stat。
 func (m *Manager) resolveDir(rel string) (string, error) {
 	if strings.TrimSpace(rel) == "" {
 		roots := m.workspace.Roots()
@@ -259,18 +261,11 @@ func (m *Manager) resolveDir(rel string) (string, error) {
 		}
 		return roots[0], nil
 	}
-	path, err := m.workspace.Resolve(rel)
+	dir, err := m.workspace.Dir(rel)
 	if err != nil {
 		return "", fmt.Errorf("procexec: working directory: %w", err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("procexec: working directory: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("procexec: %q is not a directory", rel)
-	}
-	return path, nil
+	return dir, nil
 }
 
 // buildEnv 构造子进程环境：只继承基础白名单与显式追加的变量。

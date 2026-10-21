@@ -105,7 +105,8 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 		factories["onebot"] = func() (platform.Adapter, error) {
 			return onebot.NewForwardWSAdapter(onebot.Config{
 				URL: c.URL, Token: c.Token, Secret: c.Secret,
-				Mode: onebot.ModeForwardWS,
+				MediaBaseURL: c.MediaBaseURL,
+				Mode:         onebot.ModeForwardWS,
 			}), nil
 		}
 	}

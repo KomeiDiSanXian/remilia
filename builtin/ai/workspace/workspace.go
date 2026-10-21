@@ -1,23 +1,29 @@
 // Package workspace 任务的文件访问边界。
 //
 // 工作区由一组已存在的根目录组成；所有路径都相对于根目录解释，解析后必须
-// 仍位于某个根目录内（符号链接按解析后的真实路径判断）。绝对路径、盘符路径
-// 与越界路径一律拒绝。
+// 仍位于某个根目录内。绝对路径、盘符路径与越界路径一律拒绝。
 //
-// 本包当前只提供只读能力（读取文件与列目录）。写入、差异与进程执行属于后续
-// 能力，它们必须复用同一套路径解析与边界检查，而不是各自拼接路径。
+// 边界由 *os.Root 在内核层强制：每次打开/读写/改名都以根目录句柄为基准，
+// ".." 分量与指向根目录外的符号链接都会被拒绝，不依赖"先解析再打开"的字符串
+// 校验，因此也不存在检查与使用之间的竞态窗口。本包提供读取、列目录、写入
+// （原子落盘）与精确替换；进程执行（builtin/ai/procexec）复用同一套根目录
+// 语义取得工作目录。
 package workspace
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 )
 
 // 领域错误。
@@ -132,19 +138,90 @@ func (m *Manager) Roots() []string {
 	return append([]string(nil), m.roots...)
 }
 
-// Resolve 把相对路径解析为根目录内的真实路径。
+// Resolve 把相对路径解析为根目录内的绝对路径。
 //
-// 路径必须已存在（读取与列目录都要求存在）；符号链接按最终目标判断边界。
+// 路径必须已存在（读取与列目录都要求存在）；符号链接按最终目标判断边界，
+// 逃逸出根目录的符号链接返回 ErrOutside。
 func (m *Manager) Resolve(rel string) (string, error) {
-	return m.resolve(rel)
+	root, name, err := m.openRoot(rel)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	if _, err := root.Stat(name); err != nil {
+		return "", mapRootErr(err)
+	}
+	return filepath.Join(root.Name(), name), nil
 }
 
-// resolve 把相对路径解析为根目录内的真实路径；允许最末若干分量尚不存在
-// （写入新文件时需要），已存在的路径分量一律按真实路径判断边界。
-func (m *Manager) resolve(rel string) (string, error) {
-	if m == nil || len(m.roots) == 0 {
-		return "", ErrNoRoots
+// Dir 校验 rel 指向根目录内的目录，并返回可用于子进程工作目录的绝对路径。
+//
+// 存在的判断由 *os.Root 完成：路径分量与符号链接都不能越出根目录。
+func (m *Manager) Dir(rel string) (string, error) {
+	root, name, err := m.openRoot(rel)
+	if err != nil {
+		return "", err
 	}
+	defer root.Close()
+	info, err := root.Stat(name)
+	if err != nil {
+		return "", mapRootErr(err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace: %q is not a directory", rel)
+	}
+	return filepath.Join(root.Name(), name), nil
+}
+
+// openRoot 为相对路径选择一个根目录，返回已打开的 *os.Root 句柄与根内相对
+// 路径。调用方负责关闭句柄。
+//
+// 所有文件访问都经由 *os.Root：越界（".." 分量、盘符、逃逸的符号链接）由
+// 内核在每次操作时判定，既不依赖上层的字符串比较，也不存在"校验完再打开"
+// 的 TOCTOU 窗口。多根目录时优先选择目标已存在的那个，都不存在则落在第一个
+// 可用根目录上（写入新文件的情形）。
+func (m *Manager) openRoot(rel string) (*os.Root, string, error) {
+	if m == nil || len(m.roots) == 0 {
+		return nil, "", ErrNoRoots
+	}
+	name, err := cleanRel(rel)
+	if err != nil {
+		return nil, "", err
+	}
+	var fallback *os.Root
+	for _, dir := range m.roots {
+		root, openErr := os.OpenRoot(dir)
+		if openErr != nil {
+			continue
+		}
+		if fallback == nil {
+			fallback = root
+			if _, statErr := root.Stat(name); statErr == nil {
+				return root, name, nil
+			}
+			continue
+		}
+		_, statErr := root.Stat(name)
+		_ = root.Close()
+		if statErr != nil {
+			continue
+		}
+		_ = fallback.Close()
+		winner, openErr := os.OpenRoot(dir)
+		if openErr != nil {
+			continue
+		}
+		return winner, name, nil
+	}
+	if fallback == nil {
+		return nil, "", ErrNoRoots
+	}
+	return fallback, name, nil
+}
+
+// cleanRel 词法归一化相对路径：拒绝空字节、绝对路径/盘符路径与 ".." 越界。
+// 其余边界由 *os.Root 在操作时强制。
+func cleanRel(rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" {
 		rel = "."
@@ -161,70 +238,33 @@ func (m *Manager) resolve(rel string) (string, error) {
 		// 而不是伪装成"文件不存在"。
 		return "", fmt.Errorf("%w: %q", ErrOutside, rel)
 	}
-
-	var lastErr error
-	for _, root := range m.roots {
-		candidate := filepath.Join(root, clean)
-		if !within(root, candidate) {
-			lastErr = fmt.Errorf("%w: %q", ErrOutside, rel)
-			continue
-		}
-		real, err := resolveExistingAncestor(candidate)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if !within(root, real) {
-			lastErr = fmt.Errorf("%w: %q", ErrOutside, rel)
-			continue
-		}
-		return real, nil
-	}
-	if lastErr != nil {
-		return "", lastErr
-	}
-	return "", fmt.Errorf("%w: %q", ErrOutside, rel)
+	return clean, nil
 }
 
-// resolveExistingAncestor 解析 candidate：
-//   - 目标存在时等价于 EvalSymlinks（末段符号链接按最终目标判定）；
-//   - 目标不存在时解析其最近的已存在祖先，再把剩余分量拼回，
-//     使"在工作区内新建文件/目录"同样经过边界检查。
-func resolveExistingAncestor(candidate string) (string, error) {
-	existing := candidate
-	for {
-		if _, err := os.Lstat(existing); err == nil {
-			break
-		}
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			return "", os.ErrNotExist
-		}
-		existing = parent
+// mapRootErr 把 *os.Root 的越界错误归一化为 ErrOutside（逃逸的符号链接、
+// 指向根外的路径分量）。其余错误原样返回，保留"不存在""无权限"等语义。
+func mapRootErr(err error) error {
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
-	realAncestor, err := filepath.EvalSymlinks(existing)
-	if err != nil {
-		return "", err
+	// os.Root 未导出逃逸错误类型，只能按错误文本识别（Go 1.24 起稳定为
+	// "path escapes from parent"）。
+	if strings.Contains(err.Error(), "escapes from parent") {
+		return fmt.Errorf("%w: %w", ErrOutside, err)
 	}
-	remainder, err := filepath.Rel(existing, candidate)
-	if err != nil {
-		return "", err
-	}
-	if remainder == "." {
-		return realAncestor, nil
-	}
-	return filepath.Join(realAncestor, remainder), nil
+	return err
 }
 
 // Read 读取根目录内的文本文件；超过上限的内容被截断并标记。
 func (m *Manager) Read(rel string, maxBytes int) (Content, error) {
-	path, err := m.Resolve(rel)
+	root, name, err := m.openRoot(rel)
 	if err != nil {
 		return Content{}, err
 	}
-	info, err := os.Stat(path)
+	defer root.Close()
+	info, err := root.Stat(name)
 	if err != nil {
-		return Content{}, fmt.Errorf("workspace: stat %q: %w", rel, err)
+		return Content{}, fmt.Errorf("workspace: stat %q: %w", rel, mapRootErr(err))
 	}
 	if info.IsDir() {
 		return Content{}, fmt.Errorf("workspace: %q is a directory", rel)
@@ -237,9 +277,9 @@ func (m *Manager) Read(rel string, maxBytes int) (Content, error) {
 	if limit <= 0 || limit > MaxReadBytes {
 		limit = MaxReadBytes
 	}
-	f, err := os.Open(path)
+	f, err := root.Open(name)
 	if err != nil {
-		return Content{}, fmt.Errorf("workspace: open %q: %w", rel, err)
+		return Content{}, fmt.Errorf("workspace: open %q: %w", rel, mapRootErr(err))
 	}
 	defer f.Close()
 
@@ -259,19 +299,25 @@ func (m *Manager) Read(rel string, maxBytes int) (Content, error) {
 
 // List 列出根目录内某个目录的条目。
 func (m *Manager) List(rel string, maxEntries int) (Listing, error) {
-	path, err := m.Resolve(rel)
+	root, name, err := m.openRoot(rel)
 	if err != nil {
 		return Listing{}, err
 	}
-	info, err := os.Stat(path)
+	defer root.Close()
+	info, err := root.Stat(name)
 	if err != nil {
-		return Listing{}, fmt.Errorf("workspace: stat %q: %w", rel, err)
+		return Listing{}, fmt.Errorf("workspace: stat %q: %w", rel, mapRootErr(err))
 	}
 	if !info.IsDir() {
 		return Listing{}, fmt.Errorf("workspace: %q is not a directory", rel)
 	}
 
-	dirEntries, err := os.ReadDir(path)
+	dir, err := root.Open(name)
+	if err != nil {
+		return Listing{}, fmt.Errorf("workspace: list %q: %w", rel, mapRootErr(err))
+	}
+	defer dir.Close()
+	dirEntries, err := dir.ReadDir(-1)
 	if err != nil {
 		return Listing{}, fmt.Errorf("workspace: list %q: %w", rel, err)
 	}
@@ -280,7 +326,9 @@ func (m *Manager) List(rel string, maxEntries int) (Listing, error) {
 		limit = MaxListEntries
 	}
 
-	entries := make([]Entry, 0, min(len(dirEntries), limit))
+	// 容量按固定上限而非调用方传入的 limit 预估：limit 已被夹到
+	// MaxListEntries 以内，避免"用户可控值直接决定分配大小"。
+	entries := make([]Entry, 0, min(len(dirEntries), MaxListEntries))
 	for _, de := range dirEntries {
 		if len(entries) >= limit {
 			break
@@ -333,13 +381,14 @@ func (m *Manager) Write(rel, content string) (WriteResult, error) {
 	if len(content) > MaxWriteBytes {
 		return WriteResult{}, fmt.Errorf("workspace: content exceeds %d bytes", MaxWriteBytes)
 	}
-	path, err := m.resolve(rel)
+	root, name, err := m.openRoot(rel)
 	if err != nil {
 		return WriteResult{}, err
 	}
+	defer root.Close()
 
 	result := WriteResult{Path: rel, Bytes: len(content)}
-	switch info, statErr := os.Stat(path); {
+	switch info, statErr := root.Stat(name); {
 	case statErr == nil:
 		if info.IsDir() {
 			return WriteResult{}, fmt.Errorf("workspace: %q is a directory", rel)
@@ -348,17 +397,19 @@ func (m *Manager) Write(rel, content string) (WriteResult, error) {
 			return WriteResult{}, fmt.Errorf("workspace: %q is not a regular file", rel)
 		}
 		result.PreviousBytes = int(info.Size())
-	case errors.Is(statErr, os.ErrNotExist):
+	case errors.Is(statErr, fs.ErrNotExist):
 		result.Created = true
 	default:
-		return WriteResult{}, fmt.Errorf("workspace: stat %q: %w", rel, statErr)
+		return WriteResult{}, fmt.Errorf("workspace: stat %q: %w", rel, mapRootErr(statErr))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("workspace: create parent of %q: %w", rel, err)
+	if dir := filepath.Dir(name); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return WriteResult{}, fmt.Errorf("workspace: create parent of %q: %w", rel, mapRootErr(err))
+		}
 	}
-	if err := writeFileAtomic(path, []byte(content)); err != nil {
-		return WriteResult{}, fmt.Errorf("workspace: write %q: %w", rel, err)
+	if err := writeFileAtomic(root, name, []byte(content)); err != nil {
+		return WriteResult{}, fmt.Errorf("workspace: write %q: %w", rel, mapRootErr(err))
 	}
 	return result, nil
 }
@@ -374,13 +425,14 @@ func (m *Manager) Edit(rel, oldString, newString string) (EditResult, error) {
 	if strings.IndexByte(newString, 0) >= 0 {
 		return EditResult{}, ErrBinary
 	}
-	path, err := m.resolve(rel)
+	root, name, err := m.openRoot(rel)
 	if err != nil {
 		return EditResult{}, err
 	}
-	info, err := os.Stat(path)
+	defer root.Close()
+	info, err := root.Stat(name)
 	if err != nil {
-		return EditResult{}, fmt.Errorf("workspace: stat %q: %w", rel, err)
+		return EditResult{}, fmt.Errorf("workspace: stat %q: %w", rel, mapRootErr(err))
 	}
 	if !info.Mode().IsRegular() {
 		return EditResult{}, fmt.Errorf("workspace: %q is not a regular file", rel)
@@ -389,9 +441,9 @@ func (m *Manager) Edit(rel, oldString, newString string) (EditResult, error) {
 		return EditResult{}, fmt.Errorf("workspace: %q exceeds the edit size limit (%d bytes)", rel, MaxEditFileBytes)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := root.ReadFile(name)
 	if err != nil {
-		return EditResult{}, fmt.Errorf("workspace: read %q: %w", rel, err)
+		return EditResult{}, fmt.Errorf("workspace: read %q: %w", rel, mapRootErr(err))
 	}
 	if bytes.IndexByte(data, 0) >= 0 {
 		return EditResult{}, fmt.Errorf("%w: %q", ErrBinary, rel)
@@ -409,8 +461,8 @@ func (m *Manager) Edit(rel, oldString, newString string) (EditResult, error) {
 		return EditResult{}, fmt.Errorf("workspace: result exceeds %d bytes", MaxWriteBytes)
 	}
 	diff := buildEditHunk(rel, content, oldString, newString)
-	if err := writeFileAtomic(path, []byte(next)); err != nil {
-		return EditResult{}, fmt.Errorf("workspace: write %q: %w", rel, err)
+	if err := writeFileAtomic(root, name, []byte(next)); err != nil {
+		return EditResult{}, fmt.Errorf("workspace: write %q: %w", rel, mapRootErr(err))
 	}
 	return EditResult{Path: rel, Bytes: len(next), Diff: diff}, nil
 }
@@ -435,47 +487,46 @@ func buildEditHunk(rel, content, oldString, newString string) string {
 
 // writeFileAtomic 以临时文件 + 重命名的原子方式写入文件。
 // 目标已存在时保留其权限位；新文件使用 0644。
-func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".remilia-write-*")
+//
+// 临时文件与最终文件都经由同一个 *os.Root 创建/改名：路径不能越出根目录，
+// 也不存在"先检查再写"的 TOCTOU 窗口。
+func writeFileAtomic(root *os.Root, name string, data []byte) error {
+	dir, base := filepath.Split(name)
+	tmpName := filepath.Join(dir, "."+base+".remilia-"+randomSuffix()+".tmp")
+	f, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
 	defer func() {
 		// 成功路径下 Rename 已移走临时文件，这里的删除会失败或无事发生。
-		_ = os.Remove(tmpName)
+		_ = root.Remove(tmpName)
 	}()
 
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
 	perm := os.FileMode(0o644)
-	if info, statErr := os.Stat(path); statErr == nil {
+	if info, statErr := root.Stat(name); statErr == nil {
 		perm = info.Mode().Perm()
 	}
-	if err := os.Chmod(tmpName, perm); err != nil {
+	if err := root.Chmod(tmpName, perm); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return root.Rename(tmpName, name)
 }
 
-// within 报告 target 是否位于 root 内（比较前按平台归一化大小写）。
-func within(root, target string) bool {
-	root = normalize(filepath.Clean(root))
-	target = normalize(filepath.Clean(target))
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return false
+// randomSuffix 返回临时文件名后缀（8 字节随机数的十六进制）。
+func randomSuffix() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		// crypto/rand 失败极罕见（且此时写入本就不安全），退回时间戳保证唯一。
+		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
-	if rel == "." {
-		return true
-	}
-	return !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+	return hex.EncodeToString(buf[:])
 }
 
 // normalize 在大小写不敏感的平台（Windows）上折叠路径大小写。

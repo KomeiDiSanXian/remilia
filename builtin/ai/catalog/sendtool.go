@@ -26,7 +26,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -173,13 +173,17 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 }
 
 // validateImageURL 校验附带图片的 URL：仅 https 公网地址。
-// 与附件下载（builtin/ai/handler.go）走同一套 [netguard] 判定：URL 由模型
-// 给出，QQ 等平台的 URL 附件由平台侧转存（platform/qq/sender.go），
-// 不构成对宿主的 SSRF，但内网/非 https 地址既无意义也属信息外泄面，
-// 统一在动作层拒绝并让模型改用合法链接。
+//
+// 与附件下载走同一套出站策略（infra/outbound 的 Untrusted 类）：URL 由模型
+// 给出，QQ 等平台的 URL 附件由平台侧转存（platform/qq/sender.go），不构成对
+// 宿主的 SSRF，但内网/非 https 地址既无意义也属信息外泄面，统一在动作层
+// 拒绝并让模型改用合法链接。
 func validateImageURL(rawURL string) error {
-	if !netguard.AllowURL(rawURL) {
-		return fmt.Errorf("image_url 必须是 https 公网地址")
+	if err := outbound.Allows(rawURL, outbound.Policy{
+		Component: "ai.send_message.image",
+		Class:     outbound.Untrusted,
+	}); err != nil {
+		return fmt.Errorf("image_url 必须是 https 公网地址: %w", err)
 	}
 	return nil
 }

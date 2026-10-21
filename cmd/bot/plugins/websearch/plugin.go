@@ -15,6 +15,10 @@
 // 重定向逐跳校验，见 client.go/fetch.go）；响应大小上限、正文截断；
 // 命中上限或并发上限时返回可读错误而不是静默排队。
 //
+// 搜索与抓取的边界不同：搜索端点是运维配置的固定地址（自建 SearXNG 常位于
+// 内网/回环），只对该端点放行拨号与同源重定向；抓取目标由用户/模型给定，
+// 始终要求公网地址。两者不共用受信名单（见 client.go）。
+//
 // 回填给模型的搜索与抓取结果一律包上"外部数据"边界标记（网页内容不可信，
 // 可能夹带指令），与文件能力、MCP 外部工具的处置一致。
 package websearch
@@ -23,7 +27,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +38,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/cache"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"golang.org/x/time/rate"
 )
@@ -91,6 +95,17 @@ var DefaultConfig = Config{
 	MaxConcurrent: 4,
 }
 
+// searchEndpoint 返回当前引擎实际请求的基地址。
+//
+// SearXNG 取配置的实例地址（自建实例通常在回环或内网），Serper 取固定
+// API 端点。该地址由运维配置，不是用户可控输入，搜索路径据此放行拨号。
+func (c *Config) searchEndpoint() string {
+	if c.Engine == "serper" {
+		return serperSearchURL
+	}
+	return c.SearxngURL
+}
+
 // fetchEntry 一次抓取的缓存条目（见 fetchCached）。
 type fetchEntry struct {
 	text string
@@ -100,7 +115,10 @@ type fetchEntry struct {
 type Plugin struct {
 	cfg    *Config
 	engine searchEngine
-	client *http.Client
+	// client 网页抓取客户端：目标为用户/模型给的任意 URL，严格公网校验。
+	client *outbound.Client
+	// searchClient 搜索引擎客户端：目标为配置的端点，允许位于内网/回环。
+	searchClient *outbound.Client
 
 	// sem 并发出网信号量（容量 MaxConcurrent）：满时短暂等待，仍满则快速失败，
 	// 避免模型一次并发几十个抓取把宿主与搜索实例拖垮。
@@ -120,14 +138,13 @@ type Plugin struct {
 
 // New 创建 websearch 插件的 Descriptor。
 func New() *plugin.Descriptor {
-	var p *Plugin
-	p = &Plugin{
+	p := &Plugin{
 		cfg:      &DefaultConfig,
 		limiters: make(map[string]*rate.Limiter),
 	}
 	return &plugin.Descriptor{
 		Name:    "websearch",
-		Version: "1.1.0",
+		Version: "1.1.1",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "通用网页搜索与网页抓取（为 AI 提供实时信息查询）",
@@ -152,12 +169,21 @@ AI 可自动调用 web_search / fetch_url 工具。`,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			cfg := loadConfig(ctx)
 
-			if err := initWebTransport(cfg.Proxy); err != nil {
+			// 搜索端点由运维配置（可能是内网自建 SearXNG），作为受信源交给
+			// 搜索客户端；抓取客户端仍然只允许公网目标。
+			endpoint := cfg.searchEndpoint()
+			fetchClient, err := newWebClient(cfg.Timeout, cfg.Proxy)
+			if err != nil {
+				return nil, fmt.Errorf("websearch: %w", err)
+			}
+			searchClient, err := newSearchClient(cfg.Timeout, cfg.Proxy, endpoint)
+			if err != nil {
 				return nil, fmt.Errorf("websearch: %w", err)
 			}
 			p.cfg = cfg
-			p.client = newWebClient(cfg.Timeout)
-			p.engine = newSearchEngine(cfg, p.client)
+			p.client = fetchClient
+			p.searchClient = searchClient
+			p.engine = newSearchEngine(cfg, p.searchClient)
 			p.sem = make(chan struct{}, cfg.MaxConcurrent)
 			p.cache = cache.New[string, fetchEntry](5 * time.Minute)
 			p.stateless = cfg.Engine == "serper"

@@ -15,7 +15,7 @@ import (
 // pluginStateOwners 字段分区的唯一对照表：owner 结构名 → 它承载的字段名。
 func pluginStateOwners() map[string][]string {
 	return map[string][]string{
-		"catalogState":   {"coord", "reg", "catalogGen", "skillReg", "perms", "cmdMu", "cmdPatterns", "files", "proc", "remote"},
+		"catalogState":   {"coord", "reg", "catalogGen", "skillReg", "perms", "cmdMu", "cmdPatterns", "files", "proc", "remote", "attachmentClient"},
 		"contextState":   {"history", "emb", "memory"},
 		"executionState": {"syncer", "realCmdMu", "approvals"},
 		"runtimeState":   {"sm", "tasks", "taskMu", "execEvidence", "evidenceMu", "taskUsage", "taskUsageMu", "triggerCmd", "defOnce", "def", "lifecycleCtx", "lifecycleCancel"},
@@ -28,7 +28,7 @@ func pluginStateOwners() map[string][]string {
 
 // pluginDirectFields 由 Plugin 自己持有、不归属任何 owner 的共享依赖。
 func pluginDirectFields() []string {
-	return []string{"cfg", "prov"}
+	return []string{"cfg", "prov", "platforms"}
 }
 
 // TestPluginStateOwnersAreEmbedded 每个声明过的 owner 都必须是 Plugin 的匿名

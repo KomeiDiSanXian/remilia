@@ -153,7 +153,7 @@ func (a *app) setupPlugins() {
 		ping.New(),
 
 		// AI 与内容工具
-		ai.New(eng),
+		ai.New(eng, ai.WithPlatformRegistry(a.reg)),
 		mcpplugin.New(),
 		knowledgebase.New(),
 		weather.New(),
@@ -168,7 +168,7 @@ func (a *app) setupPlugins() {
 		minecraft.New(),
 		genshin.New(),
 		starrail.New(),
-		sauce.New(),
+		sauce.New(sauce.WithPlatformRegistry(a.reg)),
 		pic.New(),
 		aimage.New(),
 		dice.New(),

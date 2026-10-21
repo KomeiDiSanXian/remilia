@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +96,31 @@ func TestIsPublicIP(t *testing.T) {
 func TestIsPublicIPNil(t *testing.T) {
 	if netguard.IsPublicIP(nil) {
 		t.Error("nil IP should not be public")
+	}
+}
+
+// TestAttachmentClientBlocksDirectLoopback 默认附件客户端必须阻断直连回环目标
+// 与拨号层（解析结果）的内网地址。
+//
+// 回归背景：附件下载曾用裸 netguard.DialContext 且未设置 Proxy，既绕过代理，
+// 又在真配上代理后把回环/内网代理本身判成 SSRF。代理放行现在由
+// infra/outbound 统一处理（见 outbound.TestDialBypassesProxyAddress），
+// 本用例只守住"默认策略仍然严格"。
+func TestAttachmentClientBlocksDirectLoopback(t *testing.T) {
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+		"http_proxy", "https_proxy", "all_proxy", "no_proxy"} {
+		t.Setenv(key, "")
+	}
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer srv.Close()
+
+	if _, err := defaultAttachmentClient.Get(context.Background(), srv.URL+"/a.png"); err == nil {
+		t.Fatal("direct loopback fetch must stay blocked")
+	}
+	if hits != 0 {
+		t.Fatalf("blocked request must not reach the server, got %d hits", hits)
 	}
 }
 
@@ -252,5 +279,38 @@ func TestBuildHealthProbeURL(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("buildHealthProbeURL(%+v) = %q, want %q", tt.cfg, got, tt.want)
 		}
+	}
+}
+
+// TestAttachmentTrustedMediaHost 回归：声明受信媒体来源（allow_private_media_hosts
+// 或平台适配器自声明）后，回环/内网的附件地址（含明文 http）可下载；未配置时
+// 仍按严格公网准入拒绝。
+func TestAttachmentTrustedMediaHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	url := srv.URL + "/a.png"
+
+	// 未初始化插件的默认客户端拒绝同一地址（降级路径不放大权限）。
+	if _, err := (&Plugin{}).attachment().Get(context.Background(), url); err == nil {
+		t.Fatal("unconfigured media host must stay blocked")
+	}
+
+	client, err := newAttachmentClient([]string{srv.URL})
+	if err != nil {
+		t.Fatalf("newAttachmentClient: %v", err)
+	}
+	p := &Plugin{attachmentClient: client}
+	if err := p.attachment().Allow(url); err != nil {
+		t.Fatalf("configured media host must be allowed: %v", err)
+	}
+	resp, err := p.attachment().Get(context.Background(), url)
+	if err != nil {
+		t.Fatalf("trusted media host download failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }

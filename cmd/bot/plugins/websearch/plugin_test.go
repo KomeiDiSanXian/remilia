@@ -8,36 +8,63 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"golang.org/x/time/rate"
 )
 
-// newTestPlugin 构造测试插件：放行回环目标（httptest 服务器绑定 127.0.0.1），
-// 并初始化共享 Transport。
+// newTestPlugin 构造测试插件：抓取客户端为出厂严格策略，搜索客户端指向
+// 默认配置的端点（测试需要换端点时调用 useEndpoint）。
 func newTestPlugin(engine string) *Plugin {
-	restoreGuard := allowLocalTargets()
-	_ = initWebTransport("")
-	restoreGuard()
 	cfg := DefaultConfig
 	cfg.Engine = engine
 	p := &Plugin{cfg: &cfg, limiters: make(map[string]*rate.Limiter)}
-	p.client = newWebClient(5 * time.Second)
+	p.client, _ = newWebClient(5*time.Second, "")
+	p.searchClient, _ = newSearchClient(5*time.Second, "", cfg.searchEndpoint())
 	p.sem = make(chan struct{}, cfg.MaxConcurrent)
-	p.engine = newSearchEngine(&cfg, p.client)
+	p.engine = newSearchEngine(&cfg, p.searchClient)
 	return p
 }
 
-// allowLocalTargets 让拨号守卫放行回环地址（仅测试用），返回还原函数。
-func allowLocalTargets() func() {
-	orig := guardDial
-	guardDial = func(tr *http.Transport) *http.Transport { return tr }
-	return func() { guardDial = orig }
+// useEndpoint 把搜索端点切到测试服务器并重建搜索客户端（受信端点）。
+func (p *Plugin) useEndpoint(t *testing.T, endpoint string) {
+	t.Helper()
+	client, err := newSearchClient(5*time.Second, "", endpoint)
+	if err != nil {
+		t.Fatalf("newSearchClient(%q): %v", endpoint, err)
+	}
+	p.cfg.SearxngURL = endpoint
+	p.searchClient = client
+	p.engine = newSearchEngine(p.cfg, client)
 }
 
-// allowLocalSSRF 让 URL 级准入放行任意主机（仅测试用），返回还原函数。
-func allowLocalSSRF() func() {
-	orig := ssrfPolicy
-	ssrfPolicy = func(string) bool { return true }
-	return func() { ssrfPolicy = orig }
+// newTestFetchClient 构造可访问测试服务器（回环）的抓取客户端：只把该
+// 服务器声明为受信源，并沿用测试服务器的自签证书配置。
+func newTestFetchClient(t *testing.T, srv *httptest.Server) *outbound.Client {
+	t.Helper()
+	policy := outbound.Policy{
+		Component: "websearch.test.fetch",
+		Class:     outbound.TrustedOrigin,
+		Origins:   []string{srv.URL},
+		Timeout:   5 * time.Second,
+	}
+	if tr, ok := srv.Client().Transport.(*http.Transport); ok {
+		policy.TLSConfig = tr.TLSClientConfig
+	}
+	client, err := outbound.New(policy)
+	if err != nil {
+		t.Fatalf("构造测试抓取客户端失败: %v", err)
+	}
+	return client
+}
+
+// newStrictFetchClient 构造出厂策略的抓取客户端（禁止内网/明文）。
+func newStrictFetchClient(t *testing.T) *outbound.Client {
+	t.Helper()
+	client, err := newWebClient(5*time.Second, "")
+	if err != nil {
+		t.Fatalf("newWebClient: %v", err)
+	}
+	return client
 }
 
 func TestSearxngEngine(t *testing.T) {
@@ -59,9 +86,7 @@ func TestSearxngEngine(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 
 	results, err := p.engine.Search(context.Background(), "今日热点", 5)
 	if err != nil {
@@ -87,9 +112,7 @@ func TestSearxngEngineLimit(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 	results, err := p.engine.Search(context.Background(), "q", 3)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
@@ -106,8 +129,7 @@ func TestSearxngEngineError(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 	if _, err := p.engine.Search(context.Background(), "q", 5); err == nil {
 		t.Error("expected error on non-200")
 	}
@@ -139,8 +161,7 @@ func TestSearxngHTMLFallback(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 
 	results, err := p.engine.Search(context.Background(), "测试", 5)
 	if err != nil {
@@ -240,12 +261,8 @@ func TestFetchPageExtractsText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	orig := ssrfPolicy
-	ssrfPolicy = func(string) bool { return true }
-	defer func() { ssrfPolicy = orig }()
-
 	// TLSServer 的自签证书：使用其自带的信任客户端。
-	text, err := fetchPage(context.Background(), srv.Client(), srv.URL, 1<<20, 4000)
+	text, err := fetchPage(context.Background(), newTestFetchClient(t, srv), srv.URL, 1<<20, 4000)
 	if err != nil {
 		t.Fatalf("fetchPage failed: %v", err)
 	}
@@ -261,17 +278,10 @@ func TestFetchPageExtractsText(t *testing.T) {
 }
 
 func TestFetchPageSSRF(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
-
-	client := srv.Client()
+	client := newStrictFetchClient(t)
 	ctx := context.Background()
 
-	// http 协议拒绝（TLSServer 的 URL 是 https；构造一个 http URL 验证）
-	httpURL := "http://" + strings.TrimPrefix(srv.URL, "https://")
-	if _, err := fetchPage(ctx, client, httpURL, 1<<20, 4000); err == nil {
+	if _, err := fetchPage(ctx, client, "http://example.com/x", 1<<20, 4000); err == nil {
 		t.Error("http scheme should be rejected")
 	}
 	if _, err := fetchPage(ctx, client, "https://127.0.0.1/", 1<<20, 4000); err == nil {
@@ -280,12 +290,15 @@ func TestFetchPageSSRF(t *testing.T) {
 	if _, err := fetchPage(ctx, client, "https://192.168.1.1/", 1<<20, 4000); err == nil {
 		t.Error("private IP should be rejected")
 	}
-	// 重定向到内网拒绝
+	if _, err := fetchPage(ctx, client, "file:///etc/passwd", 1<<20, 4000); err == nil {
+		t.Error("non-http scheme should be rejected")
+	}
+	// 重定向到内网：严格客户端逐跳拒绝（准入在发出第二跳前完成）。
 	redir := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://127.0.0.1/x", http.StatusFound)
 	}))
 	defer redir.Close()
-	if _, err := fetchPage(ctx, redir.Client(), redir.URL, 1<<20, 4000); err == nil {
+	if _, err := fetchPage(ctx, client, redir.URL, 1<<20, 4000); err == nil {
 		t.Error("redirect to private IP should be rejected")
 	}
 }
@@ -297,11 +310,7 @@ func TestFetchPageSizeLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	orig := ssrfPolicy
-	ssrfPolicy = func(string) bool { return true }
-	defer func() { ssrfPolicy = orig }()
-
-	text, err := fetchPage(context.Background(), srv.Client(), srv.URL, 1000, 4000)
+	text, err := fetchPage(context.Background(), newTestFetchClient(t, srv), srv.URL, 1000, 4000)
 	if err != nil {
 		t.Fatalf("fetchPage failed: %v", err)
 	}
@@ -317,11 +326,7 @@ func TestFetchPageRuneTruncation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	orig := ssrfPolicy
-	ssrfPolicy = func(string) bool { return true }
-	defer func() { ssrfPolicy = orig }()
-
-	text, err := fetchPage(context.Background(), srv.Client(), srv.URL, 1<<20, 200)
+	text, err := fetchPage(context.Background(), newTestFetchClient(t, srv), srv.URL, 1<<20, 200)
 	if err != nil {
 		t.Fatalf("fetchPage failed: %v", err)
 	}
@@ -358,9 +363,7 @@ func TestListToolsAndWebSearchExecute(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 
 	tools := p.ListTools()
 	if len(tools) != 2 {

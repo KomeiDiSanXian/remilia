@@ -86,29 +86,26 @@ func TestGenerateOpenAIB64(t *testing.T) {
 
 func TestGenerateOpenAIURL(t *testing.T) {
 	png := testPNG()
-	imgSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/gen" {
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/images/generations":
+			w.Header().Set("Content-Type", "application/json")
+			// 绝对地址：与 base_url 同源，受信下载
+			_, _ = w.Write([]byte(`{"data":[{"url":"` + srvURL + `/gen"}]}`))
+		case "/gen":
 			_, _ = w.Write(png)
-			return
+		default:
+			http.NotFound(w, r)
 		}
-		http.NotFound(w, r)
 	}))
-	defer imgSrv.Close()
+	defer srv.Close()
+	srvURL = srv.URL
 
-	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"url":"` + imgSrv.URL + `/gen"}]}`))
-	}))
-	defer apiSrv.Close()
-
-	c, err := newImageClient(providerOpenAI, apiSrv.URL, "", "", "1024x1024", 20, 7, "", 5*time.Second, "")
+	c, err := newImageClient(providerOpenAI, srv.URL, "", "", "1024x1024", 20, 7, "", 5*time.Second, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 测试环境放行 http://127.0.0.1（生产默认 netguard.AllowURL 仅公网 https）
-	c.allowURL = func(raw string) bool { return strings.HasPrefix(raw, "http://") }
-	// 下载客户端默认带 netguard 公网拨号守卫，测试环境换成普通客户端
-	c.download = &http.Client{Timeout: 5 * time.Second}
 
 	imgs, err := c.generate(context.Background(), "一只猫", 1)
 	if err != nil {
@@ -116,6 +113,63 @@ func TestGenerateOpenAIURL(t *testing.T) {
 	}
 	if len(imgs) != 1 || len(imgs[0].Data) == 0 {
 		t.Fatalf("expected 1 downloaded image, got %d", len(imgs))
+	}
+}
+
+// TestGenerateDownloadsSameOriginURL 回归：管理员配置的图片后端位于回环/内网
+// （如 http://127.0.0.1:7860）时，后端把**自己托管**的图片地址（绝对或相对）
+// 回给调用方，下载不应被判成 SSRF —— 目标就是配置的后端本身。
+func TestGenerateDownloadsSameOriginURL(t *testing.T) {
+	png := testPNG()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/images/generations":
+			w.Header().Set("Content-Type", "application/json")
+			// 相对地址：按 base_url 解析
+			_, _ = w.Write([]byte(`{"data":[{"url":"/outputs/a.png"}]}`))
+		case "/outputs/a.png":
+			_, _ = w.Write(png)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := newImageClient(providerOpenAI, srv.URL, "", "", "1024x1024", 20, 7, "", 5*time.Second, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	imgs, err := c.generate(context.Background(), "一只猫", 1)
+	if err != nil {
+		t.Fatalf("same-origin image URL must not be blocked: %v", err)
+	}
+	if len(imgs) != 1 || len(imgs[0].Data) == 0 {
+		t.Fatalf("expected 1 downloaded image, got %d", len(imgs))
+	}
+}
+
+// TestGenerateRejectsForeignPrivateURL 后端返回的**非同源**内网 URL 仍按 SSRF
+// 拒绝：受信范围只有 base_url 本身。
+func TestGenerateRejectsForeignPrivateURL(t *testing.T) {
+	png := testPNG()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(png)
+	}))
+	defer other.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"url":"` + other.URL + `/x.png"}]}`))
+	}))
+	defer apiSrv.Close()
+
+	c, err := newImageClient(providerOpenAI, apiSrv.URL, "", "", "1024x1024", 20, 7, "", 5*time.Second, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := c.generate(context.Background(), "一只猫", 1); err == nil {
+		t.Fatal("image URL on another private host must be rejected")
 	}
 }
 

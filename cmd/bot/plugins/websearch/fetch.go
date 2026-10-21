@@ -6,40 +6,28 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 )
-
-// ssrfPolicy 目标主机 SSRF 准入策略（默认仅公网）。
-// 测试可覆盖以访问本地 TLS 服务器（httptest.NewTLSServer 绑定回环地址）。
-var ssrfPolicy = func(host string) bool { return netguard.IsPublicHost(host) }
 
 // fetchPage 抓取网页并提取可读文本。
 //
 // 安全约束：
 //   - 仅允许 https；禁止内网/保留地址（SSRF 防护，含重定向逐跳校验）
-//   - 拨号层由 [netguard.GuardTransport] 二次校验目标 IP（防 DNS 重绑定），
-//     重定向逐跳由 [netguard.RedirectPolicy] 校验 scheme 与目标地址
+//   - 准入与拨号校验由 [outbound.Client]（Untrusted 策略）完成：请求前
+//     判定方案/地址，拨号时对解析结果二次校验并直连已校验 IP
 //   - 响应大小上限 maxBytes（超限截断）
 //   - 提取的文本按 maxRunes 截断，防止巨型页面撑爆上下文
-func fetchPage(ctx context.Context, client *http.Client, rawURL string, maxBytes int64, maxRunes int) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
-		return "", fmt.Errorf("仅支持 https 链接")
-	}
-	if u.User != nil {
-		return "", fmt.Errorf("链接不允许携带用户信息")
-	}
-	if !ssrfPolicy(u.Hostname()) {
-		return "", fmt.Errorf("目标地址不是公网地址（SSRF 防护）")
+func fetchPage(ctx context.Context, client *outbound.Client, rawURL string, maxBytes int64, maxRunes int) (string, error) {
+	if err := client.Allow(rawURL); err != nil {
+		return "", err
 	}
 
-	req, err := newRequest(ctx, u.String())
+	req, err := newRequest(ctx, rawURL)
 	if err != nil {
 		return "", err
 	}

@@ -29,7 +29,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -597,8 +597,8 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 		}
 	}
 
-	if !netguard.AllowURL(att.URL) {
-		logger.Debugf("[AI] Attachment URL blocked (SSRF prevention): %s", att.URL)
+	if err := p.attachment().Allow(att.URL); err != nil {
+		logger.Debugf("[AI] Attachment URL blocked: %v", err)
 		return nil
 	}
 
@@ -616,7 +616,7 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 		logger.Debugf("[AI] Failed to create download request: %v", err)
 		return nil
 	}
-	resp, err := attachmentHTTPClient.Do(req)
+	resp, err := p.attachment().Do(req)
 	if err != nil {
 		logger.Debugf("[AI] Failed to download attachment: %v", err)
 		return nil
@@ -700,13 +700,37 @@ func (p *Plugin) buildStaticSystemPrompt(ctx *eventctx.Context) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// attachmentHTTPClient 是受 SSRF 防护的附件下载客户端（见 infra/netguard）：
-// 连接目标须为公网 IP，重定向目标逐跳校验。
-var attachmentHTTPClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext: netguard.DialContext,
-	},
-	CheckRedirect: netguard.RedirectPolicy(10),
+// defaultAttachmentClient 是默认（严格公网）附件下载客户端；插件初始化时
+// 按 allow_private_media_hosts 与平台适配器自声明的媒体来源换成受信版本。
+//
+// 策略见 infra/outbound：直连目标须为公网 IP（拨号前对解析结果二次校验并
+// 直连已校验 IP），重定向逐跳校验，代理由 Transport 统一处理（HTTP(S)_PROXY
+// 常指向回环/内网，代理拨号不受公网校验约束）。
+var defaultAttachmentClient = outbound.MustNew(outbound.Policy{
+	Component:    "ai.attachment",
+	Class:        outbound.TrustedOrigin,
+	Timeout:      30 * time.Second,
+	MaxRedirects: 5,
+})
+
+// newAttachmentClient 按受信媒体来源构建附件下载客户端：命中所声明来源的
+// 主机可走内网/明文，其余目标保持严格公网校验。
+func newAttachmentClient(origins []string) (*outbound.Client, error) {
+	return outbound.New(outbound.Policy{
+		Component:    "ai.attachment",
+		Class:        outbound.TrustedOrigin,
+		Origins:      origins,
+		Timeout:      30 * time.Second,
+		MaxRedirects: 5,
+	})
+}
+
+// attachment 返回附件下载客户端：未按配置初始化（测试/降级）时用严格默认值。
+func (p *Plugin) attachment() *outbound.Client {
+	if p != nil && p.attachmentClient != nil {
+		return p.attachmentClient
+	}
+	return defaultAttachmentClient
 }
 
 // handleFSMTransition 检查 FSM 引擎是否有当前用户的活跃会话。
@@ -725,7 +749,7 @@ func (p *Plugin) handleFSMTransition(ctx *eventctx.Context) bool {
 
 // downloadTextAttachment 下载文本附件内容，使用传入的 context 控制生命周期。
 func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.Attachment) string {
-	if !netguard.AllowURL(att.URL) {
+	if err := p.attachment().Allow(att.URL); err != nil {
 		return ""
 	}
 	dlCtx, dlCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -734,7 +758,7 @@ func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.Attach
 	if err != nil {
 		return ""
 	}
-	resp, err := attachmentHTTPClient.Do(req)
+	resp, err := p.attachment().Do(req)
 	if err != nil {
 		return ""
 	}

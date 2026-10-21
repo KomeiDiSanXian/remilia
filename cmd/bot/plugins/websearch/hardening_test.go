@@ -1,5 +1,5 @@
 // hardening_test.go — websearch 加固项的回归测试：
-// 外部数据边界标记、参数收敛、拨号层 SSRF 守卫、重定向降级拦截、
+// 外部数据边界标记、参数收敛、严格/受信出站策略边界、重定向拦截、
 // 非 HTML 内容处理、GBK 编码解码、抓取缓存与并发/配额上限。
 package websearch
 
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/cache"
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/time/rate"
 )
@@ -29,8 +29,7 @@ func TestWebSearchResultWrappedWithBoundary(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 
 	tool := findTool(t, p, "web_search")
 	result, err := tool(context.Background(), map[string]any{"query": "测试"})
@@ -52,11 +51,8 @@ func TestFetchURLResultWrappedWithBoundary(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := allowLocalSSRF()
-	defer restore()
-
 	p := newTestPlugin("searxng")
-	p.client = srv.Client()
+	p.client = newTestFetchClient(t, srv)
 	p.cache = newTestCache()
 
 	tool := findTool(t, p, "fetch_url")
@@ -115,8 +111,7 @@ func TestWebSearchReportsConvergedMaxResults(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPlugin("searxng")
-	p.cfg.SearxngURL = srv.URL
-	p.engine = newSearchEngine(p.cfg, p.client)
+	p.useEndpoint(t, srv.URL)
 
 	result, err := findTool(t, p, "web_search")(context.Background(), map[string]any{
 		"query":       "测试",
@@ -130,64 +125,120 @@ func TestWebSearchReportsConvergedMaxResults(t *testing.T) {
 	}
 }
 
-// ── SSRF：拨号层守卫与重定向降级 ───────────────────────────────────
+// ── SSRF：严格路径与受信端点的边界 ─────────────────────────────────
 
-// TestDefaultDialGuardBlocksLoopback 验证出厂配置下，Transport 的拨号守卫
-// 阻止连接回环地址（学校验之后的 DNS 重绑定窗口由这一层兜住）。
-func TestDefaultDialGuardBlocksLoopback(t *testing.T) {
-	tr := guardDial(http.DefaultTransport.(*http.Transport))
-	if tr.DialContext == nil {
-		t.Fatal("guarded transport must set DialContext")
-	}
-	_, err := tr.DialContext(context.Background(), "tcp", "127.0.0.1:80")
+// TestStrictFetchClientBlocksLoopback 出厂抓取客户端在发出请求前就拒绝
+// 回环目标（拨号层还会对解析结果二次校验并直连已校验 IP）。
+func TestStrictFetchClientBlocksLoopback(t *testing.T) {
+	client := newStrictFetchClient(t)
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer srv.Close()
+
+	_, err := client.Get(context.Background(), srv.URL+"/")
 	if err == nil {
-		t.Fatal("dial to loopback should be blocked by the default guard")
+		t.Fatal("fetch client must block loopback targets")
+	}
+	if reason, ok := outbound.Blocked(err); !ok || reason != outbound.ReasonPlainHTTP {
+		t.Fatalf("拦截原因 = %v/%v，期望 %s", reason, ok, outbound.ReasonPlainHTTP)
+	}
+	if hits != 0 {
+		t.Fatalf("被拦请求不应到达服务端，实际 %d 次", hits)
 	}
 }
 
-// TestClientRedirectPolicyBlocksSchemeDowngrade 验证客户端拒绝 https→http
-// 与到内网地址的重定向（逐跳校验，防入口校验被重定向绕过）。
-func TestClientRedirectPolicyBlocksSchemeDowngrade(t *testing.T) {
+// TestSearchEndpointOnPrivateNetworkNotBlocked 回归测试：自建 SearXNG 位于
+// 内网/回环（如 http://10.0.0.19:8080）时，搜索请求不得被 SSRF 策略拦成
+// "connection to non-public address blocked"；同一端点也不得让抓取路径
+// 放行内网地址（两个客户端各自独立，不共享受信名单）。
+func TestSearchEndpointOnPrivateNetworkNotBlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"results":[{"title":"标题","url":"https://x.com","content":"摘要"}]}`))
+	}))
+	defer srv.Close()
+
 	p := newTestPlugin("searxng")
-	policy := p.client.CheckRedirect
-	if policy == nil {
-		t.Fatal("client must carry a redirect policy")
+	p.useEndpoint(t, srv.URL)
+	results, err := p.engine.Search(context.Background(), "测试", 3)
+	if err != nil {
+		t.Fatalf("private-network search endpoint must not be blocked: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	req, err := http.NewRequest(http.MethodGet, "http://insecure.example.com/x", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := policy(req, nil); err == nil {
-		t.Error("https→http redirect should be blocked")
-	}
-
-	req, err = http.NewRequest(http.MethodGet, "https://127.0.0.1/x", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := policy(req, nil); err == nil {
-		t.Error("redirect to loopback should be blocked")
-	}
-
-	req, err = http.NewRequest(http.MethodGet, "https://example.com/x", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := policy(req, nil); err != nil {
-		t.Errorf("https→https redirect to a public host should pass, got %v", err)
+	// 抓取路径仍拒绝同一地址。
+	if _, err := p.client.Get(context.Background(), srv.URL+"/x"); err == nil {
+		t.Fatal("fetch client must not inherit the trusted search endpoint")
 	}
 }
 
-// TestFetchPageRedirectPolicyStillDerivesFromGuard 说明 fetchPage 不再在请求期
-// 改共享 client 的 CheckRedirect：重定向策略在构造期固化（并发调用无数据竞争）。
-func TestFetchPageRedirectPolicyStillDerivesFromGuard(t *testing.T) {
+// TestSearchClientAllowsSameOriginRedirect 搜索端点的自我跳转放行
+// （自建实例常有 / → /search 之类跳转）。
+func TestSearchClientAllowsSameOriginRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search":
+			http.Redirect(w, r, "/search-landing", http.StatusFound)
+		case "/search-landing":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"results":[{"title":"标题","url":"https://x.com","content":"摘要"}]}`))
+		default:
+			http.Error(w, "unexpected path", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
 	p := newTestPlugin("searxng")
-	if p.client.CheckRedirect == nil {
-		t.Fatal("client constructed without redirect policy")
+	p.useEndpoint(t, srv.URL)
+	results, err := p.engine.Search(context.Background(), "q", 3)
+	if err != nil {
+		t.Fatalf("same-origin redirect must be allowed: %v", err)
 	}
-	if netguard.RedirectPolicy(5) == nil {
-		t.Fatal("netguard.RedirectPolicy should never return nil")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+}
+
+// TestSearchClientBlocksCrossOriginRedirect 跳到其它内网地址仍拦截：防止
+// 实例被攻陷后借重定向把请求导向内网其它服务。
+func TestSearchClientBlocksCrossOriginRedirect(t *testing.T) {
+	var otherHits int
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		otherHits++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"results":[]}`))
+	}))
+	defer other.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	p := newTestPlugin("searxng")
+	p.useEndpoint(t, srv.URL)
+	if _, err := p.engine.Search(context.Background(), "q", 3); err == nil {
+		t.Fatal("cross-origin redirect must be blocked")
+	}
+	if otherHits != 0 {
+		t.Fatalf("被拦的重定向不应到达目标，实际 %d 次", otherHits)
+	}
+}
+
+// TestStrictFetchClientRejectsInsecureTargets 校验严格路径的准入判定
+// （逐跳重定向复用同一判定，见 infra/outbound 的用例）。
+func TestStrictFetchClientRejectsInsecureTargets(t *testing.T) {
+	client := newStrictFetchClient(t)
+	for _, raw := range []string{
+		"http://example.com/x",
+		"https://127.0.0.1/x",
+		"https://10.0.0.1/x",
+		"https://169.254.169.254/latest/meta-data",
+	} {
+		if err := client.Allow(raw); err == nil {
+			t.Errorf("target %q should be rejected", raw)
+		}
 	}
 }
 
@@ -229,10 +280,7 @@ func TestFetchPageDecodesGBKPage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := allowLocalSSRF()
-	defer restore()
-
-	got, err := fetchPage(context.Background(), srv.Client(), srv.URL, 1<<20, 4000)
+	got, err := fetchPage(context.Background(), newTestFetchClient(t, srv), srv.URL, 1<<20, 4000)
 	if err != nil {
 		t.Fatalf("fetchPage failed: %v", err)
 	}
@@ -255,11 +303,8 @@ func TestFetchCachedServesRepeatedRequests(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := allowLocalSSRF()
-	defer restore()
-
 	p := newTestPlugin("searxng")
-	p.client = srv.Client()
+	p.client = newTestFetchClient(t, srv)
 	p.cache = newTestCache()
 
 	for i := range 3 {
@@ -377,11 +422,8 @@ func TestFetchPageConcurrentSharedClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := allowLocalSSRF()
-	defer restore()
-
 	p := newTestPlugin("searxng")
-	p.client = srv.Client()
+	p.client = newTestFetchClient(t, srv)
 
 	var wg sync.WaitGroup
 	for range 8 {

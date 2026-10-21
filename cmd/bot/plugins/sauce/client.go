@@ -6,17 +6,20 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
 
 // ── 共享 HTTP 传输层 ───────────────────────────────────────────────────
 //
-// 所有引擎（SauceNAO / IQDB / TraceMoe / AnimeTrace）与图片下载共用
-// 同一套代理配置：plugins.sauce.proxy 为空时沿用环境变量代理或直连，
-// 与 pic 插件的 proxy 语义一致。
+// 所有引擎（SauceNAO / IQDB / TraceMoe / AnimeTrace）共用同一套代理配置：
+// plugins.sauce.proxy 为空时沿用环境变量代理或直连，与 pic 插件的 proxy
+// 语义一致。
 //
 // 共享的是 Transport（连接池 + 代理），各引擎客户端持有独立超时的
 // http.Client——IQDB 高峰期排队需要更长超时，不能与其它引擎共用。
+//
+// 图片下载不走这条共享 Transport：它面对的是平台附件/引擎返回的 URL，
+// 需要独立的信任策略（见 newSauceDownloadClient）。
 
 // sauceTransport 是共享的 HTTP Transport（代理配置在 Setup 时固化）。
 var sauceTransport *http.Transport
@@ -44,18 +47,19 @@ func newSauceHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// newSauceDownloadClient 构建带 SSRF 防护的图片下载客户端。
+// newSauceDownloadClient 构建图片下载客户端（策略见 infra/outbound）。
 //
-// 下载的 URL 来自平台附件/引用消息（用户可控），须限制目标为公网地址：
-// netguard.GuardTransport 在共享 Transport 上安装代理感知的拨号守卫
-// （直连目标校验公网 IP，防 DNS 重绑定；代理拨号放行），配合请求前的
-// AllowURL 与逐跳 RedirectPolicy 完成 URL 级校验。引擎 API 调用仍走
-// 共享 Transport（目标固定为引擎域名）。
-func newSauceDownloadClient(timeout time.Duration) *http.Client {
-	tr := netguard.GuardTransport(sauceTransport)
-	return &http.Client{
-		Timeout:       timeout,
-		Transport:     tr,
-		CheckRedirect: netguard.RedirectPolicy(10),
-	}
+// 下载的 URL 来自平台附件、引用消息与引擎返回的缩略图，属半可信输入：
+// 默认按"https + 公网"准入，逐跳校验重定向，拨号前对解析结果二次校验。
+// origins 是运维显式声明的媒体来源（allow_private_media_hosts 与平台适配器
+// 的自声明来源）：命中来源的主机允许内网与明文，其余目标不变。
+func newSauceDownloadClient(timeout time.Duration, proxy string, origins []string) (*outbound.Client, error) {
+	return outbound.New(outbound.Policy{
+		Component:    "sauce.download",
+		Class:        outbound.TrustedOrigin,
+		Origins:      origins,
+		Proxy:        proxy,
+		Timeout:      timeout,
+		MaxRedirects: 10,
+	})
 }

@@ -11,13 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -34,18 +34,25 @@ type Plugin struct {
 	iqdb       *iqdbClient
 	tracemoe   *traceMoeClient
 	animetrace *animeTraceClient
-	httpClient *http.Client
-	cfg        plugin.ConfigReader
-	log        plugin.Logger
-	reg        plugin.RegistryWriter
+	// download 图片下载客户端：受信媒体来源（运维名单 + 平台自声明）放行
+	// 内网/明文，其余目标仍按 https + 公网校验。
+	download *outbound.Client
+	cfg      plugin.ConfigReader
+	log      plugin.Logger
+	reg      plugin.RegistryWriter
+	// platforms 平台注册表（可空）：用于读取适配器自声明的媒体来源。
+	platforms *platform.Registry
 }
 
 // New 创建以图搜图插件的描述符。
 //
 // 注册 /sauce 命令：用户发送图片并在标题中附带命令即触发检索；
 // 未携带图片时等待用户补发，引用消息含图片时也可直接触发。
-func New() *plugin.Descriptor {
+func New(opts ...Option) *plugin.Descriptor {
 	p := &Plugin{}
+	for _, o := range opts {
+		o(p)
+	}
 	return &plugin.Descriptor{
 		Name:    "sauce",
 		Version: "2.1.0",
@@ -84,12 +91,17 @@ func New() *plugin.Descriptor {
 			p.cfg = ctx.Config
 			p.reg = ctx.Reg
 
-			// 共享 Transport：全部引擎与图片下载统一走代理配置；
+			// 共享 Transport：各引擎 API 调用统一走代理配置；
 			// 各引擎客户端持有独立超时（IQDB 排队需更长超时）。
 			if terr := initSauceTransport(p.proxy()); terr != nil {
 				return nil, fmt.Errorf("sauce: 初始化代理失败: %w", terr)
 			}
-			p.httpClient = newSauceDownloadClient(30 * time.Second)
+			// 图片下载的受信来源：运维名单 + 平台适配器自声明的媒体源。
+			dl, derr := newSauceDownloadClient(30*time.Second, p.proxy(), p.mediaOrigins())
+			if derr != nil {
+				return nil, fmt.Errorf("sauce: %w", derr)
+			}
+			p.download = dl
 			p.saucenao = newSauceNAOClient(newSauceHTTPClient(15 * time.Second))
 			p.iqdb = newIQDBClient(newSauceHTTPClient(p.iqdbTimeout()), p.iqdbRetries())
 			p.tracemoe = newTraceMoeClient(newSauceHTTPClient(20 * time.Second))

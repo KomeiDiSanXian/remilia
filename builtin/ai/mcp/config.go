@@ -106,7 +106,8 @@ type ServerConfig struct {
 	ToolStabilizeWindow Duration `json:"tool_stabilize_window"`
 	// Disabled 为 true 时不启动/不连接该服务器。
 	Disabled bool `json:"disabled"`
-	// AllowInsecureHTTP 允许对回环地址使用明文 http。
+	// AllowInsecureHTTP 允许明文 http。默认仅限回环地址；与
+	// AllowPrivateNetworks 同时开启时，私网地址也可走明文（局域网自建服务器）。
 	AllowInsecureHTTP bool `json:"allow_insecure_http"`
 	// AllowPrivateNetworks 允许连接私网地址（默认拒绝，仅 https 公网）。
 	AllowPrivateNetworks bool `json:"allow_private_networks"`

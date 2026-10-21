@@ -805,6 +805,37 @@ func TestCheckHTTPURLEnforcesSchemeAndTLS(t *testing.T) {
 	}
 }
 
+// TestPlainHTTPPrivateNeedsPrivateOptIn 回归：局域网自建 MCP 服务器只能走明文
+// http（http://10.0.0.19:3000/mcp）。allow_private_networks 是运维对私网目标的
+// 显式授权，two switches 同开时应放行；只开 allow_insecure_http 仍拒绝，
+// 公网明文任何组合都拒绝。
+func TestPlainHTTPPrivateNeedsPrivateOptIn(t *testing.T) {
+	if _, err := checkHTTPURL("http://10.0.0.19:3000/mcp", true, false); err == nil {
+		t.Error("plain http to a private address must require allow_private_networks")
+	}
+	if _, err := checkHTTPURL("http://10.0.0.19:3000/mcp", true, true); err != nil {
+		t.Errorf("plain http to a private address should be accepted with both opt-ins: %v", err)
+	}
+	// 主机名的实际目标在启动期解析后校验，公网明文的拒绝由 checkDestinationIP 兜住。
+	if _, err := checkHTTPURL("http://8.8.8.8/mcp", true, true); err == nil {
+		t.Error("plain http to a public IP must stay rejected")
+	}
+
+	both := ServerConfig{AllowInsecureHTTP: true, AllowPrivateNetworks: true}
+	if err := checkDestinationIP(net.ParseIP("10.0.0.19"), both, true); err != nil {
+		t.Errorf("dial check should accept a private plain-http target with both opt-ins: %v", err)
+	}
+	if err := checkDestinationIP(net.ParseIP("10.0.0.19"), ServerConfig{AllowInsecureHTTP: true}, true); err == nil {
+		t.Error("dial check must reject private plain-http without allow_private_networks")
+	}
+	if err := checkDestinationIP(net.ParseIP("8.8.8.8"), both, true); err == nil {
+		t.Error("dial check must reject public plain-http even with both opt-ins")
+	}
+	if err := checkDestinationIP(net.ParseIP("127.0.0.1"), both, true); err != nil {
+		t.Errorf("loopback plain-http stays allowed: %v", err)
+	}
+}
+
 func TestCommandAllowedIsExactMatch(t *testing.T) {
 	allow := []string{"npx", "/usr/local/bin/my-server"}
 	if !commandAllowed(allow, "npx") || !commandAllowed(allow, "/usr/local/bin/my-server") {

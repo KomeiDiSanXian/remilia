@@ -67,6 +67,13 @@ type Config struct {
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
 	ToolAllowlist []string `yaml:"tool_allowlist"`
+	// AllowPrivateMediaHosts 补充受信媒体主机名单（默认空 = 严格公网 https）。
+	// 附件地址可能来自平台侧而非用户输入：平台适配器会先声明自己托管的媒体
+	// 源（如 OneBot 的 media_base_url），这里用于补充适配器不知道的来源
+	// （内网图床、自建图片服务等）。写法 "host"（不限端口）或 "host:port"
+	// （精确匹配），命中后允许 http/https 与内网地址；其余附件仍要求 https 公网。
+	// 只填运维自己可信的媒体服务，不要填公网第三方站点。
+	AllowPrivateMediaHosts []string `yaml:"allow_private_media_hosts"`
 	// WorkspaceRoots 允许 AI 文件能力访问的根目录列表。
 	// 为空表示禁用文件能力（默认）；非空时每个根目录必须已存在（构造时校验）。
 	// 文件动作只读，且要求 RBAC 权限 ai.file.read。
@@ -707,6 +714,7 @@ func Load(ctx *plugin.SetupContext) *Config {
 	}{
 		{"exec_allowlist", &cfg.ExecAllowlist},
 		{"exec_env_allowlist", &cfg.ExecEnvAllowlist},
+		{"allow_private_media_hosts", &cfg.AllowPrivateMediaHosts},
 	} {
 		if v := ctx.Config.Get(listOpt.key); v != nil {
 			if list, ok := v.([]any); ok {

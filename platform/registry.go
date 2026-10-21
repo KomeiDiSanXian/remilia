@@ -11,6 +11,7 @@ import (
 	stdctx "context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -222,6 +223,50 @@ func (r *Registry) SenderFor(platform string) (Sender, bool) {
 		return nil, false
 	}
 	return a.Sender(), true
+}
+
+// MediaOriginProvider 由平台适配器可选实现：声明自己托管的媒体资源来源。
+//
+// 平台附件常指向实现自身的文件服务（自建 OneBot 就常把图片挂在
+// http://127.0.0.1:3000 之类地址上），插件下载时会被"仅 https + 公网"的
+// 出站策略拦下。该接口让真正知道来源的一层声明受信源，插件据此放行，
+// 而不是让运维在每个插件配置里手抄主机名。
+//
+// 返回值写法与 netguard.HostAllowlist 一致："host"（不限端口）、
+// "host:port"（精确）或完整 http(s) URL。来源只应来自运维配置，
+// 不能由消息内容拼装——命中即等于对该目标开放内网直连。
+type MediaOriginProvider interface {
+	MediaOrigins() []string
+}
+
+// MediaOrigins 汇总注册表中所有适配器声明的媒体来源（去重、保序）。
+//
+// 适配器在注册后即可查询，插件 Setup 阶段（平台已注册）一次性取用。
+func (r *Registry) MediaOrigins() []string {
+	if r == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]struct{})
+	for _, adapter := range r.All() {
+		provider, ok := adapter.(MediaOriginProvider)
+		if !ok {
+			continue
+		}
+		for _, origin := range provider.MediaOrigins() {
+			origin = strings.TrimSpace(origin)
+			if origin == "" {
+				continue
+			}
+			key := strings.ToLower(origin)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, origin)
+		}
+	}
+	return out
 }
 
 // CapabilitiesFor 返回指定平台的能力声明。

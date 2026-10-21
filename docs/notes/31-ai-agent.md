@@ -1305,7 +1305,7 @@ plugins:
 
 **现状盘点（实测）**
 
-- 已有能力：`web_search`（SearXNG 自建 / Serper，标题+链接+摘要）与 `fetch_url`（仅 https 公网：URL 准入 + 拨号层 IP 二次校验 + 重定向逐跳校验，2MB / 4000 字上限，结果带外部数据边界标记，带并发出网上限与抓取缓存），来源 `cmd/bot/plugins/websearch`，经 `ToolProvider` 进入目录，类别 `general`（基线保留）。二者覆盖"搜索 + 静态网页正文"。
+- 已有能力：`web_search`（SearXNG 自建 / Serper，标题+链接+摘要）与 `fetch_url`（仅 https 公网：URL 准入 + 拨号层 IP 二次校验 + 重定向逐跳校验，2MB / 4000 字上限，结果带外部数据边界标记，带并发出网上限与抓取缓存），来源 `cmd/bot/plugins/websearch`，经 `ToolProvider` 进入目录，类别 `general`（基线保留）。二者覆盖"搜索 + 静态网页正文"。两者安全边界不同：搜索端点是运维配置的固定地址（自建 SearXNG 常在回环/内网），拨号受信名单与同源重定向只对它生效，抓取路径始终要求公网地址。
 - 能力缺口：JS 渲染页面（现代 SPA 正文抓不到）、登录态与 Cookie 会话、交互（点击/输入/滚动/上传/下载）、等待条件、截图与 PDF、页面内结构化提取。
 - 执行节点环境（10.0.0.19，实测）：无 node/npm/浏览器；`chromium-browser` 仅有 snap 包装；有 `xdotool`、ImageMagick `import`、`xvfb-run`；`graphical.target` **活跃**（存在图形会话，桌面自动化有打扰真人的风险）；30GB 内存 / 16 核 / 27GB 空闲磁盘；`sudo` 免密；Chrome 官方 deb 可下载。
 - **关键前置缺口：多模态工具结果回灌**。当前工具结果回填给模型的只有文本；MCP 的图片/音频附件只进入最终回复通道，模型看不到截图。任何"截图 → 视觉判断 → 下一步动作"的闭环都依赖它（属文档 30 的延后项）。
@@ -1334,7 +1334,7 @@ plugins:
 
 **共同安全约束（无论哪条路径）**
 
-- 域名策略：默认拒绝内网、回环与云元数据地址。`fetch_url` 已按此复核并补齐：URL 准入（仅 https 公网）、拨号层 IP 二次校验（防 DNS 重绑定，`netguard.GuardTransport`）、重定向逐跳校验（scheme 与目标地址，`netguard.RedirectPolicy`）；后续浏览器与桌面能力必须复用同一策略，不得绕过。
+- 域名策略：默认拒绝内网、回环与云元数据地址。出站统一走 `infra/outbound`（设计见 [32 号笔记](32-outbound-policy.md)），按**目标来源**分三层：`Untrusted`（用户/模型给出的 URL，仅 https 公网）、`TrustedOrigin`（框架/平台自己产生的地址，命中所声明来源可走内网/明文）、`OperatorEndpoint`（运维配置的端点，同受信语义但不允许空来源）。`fetch_url` 用 `Untrusted`：URL 准入 + 拨号前对全部解析结果二次校验并直连已校验 IP（关掉 DNS 重绑定窗口）+ 重定向逐跳校验；后续浏览器与桌面能力必须复用同一策略，不得绕过。**例外只有运维显式配置的端点**：搜索端点（自建 SearXNG 常在回环/内网）为 `OperatorEndpoint`，附件/图片的受信来源 = 平台适配器自声明（`platform.MediaOriginProvider`，如 OneBot 的 `media_base_url`）+ `plugins.ai.allow_private_media_hosts` / `plugins.sauce.allow_private_media_hosts` 补充名单。名单只来自运维配置与适配器实现，用户/模型可控 URL 的路径不得进入受信来源，且拦截会计入 `outbound_blocked_total` 并输出限频 Warn，不再"静默失效"。
 - 会话隔离：每任务独立浏览器 profile，不复用个人资料与 Cookie，不持久化登录凭证。
 - 内容不可信：页面文本按外部数据标记（`fetch_url` 的搜索/抓取结果已包数据边界标记；MCP 外部工具与文件能力同款）；点击、表单提交、上传等副作用动作强制人工审批。
 - 资源：浏览器进程有内存上限与空闲回收，随任务取消终止。

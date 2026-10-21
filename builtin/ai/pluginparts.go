@@ -37,6 +37,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
@@ -71,6 +72,9 @@ type catalogState struct {
 	// remote 远程执行节点客户端（exec_node=remote 时启用）：与本地实现实现
 	// 同一组能力端口，边界由节点侧强制（见 builtin/ai/execnode）。
 	remote *execnode.Client
+	// attachmentClient 附件下载客户端：受信来源 = allow_private_media_hosts
+	// 与平台适配器自声明的媒体源，其余目标仍按 https + 公网校验。
+	attachmentClient *outbound.Client
 }
 
 // catalogRuntime 将目录代数与其聚合状态放在同一字段中，保证快照和变更

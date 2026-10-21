@@ -188,6 +188,9 @@ type OneBotConfig struct {
 	ListenAddr string `yaml:"listen_addr,omitempty" mapstructure:"listen_addr,omitempty"`
 	Token      string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
 	Secret     string `yaml:"secret,omitempty" mapstructure:"secret,omitempty"`
+	// MediaBaseURL 是 OneBot 实现托管媒体直链的基址（如 http://127.0.0.1:3000）。
+	// 声明后框架把该来源加入受信名单，插件下载平台附件不再被 SSRF 策略误伤。
+	MediaBaseURL string `yaml:"media_base_url,omitempty" mapstructure:"media_base_url,omitempty"`
 }
 
 // DiscordConfig Discord 平台适配器配置。

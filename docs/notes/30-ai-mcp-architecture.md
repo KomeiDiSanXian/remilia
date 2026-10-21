@@ -537,6 +537,8 @@ Selection(暴露哪些) → ActionPolicy(审批/权限/保留级别) → Approva
 | **不可信输入** | server 返回的 tool 描述/schema/结果均视为**不可信**：描述可能诱导模型（prompt injection）；结果只能作为"工具输出"而非"指令"进入上下文；schema 需校验/规范化后再序列化给模型 |
 | **版本与取消** | 协议版本协商失败要明确报错；调用取消/超时要收敛到 `Err`，不能挂死 |
 
+**实现注记（v1.75.1）**：HTTP 传输的地址校验从"每次拨号前重做"改为"启动期解析并校验一次，运行期按 `infra/outbound` 的 `OperatorEndpoint` 类信任该端点"（`allow_insecure_http` / `allow_private_networks` 语义不变，重定向强制同源、TLS 1.2+ 与自定义 CA 不变）。理由：端点由运维写死在配置里，攻击者影响不了这段配置，逐请求重校验没有安全收益，只会把自建服务器打成"不可用"。详见 [32 号笔记](32-outbound-policy.md)。
+
 **核心立场：安全边界由 Remilia 定义，不由 MCP 定义。** MCP server 是**不可信
 对端**，其声明的一切（能力、注解、权限）都是建议。
 

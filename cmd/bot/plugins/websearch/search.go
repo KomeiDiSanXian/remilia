@@ -29,7 +29,7 @@ type searchEngine interface {
 }
 
 // newSearchEngine 根据配置创建搜索引擎。
-func newSearchEngine(cfg *Config, client *http.Client) searchEngine {
+func newSearchEngine(cfg *Config, client doer) searchEngine {
 	switch cfg.Engine {
 	case "serper":
 		return &serperEngine{client: client, apiKey: cfg.SerperAPIKey}
@@ -45,7 +45,7 @@ func newSearchEngine(cfg *Config, client *http.Client) searchEngine {
 // 自建实例走 JSON，公共实例走 HTML，两种部署都可用。
 
 type searxngEngine struct {
-	client  *http.Client
+	client  doer
 	baseURL string
 }
 
@@ -264,7 +264,7 @@ func hasClass(n *html.Node, target string) bool {
 var serperSearchURL = "https://google.serper.dev/search"
 
 type serperEngine struct {
-	client *http.Client
+	client doer
 	apiKey string
 }
 

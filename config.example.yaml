@@ -42,6 +42,12 @@ bot:
   #   listen_addr: ":8080"                                     # [R]
   #   token: "your_onebot_token"                                # [H⚠]
   #   secret: "your_onebot_secret"                              # [H⚠]
+  #   # 实现托管媒体直链的基址（可选）。NapCat/LLOneBot 把收到的图片、
+  #   # 语音、文件挂在自己的文件服务上，地址常是回环/内网（如
+  #   # http://127.0.0.1:3000）；声明后插件下载平台附件不再被 SSRF 策略
+  #   # 误伤。留空时按 url 同源推导，仍不匹配再用插件侧
+  #   # allow_private_media_hosts 补充。只填自己控制的媒体服务。
+  #   media_base_url: "http://127.0.0.1:3000"
 
   # ----- Discord Bot（Gateway WebSocket）-----
   # discord:                                                   # [H⚠]
@@ -347,6 +353,13 @@ messagelog:
 #                                         #     deepseek-v4-flash-vision-exp；纯文本模型如 deepseek-chat 建议关闭）
 #     audio_enabled: false                # [R] 是否启用音频输入（仅 OpenAI 部分模型支持，Anthropic 不支持）
 #     max_attachment_size: 20971520       # [R] 入站附件单文件大小上限（字节，默认 20MB），超出则跳过
+#     allow_private_media_hosts: []       # [R] 补充受信媒体主机名单（默认空 = 附件只接受公网 https）。
+#                                         #     平台适配器会先声明它自己托管的媒体源（如 OneBot 的
+#                                         #     media_base_url），命中即放行；这里用于补充适配器不知道的
+#                                         #     来源：内网图床、自建图片服务等。
+#                                         #     写法："host" 匹配该主机任意端口，"host:port" 精确匹配。
+#                                         #     示例：allow_private_media_hosts: ["127.0.0.1:3000", "nas.lan"]
+#                                         #     只填自己可信的媒体服务，不要填公网第三方站点
 #     image_merge_window: "30s"           # [R] 群聊"先发图再发字"合并窗口（默认 30s，0=关闭）。窗口内
 #                                         #     未 @/未引用的纯图片消息不回复，等待后续文字合并为一条多模态
 #                                         #     消息；超时无文字则静默丢弃（表情包防误触发）。@/引用/私聊仍立即处理
@@ -542,7 +555,9 @@ messagelog:
 #                                     #      serper（Google 搜索 API，需 key）
 #     searxng_url: "http://127.0.0.1:8080"  # [R]  SearXNG 实例地址。可填公共实例（JSON 输出多被
 #                                     #      禁用，插件自动回退 HTML 解析），但公共实例不稳定且
-#                                     #      有限流，生产建议自建（Docker 一条命令）或 serper
+#                                     #      有限流，生产建议自建（Docker 一条命令）或 serper。
+#                                     #      自建实例在回环/内网（如 http://10.0.0.19:8080）也可用：
+#                                     #      只有搜索路径放行该端点，网页抓取仍只允许公网地址
 #     serper_api_key: ""              # [R]  Serper API Key（engine=serper 时必填）
 #     proxy: ""                       # [R]  搜索与网页抓取代理地址（如 "http://127.0.0.1:7890"）；
 #                                     #      空 = 环境变量代理或直连
@@ -608,6 +623,13 @@ messagelog:
 #                                 #      空 = 环境变量代理或直连
 #     saucenao_api_key: ""        # [H]  SauceNAO API Key（从 https://saucenao.com 获取）
 #     saucenao_db: 999            # [H]  SauceNAO 检索数据库（999 = 全部，可选具体 db id）
+#     allow_private_media_hosts: []  # [R]  补充受信媒体主机名单（默认空 = 下载只接受公网 https）。
+#                                 #      平台适配器会先声明它自己托管的媒体源，命中即放行；
+#                                 #      这里用于补充适配器不知道的来源（内网图床等）。
+#                                 #      写法："host" 匹配任意端口，"host:port" 精确匹配。
+#                                 #      注意：名单对该插件全部图片下载生效（含 /sauce 与
+#                                 #      AI 工具传入的 URL），只填专用媒体服务，不要填通用站点。
+#                                 #      示例：["127.0.0.1:3000", "nas.lan"]
 #     max_results: 3              # [H]  最多返回的结果数
 #     send_thumbnails: false      # [H]  是否发送缩略图图片。开启后每条结果带图发送：
 #                                 #      支持图文同发的平台（Telegram / Discord /

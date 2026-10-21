@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
 
 // transport_http.go — Streamable HTTP 传输。
@@ -37,10 +38,10 @@ const (
 
 type httpTransport struct {
 	cfg    ServerConfig
-	client *http.Client
-	// streamClient 与 client 共享底层传输（同一 SSRF/TLS 拨号），但不设整体
-	// 超时，以便长连的事件流不被单次请求超时打断。
-	streamClient *http.Client
+	client *outbound.Client
+	// streamClient 与 client 共享底层传输（同一拨号守卫/TLS/重定向策略），
+	// 但不设整体超时，以便长连的事件流不被单次请求超时打断。
+	streamClient *outbound.Client
 
 	mu        sync.Mutex
 	handler   func([]byte)
@@ -63,16 +64,20 @@ func newHTTPTransport(cfg ServerConfig) (*httpTransport, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 事件流客户端：共享底层拨号（同一 SSRF/TLS 防护）但不设整体超时；
-	// 单独的 Transport 上加 ResponseHeaderTimeout——否则 slowloris 型服务器
-	// 可让 openStream 的请求无限挂起。
-	streamTransport := hc.Transport.(*http.Transport).Clone()
-	streamTransport.ResponseHeaderTimeout = 15 * time.Second
+	// 事件流客户端：共享拨号守卫与 TLS/重定向策略，但不设整体超时（超时交给
+	// ctx）；在派生 Transport 上加 ResponseHeaderTimeout——否则 slowloris 型
+	// 服务器可让 openStream 的请求无限挂起。
+	streamClient := hc.Clone(func(h *http.Client) {
+		h.Timeout = 0
+		tr := h.Transport.(*http.Transport).Clone()
+		tr.ResponseHeaderTimeout = 15 * time.Second
+		h.Transport = tr
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	return &httpTransport{
 		cfg:          cfg,
 		client:       hc,
-		streamClient: &http.Client{Transport: streamTransport, CheckRedirect: hc.CheckRedirect},
+		streamClient: streamClient,
 		baseCtx:      ctx,
 		baseCancel:   cancel,
 	}, nil

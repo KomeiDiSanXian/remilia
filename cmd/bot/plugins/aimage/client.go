@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/infra/netguard"
+	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
 
 const (
@@ -42,9 +42,11 @@ type imageResult struct {
 
 // imageClient 图片生成后端客户端。
 //
-// api 调用生成端点（base_url 为管理员配置，目标固定，无需 SSRF 防护）；
-// download 下载生成结果 URL（URL 来自 API 响应，属半可信输入，叠加
-// netguard 公网校验 + RedirectPolicy）。
+// api 调用生成端点（base_url 为管理员配置的固定端点 → OperatorEndpoint）；
+// download 下载生成结果 URL（URL 来自 API 响应，属半可信输入）：命中所配置
+// base_url 同源的地址视为受信（本地/内网后端常把自己托管的图片地址回给
+// 调用方，如 http://127.0.0.1:7860/outputs/x.png），其余目标仍按
+// "https + 公网" 准入，并逐跳校验重定向。
 type imageClient struct {
 	provider string
 	baseURL  string
@@ -55,10 +57,10 @@ type imageClient struct {
 	cfgScale float64
 	negative string
 	timeout  time.Duration
-	api      *http.Client
-	download *http.Client
-	// allowURL 可注入的 URL 下载校验（默认 netguard.AllowURL，测试用）。
-	allowURL func(string) bool
+	api      *outbound.Client
+	download *outbound.Client
+	// backend 解析后的 base_url（相对地址解析用）；无法解析时为 nil。
+	backend *url.URL
 }
 
 // newImageClient 创建图片生成客户端。baseURL 为空或 provider 未知时返回错误。
@@ -70,14 +72,30 @@ func newImageClient(provider, baseURL, apiKey, model, size string, steps int, cf
 	if provider != providerOpenAI && provider != providerSDWebUI {
 		return nil, fmt.Errorf("未知 provider %q（支持 openai / sdwebui）", provider)
 	}
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	if proxy != "" {
-		pu, err := url.Parse(proxy)
-		if err != nil {
-			return nil, fmt.Errorf("无效的代理地址 %q: %w", proxy, err)
-		}
-		tr.Proxy = http.ProxyURL(pu)
+	// base_url 由管理员配置：生成端点与同源图片地址都受信，可位于内网/明文。
+	api, err := outbound.New(outbound.Policy{
+		Component:    "aimage.api",
+		Class:        outbound.OperatorEndpoint,
+		Origins:      []string{baseURL},
+		Proxy:        proxy,
+		Timeout:      timeout,
+		MaxRedirects: 3,
+	})
+	if err != nil {
+		return nil, err
 	}
+	download, err := outbound.New(outbound.Policy{
+		Component:    "aimage.download",
+		Class:        outbound.TrustedOrigin,
+		Origins:      []string{baseURL},
+		Proxy:        proxy,
+		Timeout:      timeout,
+		MaxRedirects: 10,
+	})
+	if err != nil {
+		return nil, err
+	}
+	backend, _ := url.Parse(baseURL)
 	return &imageClient{
 		provider: provider,
 		baseURL:  baseURL,
@@ -88,13 +106,9 @@ func newImageClient(provider, baseURL, apiKey, model, size string, steps int, cf
 		cfgScale: cfgScale,
 		negative: negative,
 		timeout:  timeout,
-		api:      &http.Client{Timeout: timeout, Transport: tr},
-		download: &http.Client{
-			Timeout:       timeout,
-			Transport:     netguard.GuardTransport(tr),
-			CheckRedirect: netguard.RedirectPolicy(10),
-		},
-		allowURL: netguard.AllowURL,
+		api:      api,
+		download: download,
+		backend:  backend,
 	}, nil
 }
 
@@ -255,8 +269,9 @@ func (c *imageClient) materialize(ctx context.Context, b64, imageURL string) (im
 	if imageURL == "" {
 		return imageResult{}, fmt.Errorf("响应中无图片数据")
 	}
-	if c.allowURL != nil && !c.allowURL(imageURL) {
-		return imageResult{}, fmt.Errorf("图片 URL 不被允许下载（仅支持公网 https 地址）")
+	imageURL = c.normalizeImageURL(imageURL)
+	if err := c.download.Allow(imageURL); err != nil {
+		return imageResult{}, fmt.Errorf("图片 URL 不被允许下载: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
@@ -280,8 +295,27 @@ func (c *imageClient) materialize(ctx context.Context, b64, imageURL string) (im
 	return imageResult{Data: data, MimeType: detectImageMime(data)}, nil
 }
 
+// normalizeImageURL 归一化后端返回的图片地址：相对路径按 base_url 解析
+// （本地后端常返回 /outputs/x.png 这类相对地址）。是否受信由下载策略判定
+// （受信来源 = base_url 同源，见 newImageClient）。
+func (c *imageClient) normalizeImageURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return raw
+	}
+	if c.backend != nil {
+		u = c.backend.ResolveReference(u)
+	}
+	return u.String()
+}
+
+// doer 是出站客户端的最小接口（*outbound.Client 与 *http.Client 都满足）。
+type doer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // doJSON 发送请求并读取响应体（上限 maxBytes），非 2xx 时附带状态码报错。
-func doJSON(client *http.Client, req *http.Request, maxBytes int64) ([]byte, error) {
+func doJSON(client doer, req *http.Request, maxBytes int64) ([]byte, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

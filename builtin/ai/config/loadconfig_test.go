@@ -360,3 +360,25 @@ func TestLoadConfigGroupReplyPolicyInvalid(t *testing.T) {
 		t.Errorf("invalid policy should keep default chance, got %v", result.GroupReplyChance)
 	}
 }
+
+func TestLoadConfigAllowPrivateMediaHosts(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"allow_private_media_hosts": []any{" 10.0.0.19:8080 ", "", "nas.lan"},
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	got := Load(ctx)
+	want := []string{"10.0.0.19:8080", "nas.lan"}
+	if !slices.Equal(got.AllowPrivateMediaHosts, want) {
+		t.Fatalf("AllowPrivateMediaHosts = %v, want %v", got.AllowPrivateMediaHosts, want)
+	}
+
+	emptyCtx := plugintest.NewSetupContext("ai", nil)
+	defer plugintest.StopSetupContext(emptyCtx)
+	if empty := Load(emptyCtx); len(empty.AllowPrivateMediaHosts) != 0 {
+		t.Fatalf("default allow_private_media_hosts = %v, want empty", empty.AllowPrivateMediaHosts)
+	}
+}

@@ -89,6 +89,10 @@ plugins:
     fallback: false               # 无命令匹配时兜底回复（群聊+私聊全部非命令消息，group_autonomous+private_chat 并集）
     vision_enabled: false         # 是否支持图片附件（多模态）
     max_attachment_size: 0        # 附件大小上限
+    allow_private_media_hosts: [] # 补充受信媒体主机（"host" 或 "host:port"）：允许内网/
+                                  # 明文 http 的附件地址。平台适配器已会声明自己托管的媒体
+                                  # 源（如 OneBot 的 media_base_url），这里用于补充内网图床等；
+                                  # 未命中的附件仍只接受公网 https
     skill_timeout: ""             # 技能执行超时
     skill_max_depth: 0            # 技能调用最大嵌套深度
 ```
