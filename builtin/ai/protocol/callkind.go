@@ -10,6 +10,9 @@
 // 命中率会被"天然无前缀可复用"的辅助调用稀释（生产观测中事实抽取约占
 // 调用数的四分之一，命中率接近 0）。按 kind 拆分后，主对话的真实命中率
 // 才可与辅助调用分开评估。
+//
+// kind 与 scope 合并存放在同一个 context 值里：两者总是成对出现（同一
+// 次调用的用途与会话），合并在减少 context 槽位的同时也避免两次查找。
 package protocol
 
 import "context"
@@ -36,11 +39,14 @@ const (
 	CallKindOther CallKind = "other"
 )
 
-// callKindKey / callScopeKey 是私有空结构体键，避免与其他包的 context 键冲突。
-type (
-	callKindKey  struct{}
-	callScopeKey struct{}
-)
+// callMeta 是 context 中该调用的观测标注（kind + scope 共用一个槽位）。
+type callMeta struct {
+	kind  CallKind
+	scope string
+}
+
+// callMetaKey 是私有空结构体键，避免与其他包的 context 键冲突。
+type callMetaKey struct{}
 
 // WithCallKind 返回带调用用途标注的 ctx。nil ctx 按 Background 处理，
 // 便于后台任务（记忆抽取、总结）在无父上下文时也能标注。
@@ -51,14 +57,16 @@ func WithCallKind(ctx context.Context, kind CallKind) context.Context {
 	if kind == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, callKindKey{}, kind)
+	meta, _ := ctx.Value(callMetaKey{}).(callMeta)
+	meta.kind = kind
+	return context.WithValue(ctx, callMetaKey{}, meta)
 }
 
 // CallKindOf 读取调用用途标注；未标注返回 CallKindOther。
 func CallKindOf(ctx context.Context) CallKind {
 	if ctx != nil {
-		if kind, ok := ctx.Value(callKindKey{}).(CallKind); ok && kind != "" {
-			return kind
+		if meta, ok := ctx.Value(callMetaKey{}).(callMeta); ok && meta.kind != "" {
+			return meta.kind
 		}
 	}
 	return CallKindOther
@@ -73,14 +81,16 @@ func WithCallScope(ctx context.Context, scope string) context.Context {
 	if scope == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, callScopeKey{}, scope)
+	meta, _ := ctx.Value(callMetaKey{}).(callMeta)
+	meta.scope = scope
+	return context.WithValue(ctx, callMetaKey{}, meta)
 }
 
 // CallScopeOf 读取会话范围标注；未标注返回空串。
 func CallScopeOf(ctx context.Context) string {
 	if ctx != nil {
-		if scope, ok := ctx.Value(callScopeKey{}).(string); ok {
-			return scope
+		if meta, ok := ctx.Value(callMetaKey{}).(callMeta); ok {
+			return meta.scope
 		}
 	}
 	return ""
