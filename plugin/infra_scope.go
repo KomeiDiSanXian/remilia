@@ -24,6 +24,14 @@ type Scope struct {
 
 	mu       sync.Mutex
 	disposed bool
+
+	// Dispose 的断点续做状态：ctx 取消时保存尚未处理的项，下次调用继续。
+	// disposed 只在全部清理完成后置位，避免"已取消 → 永久不再清理"。
+	disposeMu         sync.Mutex
+	disposeStarted    bool
+	unsubscribed      bool
+	remainingChildren []*Scope
+	remainingHooks    []func() error
 }
 
 // Name 返回 Scope 名称（用于调试）。
@@ -96,51 +104,102 @@ func (s *Scope) Dispose(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 串行化同一 Scope 的 Dispose：重试与并发调用都不能重复执行已完成的项。
+	s.disposeMu.Lock()
+	defer s.disposeMu.Unlock()
+
 	s.mu.Lock()
 	if s.disposed {
 		s.mu.Unlock()
 		return nil
 	}
-	s.disposed = true
-	children := s.children
+	children := s.remainingChildren
+	hooks := s.remainingHooks
+	if !s.disposeStarted {
+		s.disposeStarted = true
+		children = append([]*Scope(nil), s.children...)
+		hooks = append([]func() error(nil), s.disposeHooks...)
+		slices.Reverse(children)
+		slices.Reverse(hooks)
+	}
 	subs := s.subscriptions
-	hooks := s.disposeHooks
+	needUnsubscribe := !s.unsubscribed
+	s.unsubscribed = true
 	s.mu.Unlock()
 
-	// 订阅退订放在 defer 中，保证即使 children/hooks 阶段因 ctx 取消提前返回也会执行
-	defer func() {
+	// 订阅只退一次：即使本轮被取消，后续重试也不需要重复退订。
+	if needUnsubscribe {
 		for _, sub := range subs {
 			if err := sub.Unsubscribe(); err != nil {
 				logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Unsubscribe failed")
 			}
+			// 等已启动的 handler 结束再清理子 Scope/钩子，避免旧 handler 访问已销毁资源。
+			waitSubscription(ctx, sub, s.name)
 		}
-	}()
+	}
 
-	// 逆序销毁子 Scope（深度优先）
-	for _, c := range slices.Backward(children) {
-		select {
-		case <-ctx.Done():
+	// 处理前先把剩余项写回：ctx 取消时下一次调用从这里继续，不会永久丢弃。
+	for len(children) > 0 {
+		if ctx.Err() != nil {
+			s.saveRemainingDispose(children, hooks)
 			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during child cleanup")
 			return ctx.Err()
-		default:
 		}
+		c := children[0]
+		children = children[1:]
+		s.saveRemainingDispose(children, hooks)
 		if err := c.Dispose(ctx); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] child scope Dispose failed")
 		}
 	}
 
-	// 执行用户注册的清理回调（逆序）
-	for _, hook := range slices.Backward(hooks) {
-		select {
-		case <-ctx.Done():
+	for len(hooks) > 0 {
+		if ctx.Err() != nil {
+			s.saveRemainingDispose(nil, hooks)
 			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during hook execution")
 			return ctx.Err()
-		default:
 		}
+		hook := hooks[0]
+		hooks = hooks[1:]
+		s.saveRemainingDispose(nil, hooks)
 		if err := hook(); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
 		}
 	}
 
+	s.mu.Lock()
+	s.disposed = true
+	s.remainingChildren = nil
+	s.remainingHooks = nil
+	s.mu.Unlock()
 	return nil
+}
+
+// saveRemainingDispose 记录尚未处理的清理项（供取消后重试续做）。
+func (s *Scope) saveRemainingDispose(children []*Scope, hooks []func() error) {
+	s.mu.Lock()
+	s.remainingChildren = children
+	s.remainingHooks = hooks
+	s.mu.Unlock()
+}
+
+// waitSubscription 等待订阅的在途 handler 结束；ctx 取消时放弃等待并告警。
+//
+// 退订本身不等待（handler 内部退订自身时等待会自死锁），卸载路径在这里补上
+// 等待，保证 Teardown 之后不会再有旧 handler 访问已销毁的资源。
+func waitSubscription(ctx context.Context, sub Subscription, scope string) {
+	w, ok := sub.(interface{ Wait() })
+	if !ok {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.Wait()
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		logger.WithField("scope", scope).Warn("[Scope] Timed out waiting for in-flight event handlers")
+	}
 }

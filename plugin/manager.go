@@ -146,12 +146,24 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 		}
 	}
 
+	// 与 Reload 串行化：先锁实例的生命周期锁，再读/改状态。
+	// 锁序固定为 lifecycleMu → pm.mu（Reload 侧同样先取 lifecycleMu）。
+	if hasPending && pending != nil {
+		pending.lifecycleMu.Lock()
+		defer pending.lifecycleMu.Unlock()
+	}
+
 	pm.mu.Lock()
 	inst, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
 		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
+	}
+	if hasPending && inst != pending {
+		// 等待期间实例被替换（重载/重新注册），本次注销的目标已失效，交给调用方重试。
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %s was replaced during unregister, retry", name)
 	}
 	switch inst.GetState() {
 	case Unloading:
@@ -162,6 +174,11 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 		// 由调用方在加载结束后重试，避免与在飞 Setup 交叠
 		pm.mu.Unlock()
 		return fmt.Errorf("plugin %s is still loading, retry after load completes", name)
+	case Reloading:
+		// Reload 在锁外执行卸载/加载；此时注销会与它的清理和重建交错，
+		// 造成重复 Teardown/Scope 清理，或实例已移除但 Reload 仍在继续。
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %s is reloading, retry after reload completes", name)
 	}
 	inst.SetState(Unloading)
 	pm.mu.Unlock()
@@ -887,9 +904,13 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 		config = NewPluginConfigFromProvider(name, cp)
 	}
 
+	configStart := time.Now()
 	if err := validateConfigSchema(name, desc, config); err != nil {
+		recordLoadDuration(name, "config", time.Since(configStart))
+		recordLoadFailure(name, "config")
 		return nil, nil, nil, err
 	}
+	recordLoadDuration(name, "config", time.Since(configStart))
 
 	// ========== 无锁区：实例 + SetupContext 构建 ==========
 	instance = &Instance{
@@ -1175,13 +1196,15 @@ func (pm *Manager) collectContainerBackfillLocked() []containerBackfill {
 		}
 	}
 	if !pm.container.Has("manager") {
-		out = append(out, containerBackfill{"manager", pm})
+		// 只读视图：普通插件不应通过容器拿到 Manager 的生命周期写能力。
+		// 需要注册动作请使用 ctx.Reg，需要管理能力请声明 Privileged 并使用 ctx.Admin。
+		out = append(out, containerBackfill{"manager", newPluginInfo(pm)})
 	}
 	if !pm.container.Has("engine") {
-		out = append(out, containerBackfill{"engine", pm.coordinator})
+		out = append(out, containerBackfill{"engine", readOnlyCoordinator{pm.coordinator}})
 	}
 	if !pm.container.Has("coordinator") {
-		out = append(out, containerBackfill{"coordinator", pm.coordinator})
+		out = append(out, containerBackfill{"coordinator", readOnlyCoordinator{pm.coordinator}})
 	}
 	return out
 }

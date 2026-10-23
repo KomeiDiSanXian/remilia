@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,27 +96,36 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 	t.Log("✓ Container is properly initialized")
 }
 
-// TestRegisterV2_PluginCanAccessSpecialServices 测试插件可以访问特殊服务
+// TestRegisterV2_PluginCanAccessSpecialServices 验证特殊键只暴露只读视图。
+//
+// 普通插件不应通过容器拿到 Manager 的生命周期写能力，或
+// coordinator 的 matcher/group 写接口。注册动作走 ctx.Reg，管理能力走
+// Privileged + ctx.Admin。
 func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 	manager := NewManager(nil)
 
-	var accessedManager *Manager
+	var accessedInfo Info
 	var accessedEngine any
 
 	plugin := &Descriptor{
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			// 访问 manager
 			mgr, ok := ctx.get("manager")
 			assert.True(t, ok)
-			accessedManager = mgr.(*Manager)
+			info, ok := mgr.(Info)
+			assert.True(t, ok, "manager entry must be a read-only Info view")
+			accessedInfo = info
+			_, isRawManager := mgr.(*Manager)
+			assert.False(t, isRawManager, "raw Manager must not be injectable")
 
-			// 访问 engine
 			eng, ok := ctx.get("engine")
 			assert.True(t, ok)
 			accessedEngine = eng
+			_, writable := eng.(engine.PluginCoordinator)
+			assert.False(t, writable, "engine entry must not expose the writer interface")
+			_, readable := eng.(engine.Reader)
+			assert.True(t, readable, "engine entry must expose the read-only interface")
 
-			// 访问 coordinator（应该和 engine 是同一个）
 			coord, ok := ctx.get("coordinator")
 			assert.True(t, ok)
 			assert.Equal(t, eng, coord)
@@ -127,11 +137,9 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 	err := manager.Register(plugin)
 	require.NoError(t, err)
 
-	// 验证获取到的是正确的实例
-	assert.Same(t, manager, accessedManager)
-	assert.Equal(t, manager.coordinator, accessedEngine)
-
-	t.Log("✓ Plugin can access special services correctly")
+	require.NotNil(t, accessedInfo)
+	assert.True(t, accessedInfo.IsLoaded("test"))
+	assert.NotNil(t, accessedEngine.(engine.Reader))
 }
 
 // TestEnsureContainerInitialized_Idempotent 测试容器初始化的幂等性

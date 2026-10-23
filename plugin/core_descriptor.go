@@ -246,11 +246,19 @@ func (d *Descriptor) callSetup(ctx *SetupContext) (any, error) {
 	return d.Setup(ctx)
 }
 
-// callTeardown 调用 Teardown 函数（nil 则跳过）
-func (d *Descriptor) callTeardown(tctx *TeardownContext) error {
+// callTeardown 调用 Teardown 函数（nil 则跳过）。
+//
+// 在回调边界恢复 panic：插件 Teardown 里的 bug 不应终止进程，也不应让后续
+// 清理步骤（容器键清理等）被跳过；panic 转成错误返回，由调用方记录。
+func (d *Descriptor) callTeardown(tctx *TeardownContext) (err error) {
 	if d.Teardown == nil {
 		return nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin %q: panic in Teardown: %v", d.Name, r)
+		}
+	}()
 	return d.Teardown(tctx)
 }
 

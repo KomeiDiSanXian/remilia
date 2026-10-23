@@ -80,6 +80,59 @@ type subscriptionImpl struct {
 	topic   string
 	handler EventHandler
 	bus     *eventBus
+	state   *subscriptionState
+}
+
+// subscriptionState 跟踪一个订阅的在途 handler。
+//
+// 退订只阻止新调用，已启动的 handler 仍可能访问插件资源；Scope.Dispose 通过
+// Wait 等它们结束。begin/done 与 close 用同一把锁串行化，保证 Wait 不会与
+// 新的 Add 并发（Add 与 Wait 并发是 WaitGroup 的未定义行为）。
+type subscriptionState struct {
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
+}
+
+func (s *subscriptionState) begin() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.wg.Add(1)
+	return true
+}
+
+func (s *subscriptionState) done() {
+	if s != nil {
+		s.wg.Done()
+	}
+}
+
+func (s *subscriptionState) close() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+}
+
+func (s *subscriptionState) wait() {
+	if s != nil {
+		s.wg.Wait()
+	}
+}
+
+// Wait 等待该订阅已启动的 handler 全部结束（不阻止新调用）。
+func (s *subscriptionImpl) Wait() {
+	if s != nil {
+		s.state.wait()
+	}
 }
 
 // Topic 返回订阅的主题
@@ -163,9 +216,16 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 			eb.publishCount.Add(1)
 			return err
 		}
-		go func(h EventHandler) {
+		// 已退订的订阅不再启动新 handler；begin 与退订的 close 由 state 锁串行化，
+		// 保证 Wait 期间不会再有新的 Add。
+		if !sub.state.begin() {
+			<-eb.workerPool
+			continue
+		}
+		go func(h EventHandler, st *subscriptionState) {
 			defer func() {
 				<-eb.workerPool
+				st.done()
 				if r := recover(); r != nil {
 					logger.Errorf("[EventBus] Panic in event handler: %v", r)
 				}
@@ -173,7 +233,7 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 			if err := h(ctx, data); err != nil {
 				logger.WithError(err).Warnf("[EventBus] Handler error for topic %s", topic)
 			}
-		}(sub.handler)
+		}(sub.handler, sub.state)
 	}
 
 	eb.publishCount.Add(1)
@@ -243,6 +303,7 @@ func (eb *eventBus) Subscribe(topic string, handler EventHandler) (Subscription,
 		topic:   topic,
 		handler: handler,
 		bus:     eb,
+		state:   &subscriptionState{},
 	}
 
 	eb.subscribers[topic] = append(eb.subscribers[topic], sub)
@@ -277,16 +338,17 @@ func (eb *eventBus) Unsubscribe(sub Subscription) error {
 // 产生元素级数据竞争（可能拷出撕裂的 subscriptionImpl）。
 func (eb *eventBus) unsubscribeByID(topic, id string) error {
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
 
 	handlers, exists := eb.subscribers[topic]
 	if !exists {
+		eb.mu.Unlock()
 		return fmt.Errorf("topic not found: %s", topic)
 	}
 
 	// 查找并删除订阅（构建新切片，不改动旧底层数组）
 	for i, sub := range handlers {
 		if sub.id == id {
+			removed := sub.state
 			if len(handlers) == 1 {
 				delete(eb.subscribers, topic)
 			} else {
@@ -295,10 +357,15 @@ func (eb *eventBus) unsubscribeByID(topic, id string) error {
 				newHandlers = append(newHandlers, handlers[i+1:]...)
 				eb.subscribers[topic] = newHandlers
 			}
+			eb.mu.Unlock()
+			// 先摘除再关闭：此后不会再有新的 handler 启动，在途 handler 由
+			// Scope.Dispose 通过 Wait 等待（见 subscriptionImpl.Wait）。
+			removed.close()
 			logger.Debugf("[EventBus] Unsubscribed from topic: %s, id: %s", topic, id)
 			return nil
 		}
 	}
+	eb.mu.Unlock()
 
 	return fmt.Errorf("subscription not found: %s", id)
 }

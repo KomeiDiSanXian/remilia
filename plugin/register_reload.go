@@ -25,6 +25,11 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		return err
 	}
 
+	// 与 Unregister 串行化：状态检查 + 卸载/重建必须整体互斥，
+	// 否则注销可以在"检查通过"与"置 Reloading"之间插入。
+	pi.lifecycleMu.Lock()
+	defer pi.lifecycleMu.Unlock()
+
 	pi.mu.Lock()
 	// 与状态置位同锁完成检查，防止并发 Reload/Unregister 交叠执行双重热重载
 	switch pi.state {

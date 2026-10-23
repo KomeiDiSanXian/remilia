@@ -68,8 +68,14 @@ func (v *managerInfoView) Get(name string) (*Instance, bool)      { return v.m.G
 // 与此同时，由于返回类型是 Reader 接口，调用方无法通过类型断言
 // 取回 PluginCoordinator 并调用写操作，在编译期阻断误用。
 func (v *managerInfoView) Coordinator() engine.Reader {
-	return v.m.Coordinator()
+	return readOnlyCoordinator{v.m.Coordinator()}
 }
+
+// readOnlyCoordinator 只暴露 engine.Reader 的只读视图。
+//
+// 容器里的 "engine"/"coordinator" 键用它代替原始 coordinator：即便调用方
+// 通过类型断言拿到这个值，也只能读到查询接口，拿不到 matcher/group 写能力。
+type readOnlyCoordinator struct{ engine.Reader }
 
 func (v *managerInfoView) GetStatus(name string) *Status {
 	s, err := v.m.GetStatus(name)

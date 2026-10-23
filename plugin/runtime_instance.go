@@ -30,7 +30,11 @@ type Instance struct {
 	exportedAPI  any               // Setup 返回的 API 对象
 	loadedVer    string            // 当前加载的版本号（用于迁移检测）
 	mu           sync.RWMutex
-	manager      *Manager // 所属插件管理器（用于蓝绿重载 draining 跟踪）
+	// lifecycleMu 串行化 Reload / Unregister（以及 Retry 触发的重载）：
+	// 两者都会在锁外卸载与重建，并发交错会造成重复 Teardown/Scope 清理，
+	// 或实例已从 Manager 表移除但重载仍在继续。锁序：lifecycleMu → mu。
+	lifecycleMu sync.Mutex
+	manager     *Manager // 所属插件管理器（用于蓝绿重载 draining 跟踪）
 
 	// depsModified 标记 Register 是否通过 COW 合并了未声明依赖。
 	// 供 RegisterMultiple 在事后修复 loadOrder 时快速跳过无需修正的插件。
@@ -95,6 +99,24 @@ func (pi *Instance) waitForLoading(ctx context.Context) error {
 
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
 
+// setupPanicError 表示 Setup 内部 panic（已在调用边界恢复）。
+type setupPanicError struct {
+	plugin string
+	cause  any
+}
+
+func (e *setupPanicError) Error() string {
+	return fmt.Sprintf("plugin %q: Setup panicked: %v", e.plugin, e.cause)
+}
+
+// Unwrap 保留 error 类型的 panic 值，便于 errors.Is/As 继续判定。
+func (e *setupPanicError) Unwrap() error {
+	if err, ok := e.cause.(error); ok {
+		return err
+	}
+	return nil
+}
+
 // load 加载插件（实现 pluginInternal）
 // ctx 用于控制超时：若 context 在 Setup 完成前到期则返回 ctx.Err()。
 //
@@ -102,7 +124,7 @@ func (pi *Instance) waitForLoading(ctx context.Context) error {
 // 主 goroutine 不与 Setup goroutine 共享可变变量（修复此前对命名返回值 loadErr 的数据竞争）。
 // 若 ctx 先到期，Setup goroutine 仍会跑完，但其返回的 API 不会被导出、
 // 其间 Spawn 的 goroutine 会在 Setup 结束后被统一停止，避免"僵尸 Setup"污染容器。
-func (pi *Instance) load(ctx context.Context) error {
+func (pi *Instance) load(ctx context.Context) (err error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
@@ -114,6 +136,12 @@ func (pi *Instance) load(ctx context.Context) error {
 	pi.mu.Unlock()
 
 	startTime := time.Now()
+	defer func() {
+		recordLoadDuration(pi.desc.Name, "setup", time.Since(startTime))
+		if err != nil {
+			recordLoadFailure(pi.desc.Name, loadFailureReason(err))
+		}
+	}()
 
 	type setupResult struct {
 		api any
@@ -124,11 +152,7 @@ func (pi *Instance) load(ctx context.Context) error {
 		var res setupResult
 		defer func() {
 			if r := recover(); r != nil {
-				if e, ok := r.(error); ok {
-					res.err = fmt.Errorf("plugin %q: Setup panicked: %w", pi.desc.Name, e)
-				} else {
-					res.err = fmt.Errorf("plugin %q: Setup panicked: %v", pi.desc.Name, r)
-				}
+				res.err = &setupPanicError{plugin: pi.desc.Name, cause: r}
 				res.api = nil
 			}
 			resCh <- res
