@@ -63,6 +63,46 @@ type Config struct {
 	VerifyModel string `yaml:"verify_model"`
 	// ExtractModel 记忆抽取使用的模型（默认空 = 跟随主模型）。
 	ExtractModel string `yaml:"extract_model"`
+	// ExecNode 执行能力的运行节点："local"（默认，本机工作区 + exec_allowlist）
+	// 或 "remote"（文件与进程能力整体转发到 exec_remote_url 指定的执行节点）。
+	// 远程节点的边界（根目录与命令白名单）由节点进程自己持有并强制。
+	ExecNode string `yaml:"exec_node"`
+	// ExecRemoteURL 远程执行节点地址（如 http://10.0.0.19:9020）。
+	ExecRemoteURL string `yaml:"exec_remote_url"`
+	// ExecRemoteToken 远程执行节点访问令牌。
+	ExecRemoteToken string `yaml:"exec_remote_token"`
+	// ReasoningEffort 思考程度（OpenAI 兼容的 reasoning_effort；空 = 不发送
+	// 该字段，跟随端点默认行为）。
+	//
+	// 取值 none / minimal / low / medium / high。"none" 让思考型模型不产出
+	// 推理内容、直接作答：延迟与输出 token 都显著下降，也彻底避开"推理耗尽
+	// max_tokens、正文为空"的截断。实测（DeepSeek 兼容端点）：none 生效、
+	// minimal 被忽略、low/medium/high 只是提示——同一问题推理长度在
+	// 2.2k～4.1k token 之间波动，并不会稳定变短；因此遇到截断优先调大
+	// max_tokens / max_tokens_cap，或直接设 none。
+	// Anthropic 的思考由 thinking 参数控制，本配置对 anthropic 提供商无效。
+	ReasoningEffort string `yaml:"reasoning_effort"`
+	// GroupReplyPolicy 群自主发言的回复决策（GroupAutonomous=true 时的回复粒度）。
+	//
+	//   - "all"（默认）：现行行为，群里每条消息都回复（向后兼容）。
+	//   - "smart"：分层决策——@/触发词/计划/被回复且在跟 bot 说话必回；
+	//     纯社交（"哈哈""666"）、刷屏复读、超短无信息消息、对 bot 的嫌弃
+	//     表达不回；其余弱信号消息按 group_reply_chance 概率抽签，且受
+	//     group_reply_cooldown 插话冷静期约束（bot 刚说过话、无强信号时
+	//     保持安静，像人一样"不无脑接话"）。
+	//   - "judge"：在 smart 的本地预筛之上，把"普通闲聊是否值得插话"
+	//     交给一次低成本的 LLM 判定（结合最近群聊上下文）。强信号与
+	//     本地规则可确定的垃圾消息不产生判定调用；判定超时/失败时
+	//     回退 group_reply_chance 概率抽签；同一时刻至多一个判定在跑。
+	//
+	// 群策略可用 /ai group set reply all|smart|judge [<概率>] 按群覆盖。
+	GroupReplyPolicy string `yaml:"group_reply_policy"`
+	// NeedActionGate“本轮是否需要主动动作”闸门的开关（默认 auto）。
+	//
+	// auto：纯社交寒暄轮判定为无需动作——不挑选可选动作、跳过检索与嵌入调用，
+	// 工具集只保留默认保留级别与会话已用（见 decision.NeedAction）；
+	// always：闸门恒开，不做判定，行为与收紧前一致。
+	NeedActionGate string `yaml:"need_action_gate"`
 	// ToolAllowlist 显式允许自动暴露为工具的命令名称列表。
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
@@ -78,10 +118,6 @@ type Config struct {
 	// 为空表示禁用文件能力（默认）；非空时每个根目录必须已存在（构造时校验）。
 	// 文件动作只读，且要求 RBAC 权限 ai.file.read。
 	WorkspaceRoots []string `yaml:"workspace_roots"`
-	// WorkspaceAllowWrite 是否允许 AI 修改工作区文件（默认 false）。
-	// 开启后注册 file_write / file_edit：两者要求 RBAC 权限 ai.file.write，
-	// 且在任何审批模式下都强制人工审批。
-	WorkspaceAllowWrite bool `yaml:"workspace_allow_write"`
 	// ExecAllowlist 允许执行的命令白名单（裸命令名，默认空 = 禁用进程执行）。
 	// 非空且已配置 workspace_roots 时注册 process_run 动作；具体限制见
 	// builtin/ai/procexec（命令与参数分开传入、不经过 Shell、环境变量清洗、
@@ -89,29 +125,6 @@ type Config struct {
 	ExecAllowlist []string `yaml:"exec_allowlist"`
 	// ExecEnvAllowlist 在基础白名单之外额外允许子进程继承的环境变量名。
 	ExecEnvAllowlist []string `yaml:"exec_env_allowlist"`
-	// ExecTimeout 单次进程执行超时（默认 120s）。
-	ExecTimeout time.Duration `yaml:"exec_timeout"`
-	// ExecMaxOutputBytes 标准输出与标准错误各自的捕获上限（默认 32 KiB）。
-	ExecMaxOutputBytes int `yaml:"exec_max_output_bytes"`
-	// ExecRequireApproval 进程执行是否在任何审批模式下都强制人工审批
-	// （默认 true）。设为 false 时仍需 tool_approval=restricted 才审批。
-	ExecRequireApproval bool `yaml:"exec_require_approval"`
-	// TaskMaxToolCalls 单个任务允许的工具调用总次数上限（默认 200；<=0 不限制）。
-	// 由运行时强制执行：超限时任务置为失败并取消计划，防止失控循环。
-	TaskMaxToolCalls int `yaml:"task_max_tool_calls"`
-	// TaskMaxDuration 单个任务的执行时长上限（默认 2h；<=0 不限制）。
-	// 由运行时强制执行：超限时任务置为失败并取消计划。
-	TaskMaxDuration time.Duration `yaml:"task_max_duration"`
-	// ExecNode 执行能力的运行节点："local"（默认，本机工作区 + exec_allowlist）
-	// 或 "remote"（文件与进程能力整体转发到 exec_remote_url 指定的执行节点）。
-	// 远程节点的边界（根目录与命令白名单）由节点进程自己持有并强制。
-	ExecNode string `yaml:"exec_node"`
-	// ExecRemoteURL 远程执行节点地址（如 http://10.0.0.19:9020）。
-	ExecRemoteURL string `yaml:"exec_remote_url"`
-	// ExecRemoteToken 远程执行节点访问令牌。
-	ExecRemoteToken string `yaml:"exec_remote_token"`
-	// ExecRemoteTimeout 远程节点单次请求超时（<=0 时取客户端默认 120s）。
-	ExecRemoteTimeout time.Duration `yaml:"exec_remote_timeout"`
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -128,6 +141,18 @@ type Config struct {
 	//   - parent_id   所属服务器 ID（频道类平台）
 	//   - group_role  发送者群角色（群主/管理员/普通成员）
 	ContextFields []string `yaml:"context_fields"`
+	// ExecTimeout 单次进程执行超时（默认 120s）。
+	ExecTimeout time.Duration `yaml:"exec_timeout"`
+	// ExecMaxOutputBytes 标准输出与标准错误各自的捕获上限（默认 32 KiB）。
+	ExecMaxOutputBytes int `yaml:"exec_max_output_bytes"`
+	// TaskMaxToolCalls 单个任务允许的工具调用总次数上限（默认 200；<=0 不限制）。
+	// 由运行时强制执行：超限时任务置为失败并取消计划，防止失控循环。
+	TaskMaxToolCalls int `yaml:"task_max_tool_calls"`
+	// TaskMaxDuration 单个任务的执行时长上限（默认 2h；<=0 不限制）。
+	// 由运行时强制执行：超限时任务置为失败并取消计划。
+	TaskMaxDuration time.Duration `yaml:"task_max_duration"`
+	// ExecRemoteTimeout 远程节点单次请求超时（<=0 时取客户端默认 120s）。
+	ExecRemoteTimeout time.Duration `yaml:"exec_remote_timeout"`
 	// MaxTokens 每次请求的最大输出 token 数（默认 4096）。
 	//
 	// 思考型模型（DeepSeek reasoning 系列等）把推理过程也算进这个预算：
@@ -143,17 +168,6 @@ type Config struct {
 	// max_tokens×2 提升预算重试一次，上限即本值。设为 <= max_tokens
 	// 可关闭该重试（此时截断直接报错）。
 	MaxTokensCap int `yaml:"max_tokens_cap"`
-	// ReasoningEffort 思考程度（OpenAI 兼容的 reasoning_effort；空 = 不发送
-	// 该字段，跟随端点默认行为）。
-	//
-	// 取值 none / minimal / low / medium / high。"none" 让思考型模型不产出
-	// 推理内容、直接作答：延迟与输出 token 都显著下降，也彻底避开"推理耗尽
-	// max_tokens、正文为空"的截断。实测（DeepSeek 兼容端点）：none 生效、
-	// minimal 被忽略、low/medium/high 只是提示——同一问题推理长度在
-	// 2.2k～4.1k token 之间波动，并不会稳定变短；因此遇到截断优先调大
-	// max_tokens / max_tokens_cap，或直接设 none。
-	// Anthropic 的思考由 thinking 参数控制，本配置对 anthropic 提供商无效。
-	ReasoningEffort string `yaml:"reasoning_effort"`
 	// MaxDepth 工具调用的最大递归深度。
 	// 防止工具循环调用过深，默认 5。
 	MaxDepth int `yaml:"max_depth"`
@@ -283,6 +297,19 @@ type Config struct {
 	// MaxImagesPerRequest 单次 LLM 请求的最大图片总数（默认 8）。超限时
 	// 从最近开始保留并提示用户（本次对话图片较多），继续处理。
 	MaxImagesPerRequest int `yaml:"max_images_per_request"`
+	// GroupReplyChance smart 策略下弱信号普通消息的回复概率（0~1，默认 0.2）。
+	// 0 = smart 档几乎只回应强信号；1 ≈ 等价 all（其他判定仍会拦截垃圾消息）。
+	GroupReplyChance float64 `yaml:"group_reply_chance"`
+	// GroupReplyCooldown 插话冷静期（smart 策略）：bot 发言后多久内不再主动
+	// 接话（默认 2m）。强信号（@/触发词/计划推进）不受此限。
+	GroupReplyCooldown time.Duration `yaml:"group_reply_cooldown"`
+	// WorkspaceAllowWrite 是否允许 AI 修改工作区文件（默认 false）。
+	// 开启后注册 file_write / file_edit：两者要求 RBAC 权限 ai.file.write，
+	// 且在任何审批模式下都强制人工审批。
+	WorkspaceAllowWrite bool `yaml:"workspace_allow_write"`
+	// ExecRequireApproval 进程执行是否在任何审批模式下都强制人工审批
+	// （默认 true）。设为 false 时仍需 tool_approval=restricted 才审批。
+	ExecRequireApproval bool `yaml:"exec_require_approval"`
 	// IncludeUsage 流式请求是否携带 stream_options.include_usage（OpenAI 兼容 API）。
 	// 用于 token 用量统计；极少数不兼容 stream_options 的网关可设为 false。
 	IncludeUsage bool `yaml:"include_usage"`
@@ -303,27 +330,6 @@ type Config struct {
 	//   - @机器人 + 触发命令（trigger_cmd）的组合仍生效
 	// 默认 false（仅 @ 触发）。
 	GroupAutonomous bool `yaml:"group_autonomous"`
-	// GroupReplyPolicy 群自主发言的回复决策（GroupAutonomous=true 时的回复粒度）。
-	//
-	//   - "all"（默认）：现行行为，群里每条消息都回复（向后兼容）。
-	//   - "smart"：分层决策——@/触发词/计划/被回复且在跟 bot 说话必回；
-	//     纯社交（"哈哈""666"）、刷屏复读、超短无信息消息、对 bot 的嫌弃
-	//     表达不回；其余弱信号消息按 group_reply_chance 概率抽签，且受
-	//     group_reply_cooldown 插话冷静期约束（bot 刚说过话、无强信号时
-	//     保持安静，像人一样"不无脑接话"）。
-	//   - "judge"：在 smart 的本地预筛之上，把"普通闲聊是否值得插话"
-	//     交给一次低成本的 LLM 判定（结合最近群聊上下文）。强信号与
-	//     本地规则可确定的垃圾消息不产生判定调用；判定超时/失败时
-	//     回退 group_reply_chance 概率抽签；同一时刻至多一个判定在跑。
-	//
-	// 群策略可用 /ai group set reply all|smart|judge [<概率>] 按群覆盖。
-	GroupReplyPolicy string `yaml:"group_reply_policy"`
-	// GroupReplyChance smart 策略下弱信号普通消息的回复概率（0~1，默认 0.2）。
-	// 0 = smart 档几乎只回应强信号；1 ≈ 等价 all（其他判定仍会拦截垃圾消息）。
-	GroupReplyChance float64 `yaml:"group_reply_chance"`
-	// GroupReplyCooldown 插话冷静期（smart 策略）：bot 发言后多久内不再主动
-	// 接话（默认 2m）。强信号（@/触发词/计划推进）不受此限。
-	GroupReplyCooldown time.Duration `yaml:"group_reply_cooldown"`
 	// PrivateChat 是否自动响应私聊消息。
 	//
 	// 注意：开启后 AI 会响应所有非命令消息（不以 "/" 开头）。
@@ -397,12 +403,6 @@ type Config struct {
 	// 开启后创建计划后机器人按 plan_auto_interval 自动继续执行未完成步骤
 	// 并主动汇报，用户无需逐条消息推动；用户发消息时重置推进预算。
 	PlanAutoContinue bool `yaml:"plan_auto_continue"`
-	// NeedActionGate“本轮是否需要主动动作”闸门的开关（默认 auto）。
-	//
-	// auto：纯社交寒暄轮判定为无需动作——不挑选可选动作、跳过检索与嵌入调用，
-	// 工具集只保留默认保留级别与会话已用（见 decision.NeedAction）；
-	// always：闸门恒开，不做判定，行为与收紧前一致。
-	NeedActionGate string `yaml:"need_action_gate"`
 }
 
 // NeedActionGate 取值。
