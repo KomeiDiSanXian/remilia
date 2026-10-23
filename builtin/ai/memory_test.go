@@ -288,7 +288,7 @@ func TestExtractAndStore(t *testing.T) {
 	}
 	chat := platform.ChatInfo{ID: "g1", IsGroup: true}
 
-	if err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
+	if _, err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
 		t.Fatalf("extractAndStore failed: %v", err)
 	}
 	if facts := m.Facts(userScope("u1")); len(facts) != 1 {
@@ -324,7 +324,7 @@ func TestMaybeExtractMemoryPrivateChatForcesUserScope(t *testing.T) {
 	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "我喜欢喝茶"}}
 	chat := platform.ChatInfo{ID: "c1", IsGroup: false}
 
-	if err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
+	if _, err := p.memoryExtractor().Extract(userScope("u1"), "u1", chat, sess); err != nil {
 		t.Fatalf("extractAndStore failed: %v", err)
 	}
 	if facts := m.Facts(userScope("u1")); len(facts) != 1 {

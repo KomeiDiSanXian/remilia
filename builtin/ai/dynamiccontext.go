@@ -18,6 +18,7 @@ package ai
 
 import (
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
@@ -111,5 +112,8 @@ func (s *contextState) buildMemoryContextN(ctx *eventctx.Context, session *sessi
 // buildRAGContextN 检索并格式化相关历史消息注入文本（无命中返回空串）。
 // max 为注入条数上限（<=0 表示关闭本功能）；条数上限由调用方给定。
 func (p *Plugin) buildRAGContextN(ctx *eventctx.Context, session *session.Session, max int) string {
-	return promptctx.BuildRAGContext(p.history, p.emb, contextOptions(p.cfg), ctx, session, runtime.LastUserMessage(session), max)
+	start := time.Now()
+	text := promptctx.BuildRAGContext(p.history, p.emb, contextOptions(p.cfg), ctx, session, runtime.LastUserMessage(session), max)
+	recordRAG(time.Since(start), text)
+	return text
 }

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -76,6 +77,45 @@ func retryableStatus(code int) bool {
 	return code >= 500
 }
 
+// retryObserver 重试观测回调（nil 表示未注入）。协议层不依赖指标库，
+// 由装配侧通过 SetRetryObserver 注入。
+var retryObserver atomic.Pointer[func(reason string)]
+
+// SetRetryObserver 注入重试观测回调；传 nil 取消。
+func SetRetryObserver(fn func(reason string)) {
+	if fn == nil {
+		retryObserver.Store(nil)
+		return
+	}
+	retryObserver.Store(&fn)
+}
+
+func notifyRetry(reason string) {
+	if p := retryObserver.Load(); p != nil {
+		(*p)(reason)
+	}
+}
+
+// retryReason 把一次待重试的失败归类，供指标分桶。
+func retryReason(err error) string {
+	if ae, ok := errors.AsType[*APIError](err); ok {
+		switch {
+		case ae.StatusCode == http.StatusTooManyRequests:
+			return "rate_limit"
+		case ae.StatusCode == http.StatusRequestTimeout:
+			return "timeout"
+		case ae.StatusCode >= 500:
+			return "server"
+		default:
+			return "client"
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "network"
+}
+
 // canceledBody 在 Body 关闭时回收每轮的 context，消除 context 泄漏。
 type canceledBody struct {
 	io.ReadCloser
@@ -105,6 +145,7 @@ func executeWithRetry(
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
+			notifyRetry(retryReason(lastErr))
 			wait := time.Duration(attempt) * time.Second
 			var ae *APIError
 			if errors.As(lastErr, &ae) && ae.RetryAfter > 0 {

@@ -75,12 +75,12 @@ type Extractor struct {
 	LifecycleCtx context.Context
 }
 
-// Extract 执行一轮抽取并写入存储。
+// Extract 执行一轮抽取并写入存储，返回写入的事实条数。
 // scope 为本次抽取的节流作用域（仅用于日志），userID 与 chat 决定事实写入位置。
-func (e Extractor) Extract(scope, userID string, chat platform.ChatInfo, sess *session.Session) error {
+func (e Extractor) Extract(scope, userID string, chat platform.ChatInfo, sess *session.Session) (int, error) {
 	conv := LastRoundForMemory(sess)
 	if conv == "" {
-		return nil
+		return 0, nil
 	}
 
 	base := e.LifecycleCtx
@@ -99,7 +99,7 @@ func (e Extractor) Extract(scope, userID string, chat platform.ChatInfo, sess *s
 		{Role: protocol.RoleUser, Content: conv},
 	}, nil)
 	if err != nil {
-		return fmt.Errorf("extract llm call: %w", err)
+		return 0, fmt.Errorf("extract llm call: %w", err)
 	}
 
 	facts := ParseExtractedFacts(result.Text)
@@ -114,7 +114,7 @@ func (e Extractor) Extract(scope, userID string, chat platform.ChatInfo, sess *s
 		stored++
 	}
 	logger.Debugf("[AI] Memory extract: %d facts for %s", stored, scope)
-	return nil
+	return stored, nil
 }
 
 // LastRoundForMemory 提取最近一轮 用户消息 + 助手回复 作为抽取输入。

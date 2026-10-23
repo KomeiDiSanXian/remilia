@@ -3,15 +3,18 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -140,7 +143,7 @@ func TestMetricsProviderKindDefault(t *testing.T) {
 	before := counterValue(llmTokens, "kind-model", "prompt", string(protocol.CallKindOther))
 
 	recordLLMCall(llmCallMeta{model: "kind-model", kind: protocol.CallKindOther},
-		time.Millisecond, 0, &protocol.TokenUsage{PromptTokens: 11}, "ok")
+		llmCallResult{duration: time.Millisecond, usage: &protocol.TokenUsage{PromptTokens: 11}, result: "ok"})
 
 	checkDelta(t, "ai_llm_tokens_total{type=prompt,kind=other}", before,
 		counterValue(llmTokens, "kind-model", "prompt", string(protocol.CallKindOther)), 11)
@@ -302,11 +305,60 @@ func TestMetricsProviderStreamStats(t *testing.T) {
 	}
 }
 
+// TestLLMErrorClass 验证失败分类：429/401/上下文超长/5xx/超时/网络各归一类。
+func TestLLMErrorClass(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"rate limit", &protocol.APIError{StatusCode: 429}, "rate_limit"},
+		{"auth", &protocol.APIError{StatusCode: 401}, "auth"},
+		{"forbidden", &protocol.APIError{StatusCode: 403}, "auth"},
+		{"context length", &protocol.APIError{StatusCode: 400, Body: "This model's maximum context length is 65536 tokens"}, "context_length"},
+		{"client", &protocol.APIError{StatusCode: 400, Body: "bad request"}, "client"},
+		{"server", &protocol.APIError{StatusCode: 503}, "server"},
+		{"timeout", context.DeadlineExceeded, "timeout"},
+		{"canceled", context.Canceled, "canceled"},
+		{"network", &url.Error{Op: "Get", URL: "https://api.example.com", Err: errors.New("connection reset")}, "network"},
+		{"other", errors.New("boom"), "other"},
+	}
+	for _, tc := range cases {
+		if got := llmErrorClass(tc.err); got != tc.want {
+			t.Errorf("%s: llmErrorClass = %q, 期望 %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestTurnResult 验证回合结果归类：中断优先、错误次之、空产出最后。
+func TestTurnResult(t *testing.T) {
+	cases := []struct {
+		name        string
+		result      *chatResult
+		err         error
+		interrupted bool
+		want        string
+	}{
+		{"ok", &chatResult{Text: "hi"}, nil, false, "ok"},
+		{"ok with attachment", &chatResult{Attachments: make([]platform.Attachment, 1)}, nil, false, "ok"},
+		{"empty", &chatResult{}, nil, false, "empty"},
+		{"nil", nil, nil, false, "empty"},
+		{"error", &chatResult{Text: "partial"}, errors.New("x"), false, "error"},
+		{"interrupted", &chatResult{Text: "partial"}, nil, true, "interrupted"},
+	}
+	for _, tc := range cases {
+		if got := turnResult(tc.result, tc.err, tc.interrupted); got != tc.want {
+			t.Errorf("%s: turnResult = %q, 期望 %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestLLMRecordStopped 验证停止路径的 result=stopped 标签。
 func TestLLMRecordStopped(t *testing.T) {
 	before := counterValue(llmCalls, "stop-model", "stopped")
 
-	recordLLMCall(llmCallMeta{model: "stop-model", kind: protocol.CallKindChat}, 100*time.Millisecond, 0, nil, "stopped")
+	recordLLMCall(llmCallMeta{model: "stop-model", kind: protocol.CallKindChat},
+		llmCallResult{duration: 100 * time.Millisecond, result: "stopped"})
 
 	// 原先写作 got < 1：重复运行时恒真，等于没有断言增量恰好为 1。
 	checkDelta(t, "ai_llm_calls_total{result=stopped}", before, counterValue(llmCalls, "stop-model", "stopped"), 1)

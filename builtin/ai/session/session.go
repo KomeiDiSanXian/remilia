@@ -87,6 +87,14 @@ type turnSignal struct {
 	once sync.Once
 }
 
+// Counts 返回会话累计的 LLM 调用数与工具调用数（线程安全）。
+// 回合观测用：在回合开始/结束时取差值得出本轮规模。
+func (s *Session) Counts() (calls, tools int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.CallCount, s.ToolCount
+}
+
 // Lock 锁定会话，禁止并发访问 Messages 等可变字段。
 func (s *Session) Lock() { s.mu.Lock() }
 

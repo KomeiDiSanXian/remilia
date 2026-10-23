@@ -131,11 +131,18 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		// 附件保留策略：当前轮附件始终保留；历史图片在保留窗口（最近 N 条
 		// user 消息 + 时间窗）内随请求发送，支持"继续追问图片细节"；
 		// 更早/更老的图片降级为文本占位，避免无限上传（内存与 token 浪费）。
-		msgs, budgetDropped, _ := runtime.PrepareRequestMessages(msgs, runtime.Retention{
+		msgs, budgetDropped, staleDropped := runtime.PrepareRequestMessages(msgs, runtime.Retention{
 			MaxTurns:      p.cfg.ImageContextTurns,
 			Window:        p.cfg.ImageContextWindow,
 			MaxPerRequest: p.cfg.MaxImagesPerRequest,
 		})
+		// 只在回合首轮统计：保留策略每轮都会跑一遍，逐轮累加会把同一次
+		// 剥离计成 2~3 次（工具轮的请求数）。
+		if currentDepth == 1 {
+			recordImagesDropped("budget", budgetDropped)
+			recordImagesDropped("stale", staleDropped)
+			imagesInRequest.Observe(float64(countRequestImages(msgs)))
+		}
 		if budgetDropped > 0 && session.MarkImageOverflowNotified() {
 			logger.Warnf("[AI] %d historical image(s) dropped over budget (max_images_per_request=%d)",
 				budgetDropped, p.cfg.MaxImagesPerRequest)
@@ -398,6 +405,15 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
+// countRequestImages 统计一次请求实际附带的历史图片数（多模态 ContentParts）。
+func countRequestImages(msgs []protocol.Message) int {
+	n := 0
+	for _, m := range msgs {
+		n += runtime.CountImageParts(m.ContentParts)
+	}
+	return n
+}
+
 // effectiveToolBudget 单个工具调用的执行预算。
 // 默认 tool_timeout；工具实为技能（Skill）时取 max(tool_timeout, skill_timeout)——
 // 技能内部还有自己的多轮 LLM 循环，skill_timeout（默认 60s）比 tool_timeout
@@ -473,6 +489,7 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 	traceStart := time.Now()
 	res := p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, sender, target)
 	runtime.RecordToolTrace(session, tc, traceStart, res.Text, res.Err)
+	recordToolExecution(tc.Name, time.Since(traceStart), res.Err)
 	return runtime.ToolExecResult{Result: res.Text, Err: res.Err}
 }
 

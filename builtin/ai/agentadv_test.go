@@ -324,7 +324,7 @@ func TestExtractUsesExtractModel(t *testing.T) {
 	}
 	sess := &session.Session{ID: "s", UserID: "u", ChatID: "g"}
 	sess.Messages = []protocol.Message{{Role: protocol.RoleUser, Content: "我喜欢喝咖啡"}}
-	if err := p.memoryExtractor().Extract(userScope("u"), "u", platform.ChatInfo{IsGroup: true}, sess); err != nil {
+	if _, err := p.memoryExtractor().Extract(userScope("u"), "u", platform.ChatInfo{IsGroup: true}, sess); err != nil {
 		t.Fatalf("extractAndStore failed: %v", err)
 	}
 	if gotModel != "cheap-extract" {

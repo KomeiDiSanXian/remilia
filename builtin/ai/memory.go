@@ -118,6 +118,15 @@ func userScope(userID string) string { return memoryScopeUser + userID }
 // groupScope 生成群记忆作用域键。
 func groupScope(chatID string) string { return memoryScopeGroup + chatID }
 
+// factGaugeLocked 更新"缓存口径事实总数"gauge（调用方必须持有 m.mu）。
+func (m *memoryStore) factGaugeLocked() {
+	n := 0
+	for _, facts := range m.scopes {
+		n += len(facts)
+	}
+	setMemoryFactsCached(n)
+}
+
 // load 从存储加载指定作用域的事实列表（懒加载）。
 func (m *memoryStore) load(scope string) []memoryFact {
 	m.mu.RLock()
@@ -141,6 +150,7 @@ func (m *memoryStore) load(scope string) []memoryFact {
 		return existing
 	}
 	m.scopes[scope] = loaded
+	m.factGaugeLocked()
 	m.mu.Unlock()
 	return loaded
 }
@@ -181,6 +191,7 @@ func (m *memoryStore) Remove(scope, text string) bool {
 		// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
 		facts = append([]memoryFact(nil), facts...)
 	}
+	m.factGaugeLocked()
 	m.mu.Unlock()
 	if removed {
 		m.save(scope, facts)
@@ -198,6 +209,7 @@ func (m *memoryStore) Clear(scope string) int {
 	facts := m.loadLocked(scope)
 	n := len(facts)
 	m.scopes[scope] = nil
+	m.factGaugeLocked()
 	m.mu.Unlock()
 	if n > 0 {
 		m.save(scope, nil)
@@ -227,6 +239,7 @@ func (m *memoryStore) RemoveWhere(scope string, match func(memoryFact) bool) int
 		// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
 		kept = append([]memoryFact(nil), kept...)
 	}
+	m.factGaugeLocked()
 	m.mu.Unlock()
 	if removed > 0 {
 		m.save(scope, kept)
@@ -314,6 +327,7 @@ func (m *memoryStore) Add(scope, text string) {
 		facts = m.evictLocked(facts, len(facts)-m.maxFacts)
 	}
 	m.scopes[scope] = facts
+	m.factGaugeLocked()
 	// 复制后再 save：save 在锁外 marshal，不能与 m.scopes 共享底层数组。
 	facts = append([]memoryFact(nil), facts...)
 	m.mu.Unlock()

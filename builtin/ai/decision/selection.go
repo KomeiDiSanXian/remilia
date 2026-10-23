@@ -77,6 +77,16 @@ type scoredTool struct {
 	cos    float64
 }
 
+// SelectPathObserver 观测工具选择路径（bypass=未超阈值或无查询，retrieval=本地检索）。
+// 由装配侧注入，decision 不依赖指标库。
+var SelectPathObserver func(path string)
+
+func observeSelectPath(path string) {
+	if SelectPathObserver != nil {
+		SelectPathObserver(path)
+	}
+}
+
 // SelectToolsForTurn 从可用工具中选择本轮发送给 LLM 的子集。
 //
 // 选择策略：
@@ -101,12 +111,15 @@ func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, c
 	// 两条短路口径都不经过 StabilizeToolSet，因此不会触发工具集观测回调；
 	// 需要观测数据的部署应保证工具数超过上限或启用 embedding。
 	if len(actions) <= max && (emb == nil || !emb.Enabled()) {
+		observeSelectPath("bypass")
 		return actions
 	}
 
 	if query == "" {
+		observeSelectPath("bypass")
 		return actions
 	}
+	observeSelectPath("retrieval")
 	queryTokens := retrieval.TokenizeText(query)
 
 	// 复用条件：目录内容版本一致且可见动作数一致（每轮过滤结果未变）。

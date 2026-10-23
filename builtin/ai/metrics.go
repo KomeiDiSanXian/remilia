@@ -59,6 +59,10 @@ package ai
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
@@ -127,6 +131,25 @@ var (
 		[]string{"tool", "result"},
 	)).(*prometheus.CounterVec)
 
+	toolDuration = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "tool_duration_seconds",
+			Help:      "工具执行耗时（顶层调用，含工具内部 IO 与技能子循环）",
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
+		},
+		[]string{"tool"},
+	)).(*prometheus.HistogramVec)
+
+	toolTimeouts = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "tool_timeouts_total",
+			Help:      "工具执行超时次数（与业务失败区分：超时说明预算不够或工具卡住）",
+		},
+		[]string{"tool"},
+	)).(*prometheus.CounterVec)
+
 	toolSetChanges = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ai",
@@ -178,6 +201,158 @@ var (
 		},
 		[]string{"status"},
 	)).(*prometheus.CounterVec)
+
+	llmErrors = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "llm_errors_total",
+			Help:      "LLM 调用失败次数（class: rate_limit/auth/context_length/timeout/canceled/server/client/network/other）",
+		},
+		[]string{"model", "class"},
+	)).(*prometheus.CounterVec)
+
+	llmFinish = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "llm_finish_total",
+			Help:      "流式调用的结束原因分布（stop/length/content_filter/tool_calls/other；截断与空回复看这里）",
+		},
+		[]string{"reason"},
+	)).(*prometheus.CounterVec)
+
+	llmRetries = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "llm_retries_total",
+			Help:      "LLM 请求重试次数（reason: rate_limit/timeout/server/network）",
+		},
+		[]string{"reason"},
+	)).(*prometheus.CounterVec)
+
+	turnTotal = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "turn_total",
+			Help:      "对话回合数（result: ok/empty/error/interrupted）",
+		},
+		[]string{"result"},
+	)).(*prometheus.CounterVec)
+
+	turnDuration = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "turn_duration_seconds",
+			Help:      "对话回合耗时（用户可感知的完整等待时长，含校验重生成）",
+			Buckets:   []float64{0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300},
+		},
+	)).(prometheus.Histogram)
+
+	turnLLMCalls = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "turn_llm_calls",
+			Help:      "单个回合内的 LLM 调用次数（工具轮与校验重生成都计入）",
+			Buckets:   []float64{1, 2, 3, 4, 6, 8, 12, 16, 24, 32},
+		},
+	)).(prometheus.Histogram)
+
+	turnToolCalls = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "turn_tool_calls",
+			Help:      "单个回合内的工具调用次数",
+			Buckets:   []float64{0, 1, 2, 3, 5, 8, 12, 20, 32, 50},
+		},
+	)).(prometheus.Histogram)
+
+	approvals = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "approval_total",
+			Help:      "工具审批结果（result: approved/denied/timeout/interrupted）",
+		},
+		[]string{"result"},
+	)).(*prometheus.CounterVec)
+
+	approvalWait = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "approval_wait_seconds",
+			Help:      "等待人工审批的时长",
+			Buckets:   []float64{1, 5, 10, 20, 30, 45, 60, 120},
+		},
+	)).(prometheus.Histogram)
+
+	imagesDropped = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "images_dropped_total",
+			Help:      "历史图片被剥离的次数（reason: stale=保留窗口/时间窗过期，budget=单请求预算超限）",
+		},
+		[]string{"reason"},
+	)).(*prometheus.CounterVec)
+
+	imagesInRequest = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "images_in_request",
+			Help:      "单次请求实际附带的历史图片数",
+			Buckets:   []float64{0, 1, 2, 3, 4, 6, 8, 12},
+		},
+	)).(prometheus.Histogram)
+
+	memoryExtract = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "memory_extract_total",
+			Help:      "事实抽取运行次数（result: ok/error/skipped）",
+		},
+		[]string{"result"},
+	)).(*prometheus.CounterVec)
+
+	memoryExtractFacts = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "memory_extract_facts",
+			Help:      "单次抽取写入的事实条数",
+			Buckets:   []float64{0, 1, 2, 3, 5, 8, 13, 21},
+		},
+	)).(prometheus.Histogram)
+
+	memoryFacts = inframetrics.MustRegisterOrGet(nil, prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "ai",
+			Name:      "memory_facts_cached",
+			Help:      "已加载作用域内的长期记忆事实总数（缓存口径）",
+		},
+	)).(prometheus.Gauge)
+
+	ragQueryTotal = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "rag_queries_total",
+			Help:      "相关历史检索次数（result: hit/empty）",
+		},
+		[]string{"result"},
+	)).(*prometheus.CounterVec)
+
+	ragDuration = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "rag_duration_seconds",
+			Help:      "相关历史检索耗时（含 embedding 精排）",
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		},
+	)).(prometheus.Histogram)
+
+	toolSelect = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "tool_select_total",
+			Help:      "工具选择路径（path: bypass=工具数未超阈值，retrieval=本地检索 Top-K）",
+		},
+		[]string{"path"},
+	)).(*prometheus.CounterVec)
 )
 
 // recordToolSet 记录一次工具集决策结果。
@@ -188,6 +363,62 @@ func recordToolSet(reason string, changed bool, size int) {
 		toolSetChanges.WithLabelValues(reason).Inc()
 	}
 }
+
+// recordTurn 记录一个对话回合的结果与规模（用户可感知的单位是回合，不是单次调用）。
+func recordTurn(result string, duration time.Duration, llmCalls, toolCalls int) {
+	turnTotal.WithLabelValues(result).Inc()
+	turnDuration.Observe(duration.Seconds())
+	turnLLMCalls.Observe(float64(llmCalls))
+	turnToolCalls.Observe(float64(toolCalls))
+}
+
+// recordToolExecution 记录一次顶层工具执行：耗时，以及"超时"与业务失败的区分。
+func recordToolExecution(tool string, duration time.Duration, err error) {
+	toolDuration.WithLabelValues(tool).Observe(duration.Seconds())
+	if errors.Is(err, context.DeadlineExceeded) {
+		toolTimeouts.WithLabelValues(tool).Inc()
+	}
+}
+
+// recordApproval 记录一次人工审批的结果与等待时长。
+func recordApproval(outcome string, waited time.Duration) {
+	approvals.WithLabelValues(outcome).Inc()
+	approvalWait.Observe(waited.Seconds())
+}
+
+// recordImagesDropped 记录被剥离的历史图片（stale=保留窗口过期，budget=单请求超限）。
+func recordImagesDropped(reason string, n int) {
+	if n > 0 {
+		imagesDropped.WithLabelValues(reason).Add(float64(n))
+	}
+}
+
+// recordMemoryExtract 记录一次事实抽取；只在成功时观测写入条数。
+func recordMemoryExtract(result string, facts int) {
+	memoryExtract.WithLabelValues(result).Inc()
+	if result == "ok" {
+		memoryExtractFacts.Observe(float64(facts))
+	}
+}
+
+// setMemoryFactsCached 更新"已加载作用域内的事实总数"（缓存口径）。
+func setMemoryFactsCached(n int) { memoryFacts.Set(float64(n)) }
+
+// recordRAG 记录一次相关历史检索：有命中/空结果 + 耗时。
+func recordRAG(d time.Duration, text string) {
+	result := "empty"
+	if strings.TrimSpace(text) != "" {
+		result = "hit"
+	}
+	ragQueryTotal.WithLabelValues(result).Inc()
+	ragDuration.Observe(d.Seconds())
+}
+
+// recordToolSelectPath 记录工具选择走的是短路还是本地检索。
+func recordToolSelectPath(path string) { toolSelect.WithLabelValues(path).Inc() }
+
+// recordLLMRetry 记录一次协议层重试（由 protocol.SetRetryObserver 回调）。
+func recordLLMRetry(reason string) { llmRetries.WithLabelValues(reason).Inc() }
 
 // recordCatalogGeneration 记录一次目录内容版本推进：计数器按原因累加，gauge
 // 反映当前版本。变化率即"会让会话缓存失效"的事件率。
@@ -220,20 +451,38 @@ func llmCallMetaOf(ctx context.Context, req *protocol.ChatRequest, defaultModel 
 	return meta
 }
 
+// llmCallResult 一次调用的收尾数据。
+type llmCallResult struct {
+	duration time.Duration
+	ttft     time.Duration
+	usage    *protocol.TokenUsage
+	result   string
+	finish   string
+	err      error
+}
+
 // recordLLMCall 记录一次 LLM 调用结果与用量。
+//
 // ttft 为流式调用的首字延迟（0 表示未知/非流式）：它同时决定是否采样
 // TTFT 与生成速度——非流式调用观测不到首字，把端到端耗时当生成速度会污染
 // 直方图（短输出的"速度"会低得离谱）。
-func recordLLMCall(meta llmCallMeta, duration, ttft time.Duration, usage *protocol.TokenUsage, result string) {
-	llmCalls.WithLabelValues(meta.model, result).Inc()
-	llmLatency.WithLabelValues(meta.model).Observe(duration.Seconds())
+func recordLLMCall(meta llmCallMeta, r llmCallResult) {
+	llmCalls.WithLabelValues(meta.model, r.result).Inc()
+	llmLatency.WithLabelValues(meta.model).Observe(r.duration.Seconds())
+
+	if r.err != nil {
+		llmErrors.WithLabelValues(meta.model, llmErrorClass(r.err)).Inc()
+	}
+	if r.finish != "" {
+		llmFinish.WithLabelValues(r.finish).Inc()
+	}
 
 	kind := string(meta.kind)
 	speed := 0.0
-	if ttft > 0 {
-		llmTTFT.WithLabelValues(meta.model, kind).Observe(ttft.Seconds())
-		if usage != nil {
-			speed = decodeSpeed(duration, ttft, usage.CompletionTokens)
+	if r.ttft > 0 {
+		llmTTFT.WithLabelValues(meta.model, kind).Observe(r.ttft.Seconds())
+		if r.usage != nil {
+			speed = decodeSpeed(r.duration, r.ttft, r.usage.CompletionTokens)
 			if speed > 0 {
 				llmSpeed.WithLabelValues(meta.model, kind).Observe(speed)
 			}
@@ -241,9 +490,9 @@ func recordLLMCall(meta llmCallMeta, duration, ttft time.Duration, usage *protoc
 	}
 
 	var prompt, completion, reasoning, cached int
-	if usage != nil {
-		prompt, completion = usage.PromptTokens, usage.CompletionTokens
-		reasoning, cached = usage.ReasoningTokens, usage.CachedTokens
+	if r.usage != nil {
+		prompt, completion = r.usage.PromptTokens, r.usage.CompletionTokens
+		reasoning, cached = r.usage.ReasoningTokens, r.usage.CachedTokens
 		if prompt > 0 {
 			llmTokens.WithLabelValues(meta.model, "prompt", kind).Add(float64(prompt))
 		}
@@ -260,7 +509,54 @@ func recordLLMCall(meta llmCallMeta, duration, ttft time.Duration, usage *protoc
 			llmTokens.WithLabelValues(meta.model, "prompt_cached", kind).Add(float64(cached))
 		}
 	}
-	logLLMCall(meta, duration, ttft, speed, prompt, completion, reasoning, cached, result)
+	logLLMCall(meta, r.duration, r.ttft, speed, prompt, completion, reasoning, cached, r.result)
+}
+
+// llmErrorClass 把一次失败的 LLM 调用归类。主要依据 APIError.StatusCode：
+// 429 与 401 的处理方式完全不同（退避 vs 换 key），400 里的上下文超长要缩
+// 上下文而不是重试，5xx 才是端点故障。
+func llmErrorClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	if apiErr, ok := errors.AsType[*protocol.APIError](err); ok {
+		switch {
+		case apiErr.StatusCode == http.StatusTooManyRequests:
+			return "rate_limit"
+		case apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden:
+			return "auth"
+		case apiErr.StatusCode == http.StatusRequestTimeout || apiErr.StatusCode == http.StatusRequestEntityTooLarge:
+			return "timeout"
+		case apiErr.StatusCode >= 500:
+			return "server"
+		case isContextLengthError(apiErr.Body):
+			return "context_length"
+		default:
+			return "client"
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if _, ok := errors.AsType[*url.Error](err); ok {
+		return "network"
+	}
+	return "other"
+}
+
+// isContextLengthError 识别"输入超出上下文窗口"的客户端错误：各家文案不同，
+// 只做小写包含匹配（DeepSeek/OpenAI 均含 context length / maximum context）。
+func isContextLengthError(body string) bool {
+	b := strings.ToLower(body)
+	for _, marker := range []string{"context_length", "context length", "maximum context", "too many tokens", "prompt is too long"} {
+		if strings.Contains(b, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeSpeed 计算流式生成速度（token/s）：只用首字之后的时长，排除排队与
@@ -306,6 +602,9 @@ func recordToolCall(tool string, err error) {
 	toolCalls.WithLabelValues(tool, result).Inc()
 }
 
+// errStreamEndedWithoutDone 流关闭但没收到结束事件时的兜底错误（用于错误分类）。
+var errStreamEndedWithoutDone = errors.New("stream closed without done event")
+
 // recordTaskCreated 记录一次任务创建。
 func recordTaskCreated() { taskCreated.Inc() }
 
@@ -333,7 +632,7 @@ func (m *metricsProvider) Chat(ctx context.Context, req *protocol.ChatRequest) (
 	if resp != nil {
 		usage = resp.Usage
 	}
-	recordLLMCall(meta, time.Since(start), 0, usage, result)
+	recordLLMCall(meta, llmCallResult{duration: time.Since(start), usage: usage, result: result, err: err})
 	return resp, err
 }
 
@@ -344,7 +643,7 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 
 	inner, err := m.next.ChatStream(ctx, req)
 	if err != nil {
-		recordLLMCall(meta, time.Since(start), 0, nil, "error")
+		recordLLMCall(meta, llmCallResult{duration: time.Since(start), result: "error", err: err})
 		return nil, err
 	}
 
@@ -352,8 +651,10 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 	go func() {
 		defer close(outer)
 		var (
-			usage *protocol.TokenUsage
-			done  bool
+			usage        *protocol.TokenUsage
+			done         bool
+			finishReason string
+			streamErr    error
 			// firstAt 第一个内容事件（正文/推理/工具调用/附件）的时间：
 			// 推理片段也算首字——它代表模型真正开始产出，而不是首包/心跳。
 			firstAt time.Time
@@ -364,7 +665,22 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 			if !firstAt.IsZero() {
 				ttft = firstAt.Sub(start)
 			}
-			recordLLMCall(meta, time.Since(start), ttft, usage, result)
+			// 只有按失败收尾时才计入错误分类；主动停止不算错误。
+			var recErr error
+			if result == "error" {
+				recErr = streamErr
+				if recErr == nil {
+					recErr = errStreamEndedWithoutDone
+				}
+			}
+			recordLLMCall(meta, llmCallResult{
+				duration: time.Since(start),
+				ttft:     ttft,
+				usage:    usage,
+				result:   result,
+				finish:   finishReason,
+				err:      recErr,
+			})
 		}
 		for {
 			select {
@@ -389,6 +705,9 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 				case protocol.StreamEventDone:
 					done = true
 					usage = ev.Usage
+					finishReason = ev.FinishReason
+				case protocol.StreamEventError:
+					streamErr = ev.Err
 				}
 				select {
 				case outer <- ev:

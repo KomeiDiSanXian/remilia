@@ -140,6 +140,7 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 
 	elem := sm.lru.PushFront(&sessionEntry{session: session})
 	sm.sessions[sessionID] = elem
+	setActiveSessions(len(sm.sessions))
 
 	sm.evictLocked()
 	sm.mu.Unlock()
@@ -221,6 +222,7 @@ func (sm *SessionManager) SaveLocked(session *Session) {
 
 	if sm.storage != nil {
 		if err := sm.storage.Save(session); err != nil {
+			recordSaveFailure()
 			logger.Errorf("[AI] Failed to persist session %s: %v", session.ID, err)
 		}
 	}
@@ -249,6 +251,7 @@ func (sm *SessionManager) Delete(sessionID string) {
 		entry.session.MarkDeleted()
 		sm.lru.Remove(elem)
 		delete(sm.sessions, sessionID)
+		setActiveSessions(len(sm.sessions))
 	}
 	sm.mu.Unlock()
 
@@ -299,6 +302,7 @@ func (sm *SessionManager) CleanupExpired() {
 			session.MarkDeleted()
 			sm.lru.Remove(elem)
 			delete(sm.sessions, entry.id)
+			setActiveSessions(len(sm.sessions))
 		}
 		sm.mu.Unlock()
 		session.Unlock()
@@ -324,6 +328,7 @@ func (sm *SessionManager) evictLocked() {
 		delete(sm.sessions, entry.session.ID)
 		sm.lru.Remove(elem)
 	}
+	setActiveSessions(len(sm.sessions))
 }
 
 // evictCandidateLocked 从链表尾部挑选淘汰候选：优先最久未访问的会话，但
@@ -412,6 +417,9 @@ func TrimMessages(s *Session, maxHistory int) {
 		}
 		otherMsgs = otherMsgs[start:]
 	}
+
+	// 裁剪是前缀缓存的主要断点：记录丢了多少条，便于与命中率曲线对照。
+	recordTrimmed(len(s.Messages) - len(systemMsgs) - len(otherMsgs))
 
 	s.Messages = append(systemMsgs, otherMsgs...)
 }

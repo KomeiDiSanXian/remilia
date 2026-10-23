@@ -57,7 +57,11 @@ func (e *executionState) handleApprovalButton(ctx *eventctx.Context) error {
 // 执行副作用。interruptCtx 为 nil 时仅按超时/响应收尾（测试与后台路径）。
 //
 // 审批请求消息与工具结果相互独立，发送失败也不影响文本兜底。
-func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Context, toolName, argsSummary string, approvalTimeout time.Duration) bool {
+func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Context, toolName, argsSummary string, approvalTimeout time.Duration) (granted bool) {
+	start := time.Now()
+	outcome := "denied"
+	defer func() { recordApproval(outcome, time.Since(start)) }()
+
 	if interruptCtx == nil {
 		interruptCtx = context.Background()
 	}
@@ -88,20 +92,28 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Con
 	case approved, ok := <-req.Result():
 		if !ok {
 			// 通道被关闭 = 超时/停机清理
+			outcome = "timeout"
 			p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", execution.FormatApprovalTimeout(approvalTimeout), toolName))
 			return false
+		}
+		if approved {
+			outcome = "approved"
+		} else {
+			outcome = "denied"
 		}
 		return approved
 	case <-timer.C:
 		// 本地超时兜底：从 pending 移除并关闭结果通道（幂等，已处理则 no-op）。
 		// 不能走 Resolve——它以发起者身份校验响应者，空响应者会被判为无权而
 		// 静默失败，使请求永久残留在 pending 中。
+		outcome = "timeout"
 		p.approvals.Cancel(id)
 		p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", execution.FormatApprovalTimeout(approvalTimeout), toolName))
 		return false
 	case <-interruptCtx.Done():
 		// 回合被停止/抢占：取消审批并按拒绝处理，避免已停止的回合
 		// 因迟到的"允许"执行副作用。
+		outcome = "interrupted"
 		p.approvals.Cancel(id)
 		p.replyFormatted(ctx, fmt.Sprintf("🛑 回合已停止，工具 `%s` 的审批已取消", toolName))
 		return false

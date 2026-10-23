@@ -39,12 +39,16 @@ func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Sess
 		}
 		scope := scope
 		p.lifecycleSpawn(func() {
-			if err := extractor.Extract(scope, sender.ID, chat, session); err != nil {
+			facts, err := extractor.Extract(scope, sender.ID, chat, session)
+			if err != nil {
+				recordMemoryExtract("error", 0)
 				logger.Debugf("[AI] Memory extract failed: %v", err)
 				// 失败回滚节流标记：瞬时失败（超时/网络抖动）不该让这轮
 				// 对话的事实等满 memory_min_interval 才可能再抽。
 				p.memory.UnmarkExtract(scope)
+				return
 			}
+			recordMemoryExtract("ok", facts)
 		})
 	}
 }

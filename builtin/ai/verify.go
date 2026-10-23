@@ -43,6 +43,33 @@ func (p *Plugin) effectiveVerifyTimeout() time.Duration {
 //     用户消息后重新生成；达到上限仍不通过 → 返回最后一份回答（不无限重试）
 //   - 校验器自身报错时不重试、直接返回原回答
 func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
+	start := time.Now()
+	callsBefore, toolsBefore := session.Counts()
+
+	result, err := p.generateVerifiedInner(ctx, session)
+
+	calls, tools := session.Counts()
+	recordTurn(turnResult(result, err, session.Interrupted()), time.Since(start), calls-callsBefore, tools-toolsBefore)
+	return result, err
+}
+
+// turnResult 把回合收尾状态归类：中断优先（可能是 nil error 的正常收尾），
+// 其次错误，再次空产出，最后才是成功。
+func turnResult(result *chatResult, err error, interrupted bool) string {
+	switch {
+	case interrupted:
+		return "interrupted"
+	case err != nil:
+		return "error"
+	case result == nil || (result.Text == "" && len(result.Attachments) == 0):
+		return "empty"
+	default:
+		return "ok"
+	}
+}
+
+// generateVerifiedInner 是 generateVerified 的主体（不含回合指标）。
+func (p *Plugin) generateVerifiedInner(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
 	originalQuery := runtime.LastUserMessage(session)
 	verifier := p.verifier()
 
