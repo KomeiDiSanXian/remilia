@@ -212,7 +212,15 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 func (p *Plugin) buildSkillTools(skill toolkit.Skill) []toolkit.Tool {
 	sysSkills := p.skillReg.ListByOwner(toolkit.OwnerSystem)
 	tools := make([]toolkit.Tool, 0, len(skill.Tools)+len(sysSkills))
-	tools = append(tools, skill.Tools...)
+	for _, t := range skill.Tools {
+		// 技能内部的工具调用没有事件上下文，无法执行 RBAC 权限与人工审批。
+		// 最小权限：声明了 Permissions 的工具不注入技能内部循环，避免绕过
+		// 顶层工具调用的授权路径（需要这类能力时请让用户直接调用该工具）。
+		if len(t.Permissions) > 0 {
+			continue
+		}
+		tools = append(tools, t)
+	}
 
 	for _, s := range sysSkills {
 		if s.Name == skill.Name {

@@ -13,6 +13,26 @@ func TestNewSkillRegistry(t *testing.T) {
 	}
 }
 
+// TestBuildSkillToolsSkipsPermissionedTools 验证技能内部循环只注入无需授权的工具。
+//
+// 技能内部调用没有事件上下文，无法执行 RBAC 与人工审批；声明了 Permissions
+// 的工具必须在 buildSkillTools 阶段就被过滤，否则会绕过顶层工具授权路径。
+func TestBuildSkillToolsSkipsPermissionedTools(t *testing.T) {
+	p := &Plugin{skillReg: toolkit.NewSkillRegistry()}
+	skill := toolkit.Skill{
+		Name: "u_skill",
+		Tools: []toolkit.Tool{
+			{Name: "safe_tool"},
+			{Name: "privileged_tool", Permissions: []string{"audit.view"}},
+		},
+	}
+
+	got := p.buildSkillTools(skill)
+	if len(got) != 1 || got[0].Name != "safe_tool" {
+		t.Fatalf("permissioned tools must not be injected into skills, got %+v", got)
+	}
+}
+
 func TestSkillRegistryAddAndGet(t *testing.T) {
 	r := toolkit.NewSkillRegistry()
 	skill := toolkit.Skill{
