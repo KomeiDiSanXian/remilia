@@ -137,12 +137,45 @@ LLM 侧的前缀缓存（DeepSeek 磁盘缓存、OpenAI / Anthropic prompt cache
   旧群状态会污染后续请求的前缀），也不新增消息（Anthropic 要求消息数组 user/assistant
   交替、system 只在顶级字段）
 - **历史裁剪是批量的**：超过 `max_history` 时一次裁到低水位，避免逐条滑窗让历史前缀
-  每轮都向右位移
+  每轮都向右位移；余量随窗口放大（`max_history` 的 1/4，最少 4 条），避免一个带工具
+  调用的回合中途触发裁剪、把本回合刚生成的工具结果前缀一起作废
 - **工具顺序确定**：工具注册表底层是 map，`ToolRegistry.List()` 按工具名升序返回，
   工具集不变时序列化结果字节稳定
 
 缓存命中量导出为 Prometheus 指标 `ai_llm_tokens_total{type="prompt_cached"}`，
 命中率 = `rate(ai_llm_tokens_total{type="prompt_cached"}) / rate(ai_llm_tokens_total{type="prompt"})`。
+
+指标另带 `kind` 标签区分调用用途（`chat` 对话回合 / `judge` 插话判定 / `verify` 回答校验 /
+`extract` 事实抽取 / `summary` 总结 / `skill` 技能子循环 / `service` 对外 `Complete` /
+`other` 漏标）。判定、校验、抽取这类一次性调用的提示词天然没有可复用的历史前缀，
+命中率接近 0，混在一起会稀释主对话的真实命中率——评估前缀结构改动时请按 kind 分开看：
+
+```promql
+sum by (kind) (rate(ai_llm_tokens_total{type="prompt_cached"}[1h]))
+  / sum by (kind) (rate(ai_llm_tokens_total{type="prompt"}[1h]))
+```
+
+每次调用还会写一条不含消息内容的 Debug 日志（`llm call kind=.. scope=.. msgs=..
+tools=.. prompt=.. cached=.. hit=..% ttft=..ms tok_s=..`）。指标只有聚合值，要定位"哪个
+会话的哪一轮前缀在哪里断开"，需要把日志按 `scope`（会话 ID）串起来看。
+
+**延迟拆成两段**：总耗时（`ai_llm_latency_seconds`）把排队、prefill 与逐 token 生成
+混在一起——同样 8 秒，可能是首字等了 7 秒，也可能是首字 1 秒、生成 7 秒，处理方式
+完全不同。
+
+| 指标 | 含义 |
+| --- | --- |
+| `ai_llm_ttft_seconds{model, kind}` | 首字延迟：发起请求 → 第一个内容事件（正文/推理/工具调用）。推理片段也算首字 |
+| `ai_llm_tokens_per_second{model, kind}` | 生成速度：completion token ÷（首字 → 流结束），**不含**排队与 prefill |
+
+两者只对真正产出内容事件的流式调用采样（非流式调用观测不到首字）；解码窗口短于
+10ms 时不记速度，避免定时器精度造出几千 tok/s 的伪样本。
+
+```promql
+# 首字延迟 p95 与生成速度 p50（按用途）
+histogram_quantile(0.95, sum by (le, kind) (rate(ai_llm_ttft_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le, kind) (rate(ai_llm_tokens_per_second_bucket[5m])))
+```
 
 ### 工具集稳定（`tool_set_sticky`）
 

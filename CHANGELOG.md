@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+### ✨ 新特性
+
+**内置插件 · AI — 提示词缓存命中率按用途拆分**
+
+前缀缓存是 AI 插件最大的成本杠杆，但此前只有聚合指标，回答不了"是主对话命中低，还是辅助调用把比例摊薄了"以及"哪个会话的哪一轮前缀断在哪"。
+
+- `ai_llm_tokens_total` 新增 `kind` 标签：`chat`（对话回合）、`judge`（插话判定）、`verify`（回答校验）、`extract`（事实抽取）、`summary`（总结）、`skill`（技能子循环）、`service`（对外 `Complete`）、`other`（未标注）。判定/校验/抽取的提示词天然没有可复用的历史前缀，命中率接近 0，混在一个计数器里会稀释主对话的真实命中率；拆分后按用途单独评估：
+
+  ```promql
+  sum by (kind) (rate(ai_llm_tokens_total{type="prompt_cached"}[1h]))
+    / sum by (kind) (rate(ai_llm_tokens_total{type="prompt"}[1h]))
+  ```
+
+  原有指标名与既有标签不变，原有查询继续可用。
+- 每次 LLM 调用（含失败/中断）输出一条 Debug 日志：调用用途、会话 ID、模型、消息数、工具数、prompt/cached/completion/reasoning token 数、命中率与耗时。指标只有聚合值，按会话还原"前缀在哪一轮断开"需要单次调用数据；日志只含计数与标识，不含任何消息内容。
+- 调用用途经 context 标注（`protocol.WithCallKind` / `WithCallScope`），不进入请求线格式；未标注的调用落为 `other`，漏标的调用点会在指标里直接显形。
+
+**内置插件 · AI — 首字延迟与生成速度**
+
+流式调用的总耗时（`ai_llm_latency_seconds`）把排队、prefill 与逐 token 生成混在一个数里：同样是 8 秒，可能是首字等了 7 秒，也可能是首字 1 秒、生成 7 秒。前者是容量/排队问题，后者是模型/输出长度问题，处理方式完全不同。
+
+- 新增 `ai_llm_ttft_seconds{model, kind}`：从发起请求到**第一个内容事件**（正文 / 推理 / 工具调用）的耗时，即首字延迟。思考型模型的推理片段也算首字，因为它代表模型真正开始产出。
+- 新增 `ai_llm_tokens_per_second{model, kind}`：流式生成速度 = completion token ÷（首字到流结束的时长），**不含**排队与 prefill，因此可与首字延迟分开定位"慢在等"还是"慢在写"。
+- 两者只对真正产生内容事件的流式调用采样：非流式调用（judge/verify/extract/summary/service）观测不到首字，把它的端到端耗时混进"生成速度"会污染直方图。
+- 每次调用的 Debug 日志追加 `ttft_ms` 与 `tok_s`，可按会话还原单次体验。
+
+### 🛠 修复与优化
+
+**框架 · 出站观察者支持多订阅者（`remilia_send_*` 一直无数据）**
+
+- `core/context` 的出站观察者扩展只有一个槽位，且 messagelog 与发送指标两个中间件都直接 `SetTyped`：后注册的 messagelog 覆盖了先注册的指标观察者，`remilia_send_total{platform,status}` 与 `remilia_send_duration_seconds{platform}` 自 v1.53 引入以来**从未产生过样本**。
+- 新增 `Context.AddOutboundObserver`（把已有观察者与新观察者合并为 `OutboundObservers` 依次回调），messagelog 记录、发送指标、AI 出站记录现在可以共存；直接 `SetTyped` 注入单个观察者的旧写法仍然兼容。
+
+**框架 · 事件指标区分平台入口与内部事件**
+
+- `remilia_events_received_total{platform,kind}` 原先只在 `ProcessPlatformEvent*` 三个入口打点，而通过 `Router.Dispatch → Engine.ProcessEvent` 处理的事件（框架参考实现的常规路径）不经过这些入口，指标因此一直无样本。打点移到 `processEventGuarded`——所有处理路径（`ProcessEvent`、`ProcessPlatformEvent`、`Ex`、`Sync`）的共同入口，两种用法都能覆盖。
+- 新增 `remilia_events_internal_total{kind}`：命令执行、定时任务、计划推进等由插件构造的事件（平台标识为 `synthetic` 或为空）计入独立指标。它们同样占用处理能力、值得观测，但和平台入口流量含义不同，混在一条曲线里既看不出外部压力，也看不出插件自造了多少处理量。
+- 两者都按事件类型拆分，观测脚本可以分别对比"外部进来多少"与"内部产生多少"。
+
+**内置插件 · AI — 历史裁剪余量随窗口放大**
+
+- 批量裁剪此前固定让出 4 条消息余量。`max_history: 50` 下这只够半个回合——一个带工具调用的回合一口气追加 assistant + N 条 tool 结果，裁剪因此常落在回合中途，把本回合刚生成的工具结果前缀一起作废，后续工具轮的请求只能重新计费。现在按窗口的 1/4 让出余量（50 → 12 条，约 4 轮），并保留 4 条下限，避免小窗口（`max_history: 8` 等）退化成逐轮裁剪。稳定期保留的非 system 消息由 41 条变为 37 条，换取裁剪次数降到约 1/3。
+
+### ⚙️ 配置与权限说明
+
+- 无新增配置键。若想压缩"每轮必然未命中"的部分，可按需调小动态上下文（它附在最后一条用户消息上，其后的内容每轮都重新计费）：`context_group_messages`、`memory_inject_max`、`image_context_turns`。这属于质量与成本的权衡，按需调整。
+
+### 📊 可观测性
+
+**Grafana 看板 v2（`deploy/grafana/`）**
+
+- 新增 `deploy/grafana/remilia-bot.json` 与生成脚本 `scripts/gen-grafana-dashboard.py`：23 个全折线面板扩展为 60 余个按语义选型的面板——单值/状态用 stat（采集状态、命中率、熔断状态、panic/超时、积压）、占比用 piechart（调用结果、附件状态、Minecraft 查询结果）、排行/分类计数用 bargauge（命令与工具 Top10、工具集/目录变更原因、任务状态）、直方图用 heatmap（LLM 延迟、工具集大小），时间序列只保留速率/分位/水位；新增 `datasource`/`job`/`model` 变量与"概览 → AI → 消息 → 事件 → 运行时 → 插件"分行布局，插件行默认折叠。
+- 补齐此前从未上图的面板：`ai_toolset_*`、`ai_catalog_*`、`ai_task_*`、`messagelog_cache_*` / `db_write_latency` / `spool_size` / 附件 GC、`remilia_events_received_total`（事件入口）、`outbound_blocked_total`、`remilia_send_duration_seconds`、`remilia_circuitbreaker_rejected_total`、Go 运行时与抓取健康。
+
 ## v1.76.0 (2026-10-22)
 
 ### ✨ 新特性
