@@ -562,6 +562,7 @@ func (p *Plugin) doSummary(ctx *eventctx.Context, msgs []protocol.Message) {
 
 	summaryCtx, summaryCancel := context.WithTimeout(p.lifecycleCtx, p.cfg.APITimeout)
 	defer summaryCancel()
+	summaryCtx = protocol.WithCallKind(summaryCtx, protocol.CallKindSummary)
 	resp, err := p.prov.Chat(summaryCtx, req)
 	if err != nil {
 		// 插件关闭导致的取消不回复错误消息

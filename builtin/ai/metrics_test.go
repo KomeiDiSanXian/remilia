@@ -96,7 +96,8 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	}
 }
 
-// TestMetricsProviderChat 验证 Provider 装饰器记录调用/延迟/token 指标。
+// TestMetricsProviderChat 验证 Provider 装饰器记录调用/延迟/token 指标，
+// 并按 ctx 上的 kind 标注拆分 token 用量标签。
 func TestMetricsProviderChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -104,7 +105,11 @@ func TestMetricsProviderChat(t *testing.T) {
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
 			},
-			"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 6},
+			"usage": map[string]any{
+				"prompt_tokens":           5,
+				"completion_tokens":       6,
+				"prompt_cache_hit_tokens": 3,
+			},
 		})
 	}))
 	defer server.Close()
@@ -114,16 +119,34 @@ func TestMetricsProviderChat(t *testing.T) {
 		t.Fatalf("newProvider: %v", err)
 	}
 	callsBefore := counterValue(llmCalls, "test-model", "ok")
-	promptBefore := counterValue(llmTokens, "test-model", "prompt")
-	completionBefore := counterValue(llmTokens, "test-model", "completion")
+	promptBefore := counterValue(llmTokens, "test-model", "prompt", string(protocol.CallKindChat))
+	completionBefore := counterValue(llmTokens, "test-model", "completion", string(protocol.CallKindChat))
+	cachedBefore := counterValue(llmTokens, "test-model", "prompt_cached", string(protocol.CallKindChat))
 
-	if _, err := prov.Chat(context.Background(), &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "x"}}}); err != nil {
+	ctx := protocol.WithCallKind(context.Background(), protocol.CallKindChat)
+	if _, err := prov.Chat(ctx, &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "x"}}}); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
 	checkDelta(t, "ai_llm_calls_total{result=ok}", callsBefore, counterValue(llmCalls, "test-model", "ok"), 1)
-	checkDelta(t, "ai_llm_tokens_total{type=prompt}", promptBefore, counterValue(llmTokens, "test-model", "prompt"), 5)
-	checkDelta(t, "ai_llm_tokens_total{type=completion}", completionBefore, counterValue(llmTokens, "test-model", "completion"), 6)
+	checkDelta(t, "ai_llm_tokens_total{type=prompt,kind=chat}", promptBefore, counterValue(llmTokens, "test-model", "prompt", string(protocol.CallKindChat)), 5)
+	checkDelta(t, "ai_llm_tokens_total{type=completion,kind=chat}", completionBefore, counterValue(llmTokens, "test-model", "completion", string(protocol.CallKindChat)), 6)
+	checkDelta(t, "ai_llm_tokens_total{type=prompt_cached,kind=chat}", cachedBefore, counterValue(llmTokens, "test-model", "prompt_cached", string(protocol.CallKindChat)), 3)
+}
+
+// TestMetricsProviderKindDefault 验证未标注 ctx 的调用落为 kind=other
+// （而不是被静默记进 chat，掩盖漏标的调用点）。
+func TestMetricsProviderKindDefault(t *testing.T) {
+	before := counterValue(llmTokens, "kind-model", "prompt", string(protocol.CallKindOther))
+
+	recordLLMCall(llmCallMeta{model: "kind-model", kind: protocol.CallKindOther},
+		time.Millisecond, 0, &protocol.TokenUsage{PromptTokens: 11}, "ok")
+
+	checkDelta(t, "ai_llm_tokens_total{type=prompt,kind=other}", before,
+		counterValue(llmTokens, "kind-model", "prompt", string(protocol.CallKindOther)), 11)
+	if got := protocol.CallKindOf(context.Background()); got != protocol.CallKindOther {
+		t.Errorf("未标注 ctx 的 kind = %q, 期望 %q", got, protocol.CallKindOther)
+	}
 }
 
 // TestMetricsProviderStreamError 验证流式错误路径的指标（同步错误 → result=error）。
@@ -181,11 +204,109 @@ func TestAnthropicStreamUsage(t *testing.T) {
 	}
 }
 
+// TestDecodeSpeed 验证生成速度的采样边界：只用首字之后的时长，
+// 未知首字 / 无 token 数 / 解码窗口过短时一律不采样。
+func TestDecodeSpeed(t *testing.T) {
+	cases := []struct {
+		name string
+		dur  time.Duration
+		ttft time.Duration
+		n    int
+		want float64
+	}{
+		{"正常", 2 * time.Second, 500 * time.Millisecond, 300, 200},
+		{"无首字", 2 * time.Second, 0, 300, 0},
+		{"无 completion token", 2 * time.Second, 500 * time.Millisecond, 0, 0},
+		{"解码窗口过短", 500 * time.Millisecond, 495 * time.Millisecond, 1, 0},
+		{"首字晚于结束", time.Second, 2 * time.Second, 3, 0},
+	}
+	for _, tc := range cases {
+		if got := decodeSpeed(tc.dur, tc.ttft, tc.n); got != tc.want {
+			t.Errorf("%s: decodeSpeed(%v, %v, %d) = %v, 期望 %v",
+				tc.name, tc.dur, tc.ttft, tc.n, got, tc.want)
+		}
+	}
+}
+
+// TestMetricsProviderStreamStats 验证首字延迟与生成速度只对"真正产出内容"的
+// 流式调用采样；非流式调用观测不到首字，不得写入这两个指标。
+func TestMetricsProviderStreamStats(t *testing.T) {
+	streamSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// 首包前延迟：模拟排队 + prefill，应计入首字延迟
+		time.Sleep(40 * time.Millisecond)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"he"}}]}`)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(30 * time.Millisecond)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"llo"}}]}`)
+		fmt.Fprintln(w, `data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":2}}`)
+		fmt.Fprintln(w, `data: [DONE]`)
+	}))
+	defer streamSrv.Close()
+
+	// 模型名带纳秒后缀：-count=N 重复运行时始终是新的标签组合，
+	// CollectAndCount 的增量断言才成立。
+	model := fmt.Sprintf("ttft-model-%d", time.Now().UnixNano())
+	prov, err := newProvider(&config.Config{Provider: "openai", BaseURL: streamSrv.URL,
+		APIKey: "k", Model: model, MaxTokens: 8, IncludeUsage: true})
+	if err != nil {
+		t.Fatalf("newProvider: %v", err)
+	}
+	ctx := protocol.WithCallKind(context.Background(), protocol.CallKindChat)
+	ttftBefore := testutil.CollectAndCount(llmTTFT)
+	speedBefore := testutil.CollectAndCount(llmSpeed)
+
+	ch, err := prov.ChatStream(ctx, &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	for range ch {
+	}
+
+	if got := testutil.CollectAndCount(llmTTFT); got != ttftBefore+1 {
+		t.Errorf("流式调用应新增 1 个首字延迟序列, got %d want %d", got, ttftBefore+1)
+	}
+	if got := testutil.CollectAndCount(llmSpeed); got != speedBefore+1 {
+		t.Errorf("流式调用应新增 1 个生成速度序列, got %d want %d", got, speedBefore+1)
+	}
+
+	jsonSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
+			},
+			"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 6},
+		})
+	}))
+	defer jsonSrv.Close()
+
+	model2 := fmt.Sprintf("nostream-model-%d", time.Now().UnixNano())
+	prov2, err := newProvider(&config.Config{Provider: "openai", BaseURL: jsonSrv.URL,
+		APIKey: "k", Model: model2, MaxTokens: 8, IncludeUsage: true})
+	if err != nil {
+		t.Fatalf("newProvider: %v", err)
+	}
+	ttftBefore2 := testutil.CollectAndCount(llmTTFT)
+	speedBefore2 := testutil.CollectAndCount(llmSpeed)
+	if _, err := prov2.Chat(ctx, &protocol.ChatRequest{Messages: []protocol.Message{{Role: protocol.RoleUser, Content: "x"}}}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if got := testutil.CollectAndCount(llmTTFT); got != ttftBefore2 {
+		t.Errorf("非流式调用不得写入首字延迟, got %d want %d", got, ttftBefore2)
+	}
+	if got := testutil.CollectAndCount(llmSpeed); got != speedBefore2 {
+		t.Errorf("非流式调用不得写入生成速度, got %d want %d", got, speedBefore2)
+	}
+}
+
 // TestLLMRecordStopped 验证停止路径的 result=stopped 标签。
 func TestLLMRecordStopped(t *testing.T) {
 	before := counterValue(llmCalls, "stop-model", "stopped")
 
-	recordLLMCall("stop-model", 100*time.Millisecond, nil, "stopped")
+	recordLLMCall(llmCallMeta{model: "stop-model", kind: protocol.CallKindChat}, 100*time.Millisecond, 0, nil, "stopped")
 
 	// 原先写作 got < 1：重复运行时恒真，等于没有断言增量恰好为 1。
 	checkDelta(t, "ai_llm_calls_total{result=stopped}", before, counterValue(llmCalls, "stop-model", "stopped"), 1)

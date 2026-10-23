@@ -123,6 +123,8 @@ func descStrings(c prometheus.Collector) string {
 func TestMetricsDescriptorsRegistered(t *testing.T) {
 	got := descStrings(llmCalls) +
 		descStrings(llmLatency) +
+		descStrings(llmTTFT) +
+		descStrings(llmSpeed) +
 		descStrings(llmTokens) +
 		descStrings(toolCalls) +
 		descStrings(toolSetChanges) +
@@ -133,6 +135,8 @@ func TestMetricsDescriptorsRegistered(t *testing.T) {
 	for _, want := range []string{
 		`fqName: "ai_llm_calls_total"`,
 		`fqName: "ai_llm_latency_seconds"`,
+		`fqName: "ai_llm_ttft_seconds"`,
+		`fqName: "ai_llm_tokens_per_second"`,
 		`fqName: "ai_llm_tokens_total"`,
 		`fqName: "ai_tool_calls_total"`,
 		`fqName: "ai_toolset_changes_total"`,
@@ -142,7 +146,7 @@ func TestMetricsDescriptorsRegistered(t *testing.T) {
 	} {
 		assert.Contains(t, got, want)
 	}
-	for _, label := range []string{"model", "result", "tool", "reason"} {
+	for _, label := range []string{"model", "result", "tool", "reason", "type", "kind"} {
 		assert.Contains(t, got, label, "label %q must stay registered", label)
 	}
 }

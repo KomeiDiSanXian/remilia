@@ -3,12 +3,36 @@
 // 指标族（namespace "ai"）：
 //   - ai_llm_calls_total{model, result}       LLM 调用次数（result: ok/error/stopped）
 //   - ai_llm_latency_seconds{model}           LLM 调用耗时（含流式全时长）
-//   - ai_llm_tokens_total{model, type}        token 用量（type: prompt/completion/prompt_cached/reasoning）
+//   - ai_llm_ttft_seconds{model, kind}        流式首字延迟（发起请求 → 第一个内容事件）
+//   - ai_llm_tokens_per_second{model, kind}   流式生成速度（completion / 首字到结束）
+//   - ai_llm_tokens_total{model, type, kind} token 用量（type: prompt/completion/prompt_cached/reasoning，
+//     kind: chat/judge/verify/extract/summary/skill/service/other）
+//
+// 总耗时把排队、prefill 与逐 token 生成混在一个数里：同样 8 秒，可能是首字等了
+// 7 秒（容量/排队），也可能是首字 1 秒、生成 7 秒（输出长/模型慢）。ttft 与
+// tokens_per_second 拆开这两段，后者刻意不含排队与 prefill，才能和首字延迟
+// 分开归因。两者只对产生内容事件的流式调用采样，非流式调用观测不到首字。
 //
 // prompt_cached 为命中提示词前缀缓存的输入 token 数，
 // rate(prompt_cached)/rate(prompt) 即前缀缓存命中率。
 // reasoning 为思考型模型的推理 token 数（已计入 completion），
 // rate(reasoning)/rate(completion) 接近 1 说明该端点把思考也算进输出预算。
+//
+// kind 把"对话回合"与"辅助调用"分开：判定/校验/抽取/总结这类一次性调用的
+// 提示词天然没有可复用的历史前缀，命中率接近 0，混在一个计数器里会把主对话
+// 的命中率拉低（也掩盖真实波动）。整体与分用途命中率的查询：
+//
+//	# 整体
+//	sum(rate(ai_llm_tokens_total{type="prompt_cached"}[1h]))
+//	  / sum(rate(ai_llm_tokens_total{type="prompt"}[1h]))
+//	# 分用途（注意分母只取同一 kind，否则比值的意义会被稀释）
+//	sum by (kind) (rate(ai_llm_tokens_total{type="prompt_cached"}[1h]))
+//	  / sum by (kind) (rate(ai_llm_tokens_total{type="prompt"}[1h]))
+//
+// 每次调用（含失败/中断）另有一条 Debug 日志，形如
+// "llm call kind=chat scope=<会话ID> model=... msgs=.. tools=.. prompt=.. cached=.. hit=..% ..."，
+// 用于按会话、按回合还原"哪些请求没有命中"：指标只有聚合值，定位前缀
+// 具体在哪一轮断开需要单次调用的原始数据。日志不含任何消息内容。
 //   - ai_tool_calls_total{tool, result}       工具调用次数（result: ok/error）
 //   - ai_toolset_changes_total{reason}        工具集变更次数
 //     （reason: init/grow/shrink/decay；仅在集合真的变化时计数，keep 不计数）
@@ -39,6 +63,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -68,10 +93,30 @@ var (
 		prometheus.CounterOpts{
 			Namespace: "ai",
 			Name:      "llm_tokens_total",
-			Help:      "LLM token 用量（type: prompt/completion/prompt_cached/reasoning）",
+			Help:      "LLM token 用量（type: prompt/completion/prompt_cached/reasoning；kind: 调用用途）",
 		},
-		[]string{"model", "type"},
+		[]string{"model", "type", "kind"},
 	)).(*prometheus.CounterVec)
+
+	llmTTFT = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "llm_ttft_seconds",
+			Help:      "流式调用首字延迟（发起请求到第一个内容事件；非流式调用不采样）",
+			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 10, 15, 20, 30, 60},
+		},
+		[]string{"model", "kind"},
+	)).(*prometheus.HistogramVec)
+
+	llmSpeed = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "ai",
+			Name:      "llm_tokens_per_second",
+			Help:      "流式生成速度（completion token / 首字到结束，不含排队与 prefill）",
+			Buckets:   []float64{1, 2, 5, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200},
+		},
+		[]string{"model", "kind"},
+	)).(*prometheus.HistogramVec)
 
 	toolCalls = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -151,27 +196,105 @@ func recordCatalogGeneration(reason string, generation uint64) {
 	catalogGeneration.Set(float64(generation))
 }
 
+// llmCallMeta 一次 LLM 调用的观测维度：指标标签（model/kind）与单次日志字段。
+type llmCallMeta struct {
+	model    string
+	kind     protocol.CallKind
+	scope    string
+	messages int
+	tools    int
+}
+
+// llmCallMetaOf 从 ctx 标注与请求本身收集观测维度。
+// kind 未标注时落为 other（见 protocol.CallKindOther），便于发现漏标调用点。
+func llmCallMetaOf(ctx context.Context, req *protocol.ChatRequest, defaultModel string) llmCallMeta {
+	meta := llmCallMeta{
+		kind:  protocol.CallKindOf(ctx),
+		scope: protocol.CallScopeOf(ctx),
+	}
+	if req != nil {
+		meta.model = protocol.RequestModel(defaultModel, req.Model)
+		meta.messages = len(req.Messages)
+		meta.tools = len(req.Tools)
+	}
+	return meta
+}
+
 // recordLLMCall 记录一次 LLM 调用结果与用量。
-func recordLLMCall(model string, duration time.Duration, usage *protocol.TokenUsage, result string) {
-	llmCalls.WithLabelValues(model, result).Inc()
-	llmLatency.WithLabelValues(model).Observe(duration.Seconds())
-	if usage != nil {
-		if usage.PromptTokens > 0 {
-			llmTokens.WithLabelValues(model, "prompt").Add(float64(usage.PromptTokens))
+// ttft 为流式调用的首字延迟（0 表示未知/非流式）：它同时决定是否采样
+// TTFT 与生成速度——非流式调用观测不到首字，把端到端耗时当生成速度会污染
+// 直方图（短输出的"速度"会低得离谱）。
+func recordLLMCall(meta llmCallMeta, duration, ttft time.Duration, usage *protocol.TokenUsage, result string) {
+	llmCalls.WithLabelValues(meta.model, result).Inc()
+	llmLatency.WithLabelValues(meta.model).Observe(duration.Seconds())
+
+	kind := string(meta.kind)
+	speed := 0.0
+	if ttft > 0 {
+		llmTTFT.WithLabelValues(meta.model, kind).Observe(ttft.Seconds())
+		if usage != nil {
+			speed = decodeSpeed(duration, ttft, usage.CompletionTokens)
+			if speed > 0 {
+				llmSpeed.WithLabelValues(meta.model, kind).Observe(speed)
+			}
 		}
-		if usage.CompletionTokens > 0 {
-			llmTokens.WithLabelValues(model, "completion").Add(float64(usage.CompletionTokens))
+	}
+
+	var prompt, completion, reasoning, cached int
+	if usage != nil {
+		prompt, completion = usage.PromptTokens, usage.CompletionTokens
+		reasoning, cached = usage.ReasoningTokens, usage.CachedTokens
+		if prompt > 0 {
+			llmTokens.WithLabelValues(meta.model, "prompt", kind).Add(float64(prompt))
+		}
+		if completion > 0 {
+			llmTokens.WithLabelValues(meta.model, "completion", kind).Add(float64(completion))
 		}
 		// 推理 token（思考型模型单独返回时才记，已含在 completion 内），
 		// 用于区分"输出预算被思考耗尽"与真正的空回复。
-		if usage.ReasoningTokens > 0 {
-			llmTokens.WithLabelValues(model, "reasoning").Add(float64(usage.ReasoningTokens))
+		if reasoning > 0 {
+			llmTokens.WithLabelValues(meta.model, "reasoning", kind).Add(float64(reasoning))
 		}
 		// 前缀缓存命中量（供应商返回时才记），用于计算缓存命中率
-		if usage.CachedTokens > 0 {
-			llmTokens.WithLabelValues(model, "prompt_cached").Add(float64(usage.CachedTokens))
+		if cached > 0 {
+			llmTokens.WithLabelValues(meta.model, "prompt_cached", kind).Add(float64(cached))
 		}
 	}
+	logLLMCall(meta, duration, ttft, speed, prompt, completion, reasoning, cached, result)
+}
+
+// decodeSpeed 计算流式生成速度（token/s）：只用首字之后的时长，排除排队与
+// prefill。任一前提不成立时返回 0（调用方据此跳过采样）：
+//   - ttft 未知（非流式调用、流未产出内容）
+//   - 没有 completion token 数（provider 未返回 usage）
+//   - 解码窗口 < 10ms：末 token 与首 token 几乎同时落地，定时器精度会把
+//     1 token 放大成几千 tok/s 的伪样本，污染直方图
+func decodeSpeed(duration, ttft time.Duration, completionTokens int) float64 {
+	if ttft <= 0 || completionTokens <= 0 {
+		return 0
+	}
+	decode := duration - ttft
+	if decode < 10*time.Millisecond {
+		return 0
+	}
+	return float64(completionTokens) / decode.Seconds()
+}
+
+// logLLMCall 每次调用写一条 Debug 日志（含失败/中断）。
+// 指标只有聚合值，定位"哪一轮、哪个会话没有命中前缀缓存"需要单次调用数据；
+// 日志只含计数与标识，不含任何消息内容（提示词/工具结果不落日志）。
+func logLLMCall(meta llmCallMeta, duration, ttft time.Duration, speed float64,
+	prompt, completion, reasoning, cached int, result string) {
+	hit := 0.0
+	if prompt > 0 {
+		hit = float64(cached) / float64(prompt) * 100
+	}
+	logger.Debugf("[AI] llm call kind=%s scope=%s model=%s msgs=%d tools=%d "+
+		"prompt=%d cached=%d hit=%.1f%% completion=%d reasoning=%d "+
+		"ttft=%dms tok_s=%.1f result=%s duration=%dms",
+		meta.kind, meta.scope, meta.model, meta.messages, meta.tools,
+		prompt, cached, hit, completion, reasoning,
+		ttft.Milliseconds(), speed, result, duration.Milliseconds())
 }
 
 // recordToolCall 记录一次工具调用结果（作为观测回调注入动作调用器）。
@@ -200,7 +323,7 @@ type metricsProvider struct {
 // Chat 包装：所有 LLM 调用自动计入指标。
 func (m *metricsProvider) Chat(ctx context.Context, req *protocol.ChatRequest) (*protocol.ChatResponse, error) {
 	start := time.Now()
-	model := protocol.RequestModel(m.defaultModel, req.Model)
+	meta := llmCallMetaOf(ctx, req, m.defaultModel)
 	resp, err := m.next.Chat(ctx, req)
 	result := "ok"
 	if err != nil {
@@ -210,18 +333,18 @@ func (m *metricsProvider) Chat(ctx context.Context, req *protocol.ChatRequest) (
 	if resp != nil {
 		usage = resp.Usage
 	}
-	recordLLMCall(model, time.Since(start), usage, result)
+	recordLLMCall(meta, time.Since(start), 0, usage, result)
 	return resp, err
 }
 
 // ChatStream 包装流式调用：耗时覆盖整个流的消费过程。
 func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 	start := time.Now()
-	model := protocol.RequestModel(m.defaultModel, req.Model)
+	meta := llmCallMetaOf(ctx, req, m.defaultModel)
 
 	inner, err := m.next.ChatStream(ctx, req)
 	if err != nil {
-		llmCalls.WithLabelValues(model, "error").Inc()
+		recordLLMCall(meta, time.Since(start), 0, nil, "error")
 		return nil, err
 	}
 
@@ -231,7 +354,18 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 		var (
 			usage *protocol.TokenUsage
 			done  bool
+			// firstAt 第一个内容事件（正文/推理/工具调用/附件）的时间：
+			// 推理片段也算首字——它代表模型真正开始产出，而不是首包/心跳。
+			firstAt time.Time
 		)
+		// record 统一收尾：每次调用只计一次，ttft 只在观测到首字时才有值。
+		record := func(result string) {
+			var ttft time.Duration
+			if !firstAt.IsZero() {
+				ttft = firstAt.Sub(start)
+			}
+			recordLLMCall(meta, time.Since(start), ttft, usage, result)
+		}
 		for {
 			select {
 			case ev, open := <-inner:
@@ -243,10 +377,15 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 					} else if ctx.Err() == nil {
 						result = "error"
 					}
-					recordLLMCall(model, time.Since(start), usage, result)
+					record(result)
 					return
 				}
 				switch ev.Type {
+				case protocol.StreamEventText, protocol.StreamEventReasoning,
+					protocol.StreamEventToolCall, protocol.StreamEventAttachment:
+					if firstAt.IsZero() {
+						firstAt = time.Now()
+					}
 				case protocol.StreamEventDone:
 					done = true
 					usage = ev.Usage
@@ -258,7 +397,7 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 					// 避免 provider 的发送 goroutine 阻塞
 					for range inner {
 					}
-					recordLLMCall(model, time.Since(start), usage, "stopped")
+					record("stopped")
 					return
 				}
 			case <-ctx.Done():
@@ -266,7 +405,7 @@ func (m *metricsProvider) ChatStream(ctx context.Context, req *protocol.ChatRequ
 				// 的发送 goroutine 因无人接收而永久阻塞泄漏。
 				for range inner {
 				}
-				recordLLMCall(model, time.Since(start), usage, "stopped")
+				record("stopped")
 				return
 			}
 		}

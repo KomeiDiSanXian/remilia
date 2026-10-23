@@ -187,7 +187,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 	defer cancel()
 
 	for depth := 0; depth < p.cfg.SkillMaxDepth; depth++ {
-		resp, err := p.runtimeClient().SingleRound(skillCtx, p.cfg.Model, msgs, wireSpecs(actions))
+		resp, err := p.runtimeClient(protocol.CallKindSkill).SingleRound(skillCtx, p.cfg.Model, msgs, wireSpecs(actions))
 		if err != nil {
 			return "", err
 		}

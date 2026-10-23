@@ -31,6 +31,9 @@ type Client struct {
 	// ReasoningEffort 思考程度（reasoning_effort）；空 = 不携带该字段。
 	// 校验/抽取这类"短、结构化"的输出通常不需要思考，可由装配侧设 none。
 	ReasoningEffort string
+	// Kind 调用用途（观测用，随 ctx 传给 Provider 装饰器，不进请求载荷）。
+	// 用于把本客户端发起的调用从主对话的缓存命中率里拆出去，见 protocol.CallKindOf。
+	Kind protocol.CallKind
 	// Prov LLM 提供商。
 	Prov protocol.Provider
 }
@@ -49,7 +52,7 @@ func (c Client) SingleRound(ctx context.Context, model string, messages []protoc
 		ReasoningEffort: c.ReasoningEffort,
 	}
 
-	resp, err := c.Prov.Chat(ctx, req)
+	resp, err := c.Prov.Chat(protocol.WithCallKind(ctx, c.Kind), req)
 	if err != nil {
 		return nil, err
 	}

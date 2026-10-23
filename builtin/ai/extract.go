@@ -6,6 +6,7 @@
 package ai
 
 import (
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -51,7 +52,7 @@ func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Sess
 // memoryExtractor 组装事实抽取器；记忆写入端口按"未启用即 nil"注入。
 func (p *Plugin) memoryExtractor() runtime.Extractor {
 	return runtime.Extractor{
-		Client:       p.runtimeClient(),
+		Client:       p.runtimeClient(protocol.CallKindExtract),
 		Model:        p.cfg.Model,
 		ExtractModel: p.cfg.ExtractModel,
 		Memory:       p.memoryWriter(),

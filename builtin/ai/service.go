@@ -115,7 +115,7 @@ func (p *Plugin) Complete(ctx context.Context, system, user string, opts ...Chat
 		defer cancel()
 	}
 
-	resp, err := p.prov.Chat(callCtx, req)
+	resp, err := p.prov.Chat(protocol.WithCallKind(callCtx, protocol.CallKindService), req)
 	if err != nil {
 		return "", err
 	}

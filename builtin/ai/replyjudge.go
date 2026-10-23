@@ -75,6 +75,7 @@ func (p *Plugin) runReplyJudge(ctx *eventctx.Context, content string) (reply, ok
 	}
 	judgeCtx, cancel := context.WithTimeout(base, replyJudgeTimeout)
 	defer cancel()
+	judgeCtx = protocol.WithCallKind(protocol.WithCallScope(judgeCtx, chatID), protocol.CallKindJudge)
 
 	req := &protocol.ChatRequest{
 		Model: model,

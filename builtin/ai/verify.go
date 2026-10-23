@@ -19,7 +19,7 @@ import (
 // verifier 组装回答校验器。
 func (p *Plugin) verifier() runtime.Verifier {
 	return runtime.Verifier{
-		Client:      p.runtimeClient(),
+		Client:      p.runtimeClient(protocol.CallKindVerify),
 		Model:       p.cfg.Model,
 		VerifyModel: p.cfg.VerifyModel,
 		APITimeout:  p.cfg.APITimeout,

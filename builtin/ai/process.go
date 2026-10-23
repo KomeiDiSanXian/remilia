@@ -36,12 +36,14 @@ type chatResult struct {
 }
 
 // runtimeClient 组装单轮非流式 LLM 调用客户端（请求形状与调用见 builtin/ai/runtime）。
-func (p *Plugin) runtimeClient() runtime.Client {
+// kind 标注调用用途（skill/verify/extract），只影响指标与日志，不改变请求内容。
+func (p *Plugin) runtimeClient(kind protocol.CallKind) runtime.Client {
 	return runtime.Client{
 		Temperature:     p.cfg.Temperature,
 		TopP:            p.cfg.TopP,
 		MaxTokens:       p.cfg.MaxTokens,
 		ReasoningEffort: p.cfg.ReasoningEffort,
+		Kind:            kind,
 		Prov:            p.prov,
 	}
 }
@@ -91,6 +93,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// 同样生效（否则中断只在工具轮之间的检查点生效，单轮流需等流自然结束）。
 	turnCtx, cancelTurnCtx := session.TurnCtx(ctx.Context())
 	defer cancelTurnCtx()
+	// 标注调用用途与会话范围：ai_llm_tokens_total 的 kind 标签据此区分
+	// "对话回合"与辅助调用，单次调用日志则带上会话 ID，便于按会话还原
+	// 前缀缓存未命中的轮次（见 metrics.go）。
+	turnCtx = protocol.WithCallKind(protocol.WithCallScope(turnCtx, session.ID), protocol.CallKindChat)
 
 	// 动作决策：候选发现（注册表 + 用户 Skill，经群策略与 RBAC）→ 选择
 	// （工具较多时按当前用户消息本地检索 Top-K，替代旧的 LLM 单分类路由）
