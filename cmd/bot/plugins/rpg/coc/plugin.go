@@ -440,25 +440,25 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name", "skill_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				skillName, _ := args["skill_name"].(string)
 				if charName == "" || skillName == "" {
-					return "", fmt.Errorf("请提供角色名和技能名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名和技能名")
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				val := GetSkillValue(c, skillName)
 				if val == 0 {
-					return "", fmt.Errorf("角色 %q 没有技能 %q", charName, skillName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 没有技能 %q", charName, skillName)
 				}
 				r, err := CheckSkill(p.dice, val)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s %s检定: %s", charName, skillName, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s %s检定: %s", charName, skillName, r.Raw)), nil
 			},
 		},
 		{
@@ -474,10 +474,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				if charName == "" {
-					return "", fmt.Errorf("请提供角色名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名")
 				}
 				lossS := 0
 				if v, ok := args["loss_success"].(float64); ok {
@@ -489,14 +489,14 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				r, loss, resultText, err := SanCheck(p.dice, c.CurrentSAN, lossS, lossF)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				_ = loss
-				return fmt.Sprintf("%s SAN检定: %s\n%s", charName, r.Raw, resultText), nil
+				return toolkit.TextResult(fmt.Sprintf("%s SAN检定: %s\n%s", charName, r.Raw, resultText)), nil
 			},
 		},
 		{
@@ -510,20 +510,20 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				if charName == "" {
-					return "", fmt.Errorf("请提供角色名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名")
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				r, err := CheckSkill(p.dice, c.LUCK)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s 幸运检定: %s", charName, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s 幸运检定: %s", charName, r.Raw)), nil
 			},
 		},
 		{
@@ -537,16 +537,16 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				if charName == "" {
-					return "", fmt.Errorf("请提供角色名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名")
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
-				return FormatSheet(c), nil
+				return toolkit.TextResult(FormatSheet(c)), nil
 			},
 		},
 	}

@@ -27,11 +27,11 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"query"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				query, _ := args["query"].(string)
 				query = strings.TrimSpace(query)
 				if query == "" {
-					return "", fmt.Errorf("query 不能为空")
+					return toolkit.ToolResult{}, fmt.Errorf("query 不能为空")
 				}
 				limit := p.cfg.MaxResults
 				if v, ok := args["limit"].(float64); ok && v > 0 {
@@ -42,9 +42,9 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				hits, err := p.Search(gctx, query, limit)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return FormatHits(query, hits, 800), nil
+				return toolkit.TextResult(FormatHits(query, hits, 800)), nil
 			},
 		},
 		{
@@ -55,8 +55,8 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(_ context.Context, _ map[string]any) (string, error) {
-				return p.statsText(), nil
+			Execute: func(_ context.Context, inv *toolkit.Invocation, _ map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.TextResult(p.statsText()), nil
 			},
 		},
 	}

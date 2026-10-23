@@ -34,7 +34,7 @@ func newRemoteClientForTest(t *testing.T) *execnode.Client {
 // 节点；写入端口同样受 workspace_allow_write 控制。
 func TestToolCapabilitiesUseRemoteNode(t *testing.T) {
 	p := &Plugin{cfg: &config.Config{}, remote: newRemoteClientForTest(t)}
-	caps := p.toolCapabilities()
+	caps := p.toolCapabilities(nil)
 	if caps.Files == nil {
 		t.Fatal("remote mode should provide the files port")
 	}
@@ -46,7 +46,7 @@ func TestToolCapabilitiesUseRemoteNode(t *testing.T) {
 	}
 
 	p.cfg.WorkspaceAllowWrite = true
-	if p.toolCapabilities().FileWrite == nil {
+	if p.toolCapabilities(nil).FileWrite == nil {
 		t.Fatal("write port should be present when writes are enabled")
 	}
 	// 本地工作区未装配，remote 端口不依赖本地 roots。

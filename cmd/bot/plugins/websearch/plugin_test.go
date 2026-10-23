@@ -380,7 +380,7 @@ func TestListToolsAndWebSearchExecute(t *testing.T) {
 	for _, tt := range tools {
 		switch tt.Name {
 		case "web_search":
-			result, err := tt.Execute(context.Background(), map[string]any{"query": "今日热点"})
+			result, err := tt.ExecuteText(context.Background(), nil, map[string]any{"query": "今日热点"})
 			if err != nil {
 				t.Fatalf("web_search execute failed: %v", err)
 			}
@@ -389,7 +389,7 @@ func TestListToolsAndWebSearchExecute(t *testing.T) {
 			}
 		case "fetch_url":
 			// 对 http 地址应报错（仅 https）
-			if _, err := tt.Execute(context.Background(), map[string]any{"url": "http://x.com"}); err == nil {
+			if _, err := tt.ExecuteText(context.Background(), nil, map[string]any{"url": "http://x.com"}); err == nil {
 				t.Error("fetch_url should reject http scheme")
 			}
 		}

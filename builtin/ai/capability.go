@@ -16,7 +16,11 @@ import (
 )
 
 // toolCapabilities 组装本次动作调用可用的能力端口。
-func (p *Plugin) toolCapabilities() catalog.Capabilities {
+//
+// sender 是本次调用的原始平台发送器：只有提醒创建需要它（到期主动推送），
+// 因此仅在该端口存在时构造 Scheduler；sender 为空时提醒动作会明确报"不可用"，
+// 而不是拿到一个无法推送的端口。
+func (p *Plugin) toolCapabilities(sender platform.Sender) catalog.Capabilities {
 	var caps catalog.Capabilities
 	if p == nil {
 		return caps
@@ -29,7 +33,9 @@ func (p *Plugin) toolCapabilities() catalog.Capabilities {
 	}
 	if p.reminders != nil {
 		caps.Reminders = reminderAccessor{m: p.reminders}
-		caps.Scheduler = pluginReminderScheduler{p: p}
+		if sender != nil {
+			caps.Scheduler = pluginReminderScheduler{p: p, sender: sender}
+		}
 	}
 	if p.remote != nil {
 		// remote 模式：文件与进程能力整体指向远程执行节点，边界由节点侧强制。
@@ -127,11 +133,14 @@ func (a reminderAccessor) Remove(chatID, id string) bool { return a.m.remove(cha
 // pluginReminderScheduler 把插件内部的提醒创建流程适配为 [catalog.ReminderScheduler]。
 //
 // 它需要插件的生命周期与推送能力，因此是本包唯一的提醒创建适配器，
-// 且只在装配点构造。
-type pluginReminderScheduler struct{ p *Plugin }
+// 且只在装配点构造；发送器在构造时固定，动作层看不到原始发送能力。
+type pluginReminderScheduler struct {
+	p      *Plugin
+	sender platform.Sender
+}
 
 // Schedule 注册提醒并只返回确认文本（提醒对象本身由管理器持有）。
-func (s pluginReminderScheduler) Schedule(chat platform.ChatInfo, sender platform.Sender, duration time.Duration, content string) string {
-	_, confirm := s.p.addReminder(chat, sender, duration, content)
+func (s pluginReminderScheduler) Schedule(chat platform.ChatInfo, duration time.Duration, content string) string {
+	_, confirm := s.p.addReminder(chat, s.sender, duration, content)
 	return confirm
 }

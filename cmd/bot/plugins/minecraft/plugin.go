@@ -850,41 +850,41 @@ func (p *mcPlugin) ListTools() []toolkit.Tool {
 					},
 				},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				addr, _ := args["server_address"].(string)
 				edition, _ := args["edition"].(string)
 				if addr == "" {
 					addr = p.cfg.DefaultServer
 				}
 				if addr == "" {
-					return "", fmt.Errorf("请提供服务器地址")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供服务器地址")
 				}
 				// 会话收藏解析：AI 可用收藏名/序号指代服务器（与 /mc 命令同一收藏库）
-				if scope := toolScopeFromAI(gctx); scope != "" {
+				if scope := toolScopeFromInvocation(inv); scope != "" {
 					resolved, rerr := p.resolveTarget(scope, addr)
 					if rerr != nil {
-						return "", rerr
+						return toolkit.ToolResult{}, rerr
 					}
 					addr = resolved
 				}
 				host, port, perr := parseHostPort(addr)
 				if perr != nil {
-					return "", perr
+					return toolkit.ToolResult{}, perr
 				}
 				status, err := p.query(gctx, host, port, edition)
 				if err != nil {
-					return fmt.Sprintf("服务器 %s 无法连接: %v", addr, err), nil
+					return toolkit.TextResult(fmt.Sprintf("服务器 %s 无法连接: %v", addr, err)), nil
 				}
-				return formatMCText(status), nil
+				return toolkit.TextResult(formatMCText(status)), nil
 			},
 		},
 	}
 }
 
-// toolScopeFromAI 从工具执行 context 提取收藏 scope（平台:会话），
+// toolScopeFromInvocation 从工具调用上下文提取收藏 scope（平台:会话），
 // 与 /mc 命令的 favScope 同构。无会话信息（测试等直接调用场景）返回空串。
-func toolScopeFromAI(gctx context.Context) string {
-	src, ok := toolkit.ToolSourceFromContext(gctx)
+func toolScopeFromInvocation(inv *toolkit.Invocation) string {
+	src, ok := toolkit.ToolSourceFromInvocation(inv)
 	if !ok || src.ChatID == "" {
 		return ""
 	}

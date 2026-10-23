@@ -171,10 +171,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"city"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				city, _ := args["city"].(string)
 				if city == "" {
-					return "", fmt.Errorf("city is required")
+					return toolkit.ToolResult{}, fmt.Errorf("city is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 8*time.Second)
 				defer cancel()
@@ -198,9 +198,9 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				select {
 				case res := <-ch:
-					return formatWeatherText(res.r), nil
+					return toolkit.TextResult(formatWeatherText(res.r)), nil
 				case <-reqCtx.Done():
-					return "", fmt.Errorf("all weather APIs failed")
+					return toolkit.ToolResult{}, fmt.Errorf("all weather APIs failed")
 				}
 			},
 		},

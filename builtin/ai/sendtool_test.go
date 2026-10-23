@@ -113,14 +113,13 @@ func TestProgressReportingGuidance(t *testing.T) {
 	}
 }
 
-func TestToolSenderContext(t *testing.T) {
-	ctx := context.Background()
-	_, ok := toolkit.ToolSenderFromContext(ctx)
+func TestToolSenderInvocation(t *testing.T) {
+	_, ok := toolkit.ToolSenderFromInvocation(nil)
 	assert.False(t, ok)
 
 	sender := &loopToolSender{}
-	ctx = toolkit.WithToolSender(ctx, sender)
-	got, ok := toolkit.ToolSenderFromContext(ctx)
+	inv := &toolkit.Invocation{Sender: sender}
+	got, ok := toolkit.ToolSenderFromInvocation(inv)
 	assert.True(t, ok)
 	assert.Same(t, sender, got)
 }
@@ -555,16 +554,18 @@ func TestApprovalSummaryDrivenByPolicyNotName(t *testing.T) {
 	assert.Contains(t, got, "target=张三", "未预解析时应回退原始参数摘要")
 }
 
-// newMentionTestContext 构造带调用源信息的工具执行 context（模拟 execute.go
+// newMentionTestContext 构造带调用源信息的工具调用上下文（模拟 execute.go
 // 的注入：会话源 + 发送能力 + 目标解析能力同时进入）。
-func newMentionTestContext(sender toolkit.ToolSender, isGroup bool) context.Context {
-	ctx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{
-		UserID:  "user1",
-		ChatID:  "group_1",
-		IsGroup: isGroup,
-	})
-	ctx = toolkit.WithToolSender(ctx, sender)
-	return toolkit.WithTargetResolver(ctx, targetResolverAdapter{sender: sender})
+func newMentionTestContext(sender toolkit.ToolSender, isGroup bool) *toolkit.Invocation {
+	return &toolkit.Invocation{
+		Source: toolkit.ToolSource{
+			UserID:  "user1",
+			ChatID:  "group_1",
+			IsGroup: isGroup,
+		},
+		Sender:   sender,
+		Resolver: targetResolverAdapter{sender: sender},
+	}
 }
 
 // sendMessageTool 从构建结果中取出 send_message 工具。
@@ -588,7 +589,7 @@ func TestSendMessageMentionsResolveNicknames(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	msg, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+	msg, err := tool.ExecuteText(context.Background(), newMentionTestContext(sender, true), map[string]any{
 		"message":     "进度：正在搜索…",
 		"mention_ids": []any{"张三", "u2", ""},
 	})
@@ -640,7 +641,7 @@ func TestSendMessageMentionsRejectsGroupTarget(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+	_, err := tool.ExecuteText(context.Background(), newMentionTestContext(sender, true), map[string]any{
 		"message":     "进度",
 		"mention_ids": []any{"本群"},
 	})
@@ -657,7 +658,7 @@ func TestSendMessageMentionsUnknownNicknameErrors(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+	_, err := tool.ExecuteText(context.Background(), newMentionTestContext(sender, true), map[string]any{
 		"message":     "进度",
 		"mention_ids": []any{"李四"},
 	})
@@ -677,7 +678,7 @@ func TestSendMessageMentionsPrivateChatPassThrough(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	_, err := tool.Execute(newMentionTestContext(sender, false), map[string]any{
+	_, err := tool.ExecuteText(context.Background(), newMentionTestContext(sender, false), map[string]any{
 		"message":     "进度",
 		"mention_ids": []any{"张三"},
 	})
@@ -696,7 +697,8 @@ func TestSendMessageMentionsWithoutResolverPassThrough(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	_, err := tool.Execute(toolkit.WithToolSender(context.Background(), sender), map[string]any{
+	inv := &toolkit.Invocation{Sender: sender}
+	_, err := tool.ExecuteText(context.Background(), inv, map[string]any{
 		"message":     "进度",
 		"mention_ids": []any{"张三"},
 	})
@@ -715,7 +717,7 @@ func TestSendMessageMentionsSkipsBlankEntries(t *testing.T) {
 	sender := &loopToolSender{ctx: ctx, p: p, budget: &sendBudget{limit: 10}}
 
 	tool := sendMessageTool(t, buildSendToolsForTest(p))
-	_, err := tool.Execute(newMentionTestContext(sender, true), map[string]any{
+	_, err := tool.ExecuteText(context.Background(), newMentionTestContext(sender, true), map[string]any{
 		"message":     "进度",
 		"mention_ids": []any{"", "  ", "u9"},
 	})

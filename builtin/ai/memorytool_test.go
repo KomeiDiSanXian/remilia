@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -36,27 +37,27 @@ func TestMemoryTools_AddForget(t *testing.T) {
 	forget := findTestTool(t, tools, catalog.MemoryForgetToolName)
 
 	// add（默认 user 作用域）
-	out, err := add.Execute(toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
+	out, err := add.ExecuteText(context.Background(), toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "已记住")
 	assert.Contains(t, out, "1 条")
 
 	// add 群作用域
-	out, err = add.Execute(toolCtx, map[string]any{"text": "本群每周五团建", "scope": "group"})
+	out, err = add.ExecuteText(context.Background(), toolCtx, map[string]any{"text": "本群每周五团建", "scope": "group"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "本群记忆")
 
 	// 非群聊用 group 作用域报错
 	dmCtx := toolCtxForTest(p, toolkit.ToolSource{UserID: "u1", ChatID: "dm"})
-	_, err = add.Execute(dmCtx, map[string]any{"text": "x", "scope": "group"})
+	_, err = add.ExecuteText(context.Background(), dmCtx, map[string]any{"text": "x", "scope": "group"})
 	assert.Error(t, err)
 
 	// forget 精确匹配
-	out, err = forget.Execute(toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
+	out, err = forget.ExecuteText(context.Background(), toolCtx, map[string]any{"text": "用户喜欢喝冰美式"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "已删除")
 
-	out, err = forget.Execute(toolCtx, map[string]any{"text": "不存在的记忆"})
+	out, err = forget.ExecuteText(context.Background(), toolCtx, map[string]any{"text": "不存在的记忆"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "未找到")
 }
@@ -65,7 +66,7 @@ func TestMemoryTools_Disabled(t *testing.T) {
 	p := &Plugin{} // memory == nil
 	toolCtx := toolCtxForTest(p, toolkit.ToolSource{UserID: "u1", ChatID: "c"})
 	add := findTestTool(t, catalog.BuildMemoryTools(), catalog.MemoryAddToolName)
-	_, err := add.Execute(toolCtx, map[string]any{"text": "x"})
+	_, err := add.ExecuteText(context.Background(), toolCtx, map[string]any{"text": "x"})
 	assert.Error(t, err)
 }
 

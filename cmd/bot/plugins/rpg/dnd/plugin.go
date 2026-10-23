@@ -533,26 +533,26 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name", "ability"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				ability, _ := args["ability"].(string)
 				adv, _ := args["advantage"].(string)
 				if charName == "" || ability == "" {
-					return "", fmt.Errorf("请提供角色名和属性")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名和属性")
 				}
 				if adv == "" {
 					adv = "none"
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				mod := GetModifier(c, AbilityAbbr(ability))
 				r, err := AbilityCheck(p.dice, mod, adv)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s %s检定: %s", charName, ability, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s %s检定: %s", charName, ability, r.Raw)), nil
 			},
 		},
 		{
@@ -568,25 +568,25 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name", "skill"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				skill, _ := args["skill"].(string)
 				adv, _ := args["advantage"].(string)
 				if charName == "" || skill == "" {
-					return "", fmt.Errorf("请提供角色名和技能名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名和技能名")
 				}
 				if adv == "" {
 					adv = "none"
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				r, err := SkillCheck(p.dice, c, skill, adv)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s %s检定: %s", charName, skill, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s %s检定: %s", charName, skill, r.Raw)), nil
 			},
 		},
 		{
@@ -602,19 +602,19 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name", "ability"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				ability, _ := args["ability"].(string)
 				adv, _ := args["advantage"].(string)
 				if charName == "" || ability == "" {
-					return "", fmt.Errorf("请提供角色名和属性")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名和属性")
 				}
 				if adv == "" {
 					adv = "none"
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				mod := GetModifier(c, AbilityAbbr(ability))
 				if IsSavingProficient(c, AbilityAbbr(ability)) {
@@ -622,9 +622,9 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				r, err := SavingThrow(p.dice, mod, adv)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s %s豁免: %s", charName, ability, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s %s豁免: %s", charName, ability, r.Raw)), nil
 			},
 		},
 		{
@@ -638,21 +638,21 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				if charName == "" {
-					return "", fmt.Errorf("请提供角色名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名")
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
 				mod := GetModifier(c, "DEX")
 				r, err := Initiative(p.dice, mod)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return fmt.Sprintf("%s 先攻: %s", charName, r.Raw), nil
+				return toolkit.TextResult(fmt.Sprintf("%s 先攻: %s", charName, r.Raw)), nil
 			},
 		},
 		{
@@ -666,16 +666,16 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"character_name"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				charName, _ := args["character_name"].(string)
 				if charName == "" {
-					return "", fmt.Errorf("请提供角色名")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供角色名")
 				}
 				c, err := p.sheet.GetCharacter("ai", charName)
 				if err != nil {
-					return "", fmt.Errorf("角色 %q 不存在", charName)
+					return toolkit.ToolResult{}, fmt.Errorf("角色 %q 不存在", charName)
 				}
-				return FormatSheet(c), nil
+				return toolkit.TextResult(FormatSheet(c)), nil
 			},
 		},
 	}

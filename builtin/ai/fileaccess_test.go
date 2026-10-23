@@ -92,7 +92,7 @@ func TestFileAccessorWriteAndEdit(t *testing.T) {
 
 func TestToolCapabilitiesIncludeFiles(t *testing.T) {
 	p := &Plugin{}
-	if caps := p.toolCapabilities(); caps.Files != nil {
+	if caps := p.toolCapabilities(nil); caps.Files != nil {
 		t.Fatal("files port should be nil without a workspace")
 	}
 
@@ -102,15 +102,15 @@ func TestToolCapabilitiesIncludeFiles(t *testing.T) {
 	}
 	p.files = ws
 	p.cfg = &config.Config{}
-	if caps := p.toolCapabilities(); caps.Files == nil {
+	if caps := p.toolCapabilities(nil); caps.Files == nil {
 		t.Fatal("files port should be present when a workspace is configured")
 	}
-	if caps := p.toolCapabilities(); caps.FileWrite != nil {
+	if caps := p.toolCapabilities(nil); caps.FileWrite != nil {
 		t.Fatal("write port must stay nil unless workspace_allow_write is set")
 	}
 
 	p.cfg.WorkspaceAllowWrite = true
-	if caps := p.toolCapabilities(); caps.FileWrite == nil {
+	if caps := p.toolCapabilities(nil); caps.FileWrite == nil {
 		t.Fatal("write port should be present when writes are enabled")
 	}
 }

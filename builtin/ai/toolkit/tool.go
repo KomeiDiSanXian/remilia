@@ -4,15 +4,12 @@
 //   - Tool：LLM 可调用的工具类型定义
 //   - ToolRegistry：线程安全的工具注册表
 //   - ToolProvider / SkillProvider：插件注册工具的接口
-//   - WithCallerInfo / Authorizer：调用者身份与调用授权的 context 注入
 //
-// context 槽位约定：只有必须跨 `Execute(ctx context.Context, ...)` 这类
-// 标准库接口边界的**调用期能力**才放 std context（调用者、授权、发送、
-// 目标解析、工具来源、计划访问、能力集、技能调用栈）；事件级服务与状态
-// 留在 *core/context.Context 的扩展里。同一类信息共用一个槽位（授权器与
-// 调用者身份共用 caller-info 槽），不要为每个 setter 各开一个键。
+// 调用期能力（调用者身份、授权器、发送/解析能力、会话源、能力端口、技能调用链）
+// 一律经 [Invocation] 显式传入 Execute，不再放进 std context。context 只承载
+// 取消/超时与追踪。
 //
-// 协议格式（参数 Schema、工具声明序列化与调用解析）见 builtin/ai/protocol。
+// 协议格式（参数 Schema、工具声明序列化与调用解析）见 builtin/ai/protocol.
 package toolkit
 
 import (
@@ -26,36 +23,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// ctxKeyCallerInfo 是 context 中存储工具调用者信息的键。
-//
-// 同一槽位也保存调用授权器（Authorizer）：两者都是"这次工具调用以谁的
-// 身份、能做哪些事"，成对出现；合并存放避免为每个能力再开一个 context 槽。
-type ctxKeyCallerInfoType struct{}
-
-// callerState 是 caller-info 槽位的值。
-type callerState struct {
-	user       platform.UserInfo
-	authorizer Authorizer
-}
-
-// WithCallerInfo 将调用者信息注入 context，供工具 Execute 回调进行权限校验。
-func WithCallerInfo(ctx context.Context, caller platform.UserInfo) context.Context {
-	state, _ := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
-	state.user = caller
-	return context.WithValue(ctx, ctxKeyCallerInfoType{}, state)
-}
-
-// CallerInfoFromContext 从 context 中提取工具调用者信息。
-// 若 context 中无调用者信息，返回零值 UserInfo 和 false。
-func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
-	state, ok := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
-	return state.user, ok
-}
-
 // Authorizer 判断当前调用者能否在技能内部执行某个工具。
 //
-// 技能内部的工具循环拿不到事件上下文（只有 std context），无法直接做 RBAC
-// 与人工审批；装配侧按事件上下文构造授权器，随 caller-info 槽位传播：
+// 技能内部的工具循环拿不到事件上下文，无法直接做 RBAC 与人工审批；
+// 装配侧按事件上下文构造授权器并放进 [Invocation.Authorizer]：
 // 注入阶段按它过滤工具列表，执行阶段再复核一次。
 //
 // 返回 (false, reason) 时 reason 会作为工具错误回填给模型。
@@ -68,25 +39,6 @@ type AuthorizerFunc func(tool Tool) (bool, string)
 
 // CanUse 实现 Authorizer。
 func (f AuthorizerFunc) CanUse(tool Tool) (bool, string) { return f(tool) }
-
-// WithAuthorizer 将授权器注入 context（与调用者信息共用一个槽位）。
-func WithAuthorizer(ctx context.Context, a Authorizer) context.Context {
-	state, _ := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
-	state.authorizer = a
-	return context.WithValue(ctx, ctxKeyCallerInfoType{}, state)
-}
-
-// AuthorizerFromContext 从 context 中提取授权器。
-func AuthorizerFromContext(ctx context.Context) (Authorizer, bool) {
-	state, ok := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
-	if !ok || state.authorizer == nil {
-		return nil, false
-	}
-	return state.authorizer, true
-}
-
-// ctxKeyToolSender 是 context 中存储工具消息发送能力的键。
-type ctxKeyToolSenderType struct{}
 
 // TargetResolver 工具可用的目标解析能力（只读，无副作用）。
 //
@@ -104,25 +56,10 @@ type TargetResolver interface {
 	Resolve(ctx context.Context, raw string, isGroup bool) (ChatTarget, string, error)
 }
 
-// WithTargetResolver 将目标解析能力注入 context，供工具 Execute 回调使用。
-func WithTargetResolver(ctx context.Context, r TargetResolver) context.Context {
-	return context.WithValue(ctx, ctxKeyTargetResolverType{}, r)
-}
-
-// TargetResolverFromContext 从 context 中提取目标解析能力。
-// 若 context 中无解析能力，返回 nil 和 false。
-func TargetResolverFromContext(ctx context.Context) (TargetResolver, bool) {
-	r, ok := ctx.Value(ctxKeyTargetResolverType{}).(TargetResolver)
-	return r, ok
-}
-
-// ctxKeyTargetResolverType 是 context 中存储目标解析能力的键。
-type ctxKeyTargetResolverType struct{}
-
 // ToolSender 工具可用的消息发送能力。
 //
-// 由 AI 插件在工具执行前注入工具调用的 context（见 [WithToolSender]），
-// 实现方通过 [ToolSenderFromContext] 提取后即可发送消息：
+// 由 AI 插件在工具执行前放进 [Invocation.Sender]，工具经
+// [ToolSenderFromInvocation] 提取后即可发送消息：
 //   - [ToolSender.ReplyToChat] 向当前会话发送消息（无需审批）
 //   - [ToolSender.SendTo] 向指定用户/群发送消息（仅审批通过后被注入）
 type ToolSender interface {
@@ -145,18 +82,6 @@ type ChatTarget struct {
 	IsGroup bool
 }
 
-// WithToolSender 将消息发送能力注入 context，供工具 Execute 回调使用。
-func WithToolSender(ctx context.Context, s ToolSender) context.Context {
-	return context.WithValue(ctx, ctxKeyToolSenderType{}, s)
-}
-
-// ToolSenderFromContext 从 context 中提取消息发送能力。
-// 若 context 中无发送能力，返回 nil 和 false。
-func ToolSenderFromContext(ctx context.Context) (ToolSender, bool) {
-	s, ok := ctx.Value(ctxKeyToolSenderType{}).(ToolSender)
-	return s, ok
-}
-
 const CategoryGeneral = "general"
 
 // Tool 描述一个可供 AI 调用的工具。
@@ -175,10 +100,10 @@ const CategoryGeneral = "general"
 //     命令执行）建议标记为 true。
 //   - GrantsSendTo: 审批通过后授予 SendTo（向其他会话推送）能力。仅 send_to
 //     这类动作应声明，避免其他工具借用一次审批获得越会话发送能力。
-//   - Execute: 工具执行回调，接收 context 和参数，返回结果文本或错误
+//   - Execute: 工具执行回调，接收 context、调用上下文与参数，返回结果文本或错误
 //
-// Execute 的调用方通常已通过 [WithCallerInfo] 注入了调用者身份，
-// 实现方可通过 [CallerInfoFromContext] 提取调用者信息进行权限校验。
+// Execute 的调用方会构造 [Invocation]；实现方从 inv 读取调用者身份、发送能力
+// 与授权器，不要再从 context 取。
 type Tool struct {
 	Name        string
 	Description string
@@ -207,11 +132,24 @@ type Tool struct {
 	// 不依赖插件自觉——权限不足返回可读错误、不执行。
 	// 支持格式与框架命令一致：resource.action / resource:action / resource。
 	Permissions []string
-	Execute     func(ctx context.Context, args map[string]any) (string, error)
-	// ExecuteRich 可选：返回富结果（文本 + 多模态片段）。非空时优先于 Execute，
-	// 供需要携带图片/音频/资源/结构化数据的工具（如外部工具服务器）使用；
-	// 既有工具只实现 Execute 即可，行为不变。
-	ExecuteRich func(ctx context.Context, args map[string]any) (ToolResult, error)
+	// Execute 执行工具。inv 携带本次调用的调用者身份、授权器、发送能力等
+	// 调用期能力；工具不得缓存它。ctx 只承载取消/超时与追踪。
+	//
+	// 唯一执行入口：纯文本工具返回 [TextResult]，需要携带图片/音频/资源/
+	// 结构化数据的工具直接返回对应的 [ToolResult]。
+	//
+	// 返回非 nil error 表示本次调用失败：调用方只回填错误文本，不会使用
+	// ToolResult，因此"部分文本 + error"不会被保留。
+	Execute func(ctx context.Context, inv *Invocation, args map[string]any) (ToolResult, error)
+}
+
+// ExecuteText 调用工具并把富结果压平成文本（取 Parts 的文本投影）。
+//
+// 供"只关心文本"的调用方与既有测试使用；执行路径本身应直接消费 ToolResult，
+// 以免丢失附件与结构化片段。
+func (t Tool) ExecuteText(ctx context.Context, inv *Invocation, args map[string]any) (string, error) {
+	result, err := t.Execute(ctx, inv, args)
+	return result.Flatten(), err
 }
 
 // SkillProvider 插件可通过实现此接口向 AI 插件注册自定义 Skill。
@@ -263,10 +201,7 @@ type ToolRegistry struct {
 // 保证 Execute 只在执行路径上出现。
 type registeredAction struct {
 	action  Action
-	execute func(ctx context.Context, args map[string]any) (string, error)
-	// executeRich 富结果执行载荷（可选）；与 execute 一样只存放在注册表里，
-	// 只经 Get/List 的执行视图取出。
-	executeRich func(ctx context.Context, args map[string]any) (ToolResult, error)
+	execute func(ctx context.Context, inv *Invocation, args map[string]any) (ToolResult, error)
 	// source 动作来源：动作视图（Action）不承载来源，注册表在这里保真保存，
 	// 保证 Get/List 还原的执行视图与注册时一致。
 	source ActionSource
@@ -306,7 +241,6 @@ func (e registeredAction) tool() Tool {
 		GrantsSendTo:          e.action.Policy.GrantsSendTo,
 		Permissions:           e.action.Policy.Permissions,
 		Execute:               e.execute,
-		ExecuteRich:           e.executeRich,
 	})
 }
 
@@ -352,7 +286,7 @@ func normalizeToolName(t Tool) Tool {
 
 // put 写入一条注册记录（调用方须持有写锁并已规范化名称）。
 func (r *ToolRegistry) put(t Tool) {
-	record := registeredAction{action: ActionOf(t), execute: t.Execute, executeRich: t.ExecuteRich, source: t.Source}
+	record := registeredAction{action: ActionOf(t), execute: t.Execute, source: t.Source}
 	if t.Selection != nil {
 		// 复制而非共享指针：注册后调用方再改自己的 Selection 不应影响注册表。
 		v := *t.Selection

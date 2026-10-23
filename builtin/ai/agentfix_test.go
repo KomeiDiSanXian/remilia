@@ -28,8 +28,8 @@ func execProtectedTool(t *testing.T, withPM bool, grant string, perms []string) 
 		Name:        "protected_tool",
 		Description: "需要权限的工具",
 		Permissions: perms,
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "executed", nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("executed"), nil
 		},
 	})
 
@@ -154,12 +154,12 @@ func TestProcessWithToolsRecordsTrace(t *testing.T) {
 	var attempts int
 	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 			attempts++
 			if attempts == 1 {
-				return "", errors.New("boom")
+				return toolkit.ToolResult{}, errors.New("boom")
 			}
-			return "ok", nil
+			return toolkit.TextResult("ok"), nil
 		},
 	})
 

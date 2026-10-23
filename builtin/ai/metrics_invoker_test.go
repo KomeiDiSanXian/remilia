@@ -31,8 +31,8 @@ func TestToolCallMetricCoversAllInvokerPaths(t *testing.T) {
 
 	// 1) 普通动作（FuncInvoker）
 	funcPlugin := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
-	funcPlugin.reg.Register(toolkit.Tool{Name: label, Execute: func(context.Context, map[string]any) (string, error) {
-		return "ok", nil
+	funcPlugin.reg.Register(toolkit.Tool{Name: label, Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("ok"), nil
 	}})
 	r1 := funcPlugin.executeToolResult(ctx, protocol.ToolCall{Name: label}, context.Background(), &execution.CaptureSender{}, nil)
 	if r1.Err != nil {

@@ -374,11 +374,11 @@ func TestManagerMaterializesToolsAndExecutes(t *testing.T) {
 	if _, ok := tool.Parameters.Properties["q"]; !ok {
 		t.Errorf("input schema not preserved: %+v", tool.Parameters)
 	}
-	if tool.ExecuteRich == nil {
-		t.Fatal("expected rich executor to be bound")
+	if tool.Execute == nil {
+		t.Fatal("expected executor to be bound")
 	}
 
-	res, err := tool.ExecuteRich(context.Background(), map[string]any{"q": "x"})
+	res, err := tool.Execute(context.Background(), nil, map[string]any{"q": "x"})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestStatelessSessionConnectsExecutesAndSubscribes(t *testing.T) {
 	if !tool.RequiresApproval {
 		t.Error("external server tools must still require approval")
 	}
-	res, err := tool.ExecuteRich(context.Background(), map[string]any{"q": "x"})
+	res, err := tool.Execute(context.Background(), nil, map[string]any{"q": "x"})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -723,7 +723,7 @@ func TestManagerKeepsToolsWhenDisconnected(t *testing.T) {
 	tool := mgr.ListTools()[0]
 	// 断开后连接清空有短暂窗口：等待工具调用收敛到"来源暂不可用"的类型化错误。
 	waitFor(t, func() bool {
-		_, callErr := tool.ExecuteRich(context.Background(), nil)
+		_, callErr := tool.Execute(context.Background(), nil, nil)
 		return callErr != nil && strings.Contains(callErr.Error(), "不可用")
 	}, "soft-unavailable typed error")
 
@@ -731,7 +731,7 @@ func TestManagerKeepsToolsWhenDisconnected(t *testing.T) {
 	if got := len(mgr.ListTools()); got != 1 {
 		t.Fatalf("tool must stay in catalog while disconnected, got %d", got)
 	}
-	if _, callErr := tool.ExecuteRich(context.Background(), nil); callErr == nil ||
+	if _, callErr := tool.Execute(context.Background(), nil, nil); callErr == nil ||
 		!strings.Contains(callErr.Error(), "不可用") {
 		t.Fatalf("expected unavailable error, got %v", callErr)
 	}

@@ -183,22 +183,22 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"keyword"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				keyword, _ := args["keyword"].(string)
 				if keyword == "" {
-					return "", fmt.Errorf("keyword is required")
+					return toolkit.ToolResult{}, fmt.Errorf("keyword is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				results, err := p.client.SearchSubjects(reqCtx, keyword, 5)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if len(results) == 0 {
-					return fmt.Sprintf("未找到与「%s」相关的番剧", keyword), nil
+					return toolkit.TextResult(fmt.Sprintf("未找到与「%s」相关的番剧", keyword)), nil
 				}
-				return formatSearchText(results), nil
+				return toolkit.TextResult(formatSearchText(results)), nil
 			},
 		},
 		{
@@ -212,23 +212,23 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"id"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				idStr, _ := args["id"].(string)
 				if idStr == "" {
-					return "", fmt.Errorf("id is required")
+					return toolkit.ToolResult{}, fmt.Errorf("id is required")
 				}
 				id, err := strconv.ParseInt(idStr, 10, 64)
 				if err != nil {
-					return "", fmt.Errorf("invalid id: %s", idStr)
+					return toolkit.ToolResult{}, fmt.Errorf("invalid id: %s", idStr)
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				sub, err := p.client.FetchSubject(reqCtx, id)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return formatAnimeText(sub), nil
+				return toolkit.TextResult(formatAnimeText(sub)), nil
 			},
 		},
 	}

@@ -331,21 +331,21 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					"count": {Type: "string", Description: "返回条数，默认 10"},
 				},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				n := 10
 				if v, ok := args["count"]; ok {
 					fmt.Sscanf(fmt.Sprint(v), "%d", &n)
 				}
 				stats := p.TopCommands(n)
 				if len(stats) == 0 {
-					return "暂无命令统计数据", nil
+					return toolkit.TextResult("暂无命令统计数据"), nil
 				}
 				var b strings.Builder
 				b.WriteString("**命令调用排行：**\n")
 				for i, s := range stats {
 					b.WriteString(fmt.Sprintf("%d. `%s` — %d 次\n", i+1, s.Command, s.Count))
 				}
-				return b.String(), nil
+				return toolkit.TextResult(b.String()), nil
 			},
 		},
 		{
@@ -360,13 +360,13 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"command"},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				cmd, _ := args["command"].(string)
 				if cmd == "" {
-					return "请提供命令名称", nil
+					return toolkit.TextResult("请提供命令名称"), nil
 				}
 				count := p.CommandCount(cmd)
-				return fmt.Sprintf("命令 `%s` 已被调用 %d 次", cmd, count), nil
+				return toolkit.TextResult(fmt.Sprintf("命令 `%s` 已被调用 %d 次", cmd, count)), nil
 			},
 		},
 		{
@@ -378,8 +378,8 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
-				return fmt.Sprintf("bot 共处理了 %d 条消息", p.TotalMessages()), nil
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.TextResult(fmt.Sprintf("bot 共处理了 %d 条消息", p.TotalMessages())), nil
 			},
 		},
 	}

@@ -367,8 +367,9 @@ func (p *Plugin) RegisterUserSkill(s toolkit.Skill, ownerID string) error {
 
 func (p *Plugin) registerSkillAsTool(s toolkit.Skill) {
 	skill := s
-	p.registerCatalogTool(catalog.ToolFromSkill(skill, func(ctx context.Context, args map[string]any) (string, error) {
-		return p.executeSkill(ctx, skill, args)
+	p.registerCatalogTool(catalog.ToolFromSkill(skill, func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+		out, err := p.executeSkill(ctx, inv, skill, args)
+		return toolkit.TextResult(out), err
 	}))
 }
 

@@ -57,10 +57,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 // 流程与 /sauce 命令一致：下载图片 → 预处理 → 并发检索各已启用引擎 →
 // 合并去重排序 → 返回格式化文本。与命令模式的区别在于直接以文本
 // 形式返回结果给 LLM，不附带缩略图。
-func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (string, error) {
+func (p *Plugin) executeSauceTool(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 	imageURL := strings.TrimSpace(firstStringArg(args["image_url"]))
 	if imageURL == "" {
-		return "", fmt.Errorf("缺少必填参数 image_url（图片的公开 URL）")
+		return toolkit.ToolResult{}, fmt.Errorf("缺少必填参数 image_url（图片的公开 URL）")
 	}
 
 	maxResults := p.maxResults()
@@ -76,7 +76,7 @@ func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (str
 	if customDB && p.apiKey() == "" {
 		// 提前校验：非默认数据库只能走 SauceNAO，未配置 key 时直接报错，
 		// 避免先下载图片后才发现无法检索。
-		return "", fmt.Errorf("未配置 SauceNAO API Key，无法使用 db 参数")
+		return toolkit.ToolResult{}, fmt.Errorf("未配置 SauceNAO API Key，无法使用 db 参数")
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, p.searchTimeout())
@@ -84,12 +84,12 @@ func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (str
 
 	raw, err := p.downloadImage(reqCtx, imageURL, 20*1024*1024)
 	if err != nil {
-		return "", fmt.Errorf("下载图片失败: %w", err)
+		return toolkit.ToolResult{}, fmt.Errorf("下载图片失败: %w", err)
 	}
 
 	proc, err := preprocessImage(raw, PreprocessOptions{UpscaleSmall: p.upscaleSmall()})
 	if err != nil {
-		return "", fmt.Errorf("图片处理失败: %w", err)
+		return toolkit.ToolResult{}, fmt.Errorf("图片处理失败: %w", err)
 	}
 
 	in := engineInput{ImageURL: imageURL, Data: proc.Data, Mime: proc.Mime}
@@ -98,13 +98,15 @@ func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (str
 		// 参数指定了非默认数据库时仅提交 SauceNAO（其余引擎无 db 概念）
 		results, err := p.saucenao.Search(reqCtx, p.apiKey(), db, in, maxResults)
 		if err != nil {
-			return "", fmt.Errorf("SauceNAO 检索失败: %w", err)
+			return toolkit.ToolResult{}, fmt.Errorf("SauceNAO 检索失败: %w", err)
 		}
-		return p.finishToolSearch(results, nil, maxResults)
+		out, err := p.finishToolSearch(results, nil, maxResults)
+		return toolkit.TextResult(out), err
 	}
 
 	allResults, errReports := p.searchAll(reqCtx, in, maxResults, p.allEngines())
-	return p.finishToolSearch(allResults, errReports, maxResults)
+	out, err := p.finishToolSearch(allResults, errReports, maxResults)
+	return toolkit.TextResult(out), err
 }
 
 // finishToolSearch 对原始结果做合并、过滤、截断并格式化为工具返回文本。

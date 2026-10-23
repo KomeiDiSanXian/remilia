@@ -42,19 +42,19 @@ func BuildTodoTools() []toolkit.Tool {
 				},
 				Required: []string{"item"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Todos == nil {
-					return "", errors.New("待办功能不可用")
+					return toolkit.ToolResult{}, errors.New("待办功能不可用")
 				}
 				item, _ := args["item"].(string)
 				item = strings.TrimSpace(item)
 				if item == "" {
-					return "", errors.New("待办内容不能为空")
+					return toolkit.ToolResult{}, errors.New("待办内容不能为空")
 				}
 				id := caps.Todos.Add(src.ChatID, item)
-				return fmt.Sprintf("已添加待办 %s：%s", id, item), nil
+				return toolkit.TextResult(fmt.Sprintf("已添加待办 %s：%s", id, item)), nil
 			},
 		},
 		{
@@ -67,11 +67,11 @@ func BuildTodoTools() []toolkit.Tool {
 					"filter": {Type: "string", Description: "过滤：pending=未完成 / done=已完成 / 空=全部", Enum: []string{"pending", "done"}},
 				},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Todos == nil {
-					return "当前会话没有待办事项", nil
+					return toolkit.TextResult("当前会话没有待办事项"), nil
 				}
 				filter, _ := args["filter"].(string)
 				filter = strings.ToLower(strings.TrimSpace(filter))
@@ -92,9 +92,9 @@ func BuildTodoTools() []toolkit.Tool {
 				}
 				if len(items) == 0 {
 					if filter == "" {
-						return "当前会话没有待办事项", nil
+						return toolkit.TextResult("当前会话没有待办事项"), nil
 					}
-					return "没有符合该状态的待办事项", nil
+					return toolkit.TextResult("没有符合该状态的待办事项"), nil
 				}
 				var b strings.Builder
 				fmt.Fprintf(&b, "待办事项（%d 条）：\n", len(items))
@@ -105,7 +105,7 @@ func BuildTodoTools() []toolkit.Tool {
 					}
 					fmt.Fprintf(&b, "- %s %s — %s\n", mark, it.ID, it.Text)
 				}
-				return strings.TrimRight(b.String(), "\n"), nil
+				return toolkit.TextResult(strings.TrimRight(b.String(), "\n")), nil
 			},
 		},
 		{
@@ -119,21 +119,21 @@ func BuildTodoTools() []toolkit.Tool {
 				},
 				Required: []string{"id"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Todos == nil {
-					return "", errors.New("待办功能不可用")
+					return toolkit.ToolResult{}, errors.New("待办功能不可用")
 				}
 				id, _ := args["id"].(string)
 				id = strings.TrimSpace(id)
 				if id == "" {
-					return "", errors.New("请指定待办 ID（见 todo_list）")
+					return toolkit.ToolResult{}, errors.New("请指定待办 ID（见 todo_list）")
 				}
 				if caps.Todos.SetDone(src.ChatID, id, true) {
-					return fmt.Sprintf("待办 %s 已完成", id), nil
+					return toolkit.TextResult(fmt.Sprintf("待办 %s 已完成", id)), nil
 				}
-				return fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id), nil
+				return toolkit.TextResult(fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id)), nil
 			},
 		},
 		{
@@ -147,21 +147,21 @@ func BuildTodoTools() []toolkit.Tool {
 				},
 				Required: []string{"id"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Todos == nil {
-					return "", errors.New("待办功能不可用")
+					return toolkit.ToolResult{}, errors.New("待办功能不可用")
 				}
 				id, _ := args["id"].(string)
 				id = strings.TrimSpace(id)
 				if id == "" {
-					return "", errors.New("请指定待办 ID（见 todo_list）")
+					return toolkit.ToolResult{}, errors.New("请指定待办 ID（见 todo_list）")
 				}
 				if caps.Todos.Remove(src.ChatID, id) {
-					return fmt.Sprintf("已删除待办 %s", id), nil
+					return toolkit.TextResult(fmt.Sprintf("已删除待办 %s", id)), nil
 				}
-				return fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id), nil
+				return toolkit.TextResult(fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id)), nil
 			},
 		},
 	}

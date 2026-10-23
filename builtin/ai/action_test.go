@@ -118,8 +118,8 @@ func TestRegistryRoundTripsActionAndTool(t *testing.T) {
 		RequiresApproval:      true,
 		AlwaysRequireApproval: true,
 		Permissions:           []string{"a.b"},
-		Execute: func(context.Context, map[string]any) (string, error) {
-			return "ok", nil
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("ok"), nil
 		},
 	}
 
@@ -139,7 +139,7 @@ func TestRegistryRoundTripsActionAndTool(t *testing.T) {
 	assert.Equal(t, tool.GrantsSendTo, got.GrantsSendTo)
 	assert.Equal(t, tool.Permissions, got.Permissions)
 	require.NotNil(t, got.Execute, "执行载荷必须随执行视图返回")
-	out, err := got.Execute(context.Background(), nil)
+	out, err := got.ExecuteText(context.Background(), nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", out)
 

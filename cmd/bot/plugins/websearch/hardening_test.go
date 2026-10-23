@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/infra/cache"
 	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -32,7 +33,7 @@ func TestWebSearchResultWrappedWithBoundary(t *testing.T) {
 	p.useEndpoint(t, srv.URL)
 
 	tool := findTool(t, p, "web_search")
-	result, err := tool(context.Background(), map[string]any{"query": "测试"})
+	result, err := tool(context.Background(), nil, map[string]any{"query": "测试"})
 	if err != nil {
 		t.Fatalf("web_search failed: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestFetchURLResultWrappedWithBoundary(t *testing.T) {
 	p.cache = newTestCache()
 
 	tool := findTool(t, p, "fetch_url")
-	result, err := tool(context.Background(), map[string]any{"url": srv.URL})
+	result, err := tool(context.Background(), nil, map[string]any{"url": srv.URL})
 	if err != nil {
 		t.Fatalf("fetch_url failed: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestWebSearchReportsConvergedMaxResults(t *testing.T) {
 	p := newTestPlugin("searxng")
 	p.useEndpoint(t, srv.URL)
 
-	result, err := findTool(t, p, "web_search")(context.Background(), map[string]any{
+	result, err := findTool(t, p, "web_search")(context.Background(), nil, map[string]any{
 		"query":       "测试",
 		"max_results": float64(99),
 	})
@@ -443,7 +444,7 @@ func findTool(t *testing.T, p *Plugin, name string) toolExecutor {
 	t.Helper()
 	for _, tool := range p.ListTools() {
 		if tool.Name == name {
-			return tool.Execute
+			return tool.ExecuteText
 		}
 	}
 	t.Fatalf("tool %q not found", name)
@@ -451,7 +452,7 @@ func findTool(t *testing.T, p *Plugin, name string) toolExecutor {
 }
 
 // toolExecutor 是工具执行回调的最小类型别名。
-type toolExecutor = func(ctx context.Context, args map[string]any) (string, error)
+type toolExecutor = func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (string, error)
 
 // newTestCache 构造测试用抓取缓存（禁用后台 GC，避免 goroutine 泄漏）。
 func newTestCache() *cache.Map[string, fetchEntry] {

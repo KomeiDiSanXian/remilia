@@ -25,8 +25,8 @@ func TestToolRegistryRegisterAndGet(t *testing.T) {
 		Name:        "test_tool",
 		Description: "a test tool",
 		Categories:  []string{toolkit.CategoryGeneral},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "done", nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("done"), nil
 		},
 	}
 	r.Register(tool)
@@ -278,14 +278,13 @@ func TestParseAnthropicToolCallsWithInputConversion(t *testing.T) {
 	}
 }
 
-func TestWithCallerInfo(t *testing.T) {
-	ctx := context.Background()
+func TestCallerInfoInvocation(t *testing.T) {
 	info := platform.UserInfo{ID: "user123", DisplayName: "TestUser"}
-	newCtx := toolkit.WithCallerInfo(ctx, info)
+	inv := &toolkit.Invocation{Caller: info}
 
-	got, ok := toolkit.CallerInfoFromContext(newCtx)
+	got, ok := toolkit.CallerInfoFromInvocation(inv)
 	if !ok {
-		t.Fatal("expected caller info in context")
+		t.Fatal("expected caller info in invocation")
 	}
 	if got.ID != "user123" {
 		t.Errorf("expected ID %q, got %q", "user123", got.ID)
@@ -295,10 +294,9 @@ func TestWithCallerInfo(t *testing.T) {
 	}
 }
 
-func TestCallerInfoFromContextNoInfo(t *testing.T) {
-	ctx := context.Background()
-	_, ok := toolkit.CallerInfoFromContext(ctx)
+func TestCallerInfoFromInvocationNoInfo(t *testing.T) {
+	_, ok := toolkit.CallerInfoFromInvocation(nil)
 	if ok {
-		t.Error("expected false when no caller info in context")
+		t.Error("expected false when invocation carries no caller info")
 	}
 }

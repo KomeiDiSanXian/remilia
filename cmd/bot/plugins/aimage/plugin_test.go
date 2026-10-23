@@ -147,13 +147,13 @@ func TestExecuteGenerateImageSends(t *testing.T) {
 	defer srv.Close()
 
 	sender := &fakeSender{}
-	ctx := toolkit.WithToolSender(context.Background(), sender)
-	out, err := p.executeGenerateImage(ctx, map[string]any{"prompt": "一只猫"})
+	inv := &toolkit.Invocation{Sender: sender}
+	out, err := p.executeGenerateImage(context.Background(), inv, map[string]any{"prompt": "一只猫"})
 	if err != nil {
 		t.Fatalf("executeGenerateImage: %v", err)
 	}
-	if !strings.Contains(out, "已生成并发送 1 张图片") {
-		t.Errorf("unexpected output %q", out)
+	if !strings.Contains(out.Flatten(), "已生成并发送 1 张图片") {
+		t.Errorf("unexpected output %q", out.Flatten())
 	}
 	if len(sender.sent) != 1 {
 		t.Fatalf("expected 1 sent message, got %d", len(sender.sent))
@@ -190,16 +190,16 @@ func TestExecuteGenerateImageClampsN(t *testing.T) {
 	p.cfg = &fakeConfig{vals: map[string]any{"enabled": true, "base_url": srv.URL, "max_n": 2}}
 
 	sender := &fakeSender{}
-	ctx := toolkit.WithToolSender(context.Background(), sender)
-	out, err := p.executeGenerateImage(ctx, map[string]any{"prompt": "一只猫", "n": float64(10)})
+	inv := &toolkit.Invocation{Sender: sender}
+	out, err := p.executeGenerateImage(context.Background(), inv, map[string]any{"prompt": "一只猫", "n": float64(10)})
 	if err != nil {
 		t.Fatalf("executeGenerateImage: %v", err)
 	}
 	if gotN != 2 {
 		t.Errorf("expected n clamped to 2, got %d", gotN)
 	}
-	if !strings.Contains(out, "已生成并发送 2 张图片") {
-		t.Errorf("unexpected output %q", out)
+	if !strings.Contains(out.Flatten(), "已生成并发送 2 张图片") {
+		t.Errorf("unexpected output %q", out.Flatten())
 	}
 	if len(sender.sent) != 1 {
 		t.Fatalf("expected 1 sent message, got %d", len(sender.sent))
@@ -212,7 +212,7 @@ func TestExecuteGenerateImageClampsN(t *testing.T) {
 func TestExecuteGenerateImageMissingPrompt(t *testing.T) {
 	p, srv := testPluginWithServer(t, func(w http.ResponseWriter, r *http.Request) {})
 	defer srv.Close()
-	if _, err := p.executeGenerateImage(context.Background(), map[string]any{}); err == nil {
+	if _, err := p.executeGenerateImage(context.Background(), nil, map[string]any{}); err == nil {
 		t.Error("expected error for missing prompt")
 	}
 }
@@ -220,7 +220,7 @@ func TestExecuteGenerateImageMissingPrompt(t *testing.T) {
 func TestExecuteGenerateImageInvalidSize(t *testing.T) {
 	p, srv := testPluginWithServer(t, func(w http.ResponseWriter, r *http.Request) {})
 	defer srv.Close()
-	if _, err := p.executeGenerateImage(context.Background(), map[string]any{"prompt": "猫", "size": "1024"}); err == nil {
+	if _, err := p.executeGenerateImage(context.Background(), nil, map[string]any{"prompt": "猫", "size": "1024"}); err == nil {
 		t.Error("expected error for invalid size")
 	}
 }
@@ -233,12 +233,12 @@ func TestExecuteGenerateImageNoSender(t *testing.T) {
 	})
 	defer srv.Close()
 
-	out, err := p.executeGenerateImage(context.Background(), map[string]any{"prompt": "一只猫"})
+	out, err := p.executeGenerateImage(context.Background(), nil, map[string]any{"prompt": "一只猫"})
 	if err != nil {
 		t.Fatalf("executeGenerateImage: %v", err)
 	}
-	if !strings.Contains(out, "已生成 1 张图片") {
-		t.Errorf("expected fallback text, got %q", out)
+	if !strings.Contains(out.Flatten(), "已生成 1 张图片") {
+		t.Errorf("expected fallback text, got %q", out.Flatten())
 	}
 }
 

@@ -37,7 +37,7 @@ func planToolForTest(t *testing.T, name string) toolkit.Tool {
 // execPlanTool 通过装配侧的端口执行一次规划动作。
 func execPlanTool(t *testing.T, tool toolkit.Tool, pa catalog.PlanAccess, args map[string]any) string {
 	t.Helper()
-	res, err := tool.Execute(catalog.WithPlanAccess(context.Background(), pa), args)
+	res, err := tool.ExecuteText(context.Background(), testPlanInvocation(pa), args)
 	if err != nil {
 		t.Fatalf("%s: %v", tool.Name, err)
 	}
@@ -158,7 +158,7 @@ func TestParallelPlanUpdatesKeepTaskConsistent(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Go(func() {
-			res, err := update.Execute(catalog.WithPlanAccess(context.Background(), p.planAccessFor(ctx, sess)),
+			res, err := update.ExecuteText(context.Background(), testPlanInvocation(p.planAccessFor(ctx, sess)),
 				map[string]any{"step_id": "step_1", "status": "done"})
 			if err != nil || strings.Contains(res, "错误") {
 				t.Errorf("parallel update = (%q, %v)", res, err)

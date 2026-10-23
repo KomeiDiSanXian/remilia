@@ -1,26 +1,25 @@
 package catalog
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestCapabilitiesContextRoundTrip 校验能力端口经 context 传递后保持等价
+// TestCapabilitiesInvocationRoundTrip 校验能力端口经 Invocation 传递后保持等价
 // （只有装配侧注入、动作侧读取这一条路径），未注入时返回零值与 false。
-func TestCapabilitiesContextRoundTrip(t *testing.T) {
+func TestCapabilitiesInvocationRoundTrip(t *testing.T) {
 	todos := &stubTodoAccess{}
-	ctx := WithCapabilities(context.Background(), Capabilities{Todos: todos})
+	inv := testInvocation(Capabilities{Todos: todos})
 
-	got, ok := capabilitiesFromContext(ctx)
+	got, ok := CapabilitiesFrom(inv)
 	require.True(t, ok)
 	require.NotNil(t, got.Todos)
 	got.Todos.Add("c1", "x")
 	assert.Equal(t, []TodoItem{{ID: "T1", Text: "x"}}, todos.List("c1"))
 
-	_, ok = capabilitiesFromContext(context.Background())
+	_, ok = CapabilitiesFrom(nil)
 	assert.False(t, ok)
 }
 

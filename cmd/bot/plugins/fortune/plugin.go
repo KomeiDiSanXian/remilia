@@ -197,17 +197,17 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					},
 				},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				number := 0
 				if n, ok := args["number"].(float64); ok {
 					number = int(n)
 				}
 				slip := omikujiSlip(drawOmikuji(number))
 				if slip == nil {
-					return "", fmt.Errorf("fortune: 签号无效: %d", number)
+					return toolkit.ToolResult{}, fmt.Errorf("fortune: 签号无效: %d", number)
 				}
-				return formatOmikujiText(slip) +
-					"\n\n（以上为该签的固定签文，非随机生成；用户发送 /omikuji 可获取对应签纸图片。）", nil
+				return toolkit.TextResult(formatOmikujiText(slip) +
+					"\n\n（以上为该签的固定签文，非随机生成；用户发送 /omikuji 可获取对应签纸图片。）"), nil
 			},
 		},
 		{
@@ -223,7 +223,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					},
 				},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				count := 1
 				if n, ok := args["count"].(float64); ok {
 					count = int(n)
@@ -232,8 +232,8 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					count = 1
 				}
 				readings := drawTarot(count)
-				return formatTarotText(readings) +
-					"\n\n（以上牌面由内置牌库随机抽取；用户发送 /tarot 可获取对应牌阵图片。）", nil
+				return toolkit.TextResult(formatTarotText(readings) +
+					"\n\n（以上牌面由内置牌库随机抽取；用户发送 /tarot 可获取对应牌阵图片。）"), nil
 			},
 		},
 	}

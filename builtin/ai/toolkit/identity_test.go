@@ -43,14 +43,14 @@ func TestActionIDOf(t *testing.T) {
 	}
 }
 
-// Source 与 ExecuteRich 必须在注册表往返中保真，否则身份与富结果会在
+// Source 与 Execute 必须在注册表往返中保真，否则身份与执行载荷会在
 // Get/List 后丢失。
-func TestRegistryPreservesSourceAndExecuteRich(t *testing.T) {
+func TestRegistryPreservesSourceAndExecute(t *testing.T) {
 	reg := NewToolRegistry()
 	reg.Register(Tool{
 		Name:   "search",
 		Source: MCPSource("github"),
-		ExecuteRich: func(ctx context.Context, args map[string]any) (ToolResult, error) {
+		Execute: func(ctx context.Context, inv *Invocation, args map[string]any) (ToolResult, error) {
 			return TextResult("ok"), nil
 		},
 	})
@@ -61,8 +61,8 @@ func TestRegistryPreservesSourceAndExecuteRich(t *testing.T) {
 	if got.Source != MCPSource("github") {
 		t.Fatalf("source not preserved: %q", got.Source)
 	}
-	if got.ExecuteRich == nil {
-		t.Fatal("ExecuteRich not preserved")
+	if got.Execute == nil {
+		t.Fatal("Execute not preserved")
 	}
 	if list := reg.List(); len(list) != 1 || list[0].Source != MCPSource("github") {
 		t.Fatalf("List lost source: %+v", list)

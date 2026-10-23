@@ -13,14 +13,11 @@
 package catalog
 
 import (
-	"context"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
-
-// ctxKeyCapabilities 是 context 中存储能力端口的键。
-type ctxKeyCapabilities struct{}
 
 // MemoryAccess 长期记忆的读写端口。
 //
@@ -78,10 +75,11 @@ type ReminderAccess interface {
 // ReminderScheduler 定时提醒的创建端口。
 //
 // 与 [ReminderAccess] 分开是因为创建提醒需要捕获平台发送器用于到期推送，
-// 而只读/取消不需要——保持每个端口只承担一类最小职责。
+// 而只读/取消不需要——发送器由装配侧在构造端口时持有，动作不接触原始
+// 发送能力。发送器缺失时装配侧不注入本端口，动作据此返回"不可用"。
 type ReminderScheduler interface {
 	// Schedule 注册一条提醒到会话，返回面向用户的确认文本。
-	Schedule(chat platform.ChatInfo, sender platform.Sender, duration time.Duration, content string) string
+	Schedule(chat platform.ChatInfo, duration time.Duration, content string) string
 }
 
 // Capabilities 一次动作调用可用的能力端口集合。
@@ -98,13 +96,15 @@ type Capabilities struct {
 	Process ProcessRunner
 }
 
-// WithCapabilities 将能力端口注入 context（装配侧构造后注入）。
-func WithCapabilities(ctx context.Context, caps Capabilities) context.Context {
-	return context.WithValue(ctx, ctxKeyCapabilities{}, caps)
+// CapabilitiesFrom 返回本次调用的能力端口；未注入时返回零值与 false。
+//
+// 动作层应经本函数读取，不要直接调用 inv.Port[Capabilities]，这样端口键
+// 只在一处定义。
+func CapabilitiesFrom(inv *toolkit.Invocation) (Capabilities, bool) {
+	return inv.Port[Capabilities]()
 }
 
-// capabilitiesFromContext 从 context 提取能力端口；未注入时返回零值与 false。
-func capabilitiesFromContext(ctx context.Context) (Capabilities, bool) {
-	caps, ok := ctx.Value(ctxKeyCapabilities{}).(Capabilities)
-	return caps, ok
+// AttachCapabilities 把能力端口挂到调用上下文（nil 视为未注入）。
+func AttachCapabilities(inv *toolkit.Invocation, caps Capabilities) {
+	inv.SetPort[Capabilities](caps)
 }

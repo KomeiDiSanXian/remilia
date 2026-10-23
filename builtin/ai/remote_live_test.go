@@ -13,6 +13,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execnode"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
 // TestLiveRemoteTools 通过真实工具契约验证远程执行节点：插件的能力端口指向
@@ -40,37 +41,39 @@ func TestLiveRemoteTools(t *testing.T) {
 
 	// 与生产装配一致：remote 模式下能力端口全部来自节点客户端。
 	p := &Plugin{cfg: &config.Config{WorkspaceAllowWrite: true}, remote: client}
-	caps := p.toolCapabilities()
-	ctx := catalog.WithCapabilities(context.Background(), caps)
+	caps := p.toolCapabilities(nil)
+	inv := &toolkit.Invocation{}
+	catalog.AttachCapabilities(inv, caps)
+	ctx := context.Background()
 
-	fileTools := map[string]func(context.Context, map[string]any) (string, error){}
+	fileTools := map[string]func(context.Context, *toolkit.Invocation, map[string]any) (string, error){}
 	for _, tool := range catalog.BuildFileTools(catalog.FileToolOptions{AllowWrite: true}) {
-		fileTools[tool.Name] = tool.Execute
+		fileTools[tool.Name] = tool.ExecuteText
 	}
-	execTool := catalog.BuildExecTools(catalog.ExecToolOptions{RequireApproval: true})[0].Execute
+	execTool := catalog.BuildExecTools(catalog.ExecToolOptions{RequireApproval: true})[0].ExecuteText
 
 	probe := fmt.Sprintf("tool-probe-%d.txt", time.Now().UnixNano())
 
-	writeOut, err := fileTools[catalog.FileWriteToolName](ctx, map[string]any{
+	writeOut, err := fileTools[catalog.FileWriteToolName](ctx, inv, map[string]any{
 		"path": probe, "content": "tool contract on remote node",
 	})
 	if err != nil || !strings.Contains(writeOut, "已创建") {
 		t.Fatalf("file_write on remote node = (%q, %v)", writeOut, err)
 	}
 
-	readOut, err := fileTools[catalog.FileReadToolName](ctx, map[string]any{"path": probe})
+	readOut, err := fileTools[catalog.FileReadToolName](ctx, inv, map[string]any{"path": probe})
 	if err != nil || !strings.Contains(readOut, "tool contract on remote node") {
 		t.Fatalf("file_read on remote node = (%q, %v)", readOut, err)
 	}
 
-	editOut, err := fileTools[catalog.FileEditToolName](ctx, map[string]any{
+	editOut, err := fileTools[catalog.FileEditToolName](ctx, inv, map[string]any{
 		"path": probe, "old_string": "remote node", "new_string": "remote executor",
 	})
 	if err != nil || !strings.Contains(editOut, "+remote executor") {
 		t.Fatalf("file_edit on remote node = (%q, %v)", editOut, err)
 	}
 
-	listOut, err := fileTools[catalog.FileListToolName](ctx, map[string]any{})
+	listOut, err := fileTools[catalog.FileListToolName](ctx, inv, map[string]any{})
 	if err != nil || !strings.Contains(listOut, probe) {
 		t.Fatalf("file_list on remote node = (%q, %v)", listOut, err)
 	}
@@ -79,7 +82,7 @@ func TestLiveRemoteTools(t *testing.T) {
 		t.Log("node is file-only; skipping process_run")
 		return
 	}
-	execOut, err := execTool(ctx, map[string]any{"command": "uname", "args": []any{"-a"}})
+	execOut, err := execTool(ctx, inv, map[string]any{"command": "uname", "args": []any{"-a"}})
 	if err != nil || !strings.Contains(execOut, "Linux") || !strings.Contains(execOut, "退出码 0") {
 		t.Fatalf("process_run on remote node = (%q, %v)", execOut, err)
 	}

@@ -98,10 +98,10 @@ func TestCreatePlanTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
+	inv := testPlanInvocation(planAccessForTest(sess))
 
 	// 正常创建
-	result, err := create.Execute(ctx, map[string]any{
+	result, err := create.ExecuteText(context.Background(), inv, map[string]any{
 		"task":  "查天气并推荐穿搭",
 		"steps": []any{"查询今日天气", "根据温度推荐穿搭"},
 	})
@@ -117,7 +117,7 @@ func TestCreatePlanTool(t *testing.T) {
 	}
 
 	// 步骤不足
-	result, _ = create.Execute(ctx, map[string]any{"task": "t", "steps": []any{"只有一步"}})
+	result, _ = create.ExecuteText(context.Background(), inv, map[string]any{"task": "t", "steps": []any{"只有一步"}})
 	if !strings.Contains(result, "错误") {
 		t.Errorf("single step should be rejected: %q", result)
 	}
@@ -126,7 +126,7 @@ func TestCreatePlanTool(t *testing.T) {
 	p.cfg.PlanMaxSteps = 2
 	tools2 := catalog.BuildPlanTools(p.cfg.PlanMaxSteps)
 	create2 := &tools2[0]
-	result, _ = create2.Execute(ctx, map[string]any{"task": "t", "steps": []any{"a", "b", "c"}})
+	result, _ = create2.ExecuteText(context.Background(), inv, map[string]any{"task": "t", "steps": []any{"a", "b", "c"}})
 	if !strings.Contains(result, "错误") {
 		t.Errorf("over-limit steps should be rejected: %q", result)
 	}
@@ -153,39 +153,39 @@ func TestUpdatePlanStepTool(t *testing.T) {
 	}
 
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
+	inv := testPlanInvocation(planAccessForTest(sess))
 
 	// 无计划时更新报错
-	result, _ := update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "done"})
+	result, _ := update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_1", "status": "done"})
 	if !strings.Contains(result, "错误") {
 		t.Errorf("update without plan should error: %q", result)
 	}
 
 	// 创建后按序更新
-	create.Execute(ctx, map[string]any{"task": "t", "steps": []any{"第一步", "第二步"}})
-	result, _ = update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "in_progress"})
+	create.ExecuteText(context.Background(), inv, map[string]any{"task": "t", "steps": []any{"第一步", "第二步"}})
+	result, _ = update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_1", "status": "in_progress"})
 	if !strings.Contains(result, "[进行中]") {
 		t.Errorf("expected in_progress mark: %q", result)
 	}
-	result, _ = update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "done", "note": "查询成功"})
+	result, _ = update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_1", "status": "done", "note": "查询成功"})
 	if !strings.Contains(result, "[完成]") || !strings.Contains(result, "查询成功") {
 		t.Errorf("expected done mark with note: %q", result)
 	}
 
 	// 非法状态
-	result, _ = update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "bogus"})
+	result, _ = update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_1", "status": "bogus"})
 	if !strings.Contains(result, "错误") {
 		t.Errorf("invalid status should error: %q", result)
 	}
 
 	// 不存在的步骤
-	result, _ = update.Execute(ctx, map[string]any{"step_id": "step_99", "status": "done"})
+	result, _ = update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_99", "status": "done"})
 	if !strings.Contains(result, "错误") {
 		t.Errorf("unknown step should error: %q", result)
 	}
 
 	// 全部完成 → 计划结束，不再注入
-	update.Execute(ctx, map[string]any{"step_id": "step_2", "status": "done"})
+	update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_2", "status": "done"})
 	if sess.PlanText() != "" {
 		t.Errorf("Completed plan should not be injected, got %q", sess.PlanText())
 	}

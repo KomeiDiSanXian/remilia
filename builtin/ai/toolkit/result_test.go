@@ -1,6 +1,37 @@
 package toolkit
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
+
+func TestExecuteTextProjectsRichResult(t *testing.T) {
+	tool := Tool{Execute: func(context.Context, *Invocation, map[string]any) (ToolResult, error) {
+		return ToolResult{Parts: []ResultPart{
+			{Kind: ResultText, Text: "回答"},
+			{Kind: ResultImage, URI: "https://x/y.png"},
+		}}, nil
+	}}
+	got, err := tool.ExecuteText(context.Background(), nil, nil)
+	if err != nil {
+		t.Fatalf("ExecuteText: %v", err)
+	}
+	if !strings.Contains(got, "回答") || !strings.Contains(got, "https://x/y.png") {
+		t.Fatalf("ExecuteText = %q", got)
+	}
+}
+
+func TestExecuteTextPropagatesError(t *testing.T) {
+	boom := errors.New("boom")
+	tool := Tool{Execute: func(context.Context, *Invocation, map[string]any) (ToolResult, error) {
+		return ToolResult{}, boom
+	}}
+	if _, err := tool.ExecuteText(context.Background(), nil, nil); !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+}
 
 func TestTextResultFlatten(t *testing.T) {
 	if got := TextResult("你好").Flatten(); got != "你好" {

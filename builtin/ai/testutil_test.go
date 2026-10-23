@@ -1,8 +1,6 @@
 package ai
 
 import (
-	"context"
-
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
@@ -35,16 +33,29 @@ func anthropicProviderForTest(cfg *config.Config) (protocol.Provider, error) {
 	return protocol.NewAnthropicProvider(providerOptions(cfg))
 }
 
-// toolCtxForTest 组装工具执行 context：会话源信息 + 插件当前能力端口。
-// 用于直接调用工具 Execute 的测试，等价于 executeToolResult 在生产路径上的注入
-// （不含平台发送器，需要推送的工具另有 toolSessionForTest）。
-func toolCtxForTest(p *Plugin, src toolkit.ToolSource) context.Context {
-	return catalog.WithCapabilities(toolkit.WithToolSource(context.Background(), src), p.toolCapabilities())
+// testPlanInvocation 构造只带计划端口的调用上下文（仅测试用）。
+func testPlanInvocation(plans catalog.PlanAccess) *toolkit.Invocation {
+	inv := &toolkit.Invocation{}
+	catalog.AttachPlans(inv, plans)
+	return inv
 }
 
-// toolSessionForTest 组装带平台发送器的工具执行 context（定时提醒等主动推送工具）。
-func toolSessionForTest(p *Plugin, src toolkit.ToolSource, sender platform.Sender) context.Context {
-	return catalog.WithCapabilities(toolkit.WithToolInvocation(context.Background(), src, sender), p.toolCapabilities())
+// toolCtxForTest 组装工具调用上下文：会话源信息 + 插件当前能力端口。
+// 用于直接调用工具 Execute 的测试，等价于 executeToolResult 在生产路径上的注入
+// （不含平台发送器，需要推送的工具另有 toolSessionForTest）。
+func toolCtxForTest(p *Plugin, src toolkit.ToolSource) *toolkit.Invocation {
+	return toolInvocationForTest(p, src, nil)
+}
+
+// toolSessionForTest 组装带平台发送器的工具调用上下文（定时提醒等主动推送工具）。
+func toolSessionForTest(p *Plugin, src toolkit.ToolSource, sender platform.Sender) *toolkit.Invocation {
+	return toolInvocationForTest(p, src, sender)
+}
+
+func toolInvocationForTest(p *Plugin, src toolkit.ToolSource, sender platform.Sender) *toolkit.Invocation {
+	inv := &toolkit.Invocation{Source: src}
+	catalog.AttachCapabilities(inv, p.toolCapabilities(sender))
+	return inv
 }
 
 // buildSendToolsForTest 按生产装配方式构建发送类动作（markdown 取自 p.cfg）。

@@ -147,16 +147,16 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"expression"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				expr, _ := args["expression"].(string)
 				if expr == "" {
-					return "", fmt.Errorf("请提供骰子表达式")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供骰子表达式")
 				}
 				result, err := p.svc.Roll(expr)
 				if err != nil {
-					return fmt.Sprintf("掷骰失败: %v", err), nil
+					return toolkit.TextResult(fmt.Sprintf("掷骰失败: %v", err)), nil
 				}
-				return result.Raw, nil
+				return toolkit.TextResult(result.Raw), nil
 			},
 		},
 	}

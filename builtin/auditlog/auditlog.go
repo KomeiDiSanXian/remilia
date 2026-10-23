@@ -377,7 +377,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					"count": {Type: "string", Description: "返回条数，默认 10，最大 50"},
 				},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				n := 10
 				if v, ok := args["count"]; ok {
 					fmt.Sscanf(fmt.Sprint(v), "%d", &n)
@@ -387,7 +387,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				entries := p.Recent(n)
 				if len(entries) == 0 {
-					return "暂无审计日志", nil
+					return toolkit.TextResult("暂无审计日志"), nil
 				}
 				var b strings.Builder
 				b.WriteString("**最近操作：**\n")
@@ -398,7 +398,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					}
 					b.WriteString("\n")
 				}
-				return b.String(), nil
+				return toolkit.TextResult(b.String()), nil
 			},
 		},
 		{
@@ -414,10 +414,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"user_id"},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				userID, _ := args["user_id"].(string)
 				if userID == "" {
-					return "请提供 user_id", nil
+					return toolkit.TextResult("请提供 user_id"), nil
 				}
 				n := 10
 				if v, ok := args["count"]; ok {
@@ -428,7 +428,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				}
 				entries := p.ByUser(userID, n)
 				if len(entries) == 0 {
-					return fmt.Sprintf("用户 %s 暂无操作记录", userID), nil
+					return toolkit.TextResult(fmt.Sprintf("用户 %s 暂无操作记录", userID)), nil
 				}
 				var b strings.Builder
 				fmt.Fprintf(&b, "**用户 %s 最近操作：**\n", userID)
@@ -439,7 +439,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 					}
 					b.WriteString("\n")
 				}
-				return b.String(), nil
+				return toolkit.TextResult(b.String()), nil
 			},
 		},
 	}

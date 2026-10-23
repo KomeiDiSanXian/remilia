@@ -452,9 +452,9 @@ func truncateRunes(s string, n int) string {
 	return string(runes[:n]) + "…"
 }
 
-// callerFromContext 提取工具调用者 ID；缺失时返回空字符串。
-func callerFromContext(ctx context.Context) string {
-	if caller, ok := toolkit.CallerInfoFromContext(ctx); ok {
+// callerFromInvocation 提取工具调用者 ID；缺失时返回空字符串。
+func callerFromInvocation(inv *toolkit.Invocation) string {
+	if caller, ok := toolkit.CallerInfoFromInvocation(inv); ok {
 		return caller.ID
 	}
 	return ""
@@ -509,27 +509,27 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"query"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				query, _ := args["query"].(string)
 				query = strings.TrimSpace(query)
 				if query == "" {
-					return "", errors.New("query 不能为空")
+					return toolkit.ToolResult{}, errors.New("query 不能为空")
 				}
 				limit, note := parseMaxResults(args["max_results"], p.cfg.MaxResults)
 				reqCtx, cancel := context.WithTimeout(gctx, p.cfg.Timeout)
 				defer cancel()
-				results, err := p.searchWithLimits(reqCtx, callerFromContext(gctx), query, limit)
+				results, err := p.searchWithLimits(reqCtx, callerFromInvocation(inv), query, limit)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if len(results) == 0 {
-					return "没有找到相关结果。", nil
+					return toolkit.TextResult("没有找到相关结果。"), nil
 				}
 				text := externalBoundary("web_search 搜索结果", formatResults(query, results))
 				if note != "" {
 					text += "\n" + note
 				}
-				return text, nil
+				return toolkit.TextResult(text), nil
 			},
 		},
 		{
@@ -543,22 +543,22 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"url"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				rawURL, _ := args["url"].(string)
 				rawURL = strings.TrimSpace(rawURL)
 				if rawURL == "" {
-					return "", errors.New("url 不能为空")
+					return toolkit.ToolResult{}, errors.New("url 不能为空")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, p.cfg.Timeout)
 				defer cancel()
 				text, err := p.fetchCached(reqCtx, rawURL)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if strings.TrimSpace(text) == "" {
-					return "页面没有可提取的文本内容。", nil
+					return toolkit.TextResult("页面没有可提取的文本内容。"), nil
 				}
-				return externalBoundary("fetch_url 抓取的网页正文 "+rawURL, text), nil
+				return toolkit.TextResult(externalBoundary("fetch_url 抓取的网页正文 "+rawURL, text)), nil
 			},
 		},
 	}

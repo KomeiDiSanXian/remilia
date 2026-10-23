@@ -41,30 +41,39 @@ import (
 //
 // Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调/命令/Skill 返回错误。
 // 工具正常返回、正文恰好以"错误:"开头，不算失败。
+// executeToolResult 是无可会话的便捷入口（测试/兼容路径）：不注入计划端口。
+// 生产路径由 process.go 直接构造 Invocation 并传入会话的计划端口。
 func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context, cs *execution.CaptureSender, sender toolkit.ToolSender) runtime.ActionResult {
-	return p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, sender, p.executionToolSnapshot(tc.Name))
+	return p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, p.newToolInvocation(ctx, sender, nil), p.executionToolSnapshot(tc.Name))
 }
 
-func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context,
-	cs *execution.CaptureSender, sender toolkit.ToolSender, snapshot toolExecutionSnapshot) runtime.ActionResult {
-	callerCtx := toolkit.WithCallerInfo(toolCtx, ctx.GetSenderInfo())
-	// 授权器随 caller-info 槽位传播：技能内部循环拿不到事件上下文，只能靠它
-	// 做 RBAC 与审批策略判断（注入阶段过滤 + 执行阶段复核）。
-	callerCtx = toolkit.WithAuthorizer(callerCtx, p.toolAuthorizer(ctx))
-	if sender != nil {
-		callerCtx = toolkit.WithToolSender(callerCtx, sender)
-		// 目标解析能力与发送能力同时注入：解析只读、不受审批门控，
-		// 供 send_message 的 @ 提及复用 send_to 的同一套解析规则。
-		callerCtx = toolkit.WithTargetResolver(callerCtx, targetResolverAdapter{sender: sender})
+// newToolInvocation 构造一次工具调用的显式上下文。
+//
+// 调用者身份、授权器、发送/解析能力、审计来源与能力端口都按调用构造，不再经
+// context 传递。plans 由装配侧按会话计算后传入；测试/无会话路径显式传 nil，
+// 让"缺少计划端口"在调用点可见，而不是漏一次 SetPort。Invocation 只在本次
+// 调用内有效，工具不得缓存它；技能内部循环复用同一份，并以
+// [toolkit.Invocation.WithSkill] 追加调用链。
+func (p *Plugin) newToolInvocation(ctx *eventctx.Context, sender toolkit.ToolSender, plans catalog.PlanAccess) *toolkit.Invocation {
+	caller := ctx.GetSenderInfo()
+	inv := &toolkit.Invocation{
+		Caller:     caller,
+		Authorizer: p.toolAuthorizer(ctx),
+		Sender:     sender,
+		Source: toolkit.ToolSource{
+			UserID:   caller.ID,
+			ChatID:   ctx.GetChatInfo().ID,
+			Platform: ctx.GetEventPlatform(),
+			IsGroup:  ctx.GetChatInfo().IsGroup,
+		},
 	}
-	callerCtx = toolkit.WithToolInvocation(callerCtx, toolkit.ToolSource{
-		UserID:   ctx.GetSenderInfo().ID,
-		ChatID:   ctx.GetChatInfo().ID,
-		Platform: ctx.GetEventPlatform(),
-		IsGroup:  ctx.GetChatInfo().IsGroup,
-	}, ctx.GetPlatformSender())
+	if sender != nil {
+		// 目标解析只读、不受审批门控，供 send_message 的 @ 提及复用
+		// send_to 的同一套解析规则。
+		inv.Resolver = targetResolverAdapter{sender: sender}
+	}
 	// 进程执行端口外再加一层证据记录：计划完成闸门依赖"最近一次命令的退出码"。
-	caps := p.toolCapabilities()
+	caps := p.toolCapabilities(ctx.GetPlatformSender())
 	if runner := p.evidenceRecordingRunner(ctx, caps.Process); runner != nil {
 		caps.Process = runner
 	}
@@ -72,16 +81,22 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 	if recorder := p.fileArtifactRecordingWriter(ctx, caps.FileWrite); recorder != nil {
 		caps.FileWrite = recorder
 	}
-	callerCtx = catalog.WithCapabilities(callerCtx, caps)
+	catalog.AttachCapabilities(inv, caps)
+	catalog.AttachPlans(inv, plans)
+	return inv
+}
+
+func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context,
+	cs *execution.CaptureSender, inv *toolkit.Invocation, snapshot toolExecutionSnapshot) runtime.ActionResult {
 	// 执行路径的能力端口在同一装配点构造：调用器只依赖端口，不依赖插件实例。
 	// 这两个端口刻意不进入 capabilitySet——工具回调不应获得"跑命令 / 跑技能"的能力。
 	skills := pluginSkillRunner{p: p}
 	commands := pluginCommandCatalog{p: p}
 	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
-		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Record: recordToolCall}.Invoke(callerCtx)
+		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Inv: inv, Record: recordToolCall}.Invoke(toolCtx)
 	}
 	if skill, ok := p.skillReg.GetSystem(tc.Name); ok {
-		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Record: recordToolCall}.Invoke(callerCtx)
+		return runtime.SkillInvoker{Name: tc.Name, Skill: skill, Args: tc.Arguments, Runner: skills, Inv: inv, Record: recordToolCall}.Invoke(toolCtx)
 	}
 
 	if !snapshot.found {
@@ -116,7 +131,7 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 		result := runtime.CommandInvoker{
 			Catalog: commands, Ctx: ctx, Name: tc.Name, Args: tc.Arguments,
 			CS: cmdCS, Record: recordToolCall,
-		}.Invoke(callerCtx)
+		}.Invoke(toolCtx)
 		// 汇入回合级捕获器：文本保留为"模型无输出"时的兜底回复，附件随最终回复发送。
 		cs.Merge(cmdCS)
 		p.realCmdMu.Unlock()
@@ -134,27 +149,7 @@ func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protoco
 		}
 	}
 
-	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Rich: tool.ExecuteRich, Record: recordToolCall}.Invoke(callerCtx)
-}
-
-// ctxKeySkillStack 技能调用栈（Skill 互相注入形成的嵌套链）在 context 中的键。
-type ctxKeySkillStack struct{}
-
-// skillCallStack 从 ctx 取技能调用栈集合（无调用链时为 nil）。
-func skillCallStack(ctx context.Context) map[string]bool {
-	stack, _ := ctx.Value(ctxKeySkillStack{}).(map[string]bool)
-	return stack
-}
-
-// withSkillCallStack 把 name 压入技能调用栈并返回新 ctx（独立拷贝，不改原 map）。
-func withSkillCallStack(ctx context.Context, name string) context.Context {
-	old := skillCallStack(ctx)
-	next := make(map[string]bool, len(old)+1)
-	for k := range old {
-		next[k] = true
-	}
-	next[name] = true
-	return context.WithValue(ctx, ctxKeySkillStack{}, next)
+	return runtime.FuncInvoker{Name: tc.Name, Args: tc.Arguments, Fn: tool.Execute, Inv: inv, Record: recordToolCall}.Invoke(toolCtx)
 }
 
 // executeSkill 执行一个 Skill 的内部工具调用循环。
@@ -162,12 +157,12 @@ func withSkillCallStack(ctx context.Context, name string) context.Context {
 // 使用自己的 Prompt 和 Tools 做最多 SkillMaxDepth 轮的非流式 LLM 调用。
 // 不持久化到 session，纯函数式。
 //
-// 递归防护：调用栈经 context 传递。嵌套只重置本技能内部轮数计数，
-// 两个互引的系统技能（A 注入 B、B 注入 A）会 A→B→A→… 无界嵌套直到
-// 60s 超时兜底，期间每层用量记账 + token 白烧；已在栈中的技能直接
-// 拒绝执行，模型看到错误便改走其他路径。
-func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map[string]any) (string, error) {
-	if skillCallStack(ctx)[skill.Name] {
+// 递归防护：调用栈由 [toolkit.Invocation.SkillPath] 显式携带。嵌套只重置
+// 本技能内部轮数计数，两个互引的系统技能（A 注入 B、B 注入 A）会 A→B→A→…
+// 无界嵌套直到 60s 超时兜底，期间每层用量记账 + token 白烧；已在链中的技能
+// 直接拒绝执行，模型看到错误便改走其他路径。
+func (p *Plugin) executeSkill(ctx context.Context, inv *toolkit.Invocation, skill toolkit.Skill, args map[string]any) (string, error) {
+	if inv.InSkill(skill.Name) {
 		return "", fmt.Errorf("技能 %q 递归调用被阻止：它已在当前调用链中，请检查技能对其他技能的引用", skill.Name)
 	}
 	// 记账归属：以技能自身的 owner + name 为键，嵌套调用同样按被执行的技能计数。
@@ -178,7 +173,8 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 		{Role: protocol.RoleSystem, Content: skill.Prompt},
 		{Role: protocol.RoleUser, Content: string(argsJSON)},
 	}
-	tools := p.buildSkillTools(ctx, skill)
+	skillInv := inv.WithSkill(skill.Name)
+	tools := p.buildSkillTools(ctx, skillInv, skill)
 	// 子循环自己持有工具（要执行），发给模型的是其动作视图。
 	actions := toolkit.ActionsOf(tools)
 
@@ -186,7 +182,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 	if skillTimeout <= 0 {
 		skillTimeout = 60 * time.Second
 	}
-	skillCtx, cancel := context.WithTimeout(withSkillCallStack(ctx, skill.Name), skillTimeout)
+	skillCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
 
 	for depth := 0; depth < p.cfg.SkillMaxDepth; depth++ {
@@ -201,7 +197,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 
 		msgs = append(msgs, protocol.Message{Role: protocol.RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
 		for _, tc := range resp.ToolCalls {
-			result := p.executeSkillTool(skillCtx, tc, tools)
+			result := p.executeSkillTool(skillCtx, skillInv, tc, tools)
 			msgs = append(msgs, protocol.Message{Role: protocol.RoleTool, Content: runtime.TruncateToolResult(result), ToolCallID: tc.ID})
 		}
 	}
@@ -216,14 +212,10 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 // 工具列表按调用者授权过滤（见 toolkit.Authorizer）：无权限或需要人工审批的
 // 工具不会出现在模型视图里。没有授权器时退化为"过滤所有声明 Permissions 的
 // 工具"（安全默认：无法验证身份时不给能力）。
-func (p *Plugin) buildSkillTools(ctx context.Context, skill toolkit.Skill) []toolkit.Tool {
-	auth, hasAuth := toolkit.AuthorizerFromContext(ctx)
+func (p *Plugin) buildSkillTools(ctx context.Context, inv *toolkit.Invocation, skill toolkit.Skill) []toolkit.Tool {
 	allowed := func(t toolkit.Tool) bool {
-		if hasAuth {
-			ok, _ := auth.CanUse(t)
-			return ok
-		}
-		return len(t.Permissions) == 0
+		ok, _ := inv.CanUse(t)
+		return ok
 	}
 
 	sysSkills := p.skillReg.ListByOwner(toolkit.OwnerSystem)
@@ -256,8 +248,9 @@ func (p *Plugin) buildSkillTools(ctx context.Context, skill toolkit.Skill) []too
 			Name:        other.Name,
 			Description: other.Description,
 			Parameters:  params,
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				return p.executeSkill(ctx, other, args)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				out, err := p.executeSkill(ctx, inv, other, args)
+				return toolkit.TextResult(out), err
 			},
 		})
 	}
@@ -268,15 +261,13 @@ func (p *Plugin) buildSkillTools(ctx context.Context, skill toolkit.Skill) []too
 // executeSkillTool 执行 Skill 内部的工具调用。
 // 不走 syncer/real command，直接调用工具自身的 Execute 回调。
 // 执行前按调用者授权复核一次：注入阶段已过滤，这里防止绕过或并发注入变化。
-func (p *Plugin) executeSkillTool(ctx context.Context, tc protocol.ToolCall, tools []toolkit.Tool) string {
+func (p *Plugin) executeSkillTool(ctx context.Context, inv *toolkit.Invocation, tc protocol.ToolCall, tools []toolkit.Tool) string {
 	for _, t := range tools {
 		if t.Name == tc.Name {
-			if auth, ok := toolkit.AuthorizerFromContext(ctx); ok {
-				if allowed, reason := auth.CanUse(t); !allowed {
-					return "错误: " + reason
-				}
+			if allowed, reason := inv.CanUse(t); !allowed {
+				return "错误: " + reason
 			}
-			result, err := t.Execute(ctx, tc.Arguments)
+			result, err := t.ExecuteText(ctx, inv, tc.Arguments)
 			if err != nil {
 				return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, err)
 			}

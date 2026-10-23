@@ -308,19 +308,19 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"user_id"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				userID, _ := args["user_id"].(string)
 				if userID == "" {
-					return "请提供 user_id", nil
+					return toolkit.TextResult("请提供 user_id"), nil
 				}
 				allowed := p.IsAllowed(userID)
 				modeStr := modeString(p.GetMode())
 				contained := p.Contains(userID)
 				count := p.Count()
 				if allowed {
-					return fmt.Sprintf("✅ 用户 %s 被允许（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count), nil
+					return toolkit.TextResult(fmt.Sprintf("✅ 用户 %s 被允许（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count)), nil
 				}
-				return fmt.Sprintf("❌ 用户 %s 被阻止（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count), nil
+				return toolkit.TextResult(fmt.Sprintf("❌ 用户 %s 被阻止（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count)), nil
 			},
 		},
 		{
@@ -332,8 +332,8 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				return fmt.Sprintf("当前 ACL 模式：%s，规则总数：%d", modeString(p.GetMode()), p.Count()), nil
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.TextResult(fmt.Sprintf("当前 ACL 模式：%s，规则总数：%d", modeString(p.GetMode()), p.Count())), nil
 			},
 		},
 	}

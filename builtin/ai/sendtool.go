@@ -123,9 +123,10 @@ func (s *loopToolSender) SendTo(ctx context.Context, target toolkit.ChatTarget, 
 // ResolveTarget 将目标自动解析为 ChatTarget（见 resolveTarget）。
 // isGroup 提示仅在按原始 ID 兜底时生效。
 //
-// 执行侧把本方法适配为 [toolkit.TargetResolver] 端口注入工具 context；
-// 动作层（builtin/ai/catalog）经 [toolkit.TargetResolverFromContext] 提取后
-// 即可复用同一套解析规则（send_to 的目标、send_message 的 @ 提及）。
+// 执行侧把本方法适配为 [toolkit.TargetResolver] 端口放进
+// [toolkit.Invocation.Resolver]；动作层（builtin/ai/catalog）经
+// [toolkit.TargetResolverFromInvocation] 提取后即可复用同一套解析规则
+// （send_to 的目标、send_message 的 @ 提及）。
 func (s *loopToolSender) ResolveTarget(ctx context.Context, raw string, isGroup bool) (toolkit.ChatTarget, string, error) {
 	return resolveTarget(ctx, s, raw, isGroup)
 }
@@ -195,10 +196,7 @@ func specialTarget(s *loopToolSender, raw string, chat platform.ChatInfo) (toolk
 		}
 		return toolkit.ChatTarget{ID: chat.ID, IsGroup: true}, "本群（" + chat.ID + "）", true, nil
 	case "我", "我自己", "给我":
-		caller, ok := toolkit.CallerInfoFromContext(s.ctx.Context())
-		if !ok || caller.ID == "" {
-			caller = s.ctx.GetSenderInfo()
-		}
+		caller := s.ctx.GetSenderInfo()
 		if caller.ID == "" {
 			return toolkit.ChatTarget{}, "", true, fmt.Errorf("无法获取当前用户信息")
 		}

@@ -53,9 +53,9 @@ func TestExecuteProcessRunFormatsResult(t *testing.T) {
 		ExitCode: 0, Stdout: "ok example.com/x", Duration: 1500 * time.Millisecond,
 	}}
 	tool := BuildExecTools(ExecToolOptions{})[0]
-	ctx := WithCapabilities(context.Background(), Capabilities{Process: runner})
+	inv := testInvocation(Capabilities{Process: runner})
 
-	out, err := tool.Execute(ctx, map[string]any{
+	out, err := tool.ExecuteText(context.Background(), inv, map[string]any{
 		"command": "go",
 		"args":    []any{"test", "./..."},
 		"dir":     "sub",
@@ -76,18 +76,18 @@ func TestExecuteProcessRunFormatsResult(t *testing.T) {
 func TestExecuteProcessRunUnavailableAndErrors(t *testing.T) {
 	tool := BuildExecTools(ExecToolOptions{})[0]
 
-	if out, _ := tool.Execute(context.Background(), map[string]any{"command": "go"}); !strings.Contains(out, "未启用") {
+	if out, _ := tool.ExecuteText(context.Background(), nil, map[string]any{"command": "go"}); !strings.Contains(out, "未启用") {
 		t.Fatalf("missing port should be reported: %q", out)
 	}
 
-	ctx := WithCapabilities(context.Background(), Capabilities{Process: &fakeProcessRunner{}})
-	if out, _ := tool.Execute(ctx, map[string]any{}); !strings.Contains(out, "command") {
+	inv := testInvocation(Capabilities{Process: &fakeProcessRunner{}})
+	if out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{}); !strings.Contains(out, "command") {
 		t.Fatalf("missing command should be reported: %q", out)
 	}
 
 	failing := &fakeProcessRunner{err: errors.New("command is not allowed")}
-	ctx = WithCapabilities(context.Background(), Capabilities{Process: failing})
-	out, _ := tool.Execute(ctx, map[string]any{"command": "rm"})
+	inv = testInvocation(Capabilities{Process: failing})
+	out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{"command": "rm"})
 	if !strings.Contains(out, "无法执行") || !strings.Contains(out, "not allowed") {
 		t.Fatalf("port error should be surfaced: %q", out)
 	}
@@ -99,9 +99,9 @@ func TestExecuteProcessRunTimeoutAndTruncation(t *testing.T) {
 		Stdout: "partial output", Duration: 2 * time.Second,
 	}}
 	tool := BuildExecTools(ExecToolOptions{})[0]
-	ctx := WithCapabilities(context.Background(), Capabilities{Process: runner})
+	inv := testInvocation(Capabilities{Process: runner})
 
-	out, _ := tool.Execute(ctx, map[string]any{"command": "go"})
+	out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{"command": "go"})
 	for _, want := range []string{"执行超时被终止", "输出超过上限", "partial output"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("result missing %q: %s", want, out)

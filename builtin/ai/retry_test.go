@@ -23,14 +23,14 @@ func TestToolFailureIsTypedNotTextual(t *testing.T) {
 	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
 	p.reg.Register(toolkit.Tool{
 		Name: "looks_like_error",
-		Execute: func(context.Context, map[string]any) (string, error) {
-			return "错误: 这是正常输出，只是恰好以此开头", nil
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("错误: 这是正常输出，只是恰好以此开头"), nil
 		},
 	})
 	p.reg.Register(toolkit.Tool{
 		Name: "really_fails",
-		Execute: func(context.Context, map[string]any) (string, error) {
-			return "", errors.New("boom")
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, errors.New("boom")
 		},
 	})
 
@@ -109,8 +109,8 @@ func TestProcessWithToolsRetryAbort(t *testing.T) {
 	}
 	p.reg.Register(toolkit.Tool{
 		Name: "failing_tool",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "", errors.New("internal error")
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, errors.New("internal error")
 		},
 	})
 
@@ -174,12 +174,12 @@ func TestProcessWithToolsRetrySuccessAfterReflection(t *testing.T) {
 	}
 	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 			attempts++
 			if attempts <= 2 {
-				return "", errors.New("transient failure")
+				return toolkit.ToolResult{}, errors.New("transient failure")
 			}
-			return "ok", nil
+			return toolkit.TextResult("ok"), nil
 		},
 	})
 
@@ -242,12 +242,12 @@ func TestProcessWithToolsSingleFailureNoReflection(t *testing.T) {
 	}
 	p.reg.Register(toolkit.Tool{
 		Name: "flaky_tool",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 			attempts++
 			if attempts == 1 {
-				return "", errors.New("transient failure")
+				return toolkit.ToolResult{}, errors.New("transient failure")
 			}
-			return "ok", nil
+			return toolkit.TextResult("ok"), nil
 		},
 	})
 

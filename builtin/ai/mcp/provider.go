@@ -17,7 +17,7 @@ import (
 // provider.go — 把服务器的工具物化为 Remilia 工具，并转换调用结果。
 //
 // 这是本子系统与 AI 之间的唯一数据出口：模型看到的是普通的 [toolkit.Tool]，
-// 执行经其 ExecuteRich 回调回到对应的服务器连接。工具的审批/权限策略在此从
+// 执行经其 Execute 回调回到对应的服务器连接。工具的审批/权限策略在此从
 // 服务器配置映射而来——权威策略始终是 Remilia 的 ActionPolicy。
 
 // serverTools 物化所有可用服务器的工具；模型函数名全局唯一且确定。
@@ -67,7 +67,7 @@ const maxMCPDescriptionRunes = 512
 func (m *Manager) buildTool(s *serverState, t mcpTool, modelName string) toolkit.Tool {
 	original := t.Name
 	srv := s
-	exec := func(ctx context.Context, args map[string]any) (toolkit.ToolResult, error) {
+	exec := func(ctx context.Context, _ *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 		cl := srv.currentClient()
 		if cl == nil {
 			// 软不可用：工具仍在集合中，调用时如实失败，避免集合抖动。
@@ -93,7 +93,7 @@ func (m *Manager) buildTool(s *serverState, t mcpTool, modelName string) toolkit
 		RequiresApproval:      srv.cfg.requireApproval() || destructiveHint(t.Annotations),
 		AlwaysRequireApproval: srv.cfg.AlwaysRequireApproval,
 		Permissions:           srv.cfg.Permissions,
-		ExecuteRich:           exec,
+		Execute:               exec,
 	}
 }
 

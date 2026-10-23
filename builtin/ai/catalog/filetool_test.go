@@ -99,9 +99,9 @@ func TestBuildFileToolsShape(t *testing.T) {
 func TestExecuteFileRead(t *testing.T) {
 	fake := &fakeFileAccess{content: FileContent{Path: "docs/readme.md", Text: "hello", Size: 5}}
 	tool := fileToolForTest(t, FileReadToolName)
-	ctx := WithCapabilities(context.Background(), Capabilities{Files: fake})
+	inv := testInvocation(Capabilities{Files: fake})
 
-	out, err := tool.Execute(ctx, map[string]any{"path": "docs/readme.md"})
+	out, err := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "docs/readme.md"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -118,20 +118,20 @@ func TestExecuteFileRead(t *testing.T) {
 func TestExecuteFileReadErrors(t *testing.T) {
 	tool := fileToolForTest(t, FileReadToolName)
 
-	out, _ := tool.Execute(context.Background(), map[string]any{"path": "x"})
+	out, _ := tool.ExecuteText(context.Background(), nil, map[string]any{"path": "x"})
 	if !strings.Contains(out, "未启用") {
 		t.Fatalf("missing port should be reported: %q", out)
 	}
 
-	ctx := WithCapabilities(context.Background(), Capabilities{Files: &fakeFileAccess{}})
-	out, _ = tool.Execute(ctx, map[string]any{})
+	inv := testInvocation(Capabilities{Files: &fakeFileAccess{}})
+	out, _ = tool.ExecuteText(context.Background(), inv, map[string]any{})
 	if !strings.Contains(out, "path") {
 		t.Fatalf("missing path should be reported: %q", out)
 	}
 
 	failing := &fakeFileAccess{readErr: errors.New("path is outside the workspace")}
-	ctx = WithCapabilities(context.Background(), Capabilities{Files: failing})
-	out, _ = tool.Execute(ctx, map[string]any{"path": "../secret"})
+	inv = testInvocation(Capabilities{Files: failing})
+	out, _ = tool.ExecuteText(context.Background(), inv, map[string]any{"path": "../secret"})
 	if !strings.Contains(out, "读取失败") || !strings.Contains(out, "outside") {
 		t.Fatalf("port error should be surfaced: %q", out)
 	}
@@ -146,9 +146,9 @@ func TestExecuteFileList(t *testing.T) {
 		Total: 3, Truncated: true,
 	}}
 	tool := fileToolForTest(t, FileListToolName)
-	ctx := WithCapabilities(context.Background(), Capabilities{Files: fake})
+	inv := testInvocation(Capabilities{Files: fake})
 
-	out, err := tool.Execute(ctx, map[string]any{"path": "proj"})
+	out, err := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "proj"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -162,8 +162,8 @@ func TestExecuteFileList(t *testing.T) {
 	}
 
 	empty := &fakeFileAccess{}
-	ctx = WithCapabilities(context.Background(), Capabilities{Files: empty})
-	if out, _ := tool.Execute(ctx, map[string]any{}); out != "目录为空" {
+	inv = testInvocation(Capabilities{Files: empty})
+	if out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{}); out != "目录为空" {
 		t.Fatalf("empty listing = %q", out)
 	}
 }
@@ -198,14 +198,14 @@ func (f *fakeFileWrite) Edit(rel, oldString, newString string) (FileEditResult, 
 func TestExecuteFileWrite(t *testing.T) {
 	tool := fileToolForTest(t, FileWriteToolName)
 
-	out, _ := tool.Execute(context.Background(), map[string]any{"path": "a.txt", "content": "x"})
+	out, _ := tool.ExecuteText(context.Background(), nil, map[string]any{"path": "a.txt", "content": "x"})
 	if !strings.Contains(out, "未启用") {
 		t.Fatalf("missing write port should be reported: %q", out)
 	}
 
 	fake := &fakeFileWrite{writeResult: FileWriteResult{Path: "a.txt", Bytes: 5, PreviousBytes: 3}}
-	ctx := WithCapabilities(context.Background(), Capabilities{FileWrite: fake})
-	out, err := tool.Execute(ctx, map[string]any{"path": "a.txt", "content": "hello"})
+	inv := testInvocation(Capabilities{FileWrite: fake})
+	out, err := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "a.txt", "content": "hello"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -217,8 +217,8 @@ func TestExecuteFileWrite(t *testing.T) {
 	}
 
 	created := &fakeFileWrite{writeResult: FileWriteResult{Path: "new.txt", Bytes: 1, Created: true}}
-	ctx = WithCapabilities(context.Background(), Capabilities{FileWrite: created})
-	if out, _ := tool.Execute(ctx, map[string]any{"path": "new.txt", "content": "y"}); !strings.Contains(out, "已创建") {
+	inv = testInvocation(Capabilities{FileWrite: created})
+	if out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "new.txt", "content": "y"}); !strings.Contains(out, "已创建") {
 		t.Fatalf("new file should be reported as created: %q", out)
 	}
 }
@@ -230,9 +230,9 @@ func TestExecuteFileEdit(t *testing.T) {
 		Bytes: 42,
 		Diff:  "--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n",
 	}}
-	ctx := WithCapabilities(context.Background(), Capabilities{FileWrite: fake})
+	inv := testInvocation(Capabilities{FileWrite: fake})
 
-	out, err := tool.Execute(ctx, map[string]any{
+	out, err := tool.ExecuteText(context.Background(), inv, map[string]any{
 		"path": "main.go", "old_string": "old", "new_string": "new",
 	})
 	if err != nil {
@@ -245,12 +245,12 @@ func TestExecuteFileEdit(t *testing.T) {
 		t.Fatalf("port called with (%q, %q)", fake.editOld, fake.editNew)
 	}
 
-	if out, _ := tool.Execute(ctx, map[string]any{"path": "main.go", "new_string": "x"}); !strings.Contains(out, "old_string") {
+	if out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "main.go", "new_string": "x"}); !strings.Contains(out, "old_string") {
 		t.Fatalf("empty old_string should be rejected: %q", out)
 	}
 	failing := &fakeFileWrite{editErr: errors.New("pattern is not unique")}
-	ctx = WithCapabilities(context.Background(), Capabilities{FileWrite: failing})
-	if out, _ := tool.Execute(ctx, map[string]any{"path": "a.txt", "old_string": "a", "new_string": "b"}); !strings.Contains(out, "替换失败") {
+	inv = testInvocation(Capabilities{FileWrite: failing})
+	if out, _ := tool.ExecuteText(context.Background(), inv, map[string]any{"path": "a.txt", "old_string": "a", "new_string": "b"}); !strings.Contains(out, "替换失败") {
 		t.Fatalf("port error should be surfaced: %q", out)
 	}
 }

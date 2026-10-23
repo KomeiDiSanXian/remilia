@@ -29,9 +29,9 @@ func TestExecuteToolRejectsInvalidArguments(t *testing.T) {
 			},
 			Required: []string{"name"},
 		},
-		Execute: func(context.Context, map[string]any) (string, error) {
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
 			called = true
-			return "ok", nil
+			return toolkit.TextResult("ok"), nil
 		},
 	})
 

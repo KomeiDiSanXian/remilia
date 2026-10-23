@@ -77,13 +77,24 @@
 
 **技能内部工具按调用者授权执行**
 
-- 新增 `toolkit.Authorizer`（与调用者信息共用一个 context 槽位）：`buildSkillTools` 在注入阶段按调用者过滤工具（RBAC 权限 + 审批模式），`executeSkillTool` 在执行阶段再复核一次；无授权器时退化为过滤所有声明 `Permissions` 的工具（安全默认）。
+- 新增 `toolkit.Authorizer`：`buildSkillTools` 在注入阶段按调用者过滤工具（RBAC 权限 + 审批模式），`executeSkillTool` 在执行阶段再复核一次；无授权器时退化为过滤所有声明 `Permissions` 的工具（安全默认）。
 - 需要人工审批的工具在技能内部一律拒绝，并提示模型直接调用该工具（走正常审批路径）——技能是模型自循环，无法等待人工响应。
-- 同时把 `protocol` 的调用用途与会话范围两个 context 槽位合并为一个，减少调用链上的 context 值数量。
 
 **`Info.Get` 返回只读快照（⚠️ 破坏性变更）**
 
 - `plugin.Info.Get` 由 `(*Instance, bool)` 改为 `(InstanceInfo, bool)`：只含 `Name` / `GetState` / `GetUptime` / `GetLastError`，调用方无法再通过 `*Instance` 调用 `SetState` / `SetConfig` 等导出写方法。`plugintest.MockPluginInfo` 与 `builtin/dev/debug` 已同步。
+
+### 🧩 工具接口（破坏性变更）
+
+- `toolkit.Tool.Execute` 改为单一入口，直接返回富结果：
+
+  ```go
+  Execute(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error)
+  ```
+
+  原 `Execute` / `ExecuteRich` 的返回值合并为 `ToolResult`：纯文本工具使用 `toolkit.TextResult("...")`，需要图片/音频/资源/结构化片段的工具直接返回对应片段；只关心文本的调用方可用 `Tool.ExecuteText`。
+- 工具执行所需的调用期数据改由 `*toolkit.Invocation` 显式传入（调用者、授权器、发送/解析能力、会话源、技能调用链与领域端口），不再经 `context` 传递。`toolkit.WithCallerInfo` / `WithAuthorizer` / `WithToolSender` / `WithTargetResolver` / `WithToolSource` / `WithToolInvocation` 及对应的 `*FromContext` 读取函数、`catalog.WithCapabilities` / `WithPlanAccess` 已移除。
+- 迁移：`toolkit.CallerInfoFromContext(ctx)` → `toolkit.CallerInfoFromInvocation(inv)`；能力端口用 `catalog.CapabilitiesFrom(inv)`，计划端口用 `catalog.PlansFrom(inv)`。插件注册工具时补一个 `inv` 参数即可。
 
 ### ⚙️ 配置与权限说明
 

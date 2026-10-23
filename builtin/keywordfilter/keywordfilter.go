@@ -255,15 +255,15 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"text"},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				text, _ := args["text"].(string)
 				if text == "" {
-					return "请提供要检查的文本", nil
+					return toolkit.TextResult("请提供要检查的文本"), nil
 				}
 				if matched := p.Check(text); matched != "" {
-					return fmt.Sprintf("⚠️ 文本包含敏感内容「%s」", matched), nil
+					return toolkit.TextResult(fmt.Sprintf("⚠️ 文本包含敏感内容「%s」", matched)), nil
 				}
-				return "✅ 文本未发现敏感内容", nil
+				return toolkit.TextResult("✅ 文本未发现敏感内容"), nil
 			},
 		},
 	}

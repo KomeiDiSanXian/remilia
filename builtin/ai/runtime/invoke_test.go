@@ -17,7 +17,9 @@ func TestFuncInvokerSuccess(t *testing.T) {
 	got := FuncInvoker{
 		Name: "echo",
 		Args: map[string]any{},
-		Fn:   func(context.Context, map[string]any) (string, error) { return "pong", nil },
+		Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("pong"), nil
+		},
 	}.Invoke(context.Background())
 
 	require.NoError(t, got.Err)
@@ -30,7 +32,9 @@ func TestFuncInvokerFailureText(t *testing.T) {
 	got := FuncInvoker{
 		Name: "echo",
 		Args: map[string]any{},
-		Fn:   func(context.Context, map[string]any) (string, error) { return "", boom },
+		Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, boom
+		},
 	}.Invoke(context.Background())
 
 	assert.Equal(t, `错误: 工具 "echo" 执行失败: boom`, got.Text)
@@ -43,7 +47,9 @@ func TestFuncInvokerTimeoutText(t *testing.T) {
 		got := FuncInvoker{
 			Name: "slow",
 			Args: map[string]any{},
-			Fn:   func(context.Context, map[string]any) (string, error) { return "", err },
+			Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.ToolResult{}, err
+			},
 		}.Invoke(context.Background())
 
 		assert.Equal(t, `错误: 工具 "slow" 执行超时`, got.Text)
@@ -57,9 +63,11 @@ func TestFuncInvokerRecordsOutcome(t *testing.T) {
 	var gotName string
 	var gotErr error
 	FuncInvoker{
-		Name:   "echo",
-		Args:   map[string]any{},
-		Fn:     func(context.Context, map[string]any) (string, error) { return "", boom },
+		Name: "echo",
+		Args: map[string]any{},
+		Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, boom
+		},
 		Record: func(name string, err error) { gotName, gotErr = name, err },
 	}.Invoke(context.Background())
 
@@ -68,11 +76,11 @@ func TestFuncInvokerRecordsOutcome(t *testing.T) {
 }
 
 // stubSkillRunner 把函数适配为 [SkillRunner]，使调用器契约不依赖插件实例。
-type stubSkillRunner func(context.Context, toolkit.Skill, map[string]any) (string, error)
+type stubSkillRunner func(context.Context, *toolkit.Invocation, toolkit.Skill, map[string]any) (string, error)
 
 // Run 直接转发到被包装的函数。
-func (f stubSkillRunner) Run(ctx context.Context, skill toolkit.Skill, args map[string]any) (string, error) {
-	return f(ctx, skill, args)
+func (f stubSkillRunner) Run(ctx context.Context, inv *toolkit.Invocation, skill toolkit.Skill, args map[string]any) (string, error) {
+	return f(ctx, inv, skill, args)
 }
 
 // TestSkillInvokerFailureText 校验技能失败文案（逐字冻结既有格式）。
@@ -82,7 +90,7 @@ func TestSkillInvokerFailureText(t *testing.T) {
 		Name:  "my_skill",
 		Skill: toolkit.Skill{Name: "my_skill"},
 		Args:  map[string]any{},
-		Runner: stubSkillRunner(func(context.Context, toolkit.Skill, map[string]any) (string, error) {
+		Runner: stubSkillRunner(func(context.Context, *toolkit.Invocation, toolkit.Skill, map[string]any) (string, error) {
 			return "", boom
 		}),
 	}.Invoke(context.Background())
@@ -97,7 +105,7 @@ func TestSkillInvokerSuccess(t *testing.T) {
 		Name:  "my_skill",
 		Skill: toolkit.Skill{Name: "my_skill"},
 		Args:  map[string]any{},
-		Runner: stubSkillRunner(func(context.Context, toolkit.Skill, map[string]any) (string, error) {
+		Runner: stubSkillRunner(func(context.Context, *toolkit.Invocation, toolkit.Skill, map[string]any) (string, error) {
 			return "skill done", nil
 		}),
 	}.Invoke(context.Background())
@@ -116,7 +124,7 @@ func TestSkillInvokerRecordsOutcome(t *testing.T) {
 		Name:  "my_skill",
 		Skill: toolkit.Skill{Name: "my_skill"},
 		Args:  map[string]any{},
-		Runner: stubSkillRunner(func(context.Context, toolkit.Skill, map[string]any) (string, error) {
+		Runner: stubSkillRunner(func(context.Context, *toolkit.Invocation, toolkit.Skill, map[string]any) (string, error) {
 			return "", boom
 		}),
 		Record: func(name string, err error) { gotName, gotErr = name, err },

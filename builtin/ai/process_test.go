@@ -178,11 +178,11 @@ func TestProcessWithToolsSkippedToolCallsGetPlaceholderResponses(t *testing.T) {
 			},
 		},
 	}
-	p.reg.Register(toolkit.Tool{Name: "t1", Execute: func(ctx context.Context, args map[string]any) (string, error) {
-		return "ok", nil
+	p.reg.Register(toolkit.Tool{Name: "t1", Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("ok"), nil
 	}})
-	p.reg.Register(toolkit.Tool{Name: "t2", Execute: func(ctx context.Context, args map[string]any) (string, error) {
-		return "ok", nil
+	p.reg.Register(toolkit.Tool{Name: "t2", Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("ok"), nil
 	}})
 
 	sess = p.sm.GetOrCreate("test:skip", "user", "chat")
@@ -321,8 +321,8 @@ func TestProcessWithToolsUsesTurnBudgetNotEventDeadline(t *testing.T) {
 			},
 		},
 	}
-	p.reg.Register(toolkit.Tool{Name: "t1", Execute: func(ctx context.Context, args map[string]any) (string, error) {
-		return "ok", nil
+	p.reg.Register(toolkit.Tool{Name: "t1", Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("ok"), nil
 	}})
 
 	sess := p.sm.GetOrCreate("test:deadline", "user", "chat")
@@ -395,8 +395,8 @@ func TestProcessWithToolsMaxDepth(t *testing.T) {
 	p.reg.Register(toolkit.Tool{
 		Name:        "test_tool",
 		Description: "test",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "tool result", nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("tool result"), nil
 		},
 	})
 
@@ -465,8 +465,8 @@ func TestExecuteToolDirect(t *testing.T) {
 	p.reg.Register(toolkit.Tool{
 		Name:        "echo",
 		Description: "echo tool",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "echo: hello", nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("echo: hello"), nil
 		},
 	})
 
@@ -488,8 +488,8 @@ func TestExecuteToolError(t *testing.T) {
 	p.reg.Register(toolkit.Tool{
 		Name:        "failing_tool",
 		Description: "always fails",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "", errors.New("internal error")
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, errors.New("internal error")
 		},
 	})
 
@@ -511,8 +511,8 @@ func TestExecuteToolTimeout(t *testing.T) {
 	p.reg.Register(toolkit.Tool{
 		Name:        "slow_tool",
 		Description: "very slow",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "", context.DeadlineExceeded
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.ToolResult{}, context.DeadlineExceeded
 		},
 	})
 
@@ -543,13 +543,13 @@ func TestExecuteSkillMaxDepth(t *testing.T) {
 		Prompt:  "Do stuff",
 		Enabled: true,
 		Tools: []toolkit.Tool{
-			{Name: "recursive", Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				return "done", nil
+			{Name: "recursive", Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.TextResult("done"), nil
 			}},
 		},
 	}
 
-	_, err := p.executeSkill(context.Background(), skill, map[string]any{"query": "do it"})
+	_, err := p.executeSkill(context.Background(), &toolkit.Invocation{}, skill, map[string]any{"query": "do it"})
 	if err == nil {
 		t.Error("expected error for max skill depth")
 	}
@@ -650,8 +650,8 @@ func TestRealCommandExecution(t *testing.T) {
 	p.reg.Register(toolkit.Tool{
 		Name:        "ping",
 		Description: "ping",
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return "pong", nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("pong"), nil
 		},
 	})
 

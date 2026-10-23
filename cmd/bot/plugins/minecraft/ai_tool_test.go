@@ -31,10 +31,10 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 		errCache: newTTLCache[error](15*time.Second, 8),
 	}
 	tool := p.ListTools()[0]
-	toolCtx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{Platform: "qq", ChatID: "888"})
+	toolCtx := &toolkit.Invocation{Source: toolkit.ToolSource{Platform: "qq", ChatID: "888"}}
 
 	// 收藏名解析
-	out, err := tool.Execute(toolCtx, map[string]any{"server_address": "local"})
+	out, err := tool.ExecuteText(context.Background(), toolCtx, map[string]any{"server_address": "local"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 	}
 
 	// 序号解析
-	out, err = tool.Execute(toolCtx, map[string]any{"server_address": "1"})
+	out, err = tool.ExecuteText(context.Background(), toolCtx, map[string]any{"server_address": "1"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -52,14 +52,14 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 	}
 
 	// 无会话上下文：按字面地址处理，"local" 无法连接
-	out, _ = tool.Execute(context.Background(), map[string]any{"server_address": "local"})
+	out, _ = tool.ExecuteText(context.Background(), nil, map[string]any{"server_address": "local"})
 	if !strings.Contains(out, "无法连接") {
 		t.Errorf("无上下文时应按地址查询并报错: %s", out)
 	}
 
 	// 其他会话：收藏不可见
-	otherCtx := toolkit.WithToolSource(context.Background(), toolkit.ToolSource{Platform: "qq", ChatID: "999"})
-	out, _ = tool.Execute(otherCtx, map[string]any{"server_address": "local"})
+	otherCtx := &toolkit.Invocation{Source: toolkit.ToolSource{Platform: "qq", ChatID: "999"}}
+	out, _ = tool.ExecuteText(context.Background(), otherCtx, map[string]any{"server_address": "local"})
 	if !strings.Contains(out, "无法连接") {
 		t.Errorf("其他会话不应看到收藏: %s", out)
 	}

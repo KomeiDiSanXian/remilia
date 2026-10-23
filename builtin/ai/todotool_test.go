@@ -39,32 +39,32 @@ func TestTodoTools(t *testing.T) {
 	done := findTestTool(t, tools, catalog.TodoDoneToolName)
 	remove := findTestTool(t, tools, catalog.TodoRemoveToolName)
 
-	out, err := add.Execute(toolCtx, map[string]any{"item": "买牛奶"})
+	out, err := add.ExecuteText(context.Background(), toolCtx, map[string]any{"item": "买牛奶"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "T1")
-	_, err = add.Execute(toolCtx, map[string]any{"item": "回邮件"})
+	_, err = add.ExecuteText(context.Background(), toolCtx, map[string]any{"item": "回邮件"})
 	require.NoError(t, err)
-	_, err = add.Execute(toolCtx, map[string]any{})
+	_, err = add.ExecuteText(context.Background(), toolCtx, map[string]any{})
 	assert.Error(t, err)
 
-	out, err = list.Execute(toolCtx, map[string]any{})
+	out, err = list.ExecuteText(context.Background(), toolCtx, map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, out, "T1")
 	assert.Contains(t, out, "买牛奶")
 
-	out, err = done.Execute(toolCtx, map[string]any{"id": "T1"})
+	out, err = done.ExecuteText(context.Background(), toolCtx, map[string]any{"id": "T1"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "已完成")
 
-	out, err = list.Execute(toolCtx, map[string]any{"filter": "pending"})
+	out, err = list.ExecuteText(context.Background(), toolCtx, map[string]any{"filter": "pending"})
 	require.NoError(t, err)
 	assert.NotContains(t, out, "买牛奶")
 
-	out, err = remove.Execute(toolCtx, map[string]any{"id": "T2"})
+	out, err = remove.ExecuteText(context.Background(), toolCtx, map[string]any{"id": "T2"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "已删除")
 
 	// 无工具源上下文
-	_, err = add.Execute(context.Background(), map[string]any{"item": "x"})
+	_, err = add.ExecuteText(context.Background(), nil, map[string]any{"item": "x"})
 	assert.Error(t, err)
 }

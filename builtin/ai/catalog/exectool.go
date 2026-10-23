@@ -98,15 +98,15 @@ func BuildExecTools(opts ExecToolOptions) []toolkit.Tool {
 }
 
 // executeProcessRun 执行受控进程并格式化结果。
-func executeProcessRun(ctx context.Context, args map[string]any) (string, error) {
-	runner := processRunnerFromContext(ctx)
+func executeProcessRun(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+	runner := processRunnerFromInvocation(inv)
 	if runner == nil {
-		return "错误: 进程执行能力未启用（需要 workspace_roots 与 exec_allowlist）", nil
+		return toolkit.TextResult("错误: 进程执行能力未启用（需要 workspace_roots 与 exec_allowlist）"), nil
 	}
 	command, _ := args["command"].(string)
 	command = strings.TrimSpace(command)
 	if command == "" {
-		return "错误: 缺少 command 参数", nil
+		return toolkit.TextResult("错误: 缺少 command 参数"), nil
 	}
 	dir, _ := args["dir"].(string)
 
@@ -116,7 +116,7 @@ func executeProcessRun(ctx context.Context, args map[string]any) (string, error)
 		Dir:     strings.TrimSpace(dir),
 	})
 	if err != nil {
-		return "错误: 无法执行: " + err.Error(), nil
+		return toolkit.TextResult("错误: 无法执行: " + err.Error()), nil
 	}
 
 	var b strings.Builder
@@ -143,12 +143,12 @@ func executeProcessRun(ctx context.Context, args map[string]any) (string, error)
 	if strings.TrimSpace(result.Stdout) == "" && strings.TrimSpace(result.Stderr) == "" {
 		b.WriteString("\n（没有输出）")
 	}
-	return strings.TrimSpace(b.String()), nil
+	return toolkit.TextResult(strings.TrimSpace(b.String())), nil
 }
 
-// processRunnerFromContext 从 context 提取进程执行端口；未注入返回 nil。
-func processRunnerFromContext(ctx context.Context) ProcessRunner {
-	caps, ok := capabilitiesFromContext(ctx)
+// processRunnerFromInvocation 从调用上下文提取进程执行端口；未注入返回 nil。
+func processRunnerFromInvocation(inv *toolkit.Invocation) ProcessRunner {
+	caps, ok := CapabilitiesFrom(inv)
 	if !ok {
 		return nil
 	}

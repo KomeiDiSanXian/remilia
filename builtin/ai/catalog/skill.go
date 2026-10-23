@@ -63,7 +63,7 @@ func UserSkill(s toolkit.Skill, ownerID string) (toolkit.Skill, error) {
 //
 // 动作的执行体由调用方注入（技能自身由技能注册表按所有者解析后执行），
 // 这里只负责"技能以什么名字、什么描述、什么参数暴露给模型"。
-func ToolFromSkill(s toolkit.Skill, run func(ctx context.Context, args map[string]any) (string, error)) toolkit.Tool {
+func ToolFromSkill(s toolkit.Skill, run func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error)) toolkit.Tool {
 	return toolkit.Tool{
 		Name:        s.Name,
 		Description: s.Description,

@@ -55,8 +55,7 @@ func loadFailureReason(err error) string {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "timeout"
 	}
-	var panicErr *setupPanicError
-	if errors.As(err, &panicErr) {
+	if _, ok := errors.AsType[*setupPanicError](err); ok {
 		return "panic"
 	}
 	if strings.Contains(err.Error(), "Setup panicked") {

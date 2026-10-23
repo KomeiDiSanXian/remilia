@@ -79,7 +79,7 @@ func TestBuildToolFromCommand(t *testing.T) {
 		t.Errorf("expected [general] categories, got %v", tool.Categories)
 	}
 
-	result, err := tool.Execute(context.Background(), nil)
+	result, err := tool.ExecuteText(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}

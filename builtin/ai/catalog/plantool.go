@@ -56,18 +56,17 @@ type PlanAccess interface {
 	CompletionGuard() error
 }
 
-// ctxKeyPlanAccess 是 context 中存储计划端口的键。
-type ctxKeyPlanAccess struct{}
-
-// WithPlanAccess 将计划端口注入 context，供规划动作的 Execute 使用。
-func WithPlanAccess(ctx context.Context, plans PlanAccess) context.Context {
-	return context.WithValue(ctx, ctxKeyPlanAccess{}, plans)
+// PlansFrom 返回本次调用的计划端口（未注入返回 nil）。
+//
+// 动作层应经本函数读取，不要直接调用 inv.Port[PlanAccess]。
+func PlansFrom(inv *toolkit.Invocation) PlanAccess {
+	plans, _ := inv.Port[PlanAccess]()
+	return plans
 }
 
-// planAccessFromContext 从 context 提取计划端口（未注入返回 nil）。
-func planAccessFromContext(ctx context.Context) PlanAccess {
-	plans, _ := ctx.Value(ctxKeyPlanAccess{}).(PlanAccess)
-	return plans
+// AttachPlans 把计划端口挂到调用上下文（nil 视为未注入）。
+func AttachPlans(inv *toolkit.Invocation, plans PlanAccess) {
+	inv.SetPort[PlanAccess](plans)
 }
 
 // BuildPlanTools 构建规划动作集（general 类别，恒被选中）。
@@ -96,18 +95,18 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				},
 				Required: []string{"task", "steps"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				plans := planAccessFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				plans := PlansFrom(inv)
 				if plans == nil {
-					return "错误: 计划上下文不可用", nil
+					return toolkit.TextResult("错误: 计划上下文不可用"), nil
 				}
 				task, _ := args["task"].(string)
 				steps := trimBlank(stringSliceArg(args["steps"]))
 				if len(steps) < 2 {
-					return "错误: 计划至少需要 2 个步骤", nil
+					return toolkit.TextResult("错误: 计划至少需要 2 个步骤"), nil
 				}
 				if len(steps) > maxSteps {
-					return fmt.Sprintf("错误: 步骤数超过上限（最多 %d 步），请合并步骤", maxSteps), nil
+					return toolkit.TextResult(fmt.Sprintf("错误: 步骤数超过上限（最多 %d 步），请合并步骤", maxSteps)), nil
 				}
 				plan := &session.Plan{Task: strings.TrimSpace(task), Active: true}
 				for i, s := range steps {
@@ -120,7 +119,7 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				// 新计划重置后台自动推进预算（用户侧重新获得完整轮次）。
 				plans.SetPlan(plan)
 				plans.ResetPlanAuto()
-				return "计划已创建：\n" + session.FormatPlan(plan), nil
+				return toolkit.TextResult("计划已创建：\n" + session.FormatPlan(plan)), nil
 			},
 		},
 		{
@@ -146,17 +145,17 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				},
 				Required: []string{"step_id", "status"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				plans := planAccessFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				plans := PlansFrom(inv)
 				if plans == nil {
-					return "错误: 计划上下文不可用", nil
+					return toolkit.TextResult("错误: 计划上下文不可用"), nil
 				}
 				stepID, _ := args["step_id"].(string)
 				status, _ := args["status"].(string)
 				note, _ := args["note"].(string)
 				if status != string(session.PlanInProgress) &&
 					status != string(session.PlanDone) && status != string(session.PlanFailed) {
-					return "错误: 非法状态，可选 in_progress/done/failed", nil
+					return toolkit.TextResult("错误: 非法状态，可选 in_progress/done/failed"), nil
 				}
 				newStatus := session.PlanStepStatus(status)
 
@@ -164,7 +163,7 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				// 允许完成（确定性证据不足时拒绝，模型必须先修复并重新验证）。
 				if newStatus == session.PlanDone {
 					if err := planCompletionGuard(plans, stepID); err != nil {
-						return "错误: " + err.Error(), nil
+						return toolkit.TextResult("错误: " + err.Error()), nil
 					}
 				}
 
@@ -193,11 +192,11 @@ func BuildPlanTools(maxSteps int) []toolkit.Tool {
 				})
 				if err != nil {
 					if errors.Is(err, session.ErrNoPlan) {
-						return "错误: 当前没有进行中的计划，请先调用 create_plan", nil
+						return toolkit.TextResult("错误: 当前没有进行中的计划，请先调用 create_plan"), nil
 					}
-					return "错误: " + err.Error(), nil
+					return toolkit.TextResult("错误: " + err.Error()), nil
 				}
-				return "计划已更新：\n" + session.FormatPlan(plan), nil
+				return toolkit.TextResult("计划已更新：\n" + session.FormatPlan(plan)), nil
 			},
 		},
 	}

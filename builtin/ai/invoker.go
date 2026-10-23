@@ -54,6 +54,6 @@ func (c pluginCommandCatalog) Run(ctx *eventctx.Context, name string, args map[s
 type pluginSkillRunner struct{ p *Plugin }
 
 // Run 跑完技能的子代理循环并返回最终文本。
-func (r pluginSkillRunner) Run(ctx context.Context, skill toolkit.Skill, args map[string]any) (string, error) {
-	return r.p.executeSkill(ctx, skill, args)
+func (r pluginSkillRunner) Run(ctx context.Context, inv *toolkit.Invocation, skill toolkit.Skill, args map[string]any) (string, error) {
+	return r.p.executeSkill(ctx, inv, skill, args)
 }

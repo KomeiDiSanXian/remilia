@@ -546,22 +546,22 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"keyword"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				keyword, _ := args["keyword"].(string)
 				if keyword == "" {
-					return "", fmt.Errorf("keyword is required")
+					return toolkit.ToolResult{}, fmt.Errorf("keyword is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				results, _, err := p.client.SearchUser(reqCtx, keyword, 1)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if len(results) == 0 {
-					return fmt.Sprintf("未找到与「%s」相关的用户", keyword), nil
+					return toolkit.TextResult(fmt.Sprintf("未找到与「%s」相关的用户", keyword)), nil
 				}
-				return formatSearchUserText(results), nil
+				return toolkit.TextResult(formatSearchUserText(results)), nil
 			},
 		},
 		{
@@ -575,23 +575,23 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"uid"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				uid, _ := args["uid"].(string)
 				if uid == "" {
-					return "", fmt.Errorf("uid is required")
+					return toolkit.ToolResult{}, fmt.Errorf("uid is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				mid, _, err := p.client.ResolveUID(reqCtx, uid)
 				if err != nil {
-					return "", fmt.Errorf("无法解析 UID: %w", err)
+					return toolkit.ToolResult{}, fmt.Errorf("无法解析 UID: %w", err)
 				}
 				user, rel, err := p.client.FetchUserInfo(reqCtx, mid)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return formatBiliUserText(user, rel), nil
+				return toolkit.TextResult(formatBiliUserText(user, rel)), nil
 			},
 		},
 		{
@@ -605,10 +605,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"uid"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				uid, _ := args["uid"].(string)
 				if uid == "" {
-					return "", fmt.Errorf("uid is required")
+					return toolkit.ToolResult{}, fmt.Errorf("uid is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
@@ -616,24 +616,24 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				if strings.HasPrefix(strings.ToLower(uid), "room:") {
 					roomID, rerr := strconv.ParseInt(strings.TrimPrefix(uid, "room:"), 10, 64)
 					if rerr != nil {
-						return "", fmt.Errorf("房间号格式不正确: %s", uid)
+						return toolkit.ToolResult{}, fmt.Errorf("房间号格式不正确: %s", uid)
 					}
 					live, lerr := p.client.FetchLiveInfoByRoom(reqCtx, roomID)
 					if lerr != nil {
-						return "", lerr
+						return toolkit.ToolResult{}, lerr
 					}
-					return formatLiveText(live), nil
+					return toolkit.TextResult(formatLiveText(live)), nil
 				}
 
 				mid, _, err := p.client.ResolveUID(reqCtx, uid)
 				if err != nil {
-					return "", fmt.Errorf("无法解析 UID: %w", err)
+					return toolkit.ToolResult{}, fmt.Errorf("无法解析 UID: %w", err)
 				}
 				live, err := p.client.FetchLiveInfo(reqCtx, mid)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return formatLiveText(live), nil
+				return toolkit.TextResult(formatLiveText(live)), nil
 			},
 		},
 		{
@@ -647,10 +647,10 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"bvid"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				bvid, _ := args["bvid"].(string)
 				if bvid == "" {
-					return "", fmt.Errorf("bvid is required")
+					return toolkit.ToolResult{}, fmt.Errorf("bvid is required")
 				}
 				bvid = strings.ToUpper(bvid)
 				if !strings.HasPrefix(bvid, "BV") {
@@ -661,9 +661,9 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 
 				info, err := p.client.FetchVideoInfo(reqCtx, bvid)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return formatVideoText(info), nil
+				return toolkit.TextResult(formatVideoText(info)), nil
 			},
 		},
 		{
@@ -677,26 +677,26 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"uid"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				uid, _ := args["uid"].(string)
 				if uid == "" {
-					return "", fmt.Errorf("uid is required")
+					return toolkit.ToolResult{}, fmt.Errorf("uid is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				mid, name, err := p.client.ResolveUID(reqCtx, uid)
 				if err != nil {
-					return "", fmt.Errorf("无法解析 UID: %w", err)
+					return toolkit.ToolResult{}, fmt.Errorf("无法解析 UID: %w", err)
 				}
 				items, err := p.client.FetchVideos(reqCtx, mid, 1)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if len(items) == 0 {
-					return fmt.Sprintf("%s 暂无投稿", name), nil
+					return toolkit.TextResult(fmt.Sprintf("%s 暂无投稿", name)), nil
 				}
-				return formatVideoListText(items, name), nil
+				return toolkit.TextResult(formatVideoListText(items, name)), nil
 			},
 		},
 		{
@@ -710,22 +710,22 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"keyword"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				keyword, _ := args["keyword"].(string)
 				if keyword == "" {
-					return "", fmt.Errorf("keyword is required")
+					return toolkit.ToolResult{}, fmt.Errorf("keyword is required")
 				}
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				results, err := p.client.SearchBangumi(reqCtx, keyword, 5)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if len(results) == 0 {
-					return fmt.Sprintf("未找到与「%s」相关的番剧", keyword), nil
+					return toolkit.TextResult(fmt.Sprintf("未找到与「%s」相关的番剧", keyword)), nil
 				}
-				return formatBangumiText(results), nil
+				return toolkit.TextResult(formatBangumiText(results)), nil
 			},
 		},
 	}

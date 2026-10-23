@@ -49,14 +49,14 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 }
 
 // executeGenerateImage 是 generate_image 工具的 Execute 回调。
-func (p *Plugin) executeGenerateImage(ctx context.Context, args map[string]any) (string, error) {
+func (p *Plugin) executeGenerateImage(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 	if p.client == nil {
-		return "", fmt.Errorf("aimage 未启用或未配置（请检查 plugins.aimage 配置）")
+		return toolkit.ToolResult{}, fmt.Errorf("aimage 未启用或未配置（请检查 plugins.aimage 配置）")
 	}
 	prompt, _ := args["prompt"].(string)
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		return "", fmt.Errorf("缺少必填参数 prompt（图片描述）")
+		return toolkit.ToolResult{}, fmt.Errorf("缺少必填参数 prompt（图片描述）")
 	}
 
 	n := 1
@@ -72,18 +72,20 @@ func (p *Plugin) executeGenerateImage(ctx context.Context, args map[string]any) 
 		size = strings.TrimSpace(v)
 	}
 	if _, _, err := parseSize(size); err != nil {
-		return "", fmt.Errorf("无效的 size %q（应为 宽x高，如 1024x1024）", size)
+		return toolkit.ToolResult{}, fmt.Errorf("无效的 size %q（应为 宽x高，如 1024x1024）", size)
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, p.timeout())
 	defer cancel()
 	images, err := p.client.generate(reqCtx, prompt, n)
 	if err != nil {
-		return "", err
+		return toolkit.ToolResult{
+
+			// 有发送能力时直传图片到会话；无发送能力（异常上下文）时回退为提示文本
+		}, err
 	}
 
-	// 有发送能力时直传图片到会话；无发送能力（异常上下文）时回退为提示文本
-	if sender, ok := toolkit.ToolSenderFromContext(ctx); ok {
+	if sender, ok := toolkit.ToolSenderFromInvocation(inv); ok {
 		atts := make([]platform.Attachment, 0, len(images))
 		for _, img := range images {
 			atts = append(atts, p.attachmentFor(img))
@@ -91,9 +93,9 @@ func (p *Plugin) executeGenerateImage(ctx context.Context, args map[string]any) 
 		sendCtx, sendCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer sendCancel()
 		if _, err := sender.ReplyToChat(sendCtx, platform.OutboundMessage{Attachments: atts}); err != nil {
-			return "", fmt.Errorf("图片已生成但发送失败: %w", err)
+			return toolkit.ToolResult{}, fmt.Errorf("图片已生成但发送失败: %w", err)
 		}
-		return fmt.Sprintf("已生成并发送 %d 张图片", len(images)), nil
+		return toolkit.TextResult(fmt.Sprintf("已生成并发送 %d 张图片", len(images))), nil
 	}
-	return fmt.Sprintf("已生成 %d 张图片（当前上下文无发送能力，可提示用户使用 /aimage 命令取图）", len(images)), nil
+	return toolkit.TextResult(fmt.Sprintf("已生成 %d 张图片（当前上下文无发送能力，可提示用户使用 /aimage 命令取图）", len(images))), nil
 }

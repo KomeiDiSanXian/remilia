@@ -174,8 +174,8 @@ func ToolFromCommand(cmd engine.CommandInfo) *toolkit.Tool {
 				},
 			},
 		},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			return fmt.Sprintf("[命令 %s 已触发]", cmd.Command), nil
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult(fmt.Sprintf("[命令 %s 已触发]", cmd.Command)), nil
 		},
 	}
 }

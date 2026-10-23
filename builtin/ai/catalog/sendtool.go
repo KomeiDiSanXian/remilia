@@ -79,21 +79,21 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 			Properties: msgProps,
 			Required:   []string{"message"},
 		},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			sender, ok := toolkit.ToolSenderFromContext(ctx)
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			sender, ok := toolkit.ToolSenderFromInvocation(inv)
 			if !ok {
-				return "", fmt.Errorf("当前上下文无消息发送能力")
+				return toolkit.ToolResult{}, fmt.Errorf("当前上下文无消息发送能力")
 			}
 			// @ 提及目标与 send_to 的 target 同一套解析规则：昵称/别名
 			// 解析为平台 ID，无法唯一确定时返回可读错误让模型修正。
-			src, _ := toolkit.ToolSourceFromContext(ctx)
-			mentions, err := resolveMentions(ctx, args, src.IsGroup)
+			src, _ := toolkit.ToolSourceFromInvocation(inv)
+			mentions, err := resolveMentions(ctx, inv, args, src.IsGroup)
 			if err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
 			msg, err := BuildOutboundMessage(args, opts.Markdown)
 			if err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
 			msg.Mentions = mentions
 			sendCtx, cancel := context.WithTimeout(ctx, SendTimeout)
@@ -102,12 +102,12 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 			// 进度消息"，也让"已发送"这一结论有可核对的凭据。
 			result, err := sender.ReplyToChat(sendCtx, msg)
 			if err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
 			if result.MessageID != "" {
-				return "消息已发送（ID: " + result.MessageID + "）", nil
+				return toolkit.TextResult("消息已发送（ID: " + result.MessageID + "）"), nil
 			}
-			return "消息已发送", nil
+			return toolkit.TextResult("消息已发送"), nil
 		},
 	}
 
@@ -138,15 +138,15 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 			Properties: sendToProps,
 			Required:   []string{"target", "message"},
 		},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			sender, ok := toolkit.ToolSenderFromContext(ctx)
+		Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+			sender, ok := toolkit.ToolSenderFromInvocation(inv)
 			if !ok {
-				return "", fmt.Errorf("当前上下文无消息发送能力")
+				return toolkit.ToolResult{}, fmt.Errorf("当前上下文无消息发送能力")
 			}
 			raw, _ := args["target"].(string)
 			raw = strings.TrimSpace(raw)
 			if raw == "" {
-				return "", fmt.Errorf("target 不能为空")
+				return toolkit.ToolResult{}, fmt.Errorf("target 不能为空")
 			}
 			isGroup := false
 			if v, ok := args["is_group"].(bool); ok {
@@ -154,18 +154,18 @@ func BuildSendTools(opts SendOptions) []toolkit.Tool {
 			}
 			target, display, err := sender.ResolveTarget(ctx, raw, isGroup)
 			if err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
 			msg, err := BuildOutboundMessage(args, opts.Markdown)
 			if err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
 			sendCtx, cancel := context.WithTimeout(ctx, SendTimeout)
 			defer cancel()
 			if _, err := sender.SendTo(sendCtx, target, msg); err != nil {
-				return "", err
+				return toolkit.ToolResult{}, err
 			}
-			return "消息已发送到 " + display, nil
+			return toolkit.TextResult("消息已发送到 " + display), nil
 		},
 	}
 
@@ -197,12 +197,12 @@ func validateImageURL(rawURL string) error {
 //
 // 解析器缺失（非 AI 执行路径，如 Skill 子代理上下文）或私聊会话时原样透传，
 // 保持既有行为（私聊里 @ 没有可解析的对象）。
-func resolveMentions(ctx context.Context, args map[string]any, isGroup bool) ([]string, error) {
+func resolveMentions(ctx context.Context, inv *toolkit.Invocation, args map[string]any, isGroup bool) ([]string, error) {
 	raw := stringSliceArg(args["mention_ids"])
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	resolver, ok := toolkit.TargetResolverFromContext(ctx)
+	resolver, ok := toolkit.TargetResolverFromInvocation(inv)
 	if !ok || !isGroup {
 		return raw, nil
 	}

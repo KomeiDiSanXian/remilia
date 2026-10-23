@@ -249,16 +249,16 @@ func (p *hsrPlugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"uid"},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				uid, _ := args["uid"].(string)
 				if uid == "" {
-					return "", fmt.Errorf("请提供 UID")
+					return toolkit.ToolResult{}, fmt.Errorf("请提供 UID")
 				}
 				showcase, err := FetchShowcase(gctx, uid)
 				if err != nil {
-					return fmt.Sprintf("查询失败: %v", err), nil
+					return toolkit.TextResult(fmt.Sprintf("查询失败: %v", err)), nil
 				}
-				return formatHSRText(showcase), nil
+				return toolkit.TextResult(formatHSRText(showcase)), nil
 			},
 		},
 	}

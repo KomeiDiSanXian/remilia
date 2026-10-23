@@ -28,24 +28,24 @@ func TestReminderTools_SetListCancel(t *testing.T) {
 	cancel := findTestTool(t, tools, catalog.CancelReminderToolName)
 
 	// 参数缺失 / 时长非法
-	_, err := set.Execute(toolCtx, map[string]any{"duration": "abc", "content": "x"})
+	_, err := set.ExecuteText(context.Background(), toolCtx, map[string]any{"duration": "abc", "content": "x"})
 	assert.Error(t, err)
-	_, err = set.Execute(toolCtx, map[string]any{"duration": "5分钟"})
+	_, err = set.ExecuteText(context.Background(), toolCtx, map[string]any{"duration": "5分钟"})
 	assert.Error(t, err)
 
 	// 正常设置
-	out, err := set.Execute(toolCtx, map[string]any{"duration": "5分钟", "content": "去喝水"})
+	out, err := set.ExecuteText(context.Background(), toolCtx, map[string]any{"duration": "5分钟", "content": "去喝水"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "R1")
 	assert.Contains(t, out, "去喝水")
 
 	// 同会话第二条
-	out, err = set.Execute(toolCtx, map[string]any{"duration": "1小时", "content": "开会"})
+	out, err = set.ExecuteText(context.Background(), toolCtx, map[string]any{"duration": "1小时", "content": "开会"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "R2")
 
 	// list
-	out, err = list.Execute(toolCtx, map[string]any{})
+	out, err = list.ExecuteText(context.Background(), toolCtx, map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, out, "R1")
 	assert.Contains(t, out, "开会")
@@ -54,20 +54,20 @@ func TestReminderTools_SetListCancel(t *testing.T) {
 	otherCtx := toolSessionForTest(p, toolkit.ToolSource{
 		UserID: "u2", ChatID: "chat_2", IsGroup: false,
 	}, sender)
-	out, err = list.Execute(otherCtx, map[string]any{})
+	out, err = list.ExecuteText(context.Background(), otherCtx, map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, out, "没有活跃的提醒")
 
 	// cancel 命中与未命中
-	out, err = cancel.Execute(toolCtx, map[string]any{"id": "R1"})
+	out, err = cancel.ExecuteText(context.Background(), toolCtx, map[string]any{"id": "R1"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "已取消")
-	out, err = cancel.Execute(toolCtx, map[string]any{"id": "R99"})
+	out, err = cancel.ExecuteText(context.Background(), toolCtx, map[string]any{"id": "R99"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "未找到")
 
 	// 无工具源上下文
-	_, err = set.Execute(context.Background(), map[string]any{"duration": "5分钟", "content": "x"})
+	_, err = set.ExecuteText(context.Background(), nil, map[string]any{"duration": "5分钟", "content": "x"})
 	assert.Error(t, err)
 }
 
@@ -75,7 +75,7 @@ func TestReminderTools_ToolSourceNoSender(t *testing.T) {
 	p := &Plugin{lifecycleCtx: context.Background(), reminders: newReminderManager()}
 	toolCtx := toolCtxForTest(p, toolkit.ToolSource{ChatID: "c"}) // sender nil
 	set := findTestTool(t, catalog.BuildReminderTools(), catalog.SetReminderToolName)
-	_, err := set.Execute(toolCtx, map[string]any{"duration": "5分钟", "content": "x"})
+	_, err := set.ExecuteText(context.Background(), toolCtx, map[string]any{"duration": "5分钟", "content": "x"})
 	assert.Error(t, err)
 }
 

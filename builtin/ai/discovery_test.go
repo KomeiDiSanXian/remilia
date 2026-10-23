@@ -278,7 +278,9 @@ type sauceProvider struct{}
 
 func (sauceProvider) ListTools() []toolkit.Tool {
 	return []toolkit.Tool{
-		{Name: "sauce", Description: "explicit sauce tool", Execute: func(context.Context, map[string]any) (string, error) { return "explicit", nil }},
+		{Name: "sauce", Description: "explicit sauce tool", Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("explicit"), nil
+		}},
 	}
 }
 

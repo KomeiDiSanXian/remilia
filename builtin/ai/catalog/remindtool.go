@@ -41,31 +41,27 @@ func BuildReminderTools() []toolkit.Tool {
 				},
 				Required: []string{"duration", "content"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
 				if !ok {
-					return "", errors.New("当前上下文无提醒能力")
+					return toolkit.ToolResult{}, errors.New("当前上下文无提醒能力")
 				}
-				caps, capsOK := capabilitiesFromContext(ctx)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !capsOK || caps.Scheduler == nil {
-					return "", errors.New("提醒功能不可用")
-				}
-				sender, senderOK := toolkit.PlatformSenderFromContext(ctx)
-				if !senderOK {
-					return "", errors.New("无法获取平台发送器，提醒不可用")
+					return toolkit.ToolResult{}, errors.New("提醒功能不可用")
 				}
 				durationStr, _ := args["duration"].(string)
 				content, _ := args["content"].(string)
 				d, err := ParseRemindDuration(strings.TrimSpace(durationStr))
 				if err != nil {
-					return "", fmt.Errorf("无法解析时长 %q：支持 30秒/5分钟/1小时/2天 或 30s/5m/1h/2d", durationStr)
+					return toolkit.ToolResult{}, fmt.Errorf("无法解析时长 %q：支持 30秒/5分钟/1小时/2天 或 30s/5m/1h/2d", durationStr)
 				}
 				content = strings.TrimSpace(content)
 				if content == "" {
-					return "", errors.New("提醒内容不能为空")
+					return toolkit.ToolResult{}, errors.New("提醒内容不能为空")
 				}
-				confirm := caps.Scheduler.Schedule(platform.ChatInfo{ID: src.ChatID, IsGroup: src.IsGroup}, sender, d, content)
-				return confirm, nil
+				confirm := caps.Scheduler.Schedule(platform.ChatInfo{ID: src.ChatID, IsGroup: src.IsGroup}, d, content)
+				return toolkit.TextResult(confirm), nil
 			},
 		},
 		{
@@ -76,22 +72,22 @@ func BuildReminderTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(ctx context.Context, _ map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, _ map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Reminders == nil {
-					return "当前会话没有活跃的提醒", nil
+					return toolkit.TextResult("当前会话没有活跃的提醒"), nil
 				}
 				items := caps.Reminders.List(src.ChatID)
 				if len(items) == 0 {
-					return "当前会话没有活跃的提醒", nil
+					return toolkit.TextResult("当前会话没有活跃的提醒"), nil
 				}
 				var b strings.Builder
 				fmt.Fprintf(&b, "活跃提醒（%d 条）：\n", len(items))
 				for _, r := range items {
 					fmt.Fprintf(&b, "- %s — %s（%s 后触发）\n", r.ID, r.Text, FormatRemindDuration(time.Until(r.DueAt)))
 				}
-				return strings.TrimRight(b.String(), "\n"), nil
+				return toolkit.TextResult(strings.TrimRight(b.String(), "\n")), nil
 			},
 		},
 		{
@@ -105,21 +101,21 @@ func BuildReminderTools() []toolkit.Tool {
 				},
 				Required: []string{"id"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Reminders == nil {
-					return "", errors.New("提醒功能不可用")
+					return toolkit.ToolResult{}, errors.New("提醒功能不可用")
 				}
 				id, _ := args["id"].(string)
 				id = strings.TrimSpace(id)
 				if id == "" {
-					return "", errors.New("请指定要取消的提醒 ID（见 list_reminders）")
+					return toolkit.ToolResult{}, errors.New("请指定要取消的提醒 ID（见 list_reminders）")
 				}
 				if caps.Reminders.Remove(src.ChatID, id) {
-					return fmt.Sprintf("已取消提醒 %s", id), nil
+					return toolkit.TextResult(fmt.Sprintf("已取消提醒 %s", id)), nil
 				}
-				return fmt.Sprintf("未找到提醒 %s（ID 见 list_reminders）", id), nil
+				return toolkit.TextResult(fmt.Sprintf("未找到提醒 %s（ID 见 list_reminders）", id)), nil
 			},
 		},
 	}

@@ -137,8 +137,8 @@ func TestExecOneToolRejectsOverBudget(t *testing.T) {
 	}
 	p.reg.Register(toolkit.Tool{
 		Name: "echo",
-		Execute: func(context.Context, map[string]any) (string, error) {
-			return "ok", nil
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("ok"), nil
 		},
 	})
 	ctx := makeManageCtx("/ai", false)

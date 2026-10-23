@@ -12,7 +12,7 @@ import (
 // TestToolCapabilitiesNilSafety 守住"类型化 nil 指针不得赋给端口"这一约束：
 // 未启用的能力必须保持为 nil 端口，否则动作侧的 `caps.X == nil` 降级判定会失效。
 func TestToolCapabilitiesNilSafety(t *testing.T) {
-	bare := (&Plugin{}).toolCapabilities()
+	bare := (&Plugin{}).toolCapabilities(nil)
 	assert.Nil(t, bare.Memory, "memory 未启用时端口必须为 nil")
 	assert.Nil(t, bare.Todos, "todos 未启用时端口必须为 nil")
 	assert.Nil(t, bare.Reminders, "reminders 未启用时端口必须为 nil")
@@ -20,7 +20,7 @@ func TestToolCapabilitiesNilSafety(t *testing.T) {
 
 	// 空 Plugin 指针同样不得 panic，端口保持为零值。
 	var nilPlugin *Plugin
-	assert.Equal(t, catalog.Capabilities{}, nilPlugin.toolCapabilities())
+	assert.Equal(t, catalog.Capabilities{}, nilPlugin.toolCapabilities(nil))
 }
 
 // TestToolCapabilitiesComposition 校验组合根按启用状态装配端口。
@@ -35,7 +35,7 @@ func TestToolCapabilitiesComposition(t *testing.T) {
 		todos:     newTodoManager(),
 		reminders: newReminderManager(),
 	}
-	caps := p.toolCapabilities()
+	caps := p.toolCapabilities(&fakeNotifierSender{})
 
 	require.NotNil(t, caps.Memory)
 	require.NotNil(t, caps.Todos)

@@ -8,14 +8,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
-func TestFuncInvokerPrefersRich(t *testing.T) {
+func TestFuncInvokerPropagatesRichResult(t *testing.T) {
 	inv := FuncInvoker{
 		Name: "rich",
-		Fn: func(context.Context, map[string]any) (string, error) {
-			t.Fatal("plain Fn must not run when Rich is set")
-			return "", nil
-		},
-		Rich: func(context.Context, map[string]any) (toolkit.ToolResult, error) {
+		Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
 			return toolkit.ToolResult{Parts: []toolkit.ResultPart{
 				{Kind: toolkit.ResultText, Text: "回答"},
 				{Kind: toolkit.ResultImage, URI: "https://x/y.png", MimeType: "image/png"},
@@ -37,7 +33,7 @@ func TestFuncInvokerPrefersRich(t *testing.T) {
 func TestFuncInvokerRichError(t *testing.T) {
 	inv := FuncInvoker{
 		Name: "rich",
-		Rich: func(context.Context, map[string]any) (toolkit.ToolResult, error) {
+		Fn: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
 			return toolkit.ToolResult{}, errors.New("boom")
 		},
 	}

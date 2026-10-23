@@ -28,7 +28,7 @@ func TestBuildSkillToolsSkipsPermissionedTools(t *testing.T) {
 		},
 	}
 
-	got := p.buildSkillTools(context.Background(), skill)
+	got := p.buildSkillTools(context.Background(), &toolkit.Invocation{}, skill)
 	if len(got) != 1 || got[0].Name != "safe_tool" {
 		t.Fatalf("permissioned tools must not be injected without an authorizer, got %+v", got)
 	}
@@ -46,15 +46,15 @@ func TestBuildSkillToolsUsesAuthorizer(t *testing.T) {
 		},
 	}
 
-	ctx := toolkit.WithAuthorizer(context.Background(), toolkit.AuthorizerFunc(
+	inv := &toolkit.Invocation{Authorizer: toolkit.AuthorizerFunc(
 		func(t toolkit.Tool) (bool, string) {
 			if t.Name == "audit_tool" {
 				return false, "no permission"
 			}
 			return true, ""
-		}))
+		})}
 
-	got := p.buildSkillTools(ctx, skill)
+	got := p.buildSkillTools(context.Background(), inv, skill)
 	if len(got) != 1 || got[0].Name != "safe_tool" {
 		t.Fatalf("denied tools must be filtered out, got %+v", got)
 	}
@@ -66,17 +66,17 @@ func TestExecuteSkillToolEnforcesAuthorizer(t *testing.T) {
 	executed := false
 	tools := []toolkit.Tool{{
 		Name: "audit_tool",
-		Execute: func(context.Context, map[string]any) (string, error) {
+		Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
 			executed = true
-			return "leaked", nil
+			return toolkit.TextResult("leaked"), nil
 		},
 	}}
 
-	ctx := toolkit.WithAuthorizer(context.Background(), toolkit.AuthorizerFunc(
-		func(toolkit.Tool) (bool, string) { return false, "no permission" }))
+	inv := &toolkit.Invocation{Authorizer: toolkit.AuthorizerFunc(
+		func(toolkit.Tool) (bool, string) { return false, "no permission" })}
 
 	p := &Plugin{skillReg: toolkit.NewSkillRegistry()}
-	got := p.executeSkillTool(ctx, protocol.ToolCall{Name: "audit_tool"}, tools)
+	got := p.executeSkillTool(context.Background(), inv, protocol.ToolCall{Name: "audit_tool"}, tools)
 	if executed {
 		t.Fatal("denied tool must not execute")
 	}

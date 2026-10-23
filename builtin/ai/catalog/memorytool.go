@@ -49,20 +49,20 @@ func BuildMemoryTools() []toolkit.Tool {
 				},
 				Required: []string{"text"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Memory == nil {
-					return "", errors.New("长期记忆功能未启用（memory_enabled=false）")
+					return toolkit.ToolResult{}, errors.New("长期记忆功能未启用（memory_enabled=false）")
 				}
 				text, _ := args["text"].(string)
 				text = strings.TrimSpace(text)
 				if text == "" {
-					return "", errors.New("记忆内容不能为空")
+					return toolkit.ToolResult{}, errors.New("记忆内容不能为空")
 				}
 				kind, target, err := memoryToolScope(src, args["scope"])
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				caps.Memory.Add(kind, target, text)
 				count := caps.Memory.Count(kind, target)
@@ -70,7 +70,7 @@ func BuildMemoryTools() []toolkit.Tool {
 				if kind == memoryScopeGroup {
 					label = "本群记忆"
 				}
-				return fmt.Sprintf("已记住：%s（%s现有 %d 条）", text, label, count), nil
+				return toolkit.TextResult(fmt.Sprintf("已记住：%s（%s现有 %d 条）", text, label, count)), nil
 			},
 		},
 		{
@@ -85,25 +85,25 @@ func BuildMemoryTools() []toolkit.Tool {
 				},
 				Required: []string{"text"},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				src, ok := toolkit.ToolSourceFromContext(ctx)
-				caps, capsOK := capabilitiesFromContext(ctx)
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+				src, ok := toolkit.ToolSourceFromInvocation(inv)
+				caps, capsOK := CapabilitiesFrom(inv)
 				if !ok || !capsOK || caps.Memory == nil {
-					return "", errors.New("长期记忆功能未启用（memory_enabled=false）")
+					return toolkit.ToolResult{}, errors.New("长期记忆功能未启用（memory_enabled=false）")
 				}
 				text, _ := args["text"].(string)
 				text = strings.TrimSpace(text)
 				if text == "" {
-					return "", errors.New("请指定要删除的记忆内容")
+					return toolkit.ToolResult{}, errors.New("请指定要删除的记忆内容")
 				}
 				kind, target, err := memoryToolScope(src, args["scope"])
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				if caps.Memory.Remove(kind, target, text) {
-					return "已删除该记忆", nil
+					return toolkit.TextResult("已删除该记忆"), nil
 				}
-				return "未找到完全匹配的记忆（原文需与注入的长期记忆条目一致；可请用户用 /ai memory 查看）", nil
+				return toolkit.TextResult("未找到完全匹配的记忆（原文需与注入的长期记忆条目一致；可请用户用 /ai memory 查看）"), nil
 			},
 		},
 	}

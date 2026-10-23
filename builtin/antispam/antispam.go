@@ -436,17 +436,17 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				},
 				Required: []string{"user_id"},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				userID, _ := args["user_id"].(string)
 				if userID == "" {
-					return "请提供 user_id", nil
+					return toolkit.TextResult("请提供 user_id"), nil
 				}
 				banned := p.IsBanned(userID)
 				stats := p.Stats()
 				if banned {
-					return fmt.Sprintf("❌ 用户 %s 已被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount), nil
+					return toolkit.TextResult(fmt.Sprintf("❌ 用户 %s 已被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount)), nil
 				}
-				return fmt.Sprintf("✅ 用户 %s 未被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount), nil
+				return toolkit.TextResult(fmt.Sprintf("✅ 用户 %s 未被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount)), nil
 			},
 		},
 		{
@@ -458,9 +458,9 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(_ context.Context, args map[string]any) (string, error) {
+			Execute: func(_ context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				stats := p.Stats()
-				return fmt.Sprintf("封禁数：%d，用户限流器：%d，群组限流器：%d", stats.BanCount, stats.UserLimiterCount, stats.GroupLimiterCount), nil
+				return toolkit.TextResult(fmt.Sprintf("封禁数：%d，用户限流器：%d，群组限流器：%d", stats.BanCount, stats.UserLimiterCount, stats.GroupLimiterCount)), nil
 			},
 		},
 	}

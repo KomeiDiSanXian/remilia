@@ -63,7 +63,7 @@ func TestHTTPTransportRoundTrip(t *testing.T) {
 		t.Error("session id from the server must be echoed on subsequent requests")
 	}
 
-	if _, err := tool.ExecuteRich(context.Background(), nil); err != nil {
+	if _, err := tool.Execute(context.Background(), nil, nil); err != nil {
 		t.Fatalf("http tool execution failed: %v", err)
 	}
 }

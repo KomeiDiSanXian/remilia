@@ -220,19 +220,19 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(gctx context.Context, args map[string]any) (string, error) {
+			Execute: func(gctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				reqCtx, cancel := context.WithTimeout(gctx, 10*time.Second)
 				defer cancel()
 
 				pos, err := fetchPosition(reqCtx)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
 				astros, count, err := fetchAstros(reqCtx)
 				if err != nil {
-					return "", err
+					return toolkit.ToolResult{}, err
 				}
-				return formatISSText(pos, astros, count, Trend{}), nil
+				return toolkit.TextResult(formatISSText(pos, astros, count, Trend{})), nil
 			},
 		},
 	}

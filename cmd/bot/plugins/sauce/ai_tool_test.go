@@ -26,23 +26,23 @@ func TestListTools(t *testing.T) {
 
 func TestExecuteSauceToolMissingImageURL(t *testing.T) {
 	p := &Plugin{}
-	_, err := p.executeSauceTool(context.Background(), map[string]any{})
+	_, err := p.executeSauceTool(context.Background(), nil, map[string]any{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "image_url")
 
-	_, err = p.executeSauceTool(context.Background(), map[string]any{"image_url": "   "})
+	_, err = p.executeSauceTool(context.Background(), nil, map[string]any{"image_url": "   "})
 	require.Error(t, err)
 }
 
 func TestExecuteSauceToolBadURL(t *testing.T) {
 	p := &Plugin{}
-	_, err := p.executeSauceTool(context.Background(), map[string]any{"image_url": "http://127.0.0.1:1/x.png"})
+	_, err := p.executeSauceTool(context.Background(), nil, map[string]any{"image_url": "http://127.0.0.1:1/x.png"})
 	require.Error(t, err)
 }
 
 func TestExecuteSauceToolCustomDBWithoutKey(t *testing.T) {
 	p := &Plugin{}
-	_, err := p.executeSauceTool(context.Background(), map[string]any{"image_url": "http://example.com/x.png", "db": float64(5)})
+	_, err := p.executeSauceTool(context.Background(), nil, map[string]any{"image_url": "http://example.com/x.png", "db": float64(5)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "API Key")
 }

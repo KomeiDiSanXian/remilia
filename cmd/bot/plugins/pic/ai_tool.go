@@ -56,7 +56,7 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 }
 
 // executePicTool 是 get_random_image 工具的 Execute 回调。
-func (p *Plugin) executePicTool(ctx context.Context, args map[string]any) (string, error) {
+func (p *Plugin) executePicTool(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 	count := 1
 	if v, ok := args["count"].(float64); ok && int(v) > 0 {
 		count = int(v)
@@ -75,13 +75,13 @@ func (p *Plugin) executePicTool(ctx context.Context, args map[string]any) (strin
 	if siteName != "" {
 		s, ok := p.resolveSite(strings.TrimSpace(siteName))
 		if !ok {
-			return "", fmt.Errorf("站点 %q 不可用（不存在或当前 rating 策略下不允许）", siteName)
+			return toolkit.ToolResult{}, fmt.Errorf("站点 %q 不可用（不存在或当前 rating 策略下不允许）", siteName)
 		}
 		candidates = []site{s}
 	} else {
 		candidates = candidateSites(p.enabledSites(), p.rating())
 		if len(candidates) == 0 {
-			return "", fmt.Errorf("没有可用的图库站点（请检查 sites 白名单与 rating 配置）")
+			return toolkit.ToolResult{}, fmt.Errorf("没有可用的图库站点（请检查 sites 白名单与 rating 配置）")
 		}
 	}
 
@@ -93,12 +93,12 @@ func (p *Plugin) executePicTool(ctx context.Context, args map[string]any) (strin
 
 	s, posts, err := p.fetchWithFallback(reqCtx, candidates, tags, count, recentDays)
 	if err != nil {
-		return "", err
+		return toolkit.ToolResult{}, err
 	}
 	if len(posts) == 0 {
-		return fmt.Sprintf("没有找到匹配标签 %q 的图片", strings.Join(tags, " ")), nil
+		return toolkit.TextResult(fmt.Sprintf("没有找到匹配标签 %q 的图片", strings.Join(tags, " "))), nil
 	}
-	return formatToolResult(s.DisplayName, posts), nil
+	return toolkit.TextResult(formatToolResult(s.DisplayName, posts)), nil
 }
 
 // firstString 提取字符串参数，非字符串类型返回空字符串。

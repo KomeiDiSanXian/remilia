@@ -54,7 +54,7 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 	for _, name := range []string{"tool_a", "tool_b"} {
 		p.reg.Register(toolkit.Tool{
 			Name: name,
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				// 双方就绪后同时进入"并发窗口"，再各自 sleep 提供阻塞点：
 				// 保证 Add(1) 必然在任一工具完成前被双方执行。
 				ready <- struct{}{}
@@ -70,7 +70,7 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 				}
 				defer curConcurrent.Add(-1)
 				time.Sleep(50 * time.Millisecond)
-				return "ok", nil
+				return toolkit.TextResult("ok"), nil
 			},
 		})
 	}
@@ -143,8 +143,8 @@ func TestProcessWithToolsInterrupted(t *testing.T) {
 			},
 		},
 	}
-	p.reg.Register(toolkit.Tool{Name: "t", Execute: func(ctx context.Context, args map[string]any) (string, error) {
-		return "ok", nil
+	p.reg.Register(toolkit.Tool{Name: "t", Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("ok"), nil
 	}})
 
 	sess := p.sm.GetOrCreate("test:int", "user", "chat")
@@ -209,17 +209,17 @@ func TestUpdatePlanStepOrderEnforced(t *testing.T) {
 		}
 	}
 	sess := &session.Session{}
-	ctx := catalog.WithPlanAccess(context.Background(), planAccessForTest(sess))
-	create.Execute(ctx, map[string]any{"task": "t", "steps": []any{"第一步", "第二步", "第三步"}})
+	inv := testPlanInvocation(planAccessForTest(sess))
+	create.ExecuteText(context.Background(), inv, map[string]any{"task": "t", "steps": []any{"第一步", "第二步", "第三步"}})
 
 	// 跳过 step_1 直接完成 step_2 → 拒绝
-	result, _ := update.Execute(ctx, map[string]any{"step_id": "step_2", "status": "done"})
+	result, _ := update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_2", "status": "done"})
 	if !strings.Contains(result, "错误") || !strings.Contains(result, "前序步骤") {
 		t.Errorf("out-of-order step should be rejected: %q", result)
 	}
 	// step_1 失败后 step_2 可推进（终态前序）
-	update.Execute(ctx, map[string]any{"step_id": "step_1", "status": "failed"})
-	result, _ = update.Execute(ctx, map[string]any{"step_id": "step_2", "status": "done"})
+	update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_1", "status": "failed"})
+	result, _ = update.ExecuteText(context.Background(), inv, map[string]any{"step_id": "step_2", "status": "done"})
 	if strings.Contains(result, "错误") {
 		t.Errorf("step after failed predecessor should be allowed: %q", result)
 	}

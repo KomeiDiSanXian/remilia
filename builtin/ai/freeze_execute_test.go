@@ -45,7 +45,7 @@ func TestCommandToolExecuteIsPlaceholder(t *testing.T) {
 	require.NotNil(t, tool)
 	assert.Equal(t, "sauce", tool.Name)
 
-	out, err := tool.Execute(context.Background(), map[string]any{"arguments": "extra"})
+	out, err := tool.ExecuteText(context.Background(), nil, map[string]any{"arguments": "extra"})
 	require.NoError(t, err)
 	assert.Equal(t, "[命令 /sauce 已触发]", out)
 }
@@ -78,8 +78,8 @@ func TestExecuteToolResolutionOrder(t *testing.T) {
 			p.skillReg.Register(toolkit.Skill{Name: name, OwnerID: toolkit.OwnerSystem, Prompt: "system-prompt", Enabled: true})
 		}
 		if plainTool {
-			p.reg.Register(toolkit.Tool{Name: name, Description: "plain", Execute: func(context.Context, map[string]any) (string, error) {
-				return "from-plain-execute", nil
+			p.reg.Register(toolkit.Tool{Name: name, Description: "plain", Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+				return toolkit.TextResult("from-plain-execute"), nil
 			}})
 		}
 		if realCommand {
@@ -125,8 +125,8 @@ func TestCaptureSenderAttachmentsMerged(t *testing.T) {
 			cfg:         &config.Config{},
 			cmdPatterns: map[string]string{"chart": "/chart"},
 		}
-		p.reg.Register(toolkit.Tool{Name: "chart", Description: "chart", Execute: func(context.Context, map[string]any) (string, error) {
-			return "placeholder", nil
+		p.reg.Register(toolkit.Tool{Name: "chart", Description: "chart", Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+			return toolkit.TextResult("placeholder"), nil
 		}})
 		p.syncer = &fakeEventProcessor{onSync: func(sender platform.Sender) {
 			_, _ = sender.Send(context.Background(), platform.SendRequest{
@@ -153,8 +153,8 @@ func TestCaptureSenderAttachmentsMerged(t *testing.T) {
 // 判定已随类型化改造退役）：正文逐字保留，成败只看 ActionResult.Err。
 func TestToolResultFailureIsTyped(t *testing.T) {
 	p := &Plugin{reg: toolkit.NewToolRegistry(), skillReg: toolkit.NewSkillRegistry()}
-	p.reg.Register(toolkit.Tool{Name: "boom", Execute: func(context.Context, map[string]any) (string, error) {
-		return "", errors.New("boom")
+	p.reg.Register(toolkit.Tool{Name: "boom", Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.ToolResult{}, errors.New("boom")
 	}})
 
 	evt := platform.NewSyntheticEvent("c2c", "test")
@@ -188,16 +188,16 @@ func TestSkillLoopNonStreaming(t *testing.T) {
 		},
 	}
 
-	own := toolkit.Tool{Name: "own_tool", Description: "own", Execute: func(context.Context, map[string]any) (string, error) {
-		return "own", nil
+	own := toolkit.Tool{Name: "own_tool", Description: "own", Execute: func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error) {
+		return toolkit.TextResult("own"), nil
 	}}
 	p.skillReg.Register(toolkit.Skill{Name: "other_skill", OwnerID: toolkit.OwnerSystem, Prompt: "p", Enabled: true})
 
 	self := toolkit.Skill{Name: "self_skill", OwnerID: toolkit.OwnerSystem, Prompt: "self-prompt", Tools: []toolkit.Tool{own}, Enabled: true}
-	assert.ElementsMatch(t, []string{"own_tool", "other_skill"}, toolNamesOf(toolkit.ActionsOf(p.buildSkillTools(context.Background(), self))),
+	assert.ElementsMatch(t, []string{"own_tool", "other_skill"}, toolNamesOf(toolkit.ActionsOf(p.buildSkillTools(context.Background(), &toolkit.Invocation{}, self))),
 		"可见工具 = 自有工具 + 其他系统 Skill")
 
-	out, err := p.executeSkill(context.Background(), self, map[string]any{"query": "x"})
+	out, err := p.executeSkill(context.Background(), &toolkit.Invocation{}, self, map[string]any{"query": "x"})
 	require.NoError(t, err)
 	assert.Equal(t, "skill-done", out)
 	assert.False(t, streamCalled, "Skill 循环必须走非流式路径")
@@ -221,13 +221,13 @@ func TestSkillLoopCountsUsage(t *testing.T) {
 	skill, ok := p.skillReg.GetByOwner("u1", "counted")
 	require.True(t, ok, "技能应已注册")
 
-	_, err := p.executeSkill(context.Background(), skill, map[string]any{"query": "x"})
+	_, err := p.executeSkill(context.Background(), &toolkit.Invocation{}, skill, map[string]any{"query": "x"})
 	require.NoError(t, err)
 	after, _ := p.skillReg.GetByOwner("u1", "counted")
 	assert.Equal(t, int64(1), after.UsageCount, "技能执行后调用计数应 +1")
 
 	unregistered := toolkit.Skill{Name: "ghost", OwnerID: "u1", Prompt: "p", Enabled: true}
-	_, err = p.executeSkill(context.Background(), unregistered, map[string]any{"query": "x"})
+	_, err = p.executeSkill(context.Background(), &toolkit.Invocation{}, unregistered, map[string]any{"query": "x"})
 	require.NoError(t, err)
 	unchanged, _ := p.skillReg.GetByOwner("u1", "counted")
 	assert.Equal(t, int64(1), unchanged.UsageCount, "其他技能的执行不得串改本技能计数")

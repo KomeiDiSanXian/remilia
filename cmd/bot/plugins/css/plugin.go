@@ -246,25 +246,25 @@ func (p *Plugin) ListTools() []toolkit.Tool {
 				Type:       "object",
 				Properties: map[string]protocol.ToolParamSchema{},
 			},
-			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
 				p.mu.RLock()
 				oem := p.oem
 				p.mu.RUnlock()
 
 				if oem == nil {
-					return "", fmt.Errorf("CSS data not available")
+					return toolkit.ToolResult{}, fmt.Errorf("CSS data not available")
 				}
 				if !oem.Covers(time.Now()) {
-					return "", fmt.Errorf("CSS data expired")
+					return toolkit.ToolResult{}, fmt.Errorf("CSS data expired")
 				}
 
 				now := time.Now()
 				lat, lng, alt, ok := computePosition(oem, now)
 				if !ok {
-					return "", fmt.Errorf("cannot compute CSS position")
+					return toolkit.ToolResult{}, fmt.Errorf("cannot compute CSS position")
 				}
-				return formatCSSText(lat, lng, alt, computeSpeed(oem, now),
-					cardTrend(oem, now), oem), nil
+				return toolkit.TextResult(formatCSSText(lat, lng, alt, computeSpeed(oem, now),
+					cardTrend(oem, now), oem)), nil
 			},
 		},
 	}

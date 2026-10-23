@@ -61,34 +61,24 @@ type FuncInvoker struct {
 	// Args 模型给出的参数。
 	Args map[string]any
 	// Fn 工具自身的 Execute 回调。
-	Fn func(context.Context, map[string]any) (string, error)
-	// Rich 工具自身的富结果回调（可选）。非空时优先于 Fn。
-	Rich func(context.Context, map[string]any) (toolkit.ToolResult, error)
+	Fn func(context.Context, *toolkit.Invocation, map[string]any) (toolkit.ToolResult, error)
+	// Inv 本次调用的显式调用上下文（调用者/授权/发送能力等）。
+	Inv *toolkit.Invocation
 	// Record 观测回调：调用结束（无论成败）时上报动作名与错误，可为 nil。
 	Record RecordFunc
 }
 
 // Invoke 真执行回调，并把失败格式化为模型可见文本。
-// 工具实现了富结果回调（Rich）时优先使用，正文取其文本投影。
+// 富结果保留原始 Parts/Attachments，正文取其文本投影。
 func (i FuncInvoker) Invoke(ctx context.Context) ActionResult {
-	if i.Rich != nil {
-		result, err := i.Rich(ctx, i.Args)
-		if i.Record != nil {
-			i.Record(i.Name, err)
-		}
-		if err != nil {
-			return ActionResult{Text: ToolFailureText(i.Name, err), Err: err}
-		}
-		return ActionResult{Text: result.Flatten(), Parts: result.Parts, Attachments: result.Attachments}
-	}
-	result, err := i.Fn(ctx, i.Args)
+	result, err := i.Fn(ctx, i.Inv, i.Args)
 	if i.Record != nil {
 		i.Record(i.Name, err)
 	}
 	if err != nil {
 		return ActionResult{Text: ToolFailureText(i.Name, err), Err: err}
 	}
-	return ActionResult{Text: result}
+	return ActionResult{Text: result.Flatten(), Parts: result.Parts, Attachments: result.Attachments}
 }
 
 // SkillRunner 执行一个 Skill 的子代理循环（能力端口）。
@@ -97,7 +87,7 @@ func (i FuncInvoker) Invoke(ctx context.Context) ActionResult {
 // 轮次与模型都留在装配侧，调用器因此不依赖插件实例。
 type SkillRunner interface {
 	// Run 跑完技能的子代理循环并返回最终文本。
-	Run(ctx context.Context, skill toolkit.Skill, args map[string]any) (string, error)
+	Run(ctx context.Context, inv *toolkit.Invocation, skill toolkit.Skill, args map[string]any) (string, error)
 }
 
 // SkillInvoker 启动子代理 LLM 循环（Skill 动作）。
@@ -110,13 +100,15 @@ type SkillInvoker struct {
 	Args map[string]any
 	// Runner 子代理循环的能力端口。
 	Runner SkillRunner
+	// Inv 本次调用的显式调用上下文。
+	Inv *toolkit.Invocation
 	// Record 观测回调：调用结束（无论成败）时上报动作名与错误，可为 nil。
 	Record RecordFunc
 }
 
 // Invoke 执行技能；失败时按技能语义格式化错误文本。
 func (i SkillInvoker) Invoke(ctx context.Context) ActionResult {
-	result, err := i.Runner.Run(ctx, i.Skill, i.Args)
+	result, err := i.Runner.Run(ctx, i.Inv, i.Skill, i.Args)
 	if i.Record != nil {
 		i.Record(i.Name, err)
 	}

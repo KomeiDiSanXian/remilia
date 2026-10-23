@@ -234,19 +234,19 @@ func selectionBaseline() *toolkit.SelectionClass {
 }
 
 // executeFileRead 读取文件并把内容包进数据边界标记。
-func executeFileRead(ctx context.Context, args map[string]any) (string, error) {
-	access := fileAccessFromContext(ctx)
+func executeFileRead(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+	access := fileAccessFromInvocation(inv)
 	if access == nil {
-		return "错误: 文件能力未启用（需要配置 workspace_roots）", nil
+		return toolkit.TextResult("错误: 文件能力未启用（需要配置 workspace_roots）"), nil
 	}
 	path, _ := args["path"].(string)
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "错误: 缺少 path 参数", nil
+		return toolkit.TextResult("错误: 缺少 path 参数"), nil
 	}
 	content, err := access.Read(path, FileReadMaxBytes)
 	if err != nil {
-		return "错误: 读取失败: " + err.Error(), nil
+		return toolkit.TextResult("错误: 读取失败: " + err.Error()), nil
 	}
 
 	var b strings.Builder
@@ -256,22 +256,22 @@ func executeFileRead(ctx context.Context, args map[string]any) (string, error) {
 	}
 	b.WriteString("\n\n")
 	b.WriteString(fileContentBoundary(content.Path, content.Text))
-	return b.String(), nil
+	return toolkit.TextResult(b.String()), nil
 }
 
 // executeFileList 列出目录条目。
-func executeFileList(ctx context.Context, args map[string]any) (string, error) {
-	access := fileAccessFromContext(ctx)
+func executeFileList(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+	access := fileAccessFromInvocation(inv)
 	if access == nil {
-		return "错误: 文件能力未启用（需要配置 workspace_roots）", nil
+		return toolkit.TextResult("错误: 文件能力未启用（需要配置 workspace_roots）"), nil
 	}
 	path, _ := args["path"].(string)
 	listing, err := access.List(strings.TrimSpace(path), FileListMaxEntries)
 	if err != nil {
-		return "错误: 列目录失败: " + err.Error(), nil
+		return toolkit.TextResult("错误: 列目录失败: " + err.Error()), nil
 	}
 	if listing.Total == 0 {
-		return "目录为空", nil
+		return toolkit.TextResult("目录为空"), nil
 	}
 
 	var b strings.Builder
@@ -285,7 +285,7 @@ func executeFileList(ctx context.Context, args map[string]any) (string, error) {
 	if listing.Truncated {
 		fmt.Fprintf(&b, "\n（共 %d 项，仅显示前 %d 项）", listing.Total, len(listing.Entries))
 	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return toolkit.TextResult(strings.TrimRight(b.String(), "\n")), nil
 }
 
 // fileContentBoundary 给工作区文件内容包上数据边界标记。
@@ -294,75 +294,75 @@ func fileContentBoundary(path, text string) string {
 }
 
 // executeFileWrite 覆盖写入文件。
-func executeFileWrite(ctx context.Context, args map[string]any) (string, error) {
-	access := fileWriteAccessFromContext(ctx)
+func executeFileWrite(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+	access := fileWriteAccessFromInvocation(inv)
 	if access == nil {
-		return "错误: 文件写入能力未启用（需要 workspace_roots 且 workspace_allow_write=true）", nil
+		return toolkit.TextResult("错误: 文件写入能力未启用（需要 workspace_roots 且 workspace_allow_write=true）"), nil
 	}
 	path, _ := args["path"].(string)
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "错误: 缺少 path 参数", nil
+		return toolkit.TextResult("错误: 缺少 path 参数"), nil
 	}
 	content, _ := args["content"].(string)
 	if len(content) > FileWriteMaxBytes {
-		return fmt.Sprintf("错误: 内容超过上限（%d 字节）", FileWriteMaxBytes), nil
+		return toolkit.TextResult(fmt.Sprintf("错误: 内容超过上限（%d 字节）", FileWriteMaxBytes)), nil
 	}
 
 	result, err := access.Write(path, content)
 	if err != nil {
-		return "错误: 写入失败: " + err.Error(), nil
+		return toolkit.TextResult("错误: 写入失败: " + err.Error()), nil
 	}
 	action := "已覆盖"
 	if result.Created {
 		action = "已创建"
 	}
-	return fmt.Sprintf("%s %s（%d 字节 → %d 字节）", action, result.Path, result.PreviousBytes, result.Bytes), nil
+	return toolkit.TextResult(fmt.Sprintf("%s %s（%d 字节 → %d 字节）", action, result.Path, result.PreviousBytes, result.Bytes)), nil
 }
 
 // executeFileEdit 精确替换文件内容并回填 diff。
-func executeFileEdit(ctx context.Context, args map[string]any) (string, error) {
-	access := fileWriteAccessFromContext(ctx)
+func executeFileEdit(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
+	access := fileWriteAccessFromInvocation(inv)
 	if access == nil {
-		return "错误: 文件写入能力未启用（需要 workspace_roots 且 workspace_allow_write=true）", nil
+		return toolkit.TextResult("错误: 文件写入能力未启用（需要 workspace_roots 且 workspace_allow_write=true）"), nil
 	}
 	path, _ := args["path"].(string)
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "错误: 缺少 path 参数", nil
+		return toolkit.TextResult("错误: 缺少 path 参数"), nil
 	}
 	oldString, _ := args["old_string"].(string)
 	if oldString == "" {
-		return "错误: old_string 不能为空", nil
+		return toolkit.TextResult("错误: old_string 不能为空"), nil
 	}
 	newString, _ := args["new_string"].(string)
 
 	result, err := access.Edit(path, oldString, newString)
 	if err != nil {
-		return "错误: 替换失败: " + err.Error(), nil
+		return toolkit.TextResult("错误: 替换失败: " + err.Error()), nil
 	}
 	diff := result.Diff
 	if len(diff) > fileEditDiffLimit {
 		diff = diff[:fileEditDiffLimit] + "\n...（diff 已截断）"
 	}
-	return fmt.Sprintf("已更新 %s（%d 字节）\n\n```diff\n%s```", result.Path, result.Bytes, diff), nil
+	return toolkit.TextResult(fmt.Sprintf("已更新 %s（%d 字节）\n\n```diff\n%s```", result.Path, result.Bytes, diff)), nil
 }
 
 // fileEditDiffLimit 回填给模型的 diff 上限（字符数）。
 const fileEditDiffLimit = 8 << 10
 
-// fileWriteAccessFromContext 从 context 提取文件写入端口；未注入返回 nil。
-func fileWriteAccessFromContext(ctx context.Context) FileWriteAccess {
-	caps, ok := capabilitiesFromContext(ctx)
+// fileWriteAccessFromInvocation 从调用上下文提取文件写入端口；未注入返回 nil。
+func fileWriteAccessFromInvocation(inv *toolkit.Invocation) FileWriteAccess {
+	caps, ok := CapabilitiesFrom(inv)
 	if !ok {
 		return nil
 	}
 	return caps.FileWrite
 }
 
-// fileAccessFromContext 从 context 提取文件访问端口；未注入返回 nil。
-func fileAccessFromContext(ctx context.Context) FileAccess {
-	caps, ok := capabilitiesFromContext(ctx)
+// fileAccessFromInvocation 从调用上下文提取文件访问端口；未注入返回 nil。
+func fileAccessFromInvocation(inv *toolkit.Invocation) FileAccess {
+	caps, ok := CapabilitiesFrom(inv)
 	if !ok {
 		return nil
 	}
