@@ -75,9 +75,11 @@
 
 - 模块名不再取自 guest 参数 `m`（任意模块都能冒充他模块读取配置），改由 wazero 在宿主函数入参提供的调用方 `api.Module` 决定；`HostFuncRegistry` 新增 `RegisterWithCaller`，`get_config` 只返回调用方自己的配置。同名时 caller-aware 版本优先。
 
-**技能内部工具只注入无需授权的工具**
+**技能内部工具按调用者授权执行**
 
-- `buildSkillTools` 过滤声明了 `Permissions` 的工具：技能内部没有事件上下文，无法执行 RBAC 与人工审批，注入即等于绕过顶层工具授权路径。需要这类能力时，由用户直接调用该工具（走正常授权）。
+- 新增 `toolkit.Authorizer`（与调用者信息共用一个 context 槽位）：`buildSkillTools` 在注入阶段按调用者过滤工具（RBAC 权限 + 审批模式），`executeSkillTool` 在执行阶段再复核一次；无授权器时退化为过滤所有声明 `Permissions` 的工具（安全默认）。
+- 需要人工审批的工具在技能内部一律拒绝，并提示模型直接调用该工具（走正常审批路径）——技能是模型自循环，无法等待人工响应。
+- 同时把 `protocol` 的调用用途与会话范围两个 context 槽位合并为一个，减少调用链上的 context 值数量。
 
 **`Info.Get` 返回只读快照（⚠️ 破坏性变更）**
 
