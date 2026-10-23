@@ -50,6 +50,7 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
 | AI · 上下文维护 | 会话数/裁剪、图片剥离、工具选择路径、记忆事实 | stat + bargauge + pie | `ai_session_active`、`ai_context_trimmed_messages_total`、`ai_images_dropped_total`、`ai_tool_select_total` |
 | 事件管线 · 丢弃与背压 | 背压丢弃、限流拒绝/上限、ExecPool 回退/队列 | timeseries + stat | 唯一会静默丢事件的链路 |
 | 平台与出站健康 | 适配器状态、断连/致命、Token 刷新、Webhook 4xx、出站速率 | stat + timeseries | `remilia_adapter_*`、`remilia_token_refresh_failures_total`、`remilia_webhook_requests_total` |
+| 插件加载 | 加载耗时 p95、失败原因 | timeseries + bargauge | config/setup 分阶段；失败按 config/setup/timeout/panic |
 | 消息链路延迟 | 消息查询 p95、附件下载 p95 | timeseries | `messagelog_query_duration_seconds`、`messagelog_attachments_download_duration_seconds` |
 | 消息记录与附件 | 记录/落盘速率、队列与 spool 积压、最旧积压 | timeseries + stat | spool 积压 = 落盘跟不上 |
 | 消息记录与附件 | 丢弃/写失败 1h、SQLite 写延迟 p95、热缓存/淘汰 | stat + timeseries | 开 spool 后队列丢弃应恒 0 |
@@ -98,6 +99,8 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
 - 平台：`remilia_adapter_up`、`remilia_adapter_disconnects_total`、
   `remilia_adapter_fatal_errors_total`、`remilia_token_refresh_failures_total`、
   `remilia_webhook_requests_total`
+- 插件加载：`remilia_plugin_load_seconds{plugin,phase}`、
+  `remilia_plugin_load_failures_total{plugin,reason}`
 - Minecraft（折叠行）：`minecraft_queries_total`、`minecraft_query_duration_seconds`、
   `minecraft_cache_hits_total`、`minecraft_gs4_queries_total`、
   `minecraft_rcon_commands_total`

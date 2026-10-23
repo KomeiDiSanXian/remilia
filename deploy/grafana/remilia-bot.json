@@ -6215,6 +6215,174 @@
       },
       "id": 88,
       "panels": [],
+      "title": "插件加载",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "config=配置构造与校验，setup=Setup 与 matcher 注册。启动慢时先看哪个阶段。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 197
+      },
+      "id": 89,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(remilia_plugin_load_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ],
+      "title": "插件加载耗时 p95（按阶段）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "config/setup/timeout/panic。panic 与超时的处置不同：前者是插件 bug，后者是启动预算不够。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 197
+      },
+      "id": 90,
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (reason) (increase(remilia_plugin_load_failures_total{job=~\"$job\"}[24h]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "加载失败（24h，按原因）",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 205
+      },
+      "id": 91,
+      "panels": [],
       "title": "进程与 Go 运行时",
       "type": "row"
     },
@@ -6270,9 +6438,9 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 197
+        "y": 206
       },
-      "id": 89,
+      "id": 92,
       "options": {
         "legend": {
           "calcs": [
@@ -6354,9 +6522,9 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 197
+        "y": 206
       },
-      "id": 90,
+      "id": 93,
       "options": {
         "legend": {
           "calcs": [
@@ -6456,9 +6624,9 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 197
+        "y": 206
       },
-      "id": 91,
+      "id": 94,
       "options": {
         "legend": {
           "calcs": [
@@ -6549,9 +6717,9 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 204
+        "y": 213
       },
-      "id": 92,
+      "id": 95,
       "options": {
         "legend": {
           "calcs": [
@@ -6633,9 +6801,9 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 204
+        "y": 213
       },
-      "id": 93,
+      "id": 96,
       "options": {
         "legend": {
           "calcs": [
@@ -6726,9 +6894,9 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 204
+        "y": 213
       },
-      "id": 94,
+      "id": 97,
       "options": {
         "legend": {
           "calcs": [
@@ -6764,9 +6932,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 211
+        "y": 220
       },
-      "id": 95,
+      "id": 98,
       "panels": [
         {
           "datasource": {
@@ -6820,9 +6988,9 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 212
+            "y": 221
           },
-          "id": 96,
+          "id": 99,
           "options": {
             "legend": {
               "calcs": [
@@ -6879,9 +7047,9 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 212
+            "y": 221
           },
-          "id": 97,
+          "id": 100,
           "options": {
             "legend": {
               "displayMode": "table",
@@ -6973,9 +7141,9 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 220
+            "y": 229
           },
-          "id": 98,
+          "id": 101,
           "options": {
             "legend": {
               "calcs": [
@@ -7043,9 +7211,9 @@
             "h": 8,
             "w": 4,
             "x": 12,
-            "y": 220
+            "y": 229
           },
-          "id": 99,
+          "id": 102,
           "options": {
             "colorMode": "value",
             "graphMode": "none",
@@ -7107,9 +7275,9 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 220
+            "y": 229
           },
-          "id": 100,
+          "id": 103,
           "options": {
             "displayMode": "gradient",
             "legend": {
@@ -7170,9 +7338,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 228
+        "y": 237
       },
-      "id": 101,
+      "id": 104,
       "panels": [
         {
           "datasource": {
@@ -7204,9 +7372,9 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 229
+            "y": 238
           },
-          "id": 102,
+          "id": 105,
           "options": {
             "colorMode": "value",
             "graphMode": "none",
@@ -7291,9 +7459,9 @@
             "h": 8,
             "w": 16,
             "x": 8,
-            "y": 229
+            "y": 238
           },
-          "id": 103,
+          "id": 106,
           "options": {
             "legend": {
               "calcs": [
@@ -7375,9 +7543,9 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 237
+            "y": 246
           },
-          "id": 104,
+          "id": 107,
           "options": {
             "legend": {
               "calcs": [
@@ -7436,9 +7604,9 @@
             "h": 8,
             "w": 6,
             "x": 12,
-            "y": 237
+            "y": 246
           },
-          "id": 105,
+          "id": 108,
           "options": {
             "displayMode": "gradient",
             "legend": {
@@ -7512,9 +7680,9 @@
             "h": 8,
             "w": 6,
             "x": 18,
-            "y": 237
+            "y": 246
           },
-          "id": 106,
+          "id": 109,
           "options": {
             "colorMode": "value",
             "graphMode": "none",

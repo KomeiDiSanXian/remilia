@@ -45,6 +45,36 @@
 
 - 批量裁剪此前固定让出 4 条消息余量。`max_history: 50` 下这只够半个回合——一个带工具调用的回合一口气追加 assistant + N 条 tool 结果，裁剪因此常落在回合中途，把本回合刚生成的工具结果前缀一起作废，后续工具轮的请求只能重新计费。现在按窗口的 1/4 让出余量（50 → 12 条，约 4 轮），并保留 4 条下限，避免小窗口（`max_history: 8` 等）退化成逐轮裁剪。稳定期保留的非 system 消息由 41 条变为 37 条，换取裁剪次数降到约 1/3。
 
+### 🔒 安全与可靠性
+
+**Matcher 临时索引不再跳过首条规则**
+
+- `commandIndexed` / `regexIndexed` 的快速路径把 `Rules[0]` 交给路由索引预筛；临时索引（`TempManager`）只按事件类型提供候选，没有命令/正则预筛，于是临时的一次性命令/正则处理器会被同类事件的任意消息触发。`Matcher.Match` 现在只在**非临时** matcher 上跳过首条规则，临时 matcher 完整求值。
+
+**插件生命周期串行化**
+
+- `Unregister` 新增拒绝 `Reloading` 状态；`Instance.reload` 与 `Unregister` 共享新加的 `lifecycleMu`，状态检查与卸载/重建整体互斥，消除"注销插入到重载检查与置位之间"的窗口。
+
+**Scope.Dispose 支持断点续做**
+
+- 此前 `disposed` 在清理前置位，ctx 取消后提前返回会让剩余 children/hooks 永久不再执行。现在 `disposed` 只在全部清理完成后置位，取消时把剩余项保存到 `remainingChildren` / `remainingHooks`，下次调用从断点继续；订阅只退订一次，并发 Dispose 由 `disposeMu` 串行化。
+
+**Teardown panic 不再终止进程**
+
+- `Descriptor.callTeardown` 在回调边界 recover，panic 转为错误返回，卸载流程继续执行后续清理；Setup 侧改用类型化的 `setupPanicError`（消息不变），便于失败归因。
+
+**EventBus 退订等待在途 handler**
+
+- 每个订阅新增 `subscriptionState`（closed + WaitGroup）：退订后不再启动新 handler，`Unsubscribe` 本身不阻塞（避免 handler 内退订自身造成自等待）；`Scope.Dispose` 在退订后等待在途 handler 结束（受 dispose ctx 约束，超时告警），保证 Teardown 之后不会再有旧 handler 访问已销毁资源。
+
+**容器只注入只读视图（⚠️ 破坏性变更）**
+
+- 容器里的 `manager` / `engine` / `coordinator` 不再注册原始 `*Manager` 与 `PluginCoordinator`：`manager` 改为 `Info` 只读视图，`engine` / `coordinator` 改为只暴露 `engine.Reader` 的包装类型；`Info.Coordinator()` 同样返回只读包装。需要注册动作请使用 `ctx.Reg`，管理能力请声明 `Privileged` 并使用 `ctx.Admin`。**依赖 `Service[*plugin.Manager]` 或 `Service[engine.PluginCoordinator]` 的外部插件会失效**，需迁移到上述入口。
+
+**WASM `get_config` 绑定调用方身份**
+
+- 模块名不再取自 guest 参数 `m`（任意模块都能冒充他模块读取配置），改由 wazero 在宿主函数入参提供的调用方 `api.Module` 决定；`HostFuncRegistry` 新增 `RegisterWithCaller`，`get_config` 只返回调用方自己的配置。同名时 caller-aware 版本优先。
+
 ### ⚙️ 配置与权限说明
 
 - 无新增配置键。若想压缩"每轮必然未命中"的部分，可按需调小动态上下文（它附在最后一条用户消息上，其后的内容每轮都重新计费）：`context_group_messages`、`memory_inject_max`、`image_context_turns`。这属于质量与成本的权衡，按需调整。
@@ -65,6 +95,7 @@
 - **记忆与检索**：`ai_memory_extract_total{result}`、`ai_memory_extract_facts`、`ai_memory_facts_cached`、`ai_rag_queries_total{result}`、`ai_rag_duration_seconds`、`ai_tool_select_total{path}`（bypass/retrieval，经 `decision.SelectPathObserver` 上报）。
 - **事件管线**：`remilia_backpressure_dropped_total{policy}`、`remilia_ratelimit_rejected_total{reason}`、`remilia_ratelimit_limit`、`remilia_execpool_queue_depth`、`remilia_execpool_fallbacks_total`。背压是唯一会静默丢事件的中间件，此前只有 Warn 日志。
 - **平台与出站**：`remilia_adapter_up`、`remilia_adapter_disconnects_total`、`remilia_adapter_fatal_errors_total`（`platform.MetricsObserver` 挂在 Registry 观察者上）、`remilia_token_refresh_failures_total`（刷新失败会导致"进程活着但收不到消息"）、`remilia_webhook_requests_total{platform,status}`、`outbound_requests_total{component,result}`、`outbound_duration_seconds{component}`。
+- **插件加载**：`remilia_plugin_load_seconds{plugin,phase}`（config/setup）、`remilia_plugin_load_failures_total{plugin,reason}`（config/setup/timeout/panic）。批量加载时失败只留一行日志，按阶段与原因分开后才能定位"卡在配置校验"还是"卡在 Setup 的外部调用"。
 - **消息链路**：`messagelog_query_duration_seconds{source}`（memory/sqlite）、`messagelog_attachments_download_duration_seconds{result}`。
 
 ## v1.76.0 (2026-10-22)

@@ -727,6 +727,20 @@ panels.append(timeseries(
     [('histogram_quantile(0.95, sum by (le, result) (rate(messagelog_attachments_download_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "{{result}}")],
     12, y, 12, 8, "s"))
 
+y += 8
+panels.append(row("插件加载", y))
+y += 1
+panels.append(timeseries(
+    "插件加载耗时 p95（按阶段）",
+    [('histogram_quantile(0.95, sum by (le, phase) (rate(remilia_plugin_load_seconds_bucket{' + JOB + '}[$__rate_interval])))', "{{phase}}")],
+    0, y, 12, 8, "s",
+    desc="config=配置构造与校验，setup=Setup 与 matcher 注册。启动慢时先看哪个阶段。"))
+panels.append(bargauge(
+    "加载失败（24h，按原因）",
+    [('sum by (reason) (increase(remilia_plugin_load_failures_total{' + JOB + '}[24h]))', "{{reason}}")],
+    12, y, 12, 8, "short",
+    "config/setup/timeout/panic。panic 与超时的处置不同：前者是插件 bug，后者是启动预算不够。"))
+
 # ── 进程与运行时 ───────────────────────────────────────────────────────────
 y += 8
 panels.append(row("进程与 Go 运行时", y))
