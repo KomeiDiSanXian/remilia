@@ -330,7 +330,14 @@ func (c *Client) Clone(edit func(*http.Client)) *Client {
 
 // Do 执行请求。调用方若需要请求前准入，先调用 [Client.Allow]。
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	return c.http.Do(req)
+	start := time.Now()
+	resp, err := c.http.Do(req)
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	recordRequest(c.policy.Component, time.Since(start), status, err)
+	return resp, err
 }
 
 // allowURL 是准入的公共实现：受信源直接放行，其余按 https + 公网校验。

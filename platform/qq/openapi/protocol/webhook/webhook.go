@@ -113,6 +113,12 @@ func (c *Conn) EventStream() <-chan *dto.Payload {
 
 // Handle will handle the webhook request.
 func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() { recordRequest("qq", rec.status) }()
+	c.handle(rec, r)
+}
+
+func (c *Conn) handle(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
 		logger.Error("[Webhook] Webhook connection is nil")
 		http.Error(w, "webhook connection is nil", http.StatusInternalServerError)

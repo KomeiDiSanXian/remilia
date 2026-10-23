@@ -85,6 +85,10 @@ func (l *Logger) QueryChat(chatID string, n int, opts QueryOptions) []RecordEntr
 	if chatID == "" || n <= 0 {
 		return nil
 	}
+	start := time.Now()
+	source := "memory"
+	defer func() { recordQueryDuration(source, time.Since(start)) }()
+
 	seen := make(map[string]bool)
 	entries := make([]RecordEntry, 0, n)
 
@@ -99,6 +103,7 @@ func (l *Logger) QueryChat(chatID string, n int, opts QueryOptions) []RecordEntr
 	}
 
 	if len(entries) < n && l.db != nil {
+		source = "sqlite"
 		q := queryScope(l.db.Where("chat_id = ?", chatID), opts)
 		var models []MessageRecord
 		if err := q.Order("timestamp DESC, id DESC").Limit(n).Find(&models).Error; err != nil {

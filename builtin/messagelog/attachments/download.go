@@ -116,9 +116,11 @@ func (d *Downloader) downloadOne(ctx context.Context, id int64, explicit bool) (
 		d.fail(row, StatusPendingLazy, "build request: "+truncateErr(err, 256))
 		return false, time.Time{}, &permanentError{err: err}
 	}
+	start := time.Now()
 	resp, err := d.client.Do(req)
 	if err != nil {
 		// 传输层错误（超时/断连）→ 临时错误
+		recordDownloadDuration("error", time.Since(start))
 		metricsInst.downloadsFailedTotal.Inc()
 		ce := classifyNetError(err)
 		return false, d.finishFailure(row, ce), ce
@@ -126,10 +128,12 @@ func (d *Downloader) downloadOne(ctx context.Context, id int64, explicit bool) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		recordDownloadDuration("status", time.Since(start))
 		metricsInst.downloadsFailedTotal.Inc()
 		cerr := classifyHTTPError(resp.StatusCode, resp.Status)
 		return false, d.finishFailure(row, cerr), cerr
 	}
+	recordDownloadDuration("ok", time.Since(start))
 
 	// 单文件硬上限：优先用 Content-Length 快速拒绝
 	maxSize := d.cfg.MaxSize

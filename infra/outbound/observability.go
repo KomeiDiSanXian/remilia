@@ -29,6 +29,42 @@ func recordBlocked(component string, reason Reason) {
 	blockedTotal.WithLabelValues(component, string(reason)).Inc()
 }
 
+var (
+	requests = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "outbound",
+			Name:      "requests_total",
+			Help:      "出站 HTTP 请求数（result: ok/status_4xx/status_5xx/error）",
+		},
+		[]string{"component", "result"},
+	)).(*prometheus.CounterVec)
+
+	requestDuration = inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "outbound",
+			Name:      "request_duration_seconds",
+			Help:      "出站 HTTP 请求耗时（含重定向与重试后的最终一次）",
+			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
+		},
+		[]string{"component"},
+	)).(*prometheus.HistogramVec)
+)
+
+// recordRequest 记录一次出站请求的结果与耗时。
+func recordRequest(component string, d time.Duration, status int, err error) {
+	result := "ok"
+	switch {
+	case err != nil:
+		result = "error"
+	case status >= 500:
+		result = "status_5xx"
+	case status >= 400:
+		result = "status_4xx"
+	}
+	requests.WithLabelValues(component, result).Inc()
+	requestDuration.WithLabelValues(component).Observe(d.Seconds())
+}
+
 // blockLogInterval 同一 (component, reason) 的告警最小间隔：策略拦截常成批
 // 出现（模型一次发十几个抓取），全量打日志会把真正的告警淹掉。
 const blockLogInterval = time.Minute

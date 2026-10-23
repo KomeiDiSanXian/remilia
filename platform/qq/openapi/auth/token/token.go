@@ -319,6 +319,7 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 		resp, err := requestToken(info)
 		if err != nil {
 			logger.WithError(err).Warn("[Token] Failed to get access token")
+			recordRefreshFailure("qq")
 
 			// 失败后等待一段时间再重试，并检查停止信号
 			select {

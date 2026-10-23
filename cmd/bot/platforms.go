@@ -20,7 +20,7 @@ import (
 // setupPlatforms 创建平台注册表：注册所有启用适配器，
 // 未配置任何平台时回退到 Terminal 适配器便于本地开发。
 func (a *app) setupPlatforms() {
-	reg := platform.NewRegistry()
+	reg := platform.NewRegistry().WithObserver(platform.MetricsObserver())
 	registerPlatforms(reg, a.cfg)
 	if reg.Len() == 0 {
 		logger.Warn("[remilia] No platform configured, using Terminal adapter for development")
