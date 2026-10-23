@@ -110,6 +110,7 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 	p.exitMu.Lock()
 	select {
 	case p.queue <- task:
+		recordExecPoolDepth(len(p.queue))
 		// 入队成功后确保存在消费者：若所有 worker 都已释放令牌退出，
 		// 此处必然能抢到令牌，启动一个只 drain 队列的 worker。
 		select {
@@ -146,6 +147,7 @@ func (p *ExecPool) runWorker(first func()) {
 		p.exitMu.Lock()
 		select {
 		case t := <-p.queue:
+			recordExecPoolDepth(len(p.queue))
 			p.exitMu.Unlock()
 			runPoolTask(t)
 		default:
@@ -175,6 +177,7 @@ func (p *ExecPool) drainQueueUntil(ctx context.Context) bool {
 		}
 		select {
 		case task := <-p.queue:
+			recordExecPoolDepth(len(p.queue))
 			runPoolTask(task)
 		default:
 			return true

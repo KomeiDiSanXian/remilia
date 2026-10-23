@@ -43,7 +43,29 @@ var (
 		},
 		[]string{"kind"},
 	)).(*prometheus.CounterVec)
+
+	execPoolFallbacks = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "remilia",
+			Name:      "execpool_fallbacks_total",
+			Help:      "ExecPool 满时回退到同步执行的事件数（回退会占用调用方 goroutine）",
+		},
+	)).(prometheus.Counter)
+
+	execPoolDepth = inframetrics.MustRegisterOrGet(nil, prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "remilia",
+			Name:      "execpool_queue_depth",
+			Help:      "ExecPool 等待队列中的任务数",
+		},
+	)).(prometheus.Gauge)
 )
+
+// recordExecPoolFallback 记录一次"池满回退同步执行"。
+func recordExecPoolFallback() { execPoolFallbacks.Inc() }
+
+// recordExecPoolDepth 更新等待队列深度。
+func recordExecPoolDepth(n int) { execPoolDepth.Set(float64(n)) }
 
 // recordEventMetrics 记录一条进入引擎处理的事件。
 //

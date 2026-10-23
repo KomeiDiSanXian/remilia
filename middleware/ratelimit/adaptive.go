@@ -242,6 +242,7 @@ func NewAdaptiveRateLimiterWithContext(parent context.Context, config AdaptiveCo
 	}
 
 	arl.maxConcurrency.Store(int32(config.InitialLimit))
+	setLimit(int32(config.InitialLimit))
 	arl.cpuUsage.Store(0.0)
 	arl.memoryUsage.Store(0.0)
 	arl.latencyP99.Store(time.Duration(0))
@@ -289,6 +290,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 				if current >= limit {
 					// 超过限制，立即拒绝请求
 					arl.rejectedRequests.Add(1)
+					recordRejected("limit")
 					logger.WithFields(logger.Fields{
 						"current_limit": limit,
 						"current_load":  current,
@@ -307,6 +309,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 			if !acquired {
 				// 理论上不可达（loop 内要么 return 要么 break），保留作防御
 				arl.rejectedRequests.Add(1)
+				recordRejected("acquire")
 				return fmt.Errorf("adaptive rate limit: failed to acquire slot")
 			}
 
@@ -519,6 +522,7 @@ func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, m
 // 新的限制会在下次请求时生效
 func (arl *AdaptiveRateLimiter) adjustLimit(newLimit int32) {
 	oldLimit := arl.maxConcurrency.Swap(newLimit)
+	setLimit(newLimit)
 
 	if oldLimit != newLimit {
 		logger.WithFields(logger.Fields{

@@ -232,6 +232,7 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 					acquired = true
 				default:
 					dropped.Add(1)
+					recordBackpressureDrop("drop")
 					logger.WithField("dropped_total", dropped.Load()).
 						Warn("[Backpressure] Dropped due to limit")
 					return fmt.Errorf("backpressure limit exceeded (drop)")
@@ -246,6 +247,7 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 					acquired = true
 				case <-ctx.Context().Done():
 					dropped.Add(1)
+					recordBackpressureDrop("block")
 					logger.WithField("dropped_total", dropped.Load()).
 						Warn("[Backpressure] Aborted while waiting (context done)")
 					return ctx.Context().Err()
@@ -258,6 +260,7 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 					acquired = true
 				case <-timer.C:
 					dropped.Add(1)
+					recordBackpressureDrop("trywait")
 					logger.WithField("dropped_total", dropped.Load()).
 						WithField("timeout", waitTimeout).
 						Warn("[Backpressure] Dropped due to wait timeout")

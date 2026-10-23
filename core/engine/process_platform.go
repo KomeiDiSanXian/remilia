@@ -239,6 +239,7 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 				continue
 			}
 			// TrySubmit 失败（池满）时回退到同步执行，pooledCtx 丢弃。
+			recordExecPoolFallback()
 		}
 
 		ctx.SetMatcher(m)
