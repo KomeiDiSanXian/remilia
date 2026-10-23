@@ -53,8 +53,19 @@
 
 **Grafana 看板 v2（`deploy/grafana/`）**
 
-- 新增 `deploy/grafana/remilia-bot.json` 与生成脚本 `scripts/gen-grafana-dashboard.py`：23 个全折线面板扩展为 60 余个按语义选型的面板——单值/状态用 stat（采集状态、命中率、熔断状态、panic/超时、积压）、占比用 piechart（调用结果、附件状态、Minecraft 查询结果）、排行/分类计数用 bargauge（命令与工具 Top10、工具集/目录变更原因、任务状态）、直方图用 heatmap（LLM 延迟、工具集大小），时间序列只保留速率/分位/水位；新增 `datasource`/`job`/`model` 变量与"概览 → AI → 消息 → 事件 → 运行时 → 插件"分行布局，插件行默认折叠。
+- 新增 `deploy/grafana/remilia-bot.json` 与生成脚本 `scripts/gen-grafana-dashboard.py`：23 个全折线面板扩展为 90 余个按语义选型的面板——单值/状态用 stat（采集状态、命中率、熔断状态、panic/超时、积压）、占比用 piechart（调用结果、回合结果、结束原因、附件状态）、排行/分类计数用 bargauge（命令与工具 Top10、变更原因、失败分类、任务状态）、直方图用 heatmap（LLM 延迟、工具集大小），时间序列只保留速率/分位/水位；新增 `datasource`/`job`/`model` 变量与"概览 → AI → 消息 → 事件 → 运行时 → 插件"分行布局，插件行默认折叠。
 - 补齐此前从未上图的面板：`ai_toolset_*`、`ai_catalog_*`、`ai_task_*`、`messagelog_cache_*` / `db_write_latency` / `spool_size` / 附件 GC、`remilia_events_received_total`（事件入口）、`outbound_blocked_total`、`remilia_send_duration_seconds`、`remilia_circuitbreaker_rejected_total`、Go 运行时与抓取健康。
+
+**回合质量、失败归因与链路丢弃**
+
+- **AI 回合**：新增 `ai_turn_total{result}`（ok/empty/error/interrupted）、`ai_turn_duration_seconds`、`ai_turn_llm_calls`、`ai_turn_tool_calls`。此前只有单次调用指标，空回复、撞 `max_depth`、工具连环失败中止在监控上不可见。
+- **LLM 失败归因**：`ai_llm_errors_total{model,class}`（rate_limit/auth/context_length/timeout/canceled/server/client/network/other，依据 `APIError.StatusCode` 与错误体分类）、`ai_llm_finish_total{reason}`（stop/length/content_filter/tool_calls）、`ai_llm_retries_total{reason}`（协议层 429/408/5xx/网络重试，经 `protocol.SetRetryObserver` 上报）。
+- **工具与审批**：`ai_tool_duration_seconds{tool}`、`ai_tool_timeouts_total{tool}`（超时与业务失败分开）、`ai_approval_total{result}`、`ai_approval_wait_seconds`。
+- **上下文维护**：`ai_session_active`、`ai_session_save_failures_total`、`ai_context_trimmed_messages_total`（裁剪是前缀缓存的主要断点）、`ai_images_dropped_total{reason}`、`ai_images_in_request`。
+- **记忆与检索**：`ai_memory_extract_total{result}`、`ai_memory_extract_facts`、`ai_memory_facts_cached`、`ai_rag_queries_total{result}`、`ai_rag_duration_seconds`、`ai_tool_select_total{path}`（bypass/retrieval，经 `decision.SelectPathObserver` 上报）。
+- **事件管线**：`remilia_backpressure_dropped_total{policy}`、`remilia_ratelimit_rejected_total{reason}`、`remilia_ratelimit_limit`、`remilia_execpool_queue_depth`、`remilia_execpool_fallbacks_total`。背压是唯一会静默丢事件的中间件，此前只有 Warn 日志。
+- **平台与出站**：`remilia_adapter_up`、`remilia_adapter_disconnects_total`、`remilia_adapter_fatal_errors_total`（`platform.MetricsObserver` 挂在 Registry 观察者上）、`remilia_token_refresh_failures_total`（刷新失败会导致"进程活着但收不到消息"）、`remilia_webhook_requests_total{platform,status}`、`outbound_requests_total{component,result}`、`outbound_duration_seconds{component}`。
+- **消息链路**：`messagelog_query_duration_seconds{source}`（memory/sqlite）、`messagelog_attachments_download_duration_seconds{result}`。
 
 ## v1.76.0 (2026-10-22)
 

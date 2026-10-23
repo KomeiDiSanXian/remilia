@@ -434,6 +434,63 @@ panels.append(bargauge(
     [('topk(10, sum by (tool, result) (increase(ai_tool_calls_total{' + JOB + '}[24h])))', "{{tool}} / {{result}}")],
     16, y, 8, 8, "short", "按工具的调用次数排行；error 占比高的工具值得单独看。"))
 
+# ── AI · 回合质量与失败 ────────────────────────────────────────────────────
+y += 8
+panels.append(row("AI · 回合质量与失败", y))
+y += 1
+panels.append(bargauge(
+    "回合结果（24h）",
+    [('sum by (result) (increase(ai_turn_total{' + JOB + '}[24h]))', "{{result}}")],
+    0, y, 8, 8, "short",
+    "ok/empty/error/interrupted。命中率之外，这一栏回答“这一轮到底有没有答上”。"))
+panels.append(timeseries(
+    "回合耗时 p50/p95",
+    [
+        ('histogram_quantile(0.50, sum by (le) (rate(ai_turn_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "p50"),
+        ('histogram_quantile(0.95, sum by (le) (rate(ai_turn_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "p95"),
+    ], 8, y, 8, 8, "s", desc="用户可感知的完整等待时长（含工具轮与校验重生成）。"))
+panels.append(timeseries(
+    "回合内调用数 p95",
+    [
+        ('histogram_quantile(0.95, sum by (le) (rate(ai_turn_llm_calls_bucket{' + JOB + '}[$__rate_interval])))', "LLM 调用"),
+        ('histogram_quantile(0.95, sum by (le) (rate(ai_turn_tool_calls_bucket{' + JOB + '}[$__rate_interval])))', "工具调用"),
+    ], 16, y, 8, 8, "short", desc="回合规模。撞 max_depth 或工具连环失败时，这里会先出现异常。"))
+y += 8
+panels.append(pie(
+    "结束原因（24h）",
+    [('sum by (reason) (increase(ai_llm_finish_total{' + JOB + '}[24h]))', "{{reason}}")],
+    0, y, 8, 8, "short",
+    "stop/length/content_filter/tool_calls。length 占比高说明输出预算不够，content_filter 高说明被安全策略截断。"))
+panels.append(bargauge(
+    "失败分类（24h）",
+    [('sum by (class) (increase(ai_llm_errors_total{' + JOB + '}[24h]))', "{{class}}")],
+    8, y, 8, 8, "short",
+    "429=rate_limit、401/403=auth、400+context_length=上下文超长、5xx=server。四类处置完全不同。"))
+panels.append(timeseries(
+    "工具耗时 p95（Top5）",
+    [('topk(5, histogram_quantile(0.95, sum by (le, tool) (rate(ai_tool_duration_seconds_bucket{' + JOB + '}[$__rate_interval]))))', "{{tool}}")],
+    16, y, 8, 8, "s", desc="工具是回合里最慢的一段；超时与业务失败分开看 ai_tool_timeouts_total。"))
+y += 8
+panels.append(stat(
+    "工具超时 / 审批超时 24h",
+    [
+        ('sum(increase(ai_tool_timeouts_total{' + JOB + '}[24h]))', "工具超时"),
+        ('sum(increase(ai_approval_total{' + JOB + ',result="timeout"}[24h]))', "审批超时"),
+    ], 0, y, 8, 8, "short", thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}], decimals=0,
+    desc="超时说明预算不够或工具/审批卡住，不是业务失败。"))
+panels.append(pie(
+    "审批结果（24h）",
+    [('sum by (result) (increase(ai_approval_total{' + JOB + '}[24h]))', "{{result}}")],
+    8, y, 8, 8, "short", "approved/denied/timeout/interrupted。"))
+panels.append(stat(
+    "记忆抽取 / RAG 24h",
+    [
+        ('sum(increase(ai_memory_extract_total{' + JOB + ',result="ok"}[24h]))', "抽取成功"),
+        ('sum(increase(ai_memory_extract_total{' + JOB + ',result="error"}[24h]))', "抽取失败"),
+        ('sum(increase(ai_rag_queries_total{' + JOB + ',result="hit"}[24h]))', "RAG 命中"),
+    ], 16, y, 8, 8, "short", decimals=0,
+    desc="抽取失败不应被 Debug 日志埋掉；RAG 长期 0 命中说明检索没起作用。"))
+
 # ── 消息记录与附件 ─────────────────────────────────────────────────────────
 y += 8
 panels.append(row("消息记录与附件（messagelog）", y))
@@ -573,6 +630,102 @@ panels.append(timeseries(
     [('histogram_quantile(0.95, sum by (le, platform) (rate(remilia_send_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "{{platform}}")],
     16, y, 8, 8, "s",
     desc="平台 Send 的往返耗时（不含队列等待）；与 Handler 延迟对照可区分“模型慢”还是“平台慢”。"))
+
+# ── AI · 上下文维护 / 事件管线 / 平台健康 / 消息链路延迟 ──────────────────
+y += 8
+panels.append(row("AI · 上下文维护", y))
+y += 1
+panels.append(stat(
+    "会话数 / 裁剪消息 24h",
+    [
+        ('max(ai_session_active{' + JOB + '})', "活跃会话"),
+        ('sum(increase(ai_context_trimmed_messages_total{' + JOB + '}[24h]))', "裁剪消息"),
+    ], 0, y, 8, 8, "short", decimals=0,
+    desc="裁剪是前缀缓存的主要断点：裁剪条数与命中率曲线对照，能区分“窗口太小”与“缓存结构不好”。"))
+panels.append(bargauge(
+    "图片剥离（24h，按原因）",
+    [('sum by (reason) (increase(ai_images_dropped_total{' + JOB + '}[24h]))', "{{reason}}")],
+    8, y, 8, 8, "short",
+    "stale=保留窗口/时间窗过期，budget=单请求预算超限。图片剥离同时影响成本与历史字节一致性。"))
+panels.append(pie(
+    "工具选择路径（24h）",
+    [('sum by (path) (increase(ai_tool_select_total{' + JOB + '}[24h]))', "{{path}}")],
+    16, y, 8, 8, "short",
+    "bypass=工具数未超阈值或无查询，retrieval=本地检索 Top-K。长期全 bypass 说明阈值/嵌入没生效。"))
+y += 8
+panels.append(stat(
+    "记忆事实（缓存口径）",
+    [('max(ai_memory_facts_cached{' + JOB + '})', "facts")], 0, y, 8, 8, "short", decimals=0,
+    desc="已加载作用域内的事实总数；持续增长到 memory_max_facts 附近说明淘汰在生效。"))
+
+y += 8
+panels.append(row("事件管线 · 丢弃与背压", y))
+y += 1
+panels.append(timeseries(
+    "背压丢弃（按策略）",
+    [('sum by (policy) (rate(remilia_backpressure_dropped_total{' + JOB + '}[$__rate_interval]))', "{{policy}}")],
+    0, y, 6, 8, "reqps",
+    desc="背压是唯一会静默丢事件的中间件：非 0 说明事件没进 handler。",
+    display="list"))
+panels.append(timeseries(
+    "限流拒绝速率",
+    [('rate(remilia_ratelimit_rejected_total{' + JOB + '}[$__rate_interval])', "{{reason}}")],
+    6, y, 6, 8, "reqps",
+    desc="自适应限流拒绝的请求（limit=并发达上限，acquire=抢占失败）。",
+    display="list"))
+panels.append(stat(
+    "当前限流上限",
+    [('max(remilia_ratelimit_limit{' + JOB + '})', "limit")], 12, y, 4, 8, "short", decimals=0,
+    desc="自适应限流当前生效的并发上限，跟踪它的调节轨迹。"))
+panels.append(stat(
+    "ExecPool 回退 1h",
+    [('sum(increase(remilia_execpool_fallbacks_total{' + JOB + '}[1h]))', "fallback")],
+    16, y, 4, 8, "short", thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}], decimals=0,
+    desc="池满回退同步执行：事件仍被处理，但占用了调用方 goroutine，延迟会上升。"))
+panels.append(timeseries(
+    "ExecPool 队列深度",
+    [('remilia_execpool_queue_depth{' + JOB + '}', "queue")], 20, y, 4, 8, "short"))
+
+y += 8
+panels.append(row("平台与出站健康", y))
+y += 1
+panels.append(stat(
+    "适配器状态",
+    [('remilia_adapter_up{' + JOB + '}', "{{platform}}")], 0, y, 4, 8, "short",
+    thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}], decimals=0,
+    desc="1=运行中 / 0=已停止。为 0 时进程还活着，但该平台已收不到消息。"))
+panels.append(stat(
+    "断连 / 致命错误 24h",
+    [
+        ('sum(increase(remilia_adapter_disconnects_total{' + JOB + '}[24h]))', "断连"),
+        ('sum(increase(remilia_adapter_fatal_errors_total{' + JOB + '}[24h]))', "致命"),
+    ], 4, y, 4, 8, "short", thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}], decimals=0))
+panels.append(stat(
+    "Token 刷新失败 24h",
+    [('sum(increase(remilia_token_refresh_failures_total{' + JOB + '}[24h]))', "failures")],
+    8, y, 4, 8, "short", thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}], decimals=0,
+    desc="刷新失败不会让进程退出，但会让平台 API 调用全部失败。"))
+panels.append(stat(
+    "Webhook 4xx 24h",
+    [('sum(increase(remilia_webhook_requests_total{status=~"4.."}[24h]))', "4xx")],
+    12, y, 4, 8, "short", thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 1}], decimals=0,
+    desc="401 通常意味着签名密钥不一致；429 是上游限流。"))
+panels.append(timeseries(
+    "出站 HTTP 速率（按结果）",
+    [('sum by (component, result) (rate(outbound_requests_total{' + JOB + '}[$__rate_interval]))', "{{component}}/{{result}}")],
+    16, y, 8, 8, "reqps", display="list"))
+
+y += 8
+panels.append(row("消息链路延迟", y))
+y += 1
+panels.append(timeseries(
+    "消息查询 p95（按来源）",
+    [('histogram_quantile(0.95, sum by (le, source) (rate(messagelog_query_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "{{source}}")],
+    0, y, 12, 8, "s", desc="source=memory 是热缓存，sqlite 是回源；后者变慢会拖慢每轮上下文构建。"))
+panels.append(timeseries(
+    "附件下载 p95（按结果）",
+    [('histogram_quantile(0.95, sum by (le, result) (rate(messagelog_attachments_download_duration_seconds_bucket{' + JOB + '}[$__rate_interval])))', "{{result}}")],
+    12, y, 12, 8, "s"))
 
 # ── 进程与运行时 ───────────────────────────────────────────────────────────
 y += 8

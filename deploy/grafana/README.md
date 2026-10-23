@@ -46,6 +46,11 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
 | AI · 前缀缓存与成本 | 工具集规模（中位）/ 工具集大小分布 | stat + heatmap | `ai_toolset_size` 直方图 |
 | AI · 前缀缓存与成本 | 目录变更 / 目录代数 | bargauge + stat | add/remove/update 与 generation |
 | AI · 前缀缓存与成本 | 任务状态迁移 / 任务创建 / 工具调用 Top10 | bargauge + stat | `ai_task_*`、`ai_tool_calls_total` |
+| AI · 回合质量与失败 | 回合结果 / 耗时 / 规模、结束原因、失败分类、工具耗时与超时、审批、记忆/RAG | bargauge + timeseries + pie + stat | 回合是用户感知的单位；`ai_turn_*`、`ai_llm_finish/errors`、`ai_tool_duration/timeouts`、`ai_approval_*` |
+| AI · 上下文维护 | 会话数/裁剪、图片剥离、工具选择路径、记忆事实 | stat + bargauge + pie | `ai_session_active`、`ai_context_trimmed_messages_total`、`ai_images_dropped_total`、`ai_tool_select_total` |
+| 事件管线 · 丢弃与背压 | 背压丢弃、限流拒绝/上限、ExecPool 回退/队列 | timeseries + stat | 唯一会静默丢事件的链路 |
+| 平台与出站健康 | 适配器状态、断连/致命、Token 刷新、Webhook 4xx、出站速率 | stat + timeseries | `remilia_adapter_*`、`remilia_token_refresh_failures_total`、`remilia_webhook_requests_total` |
+| 消息链路延迟 | 消息查询 p95、附件下载 p95 | timeseries | `messagelog_query_duration_seconds`、`messagelog_attachments_download_duration_seconds` |
 | 消息记录与附件 | 记录/落盘速率、队列与 spool 积压、最旧积压 | timeseries + stat | spool 积压 = 落盘跟不上 |
 | 消息记录与附件 | 丢弃/写失败 1h、SQLite 写延迟 p95、热缓存/淘汰 | stat + timeseries | 开 spool 后队列丢弃应恒 0 |
 | 消息记录与附件 | 附件状态分布、下载速率、失败率、磁盘占用、下载队列、GC | pie + timeseries + stat | `messagelog_attachments_*` |
@@ -62,9 +67,17 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
 
 - AI：`ai_llm_calls_total`、`ai_llm_latency_seconds`、`ai_llm_ttft_seconds`、
   `ai_llm_tokens_per_second`、`ai_llm_tokens_total{type,kind}`、
-  `ai_tool_calls_total`、`ai_toolset_changes_total`、`ai_toolset_size`、
+  `ai_llm_errors_total`、`ai_llm_finish_total`、`ai_llm_retries_total`、
+  `ai_turn_total`、`ai_turn_duration_seconds`、`ai_turn_llm_calls`、`ai_turn_tool_calls`、
+  `ai_tool_calls_total`、`ai_tool_duration_seconds`、`ai_tool_timeouts_total`、
+  `ai_toolset_changes_total`、`ai_toolset_size`、`ai_tool_select_total`、
   `ai_catalog_changes_total`、`ai_catalog_generation`、`ai_tasks_created_total`、
-  `ai_task_transitions_total`
+  `ai_task_transitions_total`、`ai_approval_total`、`ai_approval_wait_seconds`、
+  `ai_images_dropped_total`、`ai_images_in_request`、
+  `ai_memory_extract_total`、`ai_memory_extract_facts`、`ai_memory_facts_cached`、
+  `ai_rag_queries_total`、`ai_rag_duration_seconds`、
+  `ai_session_active`、`ai_session_save_failures_total`、
+  `ai_context_trimmed_messages_total`
 - MCP（折叠行）：`mcp_server_up`、`mcp_requests_total`、`mcp_request_duration_seconds`、
   `mcp_tool_list_changes_total`、`mcp_unavailable_calls_total`
 - messagelog：`records_total`、`flush_total`、`flush_failed_total`、`queue_depth`、
@@ -77,7 +90,14 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
   `remilia_handler_requests_total`、`remilia_handler_latency_seconds`、
   `remilia_handler_panics_total`、`remilia_handler_timeouts_total`、
   `remilia_command_total`、`remilia_dedup_dropped_total`、`remilia_circuitbreaker_*`、
-  `remilia_send_total`、`remilia_send_duration_seconds`、`outbound_blocked_total`
+  `remilia_backpressure_dropped_total`、`remilia_ratelimit_rejected_total`、
+  `remilia_ratelimit_limit`、`remilia_execpool_queue_depth`、
+  `remilia_execpool_fallbacks_total`、
+  `remilia_send_total`、`remilia_send_duration_seconds`、`outbound_blocked_total`、
+  `outbound_requests_total`、`outbound_duration_seconds`
+- 平台：`remilia_adapter_up`、`remilia_adapter_disconnects_total`、
+  `remilia_adapter_fatal_errors_total`、`remilia_token_refresh_failures_total`、
+  `remilia_webhook_requests_total`
 - Minecraft（折叠行）：`minecraft_queries_total`、`minecraft_query_duration_seconds`、
   `minecraft_cache_hits_total`、`minecraft_gs4_queries_total`、
   `minecraft_rcon_commands_total`
@@ -96,6 +116,10 @@ curl -u admin:<password> -X POST http://<grafana>:3000/api/dashboards/db \
   未启用或没有调用。
 - `kind` 维度只出现在 AI 的 token/延迟指标上；不带 `kind` 标签的时间序列会在
   按用途的面板里显示为一条无图例序列。
+- `ai_turn_*` 以 `generateVerified` 为边界：校验重生成与后台计划推进都算独立回合；
+  回合内的 LLM/工具次数取会话累计值的差值。
+- 背压丢弃、限流拒绝、ExecPool 回退是三条不同的"未处理"路径：前者事件被丢弃，
+  中者请求被拒绝，后者仍会同步执行（只是占用调用方 goroutine）。
 
 ## 常用查询
 
