@@ -12,16 +12,25 @@ import (
 // HostFunc 是宿主函数的签名：接收 TLV 参数，返回 TLV 结果或错误。
 type HostFunc func(args []byte) ([]byte, error)
 
+// HostFuncWithCaller 是携带调用方模块名的宿主函数签名。
+//
+// WASM 侧无法可信地声明"我是谁"：若模块名来自 guest 参数，任意模块都能冒充
+// 其他模块读取配置。wazero 会在宿主函数入参给出真正的调用方 api.Module，
+// 需要身份隔离的宿主函数应使用此签名。
+type HostFuncWithCaller func(caller string, args []byte) ([]byte, error)
+
 // HostFuncRegistry 管理 WASM 插件可调用的宿主函数。
 type HostFuncRegistry struct {
-	mu    sync.RWMutex
-	funcs map[string]HostFunc
+	mu          sync.RWMutex
+	funcs       map[string]HostFunc
+	callerFuncs map[string]HostFuncWithCaller
 }
 
 // NewHostFuncRegistry 创建一个空的宿主函数注册表。
 func NewHostFuncRegistry() *HostFuncRegistry {
 	return &HostFuncRegistry{
-		funcs: make(map[string]HostFunc),
+		funcs:       make(map[string]HostFunc),
+		callerFuncs: make(map[string]HostFuncWithCaller),
 	}
 }
 
@@ -35,13 +44,31 @@ func (r *HostFuncRegistry) Register(name string, fn HostFunc) {
 	r.funcs[name] = fn
 }
 
+// RegisterWithCaller 注册一个携带调用方模块名的宿主函数；同名时优先于此前的
+// Register 版本。
+func (r *HostFuncRegistry) RegisterWithCaller(name string, fn HostFuncWithCaller) {
+	if name == "" || fn == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.callerFuncs[name] = fn
+}
+
 // BuildModule 将已注册的宿主函数构建为 wazero Host Module。
 func (r *HostFuncRegistry) BuildModule(ctx context.Context, rt wazero.Runtime) (api.Module, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	builder := rt.NewHostModuleBuilder(HostModuleName)
+	names := make(map[string]struct{}, len(r.funcs)+len(r.callerFuncs))
 	for name := range r.funcs {
+		names[name] = struct{}{}
+	}
+	for name := range r.callerFuncs {
+		names[name] = struct{}{}
+	}
+	for name := range names {
 		funcName := name
 		builder.NewFunctionBuilder().
 			WithFunc(func(ctx context.Context, module api.Module, ptr uint32, length uint32) uint64 {
@@ -57,9 +84,10 @@ func (r *HostFuncRegistry) BuildModule(ctx context.Context, rt wazero.Runtime) (
 // 复用它，才能继承 WithCloseOnContextDone 的超时/取消控制。
 func (r *HostFuncRegistry) callHostFunc(ctx context.Context, mod api.Module, name string, ptr uint32, length uint32) uint64 {
 	r.mu.RLock()
-	fn, ok := r.funcs[name]
+	callerFn, hasCaller := r.callerFuncs[name]
+	fn, hasPlain := r.funcs[name]
 	r.mu.RUnlock()
-	if !ok {
+	if !hasCaller && !hasPlain {
 		return 0
 	}
 
@@ -78,7 +106,13 @@ func (r *HostFuncRegistry) callHostFunc(ctx context.Context, mod api.Module, nam
 		copy(args, buf)
 	}
 
-	result, err := fn(args)
+	var result []byte
+	var err error
+	if hasCaller {
+		result, err = callerFn(mod.Name(), args)
+	} else {
+		result, err = fn(args)
+	}
 	if err != nil || len(result) == 0 {
 		return 0
 	}

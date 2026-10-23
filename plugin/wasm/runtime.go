@@ -296,19 +296,17 @@ func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry, memoryLimit
 		hostRegistry: hostRegistry,
 	}
 
-	// 替换 get_config 为能通过模块名查找配置的实现
-	hostRegistry.Register("get_config", func(args []byte) ([]byte, error) {
+	// 替换 get_config 为按调用方模块身份读取配置的实现。
+	// 模块名不再信任 guest 参数（m）：任意模块都可以伪造 m 读取其他模块的
+	// 敏感配置；调用方身份由 wazero 提供的 api.Module 决定。
+	hostRegistry.RegisterWithCaller("get_config", func(caller string, args []byte) ([]byte, error) {
 		key := NewTLVReader(args).ReadString("k")
-		modName := NewTLVReader(args).ReadString("m")
-		if key == "" {
+		if key == "" || caller == "" {
 			return NewTLVBuilder().WriteString("v", "").Bytes(), nil
 		}
-		if modName != "" {
-			cfg := rt.getModuleConfig(modName)
-			if cfg != nil {
-				if v, ok := cfg[key]; ok {
-					return NewTLVBuilder().WriteString("v", fmt.Sprintf("%v", v)).Bytes(), nil
-				}
+		if cfg := rt.getModuleConfig(caller); cfg != nil {
+			if v, ok := cfg[key]; ok {
+				return NewTLVBuilder().WriteString("v", fmt.Sprintf("%v", v)).Bytes(), nil
 			}
 		}
 		return NewTLVBuilder().WriteString("v", "").Bytes(), nil
