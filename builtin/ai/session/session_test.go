@@ -239,6 +239,42 @@ func TestTrimMessagesKeepsPrefixStable(t *testing.T) {
 	}
 }
 
+// TestTrimMessagesHeadroomScalesWithWindow 验证低水位余量随窗口放大：
+// 大窗口（生产 max_history=50）一次让出 12 条余量（≈4 轮），裁剪间隔变长；
+// 小窗口维持 TrimLowWaterMin 下限，不退化成逐轮裁剪。
+func TestTrimMessagesHeadroomScalesWithWindow(t *testing.T) {
+	cases := []struct{ targetOther, want int }{
+		{0, 0}, {1, TrimLowWaterMin}, {4, TrimLowWaterMin},
+		{19, TrimLowWaterMin}, {49, 12}, {99, 24},
+	}
+	for _, tc := range cases {
+		if got := trimHeadroom(tc.targetOther); got != tc.want {
+			t.Errorf("trimHeadroom(%d) = %d, want %d", tc.targetOther, got, tc.want)
+		}
+	}
+
+	s := &Session{Messages: []protocol.Message{{Role: protocol.RoleSystem, Content: "sys"}}}
+	for i := 1; i <= 50; i++ {
+		s.Messages = append(s.Messages, protocol.Message{Role: protocol.RoleUser, Content: fmt.Sprintf("u%d", i)})
+	}
+
+	TrimMessages(s, 50)
+	// 保留 49-12=37 条非 system 消息
+	if len(s.Messages) != 38 {
+		t.Fatalf("expected 38 messages after trim, got %d", len(s.Messages))
+	}
+	first := s.Messages[1].Content
+
+	// 余量以内继续追加：前缀逐字不动
+	for i := 51; i <= 62; i++ {
+		s.Messages = append(s.Messages, protocol.Message{Role: protocol.RoleUser, Content: fmt.Sprintf("u%d", i)})
+	}
+	TrimMessages(s, 50)
+	if s.Messages[1].Content != first {
+		t.Errorf("retained prefix shifted within headroom: got %q want %q", s.Messages[1].Content, first)
+	}
+}
+
 func TestSessionLockUnlock(t *testing.T) {
 	s := &Session{ID: "lock-test"}
 	s.Lock()

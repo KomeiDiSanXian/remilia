@@ -341,14 +341,34 @@ func (sm *SessionManager) evictCandidateLocked() *list.Element {
 	return nil
 }
 
-// TrimLowWaterDivisor 批量裁剪的"低水位"除数：超限时一次性多裁
-// usable/TrimLowWaterDivisor 条，裁后要累积这么多条才会再次触发裁剪。
+// TrimLowWaterDivisor / TrimLowWaterMin 批量裁剪的"低水位"规则：超限时让出
+// max(TrimLowWaterMin, targetOther/TrimLowWaterDivisor) 条余量，裁后要再累积
+// 这么多条才会触发下一次裁剪。
 //
 // 逐条滑窗（每次都裁到恰好 maxHistory）会让每次请求的历史前缀都向右位移
 // 一条消息，LLM 侧的前缀缓存从第一条历史消息起整段失效——即使 System 提示
 // 词完全稳定，历史也永远命中不了。批量裁剪牺牲少量保留条数，换来两次裁剪
-// 之间前缀字节一致（默认 20 条约可稳定复用 4 轮左右）。
-const TrimLowWaterDivisor = 4
+// 之间前缀字节一致。
+//
+// 余量必须随窗口放大：max_history=50（生产配置）时固定 4 条只够一个回合
+// 的一半——一个带工具调用的回合会一次追加 assistant + N 条 tool 结果，
+// 裁剪因此常常落在回合中途，把本回合刚生成的工具结果前缀一起作废。按
+// 1/4 窗口让出余量（50 → 12 条 ≈ 4 轮）后，裁剪间隔变长而单次失效的
+// 历史更多，缓存命中率整体更高。下限 TrimLowWaterMin 保留小窗口
+// （max_history=8 等）的"不逐轮裁剪"收益。
+const (
+	TrimLowWaterDivisor = 4
+	TrimLowWaterMin     = 4
+)
+
+// trimHeadroom 返回一次批量裁剪应让出的余量（message 条数）。
+// targetOther 为可裁剪（非 system）消息的上限条数。
+func trimHeadroom(targetOther int) int {
+	if targetOther <= 0 {
+		return 0
+	}
+	return max(TrimLowWaterMin, targetOther/TrimLowWaterDivisor)
+}
 
 // TrimMessages 裁剪消息列表，保留最近的 maxHistory 条消息。
 // System 消息优先保留。超限时一次裁到低水位（见 TrimLowWaterDivisor），
@@ -380,13 +400,11 @@ func TrimMessages(s *Session, maxHistory int) {
 
 	targetOther := max(usable-len(systemMsgs), 0)
 	if len(otherMsgs) > targetOther {
-		// 低水位固定让出 TrimLowWaterDivisor 条余量：裁后要累积整整 divisor
-		// 条才再次触发裁剪，两次裁剪之间的前缀字节才稳定。此前
-		// targetOther/divisor 在小 maxHistory（如 8）下退化成"几乎轮轮裁"，
-		// 批量裁剪收益归零。targetOther 为 0（system 占满窗口）时全部裁掉。
+		// 低水位让出 trimHeadroom 条余量：裁后要累积这么多条才再次触发裁剪，
+		// 两次裁剪之间的前缀字节才稳定（规则与理由见 TrimLowWaterDivisor）。
 		keep := 0
 		if targetOther > 0 {
-			keep = max(targetOther-TrimLowWaterDivisor, 1)
+			keep = max(targetOther-trimHeadroom(targetOther), 1)
 		}
 		start := max(len(otherMsgs)-keep, 0)
 		for start < len(otherMsgs) && otherMsgs[start].Role == protocol.RoleTool {
