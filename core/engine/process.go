@@ -37,6 +37,7 @@ func (e *Engine) processEventGuarded(ctx *context.Context, allowPool bool) {
 	if e.shutdown.Load() {
 		return
 	}
+	recordEventMetrics(ctx)
 
 	e.eventMu.Lock()
 	if e.shutdown.Load() {

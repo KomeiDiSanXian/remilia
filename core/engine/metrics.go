@@ -1,34 +1,67 @@
 package engine
 
-// metrics.go — 引擎层 Prometheus 指标（事件入口画像）。
+// metrics.go — 引擎层 Prometheus 指标（事件画像）。
 //
-// 指标：{namespace}_events_received_total{platform, kind}
-// 在 ProcessPlatformEvent* 各入口统一打点，覆盖真实平台事件
-//（引擎内部合成事件走 ProcessEvent，不计入入口画像）。
+// 两个指标刻意分开，避免把"平台入口流量"与"引擎内部产生的事件"混在一条
+// 曲线里——两者的含义完全不同，混在一起后既看不出外部压力，也看不出插件
+// 自己制造了多少处理量：
+//
+//	{namespace}_events_received_total{platform, kind}  平台入口事件
+//	{namespace}_events_internal_total{kind}           内部事件（命令执行、定时任务等）
+//
+// 打点位置在 processEventGuarded —— 所有事件处理路径（ProcessEvent、
+// ProcessPlatformEvent、ProcessPlatformEventEx、ProcessPlatformEventSync）
+// 最终都会经过这里，因此 Router 转发（参考实现的常规路径）与直接调用引擎
+// 两种用法都能被统计。
+//
+// 平台标识为 "synthetic"（插件用 platform.NewSyntheticEvent 自造）或为空
+// （没有绑定平台事件）的走 internal 指标；其余按 platform/kind 计入入口指标。
+//
+// 每个事件上下文只会被处理一次，因此不需要额外的去重标记。
 
 import (
+	"github.com/KomeiDiSanXian/remilia/core/context"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
-	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var eventsReceived = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Namespace: "remilia",
-		Name:      "events_received_total",
-		Help:      "接收的平台事件数（按平台与事件类型）",
-	},
-	[]string{"platform", "kind"},
-)).(*prometheus.CounterVec)
+var (
+	eventsReceived = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "remilia",
+			Name:      "events_received_total",
+			Help:      "接收的平台事件数（按平台与事件类型；内部事件见 events_internal_total）",
+		},
+		[]string{"platform", "kind"},
+	)).(*prometheus.CounterVec)
 
-// recordEventReceived 记录一条平台事件入口。
-func recordEventReceived(event platform.Event) {
-	plt, kind := event.Platform(), string(event.Kind())
-	if plt == "" {
-		plt = "unknown"
+	eventsInternal = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "remilia",
+			Name:      "events_internal_total",
+			Help:      "引擎处理的内部事件数（按事件类型；synthetic 或未绑定平台的事件）",
+		},
+		[]string{"kind"},
+	)).(*prometheus.CounterVec)
+)
+
+// recordEventMetrics 记录一条进入引擎处理的事件。
+//
+// 平台事件与内部事件分别计数：内部事件同样值得观测（命令执行、定时任务、
+// 计划推进都会占用处理能力），只是不能和平台入口流量混成一条曲线。
+func recordEventMetrics(ctx *context.Context) {
+	if ctx == nil {
+		return
 	}
+	kind := ctx.GetEventType()
 	if kind == "" {
 		kind = "unknown"
 	}
-	eventsReceived.WithLabelValues(plt, kind).Inc()
+
+	switch plt := ctx.GetEventPlatform(); plt {
+	case "", "synthetic":
+		eventsInternal.WithLabelValues(kind).Inc()
+	default:
+		eventsReceived.WithLabelValues(plt, kind).Inc()
+	}
 }
