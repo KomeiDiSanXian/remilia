@@ -407,7 +407,11 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	// withAddedMatcher/rebuildIndex 等）保证 commandIndexed matcher 只经
 	// commandIndex、regexIndexed matcher 只经 regexIndex 候选生成（正则已
 	// 预匹配）。未来新增索引不得把带这些标志的 matcher 引入未预匹配路径。
-	if (m.commandIndexed.Load() || m.regexIndexed.Load()) && len(rules) > 0 {
+	// 索引快捷路径的前提是"路由索引确实做过预筛"：state 索引按 command/regex
+	// 分桶后才允许跳过 Rules[0]。临时索引（TempManager）只按事件类型提供候选，
+	// 不做命令/正则预筛，因此在临时索引中的 matcher 必须完整求值首条规则，
+	// 否则一次性命令/正则处理器会被同类事件的任意消息触发。
+	if (m.commandIndexed.Load() || m.regexIndexed.Load()) && !m.isTempMatcher() && len(rules) > 0 {
 		rules = rules[1:]
 	}
 	for _, rule := range rules {
@@ -417,6 +421,11 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	}
 
 	return !m.rt.deleted.Load()
+}
+
+// isTempMatcher 报告 matcher 当前是否在临时索引中。
+func (m *Matcher) isTempMatcher() bool {
+	return atomic.LoadInt32(&m.rt.isTemp) == 1
 }
 
 // Handle 设置 Matcher 的处理函数（终结点）
