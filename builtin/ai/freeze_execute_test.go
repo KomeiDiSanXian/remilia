@@ -194,7 +194,7 @@ func TestSkillLoopNonStreaming(t *testing.T) {
 	p.skillReg.Register(toolkit.Skill{Name: "other_skill", OwnerID: toolkit.OwnerSystem, Prompt: "p", Enabled: true})
 
 	self := toolkit.Skill{Name: "self_skill", OwnerID: toolkit.OwnerSystem, Prompt: "self-prompt", Tools: []toolkit.Tool{own}, Enabled: true}
-	assert.ElementsMatch(t, []string{"own_tool", "other_skill"}, toolNamesOf(toolkit.ActionsOf(p.buildSkillTools(self))),
+	assert.ElementsMatch(t, []string{"own_tool", "other_skill"}, toolNamesOf(toolkit.ActionsOf(p.buildSkillTools(context.Background(), self))),
 		"可见工具 = 自有工具 + 其他系统 Skill")
 
 	out, err := p.executeSkill(context.Background(), self, map[string]any{"query": "x"})

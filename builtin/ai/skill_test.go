@@ -1,8 +1,11 @@
 package ai
 
 import (
+	"context"
+	"strings"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
@@ -13,10 +16,8 @@ func TestNewSkillRegistry(t *testing.T) {
 	}
 }
 
-// TestBuildSkillToolsSkipsPermissionedTools 验证技能内部循环只注入无需授权的工具。
-//
-// 技能内部调用没有事件上下文，无法执行 RBAC 与人工审批；声明了 Permissions
-// 的工具必须在 buildSkillTools 阶段就被过滤，否则会绕过顶层工具授权路径。
+// TestBuildSkillToolsSkipsPermissionedTools 验证没有授权器时的安全默认：
+// 声明了 Permissions 的工具不注入技能内部循环（无法验证身份就不给能力）。
 func TestBuildSkillToolsSkipsPermissionedTools(t *testing.T) {
 	p := &Plugin{skillReg: toolkit.NewSkillRegistry()}
 	skill := toolkit.Skill{
@@ -27,9 +28,60 @@ func TestBuildSkillToolsSkipsPermissionedTools(t *testing.T) {
 		},
 	}
 
-	got := p.buildSkillTools(skill)
+	got := p.buildSkillTools(context.Background(), skill)
 	if len(got) != 1 || got[0].Name != "safe_tool" {
-		t.Fatalf("permissioned tools must not be injected into skills, got %+v", got)
+		t.Fatalf("permissioned tools must not be injected without an authorizer, got %+v", got)
+	}
+}
+
+// TestBuildSkillToolsUsesAuthorizer 验证注入阶段按调用者授权过滤：
+// 有权限的工具保留，无权限的工具从模型视图中移除。
+func TestBuildSkillToolsUsesAuthorizer(t *testing.T) {
+	p := &Plugin{skillReg: toolkit.NewSkillRegistry()}
+	skill := toolkit.Skill{
+		Name: "u_skill",
+		Tools: []toolkit.Tool{
+			{Name: "safe_tool"},
+			{Name: "audit_tool", Permissions: []string{"audit.view"}},
+		},
+	}
+
+	ctx := toolkit.WithAuthorizer(context.Background(), toolkit.AuthorizerFunc(
+		func(t toolkit.Tool) (bool, string) {
+			if t.Name == "audit_tool" {
+				return false, "no permission"
+			}
+			return true, ""
+		}))
+
+	got := p.buildSkillTools(ctx, skill)
+	if len(got) != 1 || got[0].Name != "safe_tool" {
+		t.Fatalf("denied tools must be filtered out, got %+v", got)
+	}
+}
+
+// TestExecuteSkillToolEnforcesAuthorizer 验证执行阶段复核：
+// 即使工具出现在列表里，授权器拒绝时也不得执行。
+func TestExecuteSkillToolEnforcesAuthorizer(t *testing.T) {
+	executed := false
+	tools := []toolkit.Tool{{
+		Name: "audit_tool",
+		Execute: func(context.Context, map[string]any) (string, error) {
+			executed = true
+			return "leaked", nil
+		},
+	}}
+
+	ctx := toolkit.WithAuthorizer(context.Background(), toolkit.AuthorizerFunc(
+		func(toolkit.Tool) (bool, string) { return false, "no permission" }))
+
+	p := &Plugin{skillReg: toolkit.NewSkillRegistry()}
+	got := p.executeSkillTool(ctx, protocol.ToolCall{Name: "audit_tool"}, tools)
+	if executed {
+		t.Fatal("denied tool must not execute")
+	}
+	if !strings.Contains(got, "no permission") {
+		t.Fatalf("denial reason should be returned to the model, got %q", got)
 	}
 }
 

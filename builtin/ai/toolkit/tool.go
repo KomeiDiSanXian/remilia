@@ -4,7 +4,13 @@
 //   - Tool：LLM 可调用的工具类型定义
 //   - ToolRegistry：线程安全的工具注册表
 //   - ToolProvider / SkillProvider：插件注册工具的接口
-//   - WithCallerInfo / CallerInfoFromContext：调用者身份注入
+//   - WithCallerInfo / Authorizer：调用者身份与调用授权的 context 注入
+//
+// context 槽位约定：只有必须跨 `Execute(ctx context.Context, ...)` 这类
+// 标准库接口边界的**调用期能力**才放 std context（调用者、授权、发送、
+// 目标解析、工具来源、计划访问、能力集、技能调用栈）；事件级服务与状态
+// 留在 *core/context.Context 的扩展里。同一类信息共用一个槽位（授权器与
+// 调用者身份共用 caller-info 槽），不要为每个 setter 各开一个键。
 //
 // 协议格式（参数 Schema、工具声明序列化与调用解析）见 builtin/ai/protocol。
 package toolkit
@@ -21,18 +27,62 @@ import (
 )
 
 // ctxKeyCallerInfo 是 context 中存储工具调用者信息的键。
+//
+// 同一槽位也保存调用授权器（Authorizer）：两者都是"这次工具调用以谁的
+// 身份、能做哪些事"，成对出现；合并存放避免为每个能力再开一个 context 槽。
 type ctxKeyCallerInfoType struct{}
+
+// callerState 是 caller-info 槽位的值。
+type callerState struct {
+	user       platform.UserInfo
+	authorizer Authorizer
+}
 
 // WithCallerInfo 将调用者信息注入 context，供工具 Execute 回调进行权限校验。
 func WithCallerInfo(ctx context.Context, caller platform.UserInfo) context.Context {
-	return context.WithValue(ctx, ctxKeyCallerInfoType{}, caller)
+	state, _ := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
+	state.user = caller
+	return context.WithValue(ctx, ctxKeyCallerInfoType{}, state)
 }
 
 // CallerInfoFromContext 从 context 中提取工具调用者信息。
 // 若 context 中无调用者信息，返回零值 UserInfo 和 false。
 func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
-	caller, ok := ctx.Value(ctxKeyCallerInfoType{}).(platform.UserInfo)
-	return caller, ok
+	state, ok := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
+	return state.user, ok
+}
+
+// Authorizer 判断当前调用者能否在技能内部执行某个工具。
+//
+// 技能内部的工具循环拿不到事件上下文（只有 std context），无法直接做 RBAC
+// 与人工审批；装配侧按事件上下文构造授权器，随 caller-info 槽位传播：
+// 注入阶段按它过滤工具列表，执行阶段再复核一次。
+//
+// 返回 (false, reason) 时 reason 会作为工具错误回填给模型。
+type Authorizer interface {
+	CanUse(tool Tool) (bool, string)
+}
+
+// AuthorizerFunc 把函数适配为 Authorizer。
+type AuthorizerFunc func(tool Tool) (bool, string)
+
+// CanUse 实现 Authorizer。
+func (f AuthorizerFunc) CanUse(tool Tool) (bool, string) { return f(tool) }
+
+// WithAuthorizer 将授权器注入 context（与调用者信息共用一个槽位）。
+func WithAuthorizer(ctx context.Context, a Authorizer) context.Context {
+	state, _ := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
+	state.authorizer = a
+	return context.WithValue(ctx, ctxKeyCallerInfoType{}, state)
+}
+
+// AuthorizerFromContext 从 context 中提取授权器。
+func AuthorizerFromContext(ctx context.Context) (Authorizer, bool) {
+	state, ok := ctx.Value(ctxKeyCallerInfoType{}).(callerState)
+	if !ok || state.authorizer == nil {
+		return nil, false
+	}
+	return state.authorizer, true
 }
 
 // ctxKeyToolSender 是 context 中存储工具消息发送能力的键。

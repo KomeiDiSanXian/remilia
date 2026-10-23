@@ -48,6 +48,9 @@ func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, 
 func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context,
 	cs *execution.CaptureSender, sender toolkit.ToolSender, snapshot toolExecutionSnapshot) runtime.ActionResult {
 	callerCtx := toolkit.WithCallerInfo(toolCtx, ctx.GetSenderInfo())
+	// 授权器随 caller-info 槽位传播：技能内部循环拿不到事件上下文，只能靠它
+	// 做 RBAC 与审批策略判断（注入阶段过滤 + 执行阶段复核）。
+	callerCtx = toolkit.WithAuthorizer(callerCtx, p.toolAuthorizer(ctx))
 	if sender != nil {
 		callerCtx = toolkit.WithToolSender(callerCtx, sender)
 		// 目标解析能力与发送能力同时注入：解析只读、不受审批门控，
@@ -175,7 +178,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 		{Role: protocol.RoleSystem, Content: skill.Prompt},
 		{Role: protocol.RoleUser, Content: string(argsJSON)},
 	}
-	tools := p.buildSkillTools(skill)
+	tools := p.buildSkillTools(ctx, skill)
 	// 子循环自己持有工具（要执行），发给模型的是其动作视图。
 	actions := toolkit.ActionsOf(tools)
 
@@ -209,17 +212,26 @@ func (p *Plugin) executeSkill(ctx context.Context, skill toolkit.Skill, args map
 // buildSkillTools 构建 Skill 可见的工具列表 = 自己的 Tools + 其他系统 Skill。
 // 用户 Skill 不可见其他用户的 Skill，仅系统 Skill 被注入。
 // 其他 Skill 按其自带的 Parameters 注入，无参数时使用默认 {"query": string}。
-func (p *Plugin) buildSkillTools(skill toolkit.Skill) []toolkit.Tool {
+//
+// 工具列表按调用者授权过滤（见 toolkit.Authorizer）：无权限或需要人工审批的
+// 工具不会出现在模型视图里。没有授权器时退化为"过滤所有声明 Permissions 的
+// 工具"（安全默认：无法验证身份时不给能力）。
+func (p *Plugin) buildSkillTools(ctx context.Context, skill toolkit.Skill) []toolkit.Tool {
+	auth, hasAuth := toolkit.AuthorizerFromContext(ctx)
+	allowed := func(t toolkit.Tool) bool {
+		if hasAuth {
+			ok, _ := auth.CanUse(t)
+			return ok
+		}
+		return len(t.Permissions) == 0
+	}
+
 	sysSkills := p.skillReg.ListByOwner(toolkit.OwnerSystem)
 	tools := make([]toolkit.Tool, 0, len(skill.Tools)+len(sysSkills))
 	for _, t := range skill.Tools {
-		// 技能内部的工具调用没有事件上下文，无法执行 RBAC 权限与人工审批。
-		// 最小权限：声明了 Permissions 的工具不注入技能内部循环，避免绕过
-		// 顶层工具调用的授权路径（需要这类能力时请让用户直接调用该工具）。
-		if len(t.Permissions) > 0 {
-			continue
+		if allowed(t) {
+			tools = append(tools, t)
 		}
-		tools = append(tools, t)
 	}
 
 	for _, s := range sysSkills {
@@ -227,6 +239,9 @@ func (p *Plugin) buildSkillTools(skill toolkit.Skill) []toolkit.Tool {
 			continue
 		}
 		other := s
+		if !allowed(toolkit.Tool{Name: other.Name}) {
+			continue
+		}
 		params := other.Parameters
 		if len(params.Properties) == 0 {
 			params = protocol.ToolParamSchema{
@@ -252,9 +267,15 @@ func (p *Plugin) buildSkillTools(skill toolkit.Skill) []toolkit.Tool {
 
 // executeSkillTool 执行 Skill 内部的工具调用。
 // 不走 syncer/real command，直接调用工具自身的 Execute 回调。
+// 执行前按调用者授权复核一次：注入阶段已过滤，这里防止绕过或并发注入变化。
 func (p *Plugin) executeSkillTool(ctx context.Context, tc protocol.ToolCall, tools []toolkit.Tool) string {
 	for _, t := range tools {
 		if t.Name == tc.Name {
+			if auth, ok := toolkit.AuthorizerFromContext(ctx); ok {
+				if allowed, reason := auth.CanUse(t); !allowed {
+					return "错误: " + reason
+				}
+			}
 			result, err := t.Execute(ctx, tc.Arguments)
 			if err != nil {
 				return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, err)
@@ -263,6 +284,24 @@ func (p *Plugin) executeSkillTool(ctx context.Context, tc protocol.ToolCall, too
 		}
 	}
 	return fmt.Sprintf("错误: 未找到工具 %q", tc.Name)
+}
+
+// toolAuthorizer 按事件上下文构造技能内部工具授权器。
+//
+// 判断与顶层工具调用保持一致：RBAC 权限（Permissions）+ 审批模式。技能内部
+// 是模型自循环，无法等待人工审批，因此需要审批的工具一律拒绝，并提示模型
+// 直接调用该工具（走正常审批路径）。
+func (p *Plugin) toolAuthorizer(ctx *eventctx.Context) toolkit.Authorizer {
+	return toolkit.AuthorizerFunc(func(t toolkit.Tool) (bool, string) {
+		if len(t.Permissions) > 0 && !p.hasToolPermission(ctx, t.Permissions) {
+			return false, fmt.Sprintf("工具 %q 需要权限：%s，当前用户无权在技能内使用",
+				t.Name, strings.Join(t.Permissions, ", "))
+		}
+		if p.approvalModeFor(ctx, t.Name) {
+			return false, fmt.Sprintf("工具 %q 需要人工审批，技能内部不支持；请直接调用该工具", t.Name)
+		}
+		return true, ""
+	})
 }
 
 // hasToolPermission 校验调用者是否拥有任一指定权限。
