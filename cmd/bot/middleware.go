@@ -107,9 +107,7 @@ func outboundMetricsMiddleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if plt := ctx.GetEventPlatform(); plt != "" {
-				ctx.Ext().SetTyped(eventctx.OutboundObserverExt{
-					Observer: sender.NewOutboundObserver(plt),
-				})
+				ctx.AddOutboundObserver(sender.NewOutboundObserver(plt))
 			}
 			return next(ctx)
 		}

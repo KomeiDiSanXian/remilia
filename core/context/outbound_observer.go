@@ -49,9 +49,48 @@ type OutboundObserver interface {
 }
 
 // OutboundObserverExt 通过类型扩展注入出站观察者。
-// 中间件/插件可用 SetTyped 注入，Reply 在发送任务内通过 GetTyped 读取。
+// 中间件/插件应通过 [Context.AddOutboundObserver] 追加，Reply 在发送任务内
+// 通过 GetTyped 读取。
 type OutboundObserverExt struct {
 	Observer OutboundObserver
+}
+
+// OutboundObservers 把多个观察者组合成一个（顺序回调）。
+//
+// 出站结果有多个独立消费者：messagelog 需要记录出站消息，发送指标需要
+// 统计成功/失败。扩展槽只有一个，谁后写谁生效——此前 messagelog 的中间件
+// 注册在指标中间件之后，于是 remilia_send_total 从来没有拿到过样本。
+type OutboundObservers []OutboundObserver
+
+// OnOutbound 依次回调全部观察者（nil 元素跳过）。
+func (o OutboundObservers) OnOutbound(chatID string, req platform.SendRequest, res platform.SendResult, err error) {
+	for _, obs := range o {
+		if obs != nil {
+			obs.OnOutbound(chatID, req, res, err)
+		}
+	}
+}
+
+// AddOutboundObserver 向上下文追加一个出站观察者，与已注册的观察者共存。
+//
+// 与直接 SetTyped 的区别：不会覆盖其他子系统已注入的观察者。首次注入时
+// 行为与 SetTyped 相同；此后每次追加都会合并进 OutboundObservers。
+func (ctx *Context) AddOutboundObserver(obs OutboundObserver) {
+	if ctx == nil || obs == nil {
+		return
+	}
+	ext, ok := ctx.Ext().GetTyped[OutboundObserverExt]()
+	if !ok || ext.Observer == nil {
+		ctx.Ext().SetTyped(OutboundObserverExt{Observer: obs})
+		return
+	}
+	if multi, ok := ext.Observer.(OutboundObservers); ok {
+		ctx.Ext().SetTyped(OutboundObserverExt{
+			Observer: append(append(OutboundObservers(nil), multi...), obs),
+		})
+		return
+	}
+	ctx.Ext().SetTyped(OutboundObserverExt{Observer: OutboundObservers{ext.Observer, obs}})
 }
 
 // outboundObserverFrom 从上下文扩展中读取观察者，无则返回 nil。

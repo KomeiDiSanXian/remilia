@@ -27,7 +27,7 @@ import (
 // 该配置只控制回复上下文的注入（见 promptctx.PrependReplyContext）。
 func (s *contextState) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {
 	if _, ok := ctx.Ext().GetTyped[eventctx.OutboundObserverExt](); !ok && s.history != nil {
-		ctx.Ext().SetTyped(eventctx.OutboundObserverExt{Observer: s.history})
+		ctx.AddOutboundObserver(s.history)
 	}
 	return ctx.Reply(msg)
 }

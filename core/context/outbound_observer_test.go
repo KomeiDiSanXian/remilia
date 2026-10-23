@@ -125,3 +125,41 @@ func TestReply_ObserverSurvivesClone(t *testing.T) {
 
 	require.Equal(t, 1, obs.len(), "observer must survive context clone (pooled execution)")
 }
+
+// TestAddOutboundObserver_FansOut 验证追加的观察者与已注册观察者同时收到回调。
+//
+// 回归背景：出站观察者扩展是单槽位，messagelog 的中间件注册在发送指标中间件
+// 之后、用 SetTyped 直接覆盖，导致 remilia_send_total 永远没有样本。
+func TestAddOutboundObserver_FansOut(t *testing.T) {
+	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "ping", platform.EventKindPrivateMessage)
+	event.(*testPlatformEvent).chat.ID = "chat-1"
+
+	first := &recordingObserver{}
+	second := &recordingObserver{}
+	third := &recordingObserver{}
+
+	ctx := context.NewContextFromEvent(event, idSender{})
+	ctx.AddOutboundObserver(first)
+	ctx.AddOutboundObserver(second)
+	ctx.AddOutboundObserver(third) // 连续追加应保持全部观察者
+	ctx.SetDispatcher(&testDispatcher{})
+
+	ctx.Reply(platform.TextMessage("pong"))
+
+	require.Equal(t, 1, first.len(), "已注册观察者不能被后写入者覆盖")
+	assert.Equal(t, 1, second.len())
+	assert.Equal(t, 1, third.len())
+}
+
+// TestAddOutboundObserver_NilIgnored 验证 nil 上下文/观察者为空操作。
+func TestAddOutboundObserver_NilIgnored(t *testing.T) {
+	var nilCtx *context.Context
+	nilCtx.AddOutboundObserver(&recordingObserver{}) // 不应 panic
+
+	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "ping", platform.EventKindPrivateMessage)
+	ctx := context.NewContextFromEvent(event, idSender{})
+	ctx.AddOutboundObserver(nil)
+	if _, ok := ctx.Ext().GetTyped[context.OutboundObserverExt](); ok {
+		t.Error("nil observer must not be registered")
+	}
+}
