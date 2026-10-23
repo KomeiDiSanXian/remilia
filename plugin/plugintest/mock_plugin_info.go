@@ -99,12 +99,15 @@ func (m *MockPluginInfo) GetLoadOrder() []string {
 }
 
 // Get 实现 plugin.Info
-func (m *MockPluginInfo) Get(name string) (*plugin.Instance, bool) {
+func (m *MockPluginInfo) Get(name string) (plugin.InstanceInfo, bool) {
 	if m.Instances == nil {
-		return nil, false
+		return plugin.InstanceInfo{}, false
 	}
 	inst, ok := m.Instances[name]
-	return inst, ok
+	if !ok || inst == nil {
+		return plugin.InstanceInfo{}, false
+	}
+	return inst.Info(), true
 }
 
 // Coordinator 实现 plugin.Info

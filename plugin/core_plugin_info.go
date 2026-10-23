@@ -1,6 +1,10 @@
 package plugin
 
-import "github.com/KomeiDiSanXian/remilia/core/engine"
+import (
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+)
 
 // Info 插件系统只读视图
 //
@@ -31,8 +35,8 @@ type Info interface {
 	// GetLoadOrder 返回插件加载顺序
 	GetLoadOrder() []string
 
-	// Get 获取指定插件的实例（用于查询运行时状态），不存在时返回 nil, false
-	Get(name string) (*Instance, bool)
+	// Get 获取指定插件的只读快照（不含任何状态变更方法），不存在时返回零值, false
+	Get(name string) (InstanceInfo, bool)
 
 	// Coordinator 返回 Engine 的只读视图，供查询命令列表、Matcher 统计等只读操作。
 	//
@@ -60,7 +64,16 @@ func (v *managerInfoView) Count() int                             { return v.m.C
 func (v *managerInfoView) GetMetadata(n string) (*Metadata, bool) { return v.m.GetMetadata(n) }
 func (v *managerInfoView) ListWithMetadata() map[string]*Metadata { return v.m.ListWithMetadata() }
 func (v *managerInfoView) GetLoadOrder() []string                 { return v.m.GetLoadOrder() }
-func (v *managerInfoView) Get(name string) (*Instance, bool)      { return v.m.Get(name) }
+
+// Get 返回只读快照：调用方拿不到 *Instance，也就无法调用 SetState/SetConfig
+// 等导出写方法。
+func (v *managerInfoView) Get(name string) (InstanceInfo, bool) {
+	inst, ok := v.m.Get(name)
+	if !ok || inst == nil {
+		return InstanceInfo{}, false
+	}
+	return inst.infoSnapshot(), true
+}
 
 // Coordinator 返回包装后的只读视图，防止通过类型断言绕过只读限制。
 //
@@ -76,6 +89,49 @@ func (v *managerInfoView) Coordinator() engine.Reader {
 // 容器里的 "engine"/"coordinator" 键用它代替原始 coordinator：即便调用方
 // 通过类型断言拿到这个值，也只能读到查询接口，拿不到 matcher/group 写能力。
 type readOnlyCoordinator struct{ engine.Reader }
+
+// InstanceInfo 插件实例的只读快照：只含查询方法，不暴露任何状态变更入口。
+type InstanceInfo struct {
+	name      string
+	state     State
+	loadTime  time.Time
+	lastError error
+}
+
+// Name 返回插件名。
+func (i InstanceInfo) Name() string { return i.name }
+
+// GetState 返回快照时刻的生命周期状态。
+func (i InstanceInfo) GetState() State { return i.state }
+
+// GetUptime 返回自加载以来的时长（未加载过返回 0）。
+func (i InstanceInfo) GetUptime() time.Duration {
+	if i.loadTime.IsZero() {
+		return 0
+	}
+	return time.Since(i.loadTime)
+}
+
+// GetLastError 返回最近一次错误（无则 nil）。
+func (i InstanceInfo) GetLastError() error { return i.lastError }
+
+// Info 返回实例的只读快照。
+func (pi *Instance) Info() InstanceInfo { return pi.infoSnapshot() }
+
+// infoSnapshot 在实例锁下复制只读字段。
+func (pi *Instance) infoSnapshot() InstanceInfo {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	info := InstanceInfo{
+		state:     pi.state,
+		loadTime:  pi.loadTime,
+		lastError: pi.lastError,
+	}
+	if pi.desc != nil {
+		info.name = pi.desc.Name
+	}
+	return info
+}
 
 func (v *managerInfoView) GetStatus(name string) *Status {
 	s, err := v.m.GetStatus(name)
@@ -96,5 +152,5 @@ func (n *nullPluginInfo) Count() int                             { return 0 }
 func (n *nullPluginInfo) GetMetadata(_ string) (*Metadata, bool) { return nil, false }
 func (n *nullPluginInfo) ListWithMetadata() map[string]*Metadata { return nil }
 func (n *nullPluginInfo) GetLoadOrder() []string                 { return nil }
-func (n *nullPluginInfo) Get(_ string) (*Instance, bool)         { return nil, false }
+func (n *nullPluginInfo) Get(_ string) (InstanceInfo, bool)      { return InstanceInfo{}, false }
 func (n *nullPluginInfo) Coordinator() engine.Reader             { return nil }

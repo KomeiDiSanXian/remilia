@@ -30,7 +30,7 @@ func TestMockPluginInfo_NilMaps_Safe(t *testing.T) {
 	assert.Nil(t, info.ListWithMetadata())
 	assert.Nil(t, info.GetLoadOrder())
 	inst, ok := info.Get("anything")
-	assert.Nil(t, inst)
+	assert.Zero(t, inst)
 	assert.False(t, ok)
 	assert.Nil(t, info.Coordinator())
 }
