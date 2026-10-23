@@ -75,6 +75,14 @@
 
 - 模块名不再取自 guest 参数 `m`（任意模块都能冒充他模块读取配置），改由 wazero 在宿主函数入参提供的调用方 `api.Module` 决定；`HostFuncRegistry` 新增 `RegisterWithCaller`，`get_config` 只返回调用方自己的配置。同名时 caller-aware 版本优先。
 
+**技能内部工具只注入无需授权的工具**
+
+- `buildSkillTools` 过滤声明了 `Permissions` 的工具：技能内部没有事件上下文，无法执行 RBAC 与人工审批，注入即等于绕过顶层工具授权路径。需要这类能力时，由用户直接调用该工具（走正常授权）。
+
+**`Info.Get` 返回只读快照（⚠️ 破坏性变更）**
+
+- `plugin.Info.Get` 由 `(*Instance, bool)` 改为 `(InstanceInfo, bool)`：只含 `Name` / `GetState` / `GetUptime` / `GetLastError`，调用方无法再通过 `*Instance` 调用 `SetState` / `SetConfig` 等导出写方法。`plugintest.MockPluginInfo` 与 `builtin/dev/debug` 已同步。
+
 ### ⚙️ 配置与权限说明
 
 - 无新增配置键。若想压缩"每轮必然未命中"的部分，可按需调小动态上下文（它附在最后一条用户消息上，其后的内容每轮都重新计费）：`context_group_messages`、`memory_inject_max`、`image_context_turns`。这属于质量与成本的权衡，按需调整。
