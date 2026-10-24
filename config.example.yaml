@@ -101,20 +101,26 @@ bot:
 
   # ----- Telegram Bot（长轮询，默认）-----
   # telegram:                                                   # [H⚠]
+  #   mode: "polling"
   #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"        # [H⚠] 从 @BotFather 获取
   #   poll_timeout: 30                                            # [N/A] 长轮询超时（秒），默认 30
 
   # ----- Telegram Bot（Webhook，需公网 HTTPS）-----
-  # 启用 webhook 配置块后，适配器将自动切换为 Webhook 模式接收更新，
-  # 需在 @BotFather 设置 Webhook URL 为 https://your.domain/telegram。
+  # 配置 webhook 块（或显式 mode: webhook）后切换为 Webhook 接收更新。
+  # Telegram 只投递到受信证书的 HTTPS 端点，通常由反向代理终止 TLS 后转发到
+  # host:port；启动时适配器会自动调用 setWebhook（无需手动在 @BotFather 设置）。
   # telegram:                                                   # [R]
+  #   mode: "webhook"
   #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"        # [H⚠] 更换后旧连接用完即断
   #   webhook:                                                   # [R]
-  #     host: "0.0.0.0"                                          # [R]
-  #     port: 8443                                                # [R] Telegram 要求 443/80/88/8443 之一
+  #     public_url: "https://your.domain/telegram"                # [R] 必填，写入 setWebhook
+  #     host: "0.0.0.0"                                           # [R]
+  #     port: 8443                                                # [R] Telegram 允许 443/80/88/8443
+  #     path: "/telegram"                                         # [R] 留空从 public_url 推导
+  #     secret_token: "your_secret_token"                         # [R] 校验推送头，留空不校验
   #     shutdown_timeout: "10s"                                   # [N/A]
-  #     event_buffer: 1000                                        # [N/A]
-  #     worker_count: 0                                           # [N/A]
+  #     event_buffer: 256                                         # [N/A]
+  #     worker_count: 4                                           # [N/A]
 
   # ----- 微信（预留）-----
   # wechat: {}

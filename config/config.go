@@ -367,15 +367,64 @@ type MilkyConfig struct {
 	AccessToken string `yaml:"access_token,omitempty" mapstructure:"access_token,omitempty"`
 }
 
+// Telegram 平台接入方式（[TelegramConfig.Mode]）。
+const (
+	// TelegramModePolling getUpdates 长轮询：无需公网地址，未显式配置 mode 时的默认值。
+	TelegramModePolling = "polling"
+	// TelegramModeWebhook 由 Telegram 把更新 POST 到本端，需要公网 HTTPS 端点。
+	TelegramModeWebhook = "webhook"
+)
+
 // TelegramConfig Telegram 平台适配器配置。
 //
-// 长轮询（默认）与 Webhook 二选一。
-// - 仅设置 Token → 使用长轮询
-// - 设置 Webhook → 使用 Webhook 接收更新
+// 长轮询（默认）与 Webhook 二选一：
+//   - 仅设置 token → 长轮询
+//   - 设置 webhook 块（或 mode: webhook）→ Webhook 接收更新
 type TelegramConfig struct {
-	Token       string         `yaml:"token" mapstructure:"token"`
-	PollTimeout int            `yaml:"poll_timeout,omitempty" mapstructure:"poll_timeout,omitempty"`
-	Webhook     *WebhookConfig `yaml:"webhook,omitempty" mapstructure:"webhook,omitempty"`
+	// Mode 接入方式："polling"（默认）或 "webhook"。
+	// 留空时：配置了 webhook 块则走 webhook，否则 polling。
+	Mode        string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
+	Token       string `yaml:"token" mapstructure:"token"`
+	PollTimeout int    `yaml:"poll_timeout,omitempty" mapstructure:"poll_timeout,omitempty"`
+	// Webhook 仅 mode: webhook 生效。
+	Webhook *TelegramWebhookConfig `yaml:"webhook,omitempty" mapstructure:"webhook,omitempty"`
+}
+
+// TelegramWebhookConfig Telegram Webhook 模式配置。
+type TelegramWebhookConfig struct {
+	// Host 本地监听地址，默认 "0.0.0.0"。
+	Host string `yaml:"host,omitempty" mapstructure:"host,omitempty"`
+	// Port 本地监听端口，默认 8443（Telegram 允许 443/80/88/8443）。
+	Port int `yaml:"port,omitempty" mapstructure:"port,omitempty"`
+	// Path 接收更新的路径，留空时从 public_url 推导，再退回 "/telegram"。
+	Path string `yaml:"path,omitempty" mapstructure:"path,omitempty"`
+	// PublicURL 是对外可达的 HTTPS 端点（写入 setWebhook），必填。
+	// 通常由反向代理终止 TLS 后转发到 host:port。
+	PublicURL string `yaml:"public_url" mapstructure:"public_url"`
+	// SecretToken 非空时校验 Telegram 推送携带的
+	// X-Telegram-Bot-Api-Secret-Token 头。
+	SecretToken string `yaml:"secret_token,omitempty" mapstructure:"secret_token,omitempty"`
+	// ShutdownTimeout 优雅关闭等待时长，默认 "10s"。
+	ShutdownTimeout string `yaml:"shutdown_timeout,omitempty" mapstructure:"shutdown_timeout,omitempty"`
+	// EventBuffer 内部事件通道容量，默认 256。
+	EventBuffer int `yaml:"event_buffer,omitempty" mapstructure:"event_buffer,omitempty"`
+	// WorkerCount 事件处理协程数，默认 4。
+	WorkerCount int `yaml:"worker_count,omitempty" mapstructure:"worker_count,omitempty"`
+}
+
+// ResolveMode 返回规范化的接入方式：留空时按是否配置 webhook 块推断。
+func (tc TelegramConfig) ResolveMode() string {
+	switch tc.Mode {
+	case TelegramModePolling, TelegramModeWebhook:
+		return tc.Mode
+	case "":
+		if tc.Webhook != nil {
+			return TelegramModeWebhook
+		}
+		return TelegramModePolling
+	default:
+		return tc.Mode
+	}
 }
 
 // WeChatConfig 微信平台适配器配置（预留）。

@@ -38,14 +38,24 @@
 - `webhook`：监听 `satori.webhook.listen_addr`（`path` / `token` / `event_buffer_size` 可选）；事件靠 SDK 推入，发送仍走 `server_url` + `token`，因此两者必须同时配置。`satori.webhook.token` 校验 SDK 推送携带的 Bearer，与 `satori.token`（本端调用 SDK 的令牌）方向相反，不可复用。
 - `mode` 留空时按是否配置 `webhook` 块推断。
 
+**平台 · Telegram — 实现并接入 Webhook 模式**
+
+`bot.telegram.webhook` 配置块和示例文档一直都在，声称"启用后自动切换为 Webhook 模式"，但包里**从来没有 Webhook 实现**：工厂永远构造长轮询适配器，配了 webhook 也照旧轮询。
+
+- 新增 `platform/telegram/webhook.go`：HTTP 端点接收更新，启动时自动 `setWebhook`（无需手动在 @BotFather 配置）；收到推送先鉴权（`secret_token` 常数时间比较）与解码，入队后立即返回 200，附件换链与 handler 执行在 worker 中完成，避免 Telegram 因响应超时重投造成重复消息。
+- 队列满时返回 503 让 Telegram 重投，而不是回 200 静默丢消息；停机不注销 webhook，让 Telegram 缓存更新并在恢复后补投。
+- 新增 `bot.telegram.mode`：`polling`（默认）| `webhook`，留空时按是否配置 `webhook` 块推断。`webhook.public_url` 必填且必须是 HTTPS（Telegram 不接受明文回调），`path` 留空从 `public_url` 推导。
+- 能力集、发件器与附件解析逻辑与长轮询共用，两种模式行为一致。
+
 **可观测 · 崩溃转储接入**
 
 `infra/coredump` 此前无任何调用点。新增顶层 `coredump` 配置节（`enable` / `dir` / `diagnose_on_enable`，默认关闭），启用后在进程启动早期生效：崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），并把 Go 运行时崩溃报告写入 `dir` 下的 `crash-*.log`。启用失败只告警，不阻断启动。
 
 ### ✅ 测试
 
-- `config`：新增 `QQConfig` / `OneBotConfig` / `SatoriConfig` / `DiscordConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"、"配置 webhook/interactions 块即推断对应模式"的兼容断言）。
-- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`，以及 satori webhook / discord interactions 分别构造出 `*satori.WebhookAdapter` / `*discord.InteractionsAdapter`。
+- `config`：新增 `QQConfig` / `OneBotConfig` / `SatoriConfig` / `DiscordConfig` / `TelegramConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"、"配置 webhook/interactions 块即推断对应模式"的兼容断言）。
+- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`，satori webhook / discord interactions 分别构造出 `*satori.WebhookAdapter` / `*discord.InteractionsAdapter`，以及 telegram webhook 的字段映射与默认值。
+- `platform/telegram`：新增 Webhook 用例，覆盖 `public_url` 路径推导、`secret_token` 鉴权（缺失/错误 401）、队列满 503、非 POST 405 与构造参数校验。
 
 ## v1.78.0 (2026-10-24)
 

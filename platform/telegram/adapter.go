@@ -1,9 +1,16 @@
 // Package telegram implements the Telegram Bot API platform adapter for remilia.
 //
-// The adapter uses long polling (getUpdates) to receive events and wraps them
-// into platform.Event for the framework core. No external Telegram SDK is
-// required; all communication uses net/http to call the Telegram Bot API
-// directly.
+// Two transports are supported:
+//
+//   - Long polling (getUpdates) — the default, no public address required.
+//     Use [NewAdapter] or [NewPollingAdapter].
+//   - Webhook — Telegram POSTs updates to an HTTPS endpoint you expose.
+//     Use [NewWebhookAdapter]. Requires a public HTTPS URL; TLS is usually
+//     terminated by a reverse proxy in front of the local listener.
+//
+// Events are wrapped into platform.Event for the framework core. No external
+// Telegram SDK is required; all communication uses net/http to call the
+// Telegram Bot API directly.
 //
 // # Quick Start
 //
@@ -89,6 +96,10 @@ type Config struct {
 	// PollTimeout is the long polling timeout in seconds (default: 30).
 	// Controls how long the getUpdates call waits before returning empty results.
 	PollTimeout int
+
+	// Webhook 非空时按 Webhook 模式工作（见 [NewWebhookAdapter]）；
+	// 留空则使用 getUpdates 长轮询（见 [NewPollingAdapter]）。
+	Webhook *WebhookConfig
 }
 
 // NewAdapter creates a PollingAdapter with the given bot token.
@@ -149,6 +160,11 @@ func (a *PollingAdapter) Sender() platform.Sender { return a.sender }
 
 // Capabilities returns Telegram capabilities.
 func (a *PollingAdapter) Capabilities() platform.Capabilities {
+	return telegramCapabilities()
+}
+
+// telegramCapabilities 返回 Telegram 平台能力集（两种接入方式共用）。
+func telegramCapabilities() platform.Capabilities {
 	return platform.Capabilities{
 		Markdown:        true,
 		Buttons:         true,
@@ -245,7 +261,7 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 		for _, upd := range updates {
 			event := newEventWithBot(&upd, fmt.Sprintf("%d", a.botUser.ID))
 			if event != nil {
-				budget -= a.resolveAttachmentURLs(cancelCtx, event, budget)
+				budget -= resolveAttachmentURLs(cancelCtx, a.client, event, budget)
 				platform.SafeDispatch(handler, event)
 			}
 			offset = int(upd.UpdateID) + 1
@@ -276,7 +292,7 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 // 优先使用 Client.DownloadFile。
 // budget 是本批更新剩余的解析时间预算，返回本次实际消耗的时长。
 // 预算耗尽时直接跳过解析（附件 URL 留空），保证事件投递不被阻塞。
-func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platform.Event, budget time.Duration) time.Duration {
+func resolveAttachmentURLs(ctx stdctx.Context, client *Client, event platform.Event, budget time.Duration) time.Duration {
 	started := time.Now()
 
 	// 收集待解析附件的指针：媒体段指向事件内部段的附件字段；
@@ -314,21 +330,21 @@ func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platfor
 		if spent >= budget {
 			// 只在预算刚耗尽时提示一次，避免同一批更新刷出上百条相同告警。
 			if budget > 0 {
-				logger.Warn("[telegram.PollingAdapter] 附件解析预算耗尽，剩余附件 URL 留空（可用 Client.DownloadFile 按需下载）")
+				logger.Warn("[telegram] 附件解析预算耗尽，剩余附件 URL 留空（可用 Client.DownloadFile 按需下载）")
 			}
 			break
 		}
 
 		timeout := min(fileResolveTimeout, budget-spent)
 		fetchCtx, cancel := stdctx.WithTimeout(ctx, timeout)
-		f, err := a.client.GetFile(fetchCtx, meta.FileID)
+		f, err := client.GetFile(fetchCtx, meta.FileID)
 		cancel()
 		if err != nil {
 			logger.WithError(err).
-				Debug("[telegram.PollingAdapter] getFile 失败，附件 URL 留空")
+				Debug("[telegram] getFile 失败，附件 URL 留空")
 			continue
 		}
-		url := a.client.FileURL(f.FilePath)
+		url := client.FileURL(f.FilePath)
 		resolved[meta.FileID] = url
 		att.URL = url
 		if att.Size == 0 && f.FileSize > 0 && f.FileSize <= math.MaxInt32 {

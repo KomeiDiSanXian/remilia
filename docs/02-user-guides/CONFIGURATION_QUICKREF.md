@@ -257,7 +257,18 @@ bot:
   #   webhook:
   #     listen_addr: ":5140"
 
-  # milky: / telegram: / wechat: 同理
+  # telegram 两种接入方式（mode 留空时按是否配置 webhook 块推断）：
+  #   polling（默认）— getUpdates 长轮询，无需公网地址
+  #   webhook         — Telegram 把更新 POST 到本端，public_url 必须是 https
+  # telegram:
+  #   mode: "webhook"
+  #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+  #   webhook:
+  #     public_url: "https://your.domain/telegram"
+  #     port: 8443
+  #     secret_token: "your_secret_token"
+
+  # milky: / wechat: 同理
 ```
 
 ```go

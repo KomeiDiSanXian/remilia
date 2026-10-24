@@ -352,7 +352,7 @@ func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)
 | `onebot` | `forward_ws`（默认）/ `reverse_ws` / `http_post` | 主动连接、被动接受 WS 连入、HTTP POST 事件上报 |
 | `discord` | `gateway`（默认）/ `interactions` | 常驻 Gateway，或只接 HTTP Interactions（斜杠命令/按钮/表单） |
 | `satori` | `ws`（默认）/ `webhook` | 常驻 WS 订阅，或由 SDK 反向 POST 事件 |
-| `telegram` | 仅长轮询 | `webhook` 配置块尚未实现，勿依赖 |
+| `telegram` | `polling`（默认）/ `webhook` | getUpdates 长轮询，或由 Telegram POST 到 `webhook.public_url`（HTTPS） |
 
 各模式的必填字段见 `config.example.yaml` 与 `docs/02-user-guides/CONFIGURATION_QUICKREF.md`。
 

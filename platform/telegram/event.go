@@ -339,7 +339,7 @@ func chatFromTelegram(c *Chat) platform.ChatInfo {
 // Telegram 的入站附件只携带不透明的 file_id，必须先调用 getFile 换取
 // file_path，再拼出下载地址；且下载地址的路径里嵌着 bot token。
 // 因此 file_id 单独放在这里，由适配器负责解析出真正可用的 URL
-// （见 PollingAdapter.resolveAttachmentURLs），插件也可以拿着它
+// （见 resolveAttachmentURLs），插件也可以拿着它
 // 调用 Client.DownloadFile 自行下载。
 type FileMeta struct {
 	// FileID 是 Telegram 的文件标识符，可用于 getFile / 二次发送。

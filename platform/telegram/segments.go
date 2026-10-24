@@ -21,7 +21,7 @@ import (
 //
 // 引用消息：Telegram update 内嵌完整被引用消息（reply_to_message），其媒体
 // 以 file_id 归一化进 reply 段 Extra[platform.SegmentExtraQuoteAtts]；URL
-// 由适配器的附件解析步骤统一换取（见 PollingAdapter.resolveAttachmentURLs）。
+// 由适配器的附件解析步骤统一换取（见 resolveAttachmentURLs）。
 func buildTelegramSegments(msg *Message) []platform.Segment {
 	var segs []platform.Segment
 	if msg.ReplyToMsg != nil {

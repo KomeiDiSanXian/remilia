@@ -44,8 +44,13 @@
 #     base_url: "http://127.0.0.1:6700"
 #     access_token: "your_milky_token"
 #   telegram:
+#     mode: "polling"             # polling（默认）| webhook
 #     token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 #     poll_timeout: 30
+#     # webhook:                 # 仅 mode: webhook 生效（需公网 HTTPS）
+#     #   public_url: "https://your.domain/telegram"
+#     #   port: 8443
+#     #   secret_token: "your_secret_token"
 #   wechat: {}
 
 # ====================================

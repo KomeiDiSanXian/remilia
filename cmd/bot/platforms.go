@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/config"
@@ -181,10 +183,21 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 
 	if c := cfg.Bot.Telegram; c != nil {
 		factories["telegram"] = func() (platform.Adapter, error) {
-			return telegram.NewPollingAdapter(telegram.Config{
-				Token:       c.Token,
-				PollTimeout: c.PollTimeout,
-			})
+			if c.ResolveMode() != config.TelegramModeWebhook {
+				return telegram.NewPollingAdapter(telegram.Config{
+					Token:       c.Token,
+					PollTimeout: c.PollTimeout,
+				})
+			}
+			wh := c.Webhook
+			if wh == nil {
+				return nil, fmt.Errorf("telegram.webhook is required in %q mode", config.TelegramModeWebhook)
+			}
+			hook, err := telegramWebhookConfig(wh)
+			if err != nil {
+				return nil, err
+			}
+			return telegram.NewWebhookAdapter(telegram.Config{Token: c.Token, Webhook: &hook})
 		}
 	}
 
@@ -220,4 +233,34 @@ func newDiscordInteractions(c *config.DiscordConfig) (platform.Adapter, error) {
 		adaptCfg.AckTimeout = d
 	}
 	return discord.NewInteractionsAdapter(adaptCfg)
+}
+
+// telegramWebhookConfig 把配置映射为 telegram.WebhookConfig。
+//
+// 只做字段映射与默认值（监听地址、关闭超时），不触发网络：供工厂与单测复用。
+func telegramWebhookConfig(wh *config.TelegramWebhookConfig) (telegram.WebhookConfig, error) {
+	host := wh.Host
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	port := wh.Port
+	if port == 0 {
+		port = 8443
+	}
+	hook := telegram.WebhookConfig{
+		ListenAddr:  net.JoinHostPort(host, strconv.Itoa(port)),
+		PublicURL:   wh.PublicURL,
+		Path:        wh.Path,
+		SecretToken: wh.SecretToken,
+		EventBuffer: wh.EventBuffer,
+		WorkerCount: wh.WorkerCount,
+	}
+	if wh.ShutdownTimeout != "" {
+		d, err := config.ParseDuration(wh.ShutdownTimeout)
+		if err != nil {
+			return telegram.WebhookConfig{}, fmt.Errorf("telegram.webhook.shutdown_timeout: %w", err)
+		}
+		hook.ShutdownTimeout = d
+	}
+	return hook, nil
 }

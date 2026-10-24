@@ -196,3 +196,55 @@ func TestDiscordConfig_ValidateMode(t *testing.T) {
 		})
 	}
 }
+
+// TestTelegramConfig_ResolveMode 固化 Telegram 接入方式的推断语义：
+// 配置了 webhook 块即视为 webhook，否则维持长轮询。
+func TestTelegramConfig_ResolveMode(t *testing.T) {
+	hook := &TelegramWebhookConfig{PublicURL: "https://bot.example.com/telegram"}
+
+	tests := []struct {
+		name string
+		cfg  TelegramConfig
+		want string
+	}{
+		{"empty defaults to polling", TelegramConfig{}, TelegramModePolling},
+		{"webhook block infers webhook", TelegramConfig{Webhook: hook}, TelegramModeWebhook},
+		{"explicit polling wins over block", TelegramConfig{Mode: TelegramModePolling, Webhook: hook}, TelegramModePolling},
+		{"unknown kept as is", TelegramConfig{Mode: "websocket"}, "websocket"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.ResolveMode())
+		})
+	}
+}
+
+// TestTelegramConfig_ValidateMode webhook 模式要求 https 的 public_url。
+func TestTelegramConfig_ValidateMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     TelegramConfig
+		wantErr string
+	}{
+		{"missing token", TelegramConfig{}, "telegram.token"},
+		{"polling ok", TelegramConfig{Token: "t"}, ""},
+		{"webhook needs block", TelegramConfig{Token: "t", Mode: TelegramModeWebhook}, "telegram.webhook"},
+		{"webhook needs public url", TelegramConfig{Token: "t", Mode: TelegramModeWebhook, Webhook: &TelegramWebhookConfig{}}, "telegram.webhook.public_url"},
+		{"webhook rejects http", TelegramConfig{Token: "t", Mode: TelegramModeWebhook, Webhook: &TelegramWebhookConfig{PublicURL: "http://bot.example.com"}}, "https://"},
+		{"webhook bad timeout", TelegramConfig{Token: "t", Mode: TelegramModeWebhook, Webhook: &TelegramWebhookConfig{PublicURL: "https://bot.example.com", ShutdownTimeout: "soon"}}, "shutdown_timeout"},
+		{"webhook bad port", TelegramConfig{Token: "t", Mode: TelegramModeWebhook, Webhook: &TelegramWebhookConfig{PublicURL: "https://bot.example.com", Port: 70000}}, "port"},
+		{"webhook ok", TelegramConfig{Token: "t", Mode: TelegramModeWebhook, Webhook: &TelegramWebhookConfig{PublicURL: "https://bot.example.com/telegram", Port: 8443}}, ""},
+		{"webhook inferred from block", TelegramConfig{Token: "t", Webhook: &TelegramWebhookConfig{PublicURL: "https://bot.example.com/telegram"}}, ""},
+		{"unknown mode", TelegramConfig{Token: "t", Mode: "websocket"}, "telegram.mode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

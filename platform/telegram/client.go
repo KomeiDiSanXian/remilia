@@ -256,6 +256,36 @@ func (c *Client) GetMe(ctx stdctx.Context) (*User, error) {
 	return &user, nil
 }
 
+// SetWebhook 注册 Webhook 回调地址，并让 Telegram 停止 getUpdates 长轮询。
+//
+// secretToken 非空时 Telegram 会在每次推送的请求头里带上
+// X-Telegram-Bot-Api-Secret-Token，接收端必须校验，否则任何人都能伪造更新。
+func (c *Client) SetWebhook(ctx stdctx.Context, p SetWebhookPayload) error {
+	if p.URL == "" {
+		return fmt.Errorf("telegram: SetWebhook: URL must not be empty")
+	}
+	return c.call(ctx, "setWebhook", p, nil)
+}
+
+// DeleteWebhook 注销 Webhook（之后可重新使用 getUpdates 长轮询）。
+//
+// dropPendingUpdates 为 true 时丢弃已排队但未投递的更新；正常重启应保持
+// false，让停机期间的消息在恢复后补投。
+func (c *Client) DeleteWebhook(ctx stdctx.Context, dropPendingUpdates bool) error {
+	return c.call(ctx, "deleteWebhook", map[string]bool{
+		"drop_pending_updates": dropPendingUpdates,
+	}, nil)
+}
+
+// GetWebhookInfo 返回当前 Webhook 配置与投递状态（便于健康检查与排障）。
+func (c *Client) GetWebhookInfo(ctx stdctx.Context) (*WebhookInfo, error) {
+	var info WebhookInfo
+	if err := c.call(ctx, "getWebhookInfo", nil, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 // GetFile 用 file_id 换取文件的下载信息。
 //
 // Telegram 的入站附件只携带不透明的 file_id，必须先调用 getFile 得到

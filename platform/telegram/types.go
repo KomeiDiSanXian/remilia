@@ -470,6 +470,30 @@ type GetUpdatesPayload struct {
 	Limit   int `json:"limit,omitempty"`
 }
 
+// SetWebhookPayload is the JSON body for the setWebhook API method.
+type SetWebhookPayload struct {
+	// URL is the HTTPS endpoint Telegram pushes updates to.
+	URL string `json:"url"`
+	// SecretToken is echoed back in the X-Telegram-Bot-Api-Secret-Token
+	// header of every delivery; the receiver must verify it.
+	SecretToken string `json:"secret_token,omitempty"`
+	// MaxConnections caps concurrent deliveries (1-100, Telegram default 40).
+	MaxConnections int `json:"max_connections,omitempty"`
+	// DropPendingUpdates discards updates queued while no webhook was set.
+	DropPendingUpdates bool `json:"drop_pending_updates,omitempty"`
+}
+
+// WebhookInfo is the response of the getWebhookInfo API method.
+type WebhookInfo struct {
+	URL                  string `json:"url"`
+	HasCustomCertificate bool   `json:"has_custom_certificate"`
+	PendingUpdateCount   int    `json:"pending_update_count"`
+	LastErrorDate        int64  `json:"last_error_date,omitempty"`
+	LastErrorMessage     string `json:"last_error_message,omitempty"`
+	MaxConnections       int    `json:"max_connections,omitempty"`
+	IPAddress            string `json:"ip_address,omitempty"`
+}
+
 // GetFilePayload is the JSON body for the getFile API method.
 type GetFilePayload struct {
 	FileID string `json:"file_id"`

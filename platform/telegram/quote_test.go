@@ -91,7 +91,7 @@ func TestResolveAttachmentURLsPropagatesToEvent(t *testing.T) {
 	}
 	e := newMessageEventWithBot(msg, false, "bot")
 
-	a.resolveAttachmentURLs(stdctx.Background(), e, 5*time.Second)
+	resolveAttachmentURLs(stdctx.Background(), a.client, e, 5*time.Second)
 
 	var ownURL, quoteURL string
 	for _, s := range e.Segments() {
@@ -142,7 +142,7 @@ func TestResolveAttachmentURLsDedupesFileID(t *testing.T) {
 	}
 	e := newMessageEventWithBot(msg, false, "bot")
 
-	a.resolveAttachmentURLs(stdctx.Background(), e, 5*time.Second)
+	resolveAttachmentURLs(stdctx.Background(), a.client, e, 5*time.Second)
 
 	if calls != 1 {
 		t.Errorf("expected exactly one getFile for duplicate FileID, got %d", calls)

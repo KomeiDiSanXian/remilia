@@ -8,6 +8,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -150,6 +151,9 @@ func (bc *BotConfig) Validate() error {
 	if bc.Milky != nil {
 		validators = append(validators, namedValidator{"bot.milky", bc.Milky.Validate})
 	}
+	if bc.Telegram != nil {
+		validators = append(validators, namedValidator{"bot.telegram", bc.Telegram.Validate})
+	}
 
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
@@ -278,6 +282,42 @@ func (sc *SatoriConfig) Validate() error {
 	default:
 		return fmt.Errorf("satori.mode must be %q or %q, got %q",
 			SatoriModeWS, SatoriModeWebhook, sc.Mode)
+	}
+}
+
+// Validate 验证 Telegram 配置。
+//
+// webhook 模式下 public_url 必填且必须是 HTTPS：Telegram 只投递到受信证书的
+// HTTPS 端点，配成明文地址不会有任何回调（表现为"运行中但永远没有消息"）。
+func (tc *TelegramConfig) Validate() error {
+	if tc.Token == "" {
+		return fmt.Errorf("telegram.token is required and cannot be empty")
+	}
+	switch tc.ResolveMode() {
+	case TelegramModePolling:
+		return nil
+	case TelegramModeWebhook:
+		if tc.Webhook == nil {
+			return fmt.Errorf("telegram.webhook is required in %q mode", TelegramModeWebhook)
+		}
+		if tc.Webhook.PublicURL == "" {
+			return fmt.Errorf("telegram.webhook.public_url is required in %q mode", TelegramModeWebhook)
+		}
+		if !strings.HasPrefix(strings.ToLower(tc.Webhook.PublicURL), "https://") {
+			return fmt.Errorf("telegram.webhook.public_url must be an https:// URL, got %q", tc.Webhook.PublicURL)
+		}
+		if tc.Webhook.ShutdownTimeout != "" {
+			if _, err := ParseDuration(tc.Webhook.ShutdownTimeout); err != nil {
+				return fmt.Errorf("telegram.webhook.shutdown_timeout is not a valid duration: %w", err)
+			}
+		}
+		if tc.Webhook.Port < 0 || tc.Webhook.Port > 65535 {
+			return fmt.Errorf("telegram.webhook.port must be within 0-65535, got %d", tc.Webhook.Port)
+		}
+		return nil
+	default:
+		return fmt.Errorf("telegram.mode must be %q or %q, got %q",
+			TelegramModePolling, TelegramModeWebhook, tc.Mode)
 	}
 }
 
