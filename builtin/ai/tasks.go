@@ -165,13 +165,25 @@ func (p *Plugin) cancelActiveTask(sess *session.Session) bool {
 	if p == nil || sess == nil {
 		return false
 	}
+	return p.cancelActiveTaskBySession(sess.ID)
+}
+
+// cancelActiveTaskBySession 按会话 ID 取消当前的活动任务。
+//
+// 供 /ai clear 这类"会话已被删除、只剩 ID"的路径使用：任务记录在独立的
+// ai_tasks 表里，删会话不会级联，残留的活动任务会让 /ai task status 继续
+// 显示进行中，并可能被预算/自动推进逻辑按 sessionID 重新捡起来。
+func (p *Plugin) cancelActiveTaskBySession(sessionID string) bool {
+	if p == nil || sessionID == "" {
+		return false
+	}
 	store := p.taskStore()
 	p.taskMu.Lock()
 	defer p.taskMu.Unlock()
-	t, err := store.ActiveBySession(sess.ID)
+	t, err := store.ActiveBySession(sessionID)
 	if err != nil {
 		if !errors.Is(err, task.ErrNotFound) {
-			logger.Errorf("[AI] Failed to look up active task for session %s: %v", sess.ID, err)
+			logger.Errorf("[AI] Failed to look up active task for session %s: %v", sessionID, err)
 		}
 		return false
 	}

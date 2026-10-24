@@ -73,6 +73,9 @@ func insertStoredImage(t *testing.T, l *messagelog.Logger, store *attachments.Fi
 
 // TestQuotedImagePartFromStore 引用消息的图片优先从 messagelog 附件存储读取
 // （URL 过期免疫），而非段提取直链。
+//
+// 会话历史只存引用：片段本身不带二进制（AttachmentID + SourceURL 足以在
+// 请求构建时取回），字节写进会话缓存。
 func TestQuotedImagePartFromStore(t *testing.T) {
 	storeDir := t.TempDir() + "/att"
 	l, store := newStoreTestLogger(t, storeDir)
@@ -95,17 +98,24 @@ func TestQuotedImagePartFromStore(t *testing.T) {
 	if cp.Type != protocol.ContentPartImage {
 		t.Fatalf("expected image part, got type %q", cp.Type)
 	}
-	if string(cp.Data) != "fake-image-bytes-in-1" {
-		t.Errorf("expected stored binary, got %q", cp.Data)
+	if len(cp.Data) != 0 {
+		t.Errorf("session history must not carry attachment bytes, got %d bytes", len(cp.Data))
+	}
+	if cp.AttachmentID == 0 {
+		t.Error("expected a durable attachment reference for restart recovery")
 	}
 	if cp.SourceURL != "http://example.com/a.png" {
 		t.Errorf("expected source URL from stored row, got %q", cp.SourceURL)
 	}
+	// 二进制在会话缓存里（请求构建时由 hydrateAttachmentParts 装回）。
+	if cached := sess.CachedContent(cp.SourceURL); cached == nil || string(cached.Data) != "fake-image-bytes-in-1" {
+		t.Errorf("expected bytes cached in session, got %+v", cached)
+	}
 
-	// 二次读取命中会话缓存（同一 URL），仍返回相同内容
+	// 二次读取命中会话缓存（同一 URL），引用与来源保持一致。
 	cp2 := p.quotedImagePart(ctx, sess)
-	if cp2 == nil || string(cp2.Data) != "fake-image-bytes-in-1" {
-		t.Errorf("expected cached stored image, got %+v", cp2)
+	if cp2 == nil || cp2.AttachmentID != cp.AttachmentID || cp2.SourceURL != cp.SourceURL {
+		t.Errorf("expected cached stored image reference, got %+v", cp2)
 	}
 }
 

@@ -91,6 +91,12 @@ func agentStateInventory() []agentStateItem {
 			Note:    "删除墓碑：Delete 后在途回合收尾不再把会话写回存储",
 		},
 		{
+			Name: "session_load_failure", Class: agentStateSessionMemory,
+			Session: []string{"loadFailed"},
+			Note: "加载失败降级标记：存储读失败后落库前必须先恢复并合并旧历史，" +
+				"否则整记录 upsert 会把库里那份历史写成空",
+		},
+		{
 			Name: "tool_set_stability", Class: agentStateSessionMemory,
 			Session: []string{"toolSet"},
 			Note:    "工具集稳定状态（sticky 并集与闲置衰减），抑制 ToolSet 抖动",

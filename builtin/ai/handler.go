@@ -517,41 +517,29 @@ func (p *Plugin) storedImagePart(ctx context.Context, eventID string, sess *sess
 	return nil
 }
 
-// fetchStoredAttachment 经 messagelog 附件存储读取单个附件二进制并构造 ContentPart。
+// fetchStoredAttachment 经 messagelog 附件存储读取单个附件，返回**只带引用**的
+// ContentPart（AttachmentID + SourceURL）。
+//
+// 二进制写入会话缓存，由请求构建阶段按需装入请求副本（见 hydrateAttachmentParts）：
+// 会话历史因此永远不持有图片/音频字节，AttachmentID 又让重启后仍能取回。
 // 未 ready 的行由 FetchContext 同步触发下载（带 30s 超时）；失败返回 nil。
-// 结果写入会话缓存（按 URL key，与 URL 下载路径共用，避免同一附件重复读盘）。
 func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.AttachmentMeta, sess *session.Session) *protocol.ContentPart {
+	// 缓存命中：只需还原引用，不必再读一次。
 	if cached := sess.CachedContent(a.URL); cached != nil {
 		return &protocol.ContentPart{
-			Type:        runtime.InferPartType(cached.MimeType),
-			SourceURL:   a.URL,
-			Data:        cached.Data,
-			MimeType:    cached.MimeType,
-			AudioFormat: cached.AudioFormat,
+			Type:         runtime.InferPartType(cached.MimeType),
+			SourceURL:    a.URL,
+			AttachmentID: a.ID,
+			MimeType:     cached.MimeType,
+			AudioFormat:  cached.AudioFormat,
 		}
 	}
 	if a.ID == 0 {
 		return nil
 	}
 
-	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	rc, err := p.history.FetchContext(fetchCtx, a.ID)
-	if err != nil {
-		logger.Debugf("[AI] stored attachment fetch failed (id=%d): %v", a.ID, err)
-		return nil
-	}
-	defer rc.Close()
-
-	maxBytes := p.cfg.MaxAttachmentSize
-	if maxBytes <= 0 {
-		maxBytes = 20 * 1024 * 1024
-	}
-	data, err := io.ReadAll(io.LimitReader(rc, maxBytes+1))
-	if err != nil {
-		return nil
-	}
-	if int64(len(data)) > maxBytes {
+	data, ok := p.readStoredAttachment(ctx, a.ID)
+	if !ok {
 		return nil
 	}
 
@@ -560,10 +548,10 @@ func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.Attach
 		mimeType = http.DetectContentType(data)
 	}
 	cp := &protocol.ContentPart{
-		Type:      runtime.InferPartType(mimeType),
-		SourceURL: a.URL,
-		Data:      data,
-		MimeType:  mimeType,
+		Type:         runtime.InferPartType(mimeType),
+		SourceURL:    a.URL,
+		AttachmentID: a.ID,
+		MimeType:     mimeType,
 	}
 	if cp.Type == "" {
 		return nil
@@ -574,11 +562,46 @@ func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.Attach
 			return nil
 		}
 	}
-	sess.SetCachedContent(a.URL, data, mimeType, cp.AudioFormat)
+	sess.SetCachedContentWithBudget(a.URL, data, mimeType, cp.AudioFormat, p.imageCacheBudget())
 	return cp
 }
 
-// downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
+// readStoredAttachment 从 messagelog 附件存储读取二进制（强制大小上限）。
+func (p *Plugin) readStoredAttachment(ctx context.Context, attachmentID int64) ([]byte, bool) {
+	if p.history == nil || attachmentID <= 0 {
+		return nil, false
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	rc, err := p.history.FetchContext(fetchCtx, attachmentID)
+	if err != nil {
+		logger.Debugf("[AI] stored attachment fetch failed (id=%d): %v", attachmentID, err)
+		return nil, false
+	}
+	defer rc.Close()
+	return p.readAttachmentBody(rc, fmt.Sprintf("attachment id=%d", attachmentID))
+}
+
+// readAttachmentBody 读取附件正文并强制大小上限（max_attachment_size）。
+func (p *Plugin) readAttachmentBody(r io.Reader, what string) ([]byte, bool) {
+	maxBytes := int64(20 * 1024 * 1024)
+	if p != nil && p.cfg != nil && p.cfg.MaxAttachmentSize > 0 {
+		maxBytes = p.cfg.MaxAttachmentSize
+	}
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		logger.Debugf("[AI] failed to read %s: %v", what, err)
+		return nil, false
+	}
+	if int64(len(data)) > maxBytes {
+		logger.Debugf("[AI] %s exceeded size limit (%d bytes), skipped", what, maxBytes)
+		return nil, false
+	}
+	return data, true
+}
+
+// downloadAttachment 下载附件，返回**只带引用**的 ContentPart（SourceURL），
+// 二进制写入会话缓存，由请求构建阶段按需装入。超出大小限制或下载失败返回 nil。
 func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Session) *protocol.ContentPart {
 	// AI 消息通道只吃图片/语音：视频/文件 kind 显式声明时提前跳过——
 	// 此前会把整个附件（最高 20MB）下载完才被 InferPartType 弃置，白费带宽与时间。
@@ -591,67 +614,19 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 		return &protocol.ContentPart{
 			Type:        runtime.InferPartType(cached.MimeType),
 			SourceURL:   att.URL,
-			Data:        cached.Data,
 			MimeType:    cached.MimeType,
 			AudioFormat: cached.AudioFormat,
 		}
 	}
 
-	if err := p.attachment().Allow(att.URL); err != nil {
-		logger.Debugf("[AI] Attachment URL blocked: %v", err)
+	data, mimeType, ok := p.downloadAttachmentBytes(att.URL, att.MimeType)
+	if !ok {
 		return nil
-	}
-
-	// 下载挂到插件生命周期上下文：既不随（可能很快超时的）事件上下文取消，
-	// 又能在插件关闭时中止在途下载。生命周期上下文缺失（测试）时回退到
-	// Background，保持原有行为。
-	downloadBase := p.lifecycleCtx
-	if downloadBase == nil {
-		downloadBase = context.Background()
-	}
-	dlCtx, dlCancel := context.WithTimeout(downloadBase, 30*time.Second)
-	defer dlCancel()
-	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, att.URL, nil)
-	if err != nil {
-		logger.Debugf("[AI] Failed to create download request: %v", err)
-		return nil
-	}
-	resp, err := p.attachment().Do(req)
-	if err != nil {
-		logger.Debugf("[AI] Failed to download attachment: %v", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Debugf("[AI] Download failed with status %d: %s", resp.StatusCode, att.URL)
-		return nil
-	}
-
-	// 用 LimitReader 强控大小，防止 att.Size==0 绕过或服务器返回超量数据
-	maxBytes := p.cfg.MaxAttachmentSize
-	if maxBytes <= 0 {
-		maxBytes = 20 * 1024 * 1024
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
-	if err != nil {
-		logger.Debugf("[AI] Failed to read attachment body: %v", err)
-		return nil
-	}
-	if int64(len(data)) > maxBytes {
-		logger.Debugf("[AI] Attachment exceeded size limit, skip: %s", att.URL)
-		return nil
-	}
-
-	mimeType := att.MimeType
-	if mimeType == "" {
-		mimeType = http.DetectContentType(data)
 	}
 
 	cp := &protocol.ContentPart{
 		Type:      runtime.InferPartType(mimeType),
 		SourceURL: att.URL,
-		Data:      data,
 		MimeType:  mimeType,
 	}
 
@@ -671,9 +646,80 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, sess *session.Sessi
 	}
 
 	// 写入缓存
-	sess.SetCachedContent(att.URL, data, mimeType, cp.AudioFormat)
+	sess.SetCachedContentWithBudget(att.URL, data, mimeType, cp.AudioFormat, p.imageCacheBudget())
 
 	return cp
+}
+
+// downloadAttachmentBytes 下载附件正文（SSRF 白名单 + 30s 超时 + 大小上限）。
+// 下载挂到插件生命周期上下文：既不随（可能很快超时的）事件上下文取消，
+// 又能在插件关闭时中止在途下载；生命周期上下文缺失（测试）时回退到 Background。
+func (p *Plugin) downloadAttachmentBytes(url, mimeHint string) ([]byte, string, bool) {
+	if err := p.attachment().Allow(url); err != nil {
+		logger.Debugf("[AI] Attachment URL blocked: %v", err)
+		return nil, "", false
+	}
+
+	downloadBase := p.lifecycleCtx
+	if downloadBase == nil {
+		downloadBase = context.Background()
+	}
+	dlCtx, dlCancel := context.WithTimeout(downloadBase, 30*time.Second)
+	defer dlCancel()
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, url, nil)
+	if err != nil {
+		logger.Debugf("[AI] Failed to create download request: %v", err)
+		return nil, "", false
+	}
+	resp, err := p.attachment().Do(req)
+	if err != nil {
+		logger.Debugf("[AI] Failed to download attachment: %v", err)
+		return nil, "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Debugf("[AI] Download failed with status %d: %s", resp.StatusCode, url)
+		return nil, "", false
+	}
+
+	data, ok := p.readAttachmentBody(resp.Body, url)
+	if !ok {
+		return nil, "", false
+	}
+
+	mimeType := mimeHint
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	return data, mimeType, true
+}
+
+// imageCacheBudget 返回单会话附件内存缓存的字节预算。
+// 配置以 MB 为单位（image_cache_max_mb），0/负数回退到 session.MaxContentCacheBytes。
+func (p *Plugin) imageCacheBudget() int64 {
+	if p == nil || p.cfg == nil || p.cfg.ImageCacheMaxMB <= 0 {
+		return session.MaxContentCacheBytes
+	}
+	return int64(p.cfg.ImageCacheMaxMB) << 20
+}
+
+// releaseStaleAttachmentBytes 释放历史消息里不再随请求发送的附件二进制。
+//
+// 请求构建只保留 image_context_window 内的图片/音频（见
+// runtime.PrepareRequestMessages），更早的二进制留在会话内存里毫无用处。
+// 回合结束时调用一次：只处理带时间戳且早于窗口的消息，当前轮的附件不受影响。
+func (p *Plugin) releaseStaleAttachmentBytes(sess *session.Session) {
+	if p == nil || p.cfg == nil || sess == nil {
+		return
+	}
+	window := p.cfg.ImageContextWindow
+	if window <= 0 {
+		return
+	}
+	if n := sess.StripBinaryPartsOlderThan(time.Now().Add(-window)); n > 0 {
+		logger.Debugf("[AI] Released %d stale attachment part(s) from session %s", n, sess.ID)
+	}
 }
 
 // buildStaticSystemPrompt 构建 Stable System Prompt —— 唯一的 System 消息。

@@ -93,11 +93,17 @@ func TestSessionPlanPersistRoundTrip(t *testing.T) {
 		},
 	})
 
-	rec := s.ToRecord()
+	rec, err := s.ToRecord()
+	if err != nil {
+		t.Fatalf("ToRecord: %v", err)
+	}
 	if rec.Plan == "" {
 		t.Fatal("plan should be persisted in record")
 	}
-	restored := rec.ToSession()
+	restored, err := rec.ToSession()
+	if err != nil {
+		t.Fatalf("ToSession: %v", err)
+	}
 	plan := restored.PlanSnapshot()
 	if plan == nil || plan.Task != "跨重启任务" || !plan.Active {
 		t.Fatalf("plan not restored: %+v", plan)

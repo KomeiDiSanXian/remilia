@@ -25,6 +25,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -71,8 +72,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		sess.LockTurn()
 		defer sess.UnlockTurn()
 		sess.Lock()
-		defer sess.Unlock()
 		if len(sess.Messages) <= 1 {
+			sess.Unlock()
 			ctx.ReplyText("没有可以撤销的对话")
 			return nil
 		}
@@ -84,11 +85,14 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			}
 		}
 		if lastUserIdx <= 0 {
+			sess.Unlock()
 			ctx.ReplyText("没有可以撤销的对话")
 			return nil
 		}
 		sess.Messages = sess.Messages[:lastUserIdx]
-		p.sm.SaveLocked(sess)
+		sess.Unlock()
+		// 先解锁再落库：SaveSession 自己取锁并只做快照，写库不持会话锁。
+		p.sm.SaveSession(sess)
 		ctx.ReplyText("↩️ 已撤销上一条对话")
 		return nil
 
@@ -139,7 +143,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 				delete(p.summaries, sessionID)
 				p.summaryMu.Unlock()
 			}()
-			p.doSummary(clone, msgsSnapshot)
+			p.doSummary(clone, sess, msgsSnapshot)
 		})
 		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
 		return nil
@@ -497,8 +501,9 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 		return nil
 	}
 	sess.Messages = sess.Messages[:lastAssistantIdx]
-	p.sm.SaveLocked(sess)
 	sess.Unlock()
+	// 先解锁再落库：SaveSession 自己取锁并只做快照，写库不持会话锁。
+	p.sm.SaveSession(sess)
 
 	_ = ctx.TrySendTyping()
 	result, err := p.processWithTools(ctx, sess)
@@ -535,15 +540,18 @@ func (a *adminState) formatDuration(d time.Duration) string {
 
 // doSummary 在后台调用 LLM 生成对话总结，通过调用方 Clone 的上下文发送结果。
 // ctx 携带 dispatcher（Reply 可真正投递），msgs 是调用方已复制的消息快照，
-// 不会与 sess 管理器产生 data race。使用 p.lifecycleCtx 作为父上下文，
-// 确保插件关闭时及时取消。
-func (p *Plugin) doSummary(ctx *eventctx.Context, msgs []protocol.Message) {
+// 不会与 sess 管理器产生 data race。sess 只用于按引用补水附件（缓存访问有锁）。
+// 使用 p.lifecycleCtx 作为父上下文，确保插件关闭时及时取消。
+func (p *Plugin) doSummary(ctx *eventctx.Context, sess *session.Session, msgs []protocol.Message) {
 	filtered := make([]protocol.Message, 0, len(msgs)+1)
 	for _, m := range msgs {
 		if m.Role != protocol.RoleSystem {
 			filtered = append(filtered, m)
 		}
 	}
+	// 会话历史只存附件引用，这里按引用补水（缓存命中则零 I/O），
+	// 与主对话链路保持一致：总结模型看到的附件内容和之前一样。
+	p.hydrateAttachmentParts(ctx.Context(), filtered, sess)
 	// 会话历史可能残留孤儿 tool 消息（上下文裁剪/中断导致），
 	// 先修复工具调用序列再发送，避免后台总结也被 API 以 400 拒绝。
 	filtered = runtime.RepairToolCallSequence(filtered)

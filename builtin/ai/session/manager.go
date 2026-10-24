@@ -28,7 +28,11 @@ type SessionManager struct {
 	maxSize    int
 	maxHistory int
 	ttl        time.Duration
-	storage    SessionStore
+	// retention 持久化历史的保留时长，与 ttl 解耦：
+	// ttl 是缓存语义（内存里放多久），retention 是数据语义（库里的行留多久）。
+	// <= 0 表示库中行永不过期清理（只有显式 Delete 会删行）。
+	retention time.Duration
+	storage   SessionStore
 	// idLocks 按会话 ID 分片，串行化同一会话的 Load/Save/Delete。
 	// 数据库 I/O 不持有全局缓存锁，但清空、回填和收尾保存不能互相越过。
 	idLocks [64]sync.Mutex
@@ -54,10 +58,27 @@ type sessionEntry struct {
 //
 // 实现此接口可将会话存储到不同后端（数据库、Redis 等）。
 // 内置实现：GormStore（基于 GORM）、NoopStore（空实现）。
+//
+// Save 收到的可能是一份**快照副本**（见 SessionManager.SaveSession：为了不
+// 让数据库往返占用会话锁，先把状态复制出来再落库），实现方只应读取字段并
+// 序列化，不要持有该指针或假设它就是缓存里那个活跃对象。
+//
+// 另可选实现 [ExpiredPurger] 以参与库侧过期清理（否则只有内存缓存会被
+// TTL 回收，见 SessionManager.CleanupExpired）。
 type SessionStore interface {
 	Load(sessionID string) (*Session, error)
 	Save(session *Session) error
 	Delete(sessionID string) error
+}
+
+// ExpiredPurger 会话持久化存储的可选能力：按活跃时间批量删除过期会话。
+//
+// 内存 LRU 只覆盖当前驻留的会话，被淘汰后不再加载的行永远不会经过
+// CleanupExpired 的内存判定；实现本接口后管理器会在内存清理之后调用一次，
+// 避免数据库随运行时间单调增长。
+type ExpiredPurger interface {
+	// PurgeExpired 删除最后活跃时间早于 before 的会话，返回删除条数。
+	PurgeExpired(before time.Time) (int64, error)
 }
 
 // NewSessionManager 创建会话管理器。
@@ -85,11 +106,28 @@ func NewSessionManager(maxSize, maxHistory int, ttl time.Duration, storage Sessi
 	return sm
 }
 
+// SetRetention 设置持久化会话的保留时长（<= 0 表示不在库侧做时间清理）。
+//
+// 与 NewSessionManager 的 ttl 是两个不同的决定：
+//   - ttl：会话在内存里闲置多久后被移出缓存（缓存语义，可随时从库里读回）；
+//   - retention：会话行在库里保留多久（数据语义，到点即永久删除）。
+//
+// 早期实现用同一个 TTL 做两件事，等价于"内存淘汰 = 删用户历史"，
+// 默认 24h 时用户一天没聊天就永久丢对话。拆开后库侧清理只受本值约束。
+//
+// 须在并发使用（启动清理 goroutine）之前调用。
+func (sm *SessionManager) SetRetention(d time.Duration) { sm.retention = d }
+
 // GetOrCreate 获取或创建会话。
 // 先从 LRU 缓存查找，未命中时尝试从持久化存储加载，
 // 都未找到时创建全新的会话。
+//
+// 加载出错（区别于"不存在"）时会话被标记为加载失败并照常返回一个空会话，
+// 让本轮对话继续；但该标记会阻止落库直接覆盖库里那份读不出来的历史
+// （见 snapshot / recoverLoadFailure）。存储读失败通常是瞬时的
+// （SQLITE_BUSY、锁等待、连接抖动），一次读失败不该演变成"历史被清空"。
 func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session {
-	// 同一会话的缓存查询、存储加载和插入与 Delete 串行化。若只在 Load 完成
+	// 同一会话的缓存查询、存储加载和插入与 Delete 串行化：若只在 Load 完成
 	// 后检查墓碑，先开始的慢查询可能越过 Delete，把旧记录重新插回缓存。
 	idLock := sm.idLock(sessionID)
 	idLock.Lock()
@@ -109,8 +147,19 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	// 慢路径：存储加载在 sm.mu 之外执行。此前在全局写锁内 Load 会让单个慢查询
 	// 阻塞所有会话的创建/查询/清理（队头阻塞）。同一 ID 的存储操作由分片锁串行化。
 	var loaded *Session
+	loadFailed := false
 	if sm.storage != nil {
-		if stored, err := sm.storage.Load(sessionID); err == nil && stored != nil {
+		stored, err := sm.storage.Load(sessionID)
+		switch {
+		case err != nil:
+			// 关键：不能当作"没有历史"处理，否则本轮结束的整记录 upsert
+			// 会把库里那份历史写成空。记日志 + 指标后进入降级态，
+			// 由落库路径负责重试加载与合并。
+			loadFailed = true
+			recordLoadFailure()
+			logger.Errorf("[AI] Failed to load session %s, starting degraded (history preserved in storage): %v",
+				sessionID, err)
+		case stored != nil:
 			loaded = stored
 		}
 	}
@@ -135,6 +184,9 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 			ChatID:    chatID,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
+		}
+		if loadFailed {
+			session.MarkLoadFailed()
 		}
 	}
 
@@ -204,35 +256,117 @@ func (sm *SessionManager) PeekOrLoad(sessionID string) *Session {
 	return stored
 }
 
-// SaveLocked 持久化保存会话到存储后端（调用方须已持有会话锁）；需要自动加锁时用 SaveSession。
+// SaveSession 线程安全地持久化保存会话。
 //
-// 如果调用方未持有锁，请使用 [SaveSession] 替代。
+// 锁纪律：先取会话 ID 分片锁（串行化同一会话的落库顺序），再在会话锁内
+// 只做快照（刷新活跃时间 / 裁剪窗口 / 复制消息切片），最后在会话锁之外
+// 序列化并写库。数据库往返不再阻塞同一会话的消息读取、中断检查与工具状态
+// 访问——早期实现把整条 upsert（几十到几百 KB 的行重写，含 JSON 序列化）
+// 放在会话锁内，慢写会顺带卡住正在进行的回合和同会话的其它请求。
+//
 // 会话已置删除墓碑（被 Delete）时跳过写库：在途回合的收尾保存不得把删除撤销。
-func (sm *SessionManager) SaveLocked(session *Session) {
+func (sm *SessionManager) SaveSession(session *Session) {
+	if session == nil {
+		return
+	}
 	idLock := sm.idLock(session.ID)
 	idLock.Lock()
 	defer idLock.Unlock()
 
+	snap := sm.snapshot(session)
+	if snap == nil {
+		return
+	}
+	sm.writeSnapshot(snap)
+}
+
+// snapshot 生成待落库的会话副本；返回 nil 表示本次不写。
+func (sm *SessionManager) snapshot(session *Session) *Session {
 	if session.Deleted() {
 		logger.Debugf("[AI] Session %s was deleted, skipping persist", session.ID)
-		return
+		return nil
+	}
+	// 加载失败的会话先尝试恢复历史，避免用空会话覆盖库里的旧记录。
+	if session.LoadFailed() && !sm.recoverLoadFailure(session) {
+		return nil
+	}
+
+	session.Lock()
+	defer session.Unlock()
+	if session.Deleted() {
+		return nil
 	}
 	session.UpdatedAt = time.Now()
 	TrimMessages(session, sm.maxHistory)
 
-	if sm.storage != nil {
-		if err := sm.storage.Save(session); err != nil {
-			recordSaveFailure()
-			logger.Errorf("[AI] Failed to persist session %s: %v", session.ID, err)
-		}
+	return &Session{
+		ID:        session.ID,
+		UserID:    session.UserID,
+		ChatID:    session.ChatID,
+		CallCount: session.CallCount,
+		ToolCount: session.ToolCount,
+		CreatedAt: session.CreatedAt,
+		UpdatedAt: session.UpdatedAt,
+		// 消息切片与计划、待合并图片都做副本：副本要跨出会话锁被序列化，
+		// 不能与仍在修改的原对象共享可变状态。
+		Messages:     append([]protocol.Message(nil), session.Messages...),
+		plan:         ClonePlan(session.plan),
+		pendingImage: clonePendingImageState(session.pendingImage),
 	}
 }
 
-// SaveSession 线程安全地持久化保存会话，自动加锁。
-func (sm *SessionManager) SaveSession(session *Session) {
+// writeSnapshot 序列化并写库（调用方持有 idLock，但不持有会话锁）。
+func (sm *SessionManager) writeSnapshot(snap *Session) {
+	if sm.storage == nil {
+		return
+	}
+	if err := sm.storage.Save(snap); err != nil {
+		recordSaveFailure()
+		logger.Errorf("[AI] Failed to persist session %s: %v", snap.ID, err)
+	}
+}
+
+// recoverLoadFailure 处理"创建会话时加载失败"的降级会话：重试一次加载，
+// 成功则把库里的旧历史合并回内存（旧历史在前、本轮新消息在后），
+// 让后续落库写回完整历史；仍失败时返回 false（跳过本轮写库，旧行原样保留）。
+func (sm *SessionManager) recoverLoadFailure(session *Session) bool {
+	if sm.storage == nil {
+		session.ClearLoadFailed()
+		return true
+	}
+	stored, err := sm.storage.Load(session.ID)
+	if err != nil {
+		recordLoadFailure()
+		logger.Errorf("[AI] Session %s: retry load failed, skipping persist to keep stored history intact: %v",
+			session.ID, err)
+		return false
+	}
+
 	session.Lock()
 	defer session.Unlock()
-	sm.SaveLocked(session)
+	session.ClearLoadFailed()
+	if stored == nil {
+		// 库中确实没有这一行（首次会话或此前读失败是假象），可以直接写入。
+		return true
+	}
+	merged := make([]protocol.Message, 0, len(stored.Messages)+len(session.Messages))
+	merged = append(merged, stored.Messages...)
+	session.Messages = append(merged, session.Messages...)
+	session.CallCount = max(session.CallCount, stored.CallCount)
+	session.ToolCount = max(session.ToolCount, stored.ToolCount)
+	if !stored.CreatedAt.IsZero() && stored.CreatedAt.Before(session.CreatedAt) {
+		session.CreatedAt = stored.CreatedAt
+	}
+	// 计划与待合并图片只在内存侧为空时采用库中的值，避免覆盖本轮更新的状态。
+	if session.plan == nil {
+		session.plan = stored.plan
+	}
+	if session.pendingImage == nil {
+		session.pendingImage = stored.pendingImage
+	}
+	logger.Warnf("[AI] Session %s: recovered %d messages from storage after load failure",
+		session.ID, len(stored.Messages))
+	return true
 }
 
 // Delete 删除指定会话（从 LRU 和持久化存储中）。
@@ -265,55 +399,106 @@ func (sm *SessionManager) Delete(sessionID string) {
 
 // CleanupExpired 清理过期的会话。
 // 由插件 Setup 中启动的后台 goroutine 定期调用。
-// 先复制缓存条目，逐个在会话锁与 ID 分片锁内复查后移出缓存；数据库删除期间
-// 不持有全局缓存锁，避免慢 I/O 阻塞其他会话操作。
-// 正在执行回合的会话跳过本轮（避免与活跃回合产生双活对象，见 evictLocked）；
+//
+// 两个层面、两套时长，不要混为一谈：
+//   - 内存层（ttl）：逐个会话在 ID 分片锁 + 会话锁内复查后移出缓存。这**不删库**，
+//     行还在，下次有人说话时 GetOrCreate 会重新读回来。
+//   - 持久层（retention）：按 updated_at 批量删除超过保留期的行，覆盖"从未驻留
+//     或早已被 LRU 淘汰、永远不会进入上面循环"的会话。retention <= 0 时跳过。
+//
+// 早期实现用同一个 TTL 做两件事：内存一过期就顺手删库，等价于"缓存淘汰 =
+// 删用户历史"。默认 24h 下，用户一天没聊天对话就被永久删除，而且被 LRU 淘汰
+// 的行反而永远不会被清理（库里单调增长）——两头都错。
+//
+// 库侧清理按行上的 updated_at 判定，而内存里的 UpdatedAt 会被每次访问刷新：
+// 驻留会话若"被访问过但还没落库"，其行可能先被批量清理删掉。这不影响正确性
+// ——下一次 SaveSession 会把整条记录重新写回，只有"清理之后、下次保存之前
+// 进程崩溃"这个窗口里才会丢掉那条早已超过保留期的记录。
+//
+// 正在执行回合的会话跳过内存回收（避免与活跃回合产生双活对象，见 evictLocked）；
 // 回合中的会话必然活跃（touch 会刷新 UpdatedAt），自然不会被判过期。
+//
+// 锁顺序：idLock → sm.mu → 会话锁（Delete/SaveSession/CleanupExpired 一致）。
 func (sm *SessionManager) CleanupExpired() {
-	type candidate struct {
-		id      string
-		session *Session
+	sm.sweepMemory()
+	sm.purgeStorage()
+}
+
+// sweepMemory 按 ttl 把闲置会话移出内存缓存（不触碰持久化存储）。
+func (sm *SessionManager) sweepMemory() {
+	if sm.ttl <= 0 {
+		return
 	}
-	entries := make([]candidate, 0)
+
+	ids := make([]string, 0)
 	sm.mu.RLock()
-	for id, elem := range sm.sessions {
-		entries = append(entries, candidate{id: id, session: elem.Value.(*sessionEntry).session})
+	for id := range sm.sessions {
+		ids = append(ids, id)
 	}
 	sm.mu.RUnlock()
 
-	for _, entry := range entries {
-		session := entry.session
+	for _, id := range ids {
+		idLock := sm.idLock(id)
+		idLock.Lock()
+
+		sm.mu.RLock()
+		elem, ok := sm.sessions[id]
+		sm.mu.RUnlock()
+		if !ok {
+			idLock.Unlock()
+			continue
+		}
+		session := elem.Value.(*sessionEntry).session
+
 		session.Lock()
-		expired := sm.ttl > 0 && !session.Deleted() && !session.TurnActive() &&
-			time.Now().After(session.UpdatedAt.Add(sm.ttl))
+		expired := sm.expiredLocked(session)
+		if expired {
+			// 立即置墓碑：此刻可能仍有回合在收尾，它的 SaveSession 不应把
+			// 刚被回收的对象再写回去（行本身不动，稍后由 retention 清理）。
+			session.MarkDeleted()
+		}
+		session.Unlock()
 		if !expired {
-			session.Unlock()
+			idLock.Unlock()
 			continue
 		}
 
-		idLock := sm.idLock(entry.id)
-		idLock.Lock()
+		// 仍在持有 idLock 时从缓存摘除：期间不可能有新的 GetOrCreate 插入同一 ID。
 		sm.mu.Lock()
-		elem, ok := sm.sessions[entry.id]
-		current := ok && elem.Value.(*sessionEntry).session == session
-		expired = current && sm.ttl > 0 && !session.Deleted() && !session.TurnActive() &&
-			time.Now().After(session.UpdatedAt.Add(sm.ttl))
-		if expired {
-			session.MarkDeleted()
-			sm.lru.Remove(elem)
-			delete(sm.sessions, entry.id)
+		if cur, ok := sm.sessions[id]; ok && cur.Value.(*sessionEntry).session == session {
+			sm.lru.Remove(cur)
+			delete(sm.sessions, id)
 			setActiveSessions(len(sm.sessions))
 		}
 		sm.mu.Unlock()
-		session.Unlock()
-
-		if expired && sm.storage != nil {
-			if err := sm.storage.Delete(entry.id); err != nil {
-				logger.Errorf("[AI] Failed to delete expired session %s from storage: %v", entry.id, err)
-			}
-		}
 		idLock.Unlock()
 	}
+}
+
+// purgeStorage 按 retention 删除库中过期的会话行。
+func (sm *SessionManager) purgeStorage() {
+	if sm.retention <= 0 {
+		return
+	}
+	purger, ok := sm.storage.(ExpiredPurger)
+	if !ok {
+		return
+	}
+	removed, err := purger.PurgeExpired(time.Now().Add(-sm.retention))
+	if err != nil {
+		logger.Errorf("[AI] Failed to purge expired sessions from storage: %v", err)
+		return
+	}
+	if removed > 0 {
+		recordPurged(removed)
+		logger.Debugf("[AI] Purged %d expired session(s) from storage", removed)
+	}
+}
+
+// expiredLocked 判断会话是否已过 TTL（调用方持有会话锁）。
+func (sm *SessionManager) expiredLocked(session *Session) bool {
+	return sm.ttl > 0 && !session.Deleted() && !session.TurnActive() &&
+		time.Now().After(session.UpdatedAt.Add(sm.ttl))
 }
 
 // evictLocked 在持有锁时执行 LRU 淘汰。

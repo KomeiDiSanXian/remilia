@@ -63,7 +63,14 @@ type ContentPart struct {
 	Text string `json:"text,omitempty"`
 
 	// Type=image 或 Type=audio 时使用
-	SourceURL string `json:"source_url,omitempty"` // 原始下载 URL，仅用于缓存 key
+	SourceURL string `json:"source_url,omitempty"` // 原始下载 URL，仅用于缓存 key 与重取
+
+	// AttachmentID 附件在本机附件存储（messagelog.message_attachments）中的记录 ID。
+	//
+	// >0 时表示可以脱离原始 URL 重新取回二进制（重启后、内存缓存过期后都靠它）；
+	// 0 表示只能依赖 SourceURL 重新下载（平台直链通常很快过期）。
+	// 与 SourceURL 一样属于会话侧元数据，不进入请求线格式（provider 适配器忽略）。
+	AttachmentID int64 `json:"attachment_id,omitempty"`
 
 	// 下载后的二进制数据（json:"-" 不持久化到 session）
 	Data []byte `json:"-"`

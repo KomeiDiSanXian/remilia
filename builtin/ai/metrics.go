@@ -301,6 +301,24 @@ var (
 		},
 	)).(prometheus.Histogram)
 
+	attachmentHydrations = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "attachment_hydrations_total",
+			Help:      "请求构建时按引用补齐附件二进制的次数（source: cache/storage/url）",
+		},
+		[]string{"source"},
+	)).(*prometheus.CounterVec)
+
+	attachmentUnavailable = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "attachment_unavailable_total",
+			Help:      "按引用无法取回附件、降级为文本占位的次数（kind: image/audio）",
+		},
+		[]string{"kind"},
+	)).(*prometheus.CounterVec)
+
 	memoryExtract = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "ai",
@@ -391,6 +409,16 @@ func recordImagesDropped(reason string, n int) {
 	if n > 0 {
 		imagesDropped.WithLabelValues(reason).Add(float64(n))
 	}
+}
+
+// recordAttachmentHydration 记录一次按引用补齐附件二进制。
+func recordAttachmentHydration(source string) {
+	attachmentHydrations.WithLabelValues(source).Inc()
+}
+
+// recordAttachmentUnavailable 记录一次附件无法按引用取回（已降级为文本占位）。
+func recordAttachmentUnavailable(kind string) {
+	attachmentUnavailable.WithLabelValues(kind).Inc()
 }
 
 // recordMemoryExtract 记录一次事实抽取；只在成功时观测写入条数。

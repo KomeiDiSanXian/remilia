@@ -69,6 +69,11 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// 一次性落库：把每条工具结果一次整记录 upsert 降为每回合一次，消除写放大。
 	// 用户消息等跨回合的即时持久化仍由 handler / generateVerified 负责。
 	defer p.sm.SaveSession(session)
+	// 回合结束回收"本来就不会再随请求发送"的历史图片/音频字节：
+	// 请求构建只保留 image_context_window 内的附件（runtime.PrepareRequestMessages），
+	// 更早的二进制留在会话里只是白占内存。降级后的文本与请求侧逐字节一致
+	// （共用 session.StripBinaryParts），不会额外打断前缀缓存。
+	defer p.releaseStaleAttachmentBytes(session)
 
 	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
@@ -148,6 +153,14 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 				budgetDropped, p.cfg.MaxImagesPerRequest)
 			ctx.ReplyText(fmt.Sprintf("本次对话图片较多，已保留最近 %d 张，更早的图片不再显示",
 				p.cfg.MaxImagesPerRequest))
+		}
+
+		// 历史消息只存附件引用（AttachmentID / SourceURL），这里按引用把二进制补进
+		// **请求副本**：会话本身不持有字节，所以历史里有多少图都不影响常驻内存。
+		// 补齐结果同时写回会话缓存，同一回合的后续工具轮直接命中。
+		if filled, unavailable := p.hydrateAttachmentParts(turnCtx, msgs, session); filled > 0 || unavailable > 0 {
+			logger.Debugf("[AI] hydrated %d attachment(s), %d unavailable (session %s)",
+				filled, unavailable, session.ID)
 		}
 
 		// 兜底修复工具调用序列：中断跳过的工具、进程异常退出或持久化损坏

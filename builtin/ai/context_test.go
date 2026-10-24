@@ -409,8 +409,14 @@ func TestBuildUserMessageInjectsForwardRecordImages(t *testing.T) {
 	if msg.ContentParts[0].Type != protocol.ContentPartText {
 		t.Errorf("expected text part first, got %+v", msg.ContentParts[0])
 	}
-	if msg.ContentParts[1].Type != protocol.ContentPartImage || msg.ContentParts[1].MimeType != "image/png" || len(msg.ContentParts[1].Data) == 0 {
-		t.Errorf("expected first record image part, got %+v", msg.ContentParts[1])
+	if msg.ContentParts[1].Type != protocol.ContentPartImage || msg.ContentParts[1].MimeType != "image/png" || len(msg.ContentParts[1].Data) != 0 {
+		t.Errorf("expected first record image part (reference only), got %+v", msg.ContentParts[1])
+	}
+	if msg.ContentParts[1].SourceURL != img1 {
+		t.Errorf("expected source URL reference %q, got %+v", img1, msg.ContentParts[1])
+	}
+	if cached := sess.CachedContent(img1); cached == nil || string(cached.Data) != "fake-png-1" {
+		t.Errorf("expected bytes to stay in the session cache, got %+v", cached)
 	}
 	if msg.ContentParts[2].Type != protocol.ContentPartImage {
 		t.Errorf("expected second record image part, got %+v", msg.ContentParts[2])
@@ -898,8 +904,11 @@ func TestBuildUserMessageInjectsQuotedImage(t *testing.T) {
 		t.Errorf("expected quote note text part, got %+v", msg.ContentParts[1])
 	}
 	img := msg.ContentParts[2]
-	if img.Type != protocol.ContentPartImage || img.MimeType != "image/jpeg" || len(img.Data) == 0 {
-		t.Errorf("expected downloaded image part, got %+v", img)
+	if img.Type != protocol.ContentPartImage || img.MimeType != "image/jpeg" || len(img.Data) != 0 {
+		t.Errorf("expected quoted image part with reference only, got %+v", img)
+	}
+	if img.SourceURL != imgURL {
+		t.Errorf("expected source URL reference %q, got %+v", imgURL, img)
 	}
 	if msg.Content != "" {
 		t.Errorf("expected empty Content in parts mode, got %q", msg.Content)

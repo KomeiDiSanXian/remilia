@@ -71,10 +71,16 @@ type Session struct {
 	//
 	// signal 是唯一活跃状态：nil 表示无回合，非 nil 同时携带该回合的中断信号。
 	// 这样活跃状态与信号通过一次原子操作发布，不会出现两者短暂不一致。
+
 	// deleted 删除墓碑（json:"-" 不持久化）：Delete 在移出缓存时置位，
-	// 让仍在进行的回合收尾时跳过 SaveLocked 的整记录 upsert，避免把
+	// 让仍在进行的回合收尾时跳过整记录 upsert，避免把
 	// "/ai clear" 静默撤销（消息删了又回来）。
-	deleted         atomic.Bool
+	deleted atomic.Bool
+	// loadFailed 加载失败标记（json:"-" 不持久化）：GetOrCreate 从持久化
+	// 存储加载时出错（不是"不存在"，而是读失败）会置位。此时内存里是一份
+	// 空会话，直接整记录 upsert 会把库里那份历史覆盖掉。置位期间落库先
+	// 重试加载并合并旧历史，仍失败则跳过写库，宁可这一轮不持久化。
+	loadFailed      atomic.Bool
 	planAutoStopped bool `json:"-"`
 	// imageOverflowNotified 本次会话是否已提示过图片数量超限（json:"-" 不持久化）。
 	imageOverflowNotified bool `json:"-"`
@@ -150,12 +156,22 @@ func (s *Session) Interrupted() bool {
 	}
 }
 
-// MarkDeleted 置删除墓碑：此后 SaveLocked 跳过持久化（Delete 期间在途回合的
+// MarkDeleted 置删除墓碑：此后落库路径跳过持久化（Delete 期间在途回合的
 // 收尾写库会把删除撤销）。
 func (s *Session) MarkDeleted() { s.deleted.Store(true) }
 
 // Deleted 返回会话是否已置删除墓碑。
 func (s *Session) Deleted() bool { return s.deleted.Load() }
+
+// MarkLoadFailed 置加载失败标记：持久化存储里可能有一份读不出来的历史，
+// 落库前必须先恢复，不能直接用内存里的空会话整记录 upsert。
+func (s *Session) MarkLoadFailed() { s.loadFailed.Store(true) }
+
+// LoadFailed 返回会话是否处于"加载失败"降级态。
+func (s *Session) LoadFailed() bool { return s.loadFailed.Load() }
+
+// ClearLoadFailed 清除加载失败标记（历史已恢复或确认库中无行）。
+func (s *Session) ClearLoadFailed() { s.loadFailed.Store(false) }
 
 // TurnCtx 返回随当前回合中断信号自动取消的子上下文。
 //

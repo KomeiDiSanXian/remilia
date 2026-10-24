@@ -203,26 +203,11 @@ func RepairToolCallSequence(msgs []protocol.Message) []protocol.Message {
 
 // StripBinaryParts 将消息中的多模态附件二进制内容替换为文本占位。
 // 无 ContentParts 时原样返回。
+//
+// 实现见 session.StripBinaryParts：请求构建与会话内存回收共用同一份降级逻辑，
+// 两条路径产出的消息因此逐字节一致（前缀缓存不会因"内存里先降级"而失效）。
 func StripBinaryParts(m protocol.Message) protocol.Message {
-	if len(m.ContentParts) == 0 {
-		return m
-	}
-	parts := make([]string, 0, len(m.ContentParts))
-	for _, p := range m.ContentParts {
-		switch p.Type {
-		case protocol.ContentPartText:
-			if p.Text != "" {
-				parts = append(parts, p.Text)
-			}
-		case protocol.ContentPartImage:
-			parts = append(parts, "[历史图片未随本次请求发送]")
-		case protocol.ContentPartAudio:
-			parts = append(parts, "[历史音频未随本次请求发送]")
-		}
-	}
-	m.ContentParts = nil
-	m.Content = strings.Join(parts, "\n")
-	return m
+	return session.StripBinaryParts(m)
 }
 
 // TruncateToolResult 截断过长的工具结果，按 rune 截断避免劈开多字节字符。

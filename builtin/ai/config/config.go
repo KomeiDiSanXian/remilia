@@ -171,8 +171,9 @@ type Config struct {
 	// MaxDepth 工具调用的最大递归深度。
 	// 防止工具循环调用过深，默认 5。
 	MaxDepth int `yaml:"max_depth"`
-	// MaxHistory 保留的最大消息轮数（一对 user+assistant 算一轮）。
-	// 超出部分从中间裁剪，保留首尾。
+	// MaxHistory 保留的最大历史消息条数（不是"轮数"：一条 user 或一条
+	// assistant 各算一条）。超出部分从最早处裁剪，system 消息优先保留，
+	// 且为稳定前缀缓存会一次多让出部分余量（见 session.TrimLowWaterDivisor）。
 	MaxHistory int `yaml:"max_history"`
 	// Temperature 采样温度，0-2，默认 0.7。越高输出越随机。
 	Temperature float64 `yaml:"temperature"`
@@ -191,8 +192,31 @@ type Config struct {
 	// 连续失败达到 limit+1 次时优雅中止本轮回合并向用户说明，
 	// 替代原先撞 max_depth 的裸错误。
 	ToolRetryLimit int `yaml:"tool_retry_limit"`
-	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
+	// SessionTTL 会话在内存缓存中的闲置存活时长。
+	//
+	// 只影响内存驻留：闲置超过此值的会话被移出缓存，但库里的历史仍然保留，
+	// 下次有人说话时重新加载。会话行的保留期见 SessionRetention。
 	SessionTTL time.Duration `yaml:"session_ttl"`
+	// SessionRetention 持久化会话历史的保留时长（默认 720h = 30 天）。
+	//
+	// 到点即永久删除库中的会话行（含内存中该会话的副本）。与 SessionTTL 解耦：
+	// 早前两者共用 session_ttl，等价于"内存淘汰 = 删用户历史"，默认 24h 下
+	// 用户一天没聊天对话就没了。显式配 0（session_retention: 0s）表示保留期
+	// 不限，只有 /ai reset 这类显式操作才会删行。
+	SessionRetention time.Duration `yaml:"session_retention"`
+	// SessionCacheSize 内存中最多驻留的会话数（LRU 上限，默认 1000，<=0 用默认）。
+	//
+	// 内存占用约为 会话数 × max_history × 单条消息大小：工具结果可达
+	// 8K 字符（MaxToolResultLen），中文 UTF-8 下约 24KB，所以 1000 × 20 条
+	// 的极端上限接近 500MB。大群场景可下调到 200~500 换取更小的常驻内存，
+	// 代价是被淘汰的会话下次要重新从库里加载。
+	SessionCacheSize int `yaml:"session_cache_size"`
+	// ImageCacheMaxMB 单会话附件（图片/音频）内存缓存的字节预算，单位 MB（默认 64）。
+	//
+	// 只按条数限制不够：单条附件上限由 max_attachment_size 决定（默认 20MB），
+	// 32 条就是 640MB/会话。超出预算时按最早过期淘汰（刚写入的那条保留）。
+	// 0 表示用默认值。
+	ImageCacheMaxMB int `yaml:"image_cache_max_mb"`
 	// SkillTimeout 每个 Skill 执行的最大时长，默认 60s。
 	SkillTimeout time.Duration `yaml:"skill_timeout"`
 	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
@@ -471,6 +495,9 @@ var DefaultConfig = Config{
 	ToolTimeout:            30 * time.Second,
 	ToolRetryLimit:         2,
 	SessionTTL:             24 * time.Hour,
+	SessionRetention:       720 * time.Hour,
+	SessionCacheSize:       1000,
+	ImageCacheMaxMB:        64,
 	ExecTimeout:            120 * time.Second,
 	ExecMaxOutputBytes:     32 << 10,
 	ExecRequireApproval:    true,
@@ -607,6 +634,23 @@ func Load(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetDuration("session_ttl", 0); v > 0 {
 		cfg.SessionTTL = v
+	}
+	// 显式存在性判断：允许 session_retention: 0s 表示"保留期不限"
+	//（GetDuration 拿到 0 走不到 > 0 的分支，会永远回退 30 天默认值）。
+	if ctx.Config.Get("session_retention") != nil {
+		if v := ctx.Config.GetDuration("session_retention", cfg.SessionRetention); v >= 0 {
+			cfg.SessionRetention = v
+		}
+	}
+	if v := ctx.Config.GetInt("session_cache_size", 0); v > 0 {
+		cfg.SessionCacheSize = v
+	}
+	if v, ok := intOption(ctx, "image_cache_max_mb"); ok {
+		if v >= 0 {
+			cfg.ImageCacheMaxMB = v
+		} else {
+			ctx.Log.Warnf("image_cache_max_mb must not be negative, ignoring %d", v)
+		}
 	}
 	if v := ctx.Config.GetString("system_prompt", ""); v != "" {
 		cfg.SystemPrompt = v

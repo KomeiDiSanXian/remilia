@@ -290,6 +290,10 @@ func (p *Plugin) handleClearAction(ctx *context.Context) error {
 	if p.sm != nil {
 		p.sm.Delete(sessionID)
 	}
+	// 会话记录与任务记录是两张表：清空会话时必须把本会话的活动任务一并
+	// 取消，否则它在 /ai task status 里仍是"进行中"，且计划推进仍可能
+	// 按 sessionID 找到它继续跑（历史已经没了）。
+	p.cancelActiveTaskBySession(sessionID)
 	ctx.ReplyText(sessionClearedText)
 	return nil
 }

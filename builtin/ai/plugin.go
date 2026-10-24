@@ -290,7 +290,7 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 				syncer:          syncer,
 				prov:            prov,
 				reg:             toolkit.NewToolRegistry(),
-				sm:              session.NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
+				sm:              session.NewSessionManager(cfg.SessionCacheSize, cfg.MaxHistory, cfg.SessionTTL, store),
 				tasks:           tasks,
 				cmdPatterns:     make(map[string]string),
 				skillReg:        toolkit.NewSkillRegistry(),
@@ -314,6 +314,9 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 			for _, opt := range opts {
 				opt(p)
 			}
+
+			// 持久化历史保留期与内存 TTL 解耦（见 config.SessionRetention）。
+			p.sm.SetRetention(cfg.SessionRetention)
 
 			// 附件下载的受信来源：运维名单（allow_private_media_hosts）+
 			// 平台适配器自声明的媒体源（自建 OneBot 的媒体服务常在回环/

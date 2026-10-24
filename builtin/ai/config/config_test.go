@@ -43,6 +43,16 @@ func TestDefaultConfigValues(t *testing.T) {
 	if cfg.SessionTTL != 24*time.Hour {
 		t.Errorf("SessionTTL: expected %v, got %v", 24*time.Hour, cfg.SessionTTL)
 	}
+	// 保留期与内存 TTL 是两个独立决定：默认 30 天，远长于 24h 的缓存驻留时长。
+	if cfg.SessionRetention != 720*time.Hour {
+		t.Errorf("SessionRetention: expected %v, got %v", 720*time.Hour, cfg.SessionRetention)
+	}
+	if cfg.SessionCacheSize != 1000 {
+		t.Errorf("SessionCacheSize: expected %d, got %d", 1000, cfg.SessionCacheSize)
+	}
+	if cfg.ImageCacheMaxMB != 64 {
+		t.Errorf("ImageCacheMaxMB: expected %d, got %d", 64, cfg.ImageCacheMaxMB)
+	}
 	if cfg.SystemPrompt != "你是 Remilia Bot 的 AI 助手。" {
 		t.Errorf("SystemPrompt: unexpected value: %q", cfg.SystemPrompt)
 	}
