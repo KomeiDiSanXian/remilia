@@ -77,6 +77,19 @@
 - `platform/qq/openapi/dto` 的 `ClickLimit` / `AtBotShowChannelList`：官方已弃用，但仍是旧按钮数据反序列化所需，保留。
 - `builtin/ai/execution.RunCommand`：本仓库无调用，但它是 `docs/notes/29-ai-package-boundaries.md` 明确记录的对外端口，不按死代码处理。
 
+### 🧰 迁移脚本
+
+新增 `scripts/migrations/`（离线数据迁移命令，用法见该目录 README）。
+
+**背景**：数据层的兼容迁移一直绑在启动流程里（messagelog 的 `user_version` 0→2、AI 会话表 `records` → `ai_session_records`），好处是升级即可用，坏处是无法在副本上先验证、也无法在不停 Bot 的窗口外单独处理。
+
+- `go run ./scripts/migrations -db data/db/bot.db` 只读报告：`user_version`、`message_records` / `records` / `ai_session_records` 是否存在、将要执行哪些迁移。
+- 加 `-apply` 才写入，写入前默认用 `VACUUM INTO` 生成一致性备份；所有步骤幂等，可重复执行。
+- messagelog 迁移直接调用 `builtin/messagelog.OpenDB`，**与运行时共用同一份实现**，避免脚本与启动流程的 SQL 漂移；AI 会话表改名不复制数据，目标表已存在时跳过。
+- 仅支持 SQLite 文件；其它驱动的等价手工 SQL 写在 README 里。
+
+**当前版本启动时仍会自动迁移**（不改变既有升级体验）。计划在下个大版本把 messagelog 的遗留分支降级为"检测到即报错并提示运行本脚本"，届时删除运行时里的兼容代码——脚本就是那个过渡路径。
+
 ## v1.78.0 (2026-10-24)
 
 ### 🛠 修复与优化
