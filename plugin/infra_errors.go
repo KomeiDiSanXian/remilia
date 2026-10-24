@@ -52,21 +52,6 @@ func (e *PluginError) Unwrap() error {
 	return e.Cause
 }
 
-// DependencyError 依赖错误（保留以兼容已有代码）
-type DependencyError struct {
-	Plugin     string
-	Dependency string
-	Err        error
-}
-
-func (e *DependencyError) Error() string {
-	return fmt.Sprintf("plugin %s: dependency %s not found", e.Plugin, e.Dependency)
-}
-
-func (e *DependencyError) Unwrap() error {
-	return e.Err
-}
-
 // CircularDependencyError 循环依赖错误
 type CircularDependencyError struct {
 	Cycle []string

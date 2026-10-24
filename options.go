@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -10,12 +11,12 @@ import (
 // 使用示例：
 //
 //	bot := remilia.NewBotBuilder().
-//	    WithOption(remilia.WithPprof(remilia.DefaultPprofConfig())).
+//	    WithOption(remilia.WithPprof(pprof.DefaultConfig())).
 //	    Build()
 func WithPprof(cfg PprofConfig) Option {
 	return func(b *Bot) {
 		if cfg.Enabled {
-			b.pprofServer = NewPprofServer(cfg)
+			b.pprofServer = pprof.NewServer(cfg)
 		}
 	}
 }

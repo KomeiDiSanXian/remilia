@@ -202,57 +202,6 @@ func (m *Matcher) appendRule(rule context.Rule) {
 	m.rules.Store(&ruleSet{rules: next})
 }
 
-func (m *Matcher) copy() *Matcher {
-	// 规则走 COW 快照（不会被就地修改，可在锁外读取）；
-	// 其余可变字段统一在锁下取快照：并发 Handle/SetSource 可能正在改写它们。
-	rules := m.ruleSnapshot()
-	m.rt.mu.RLock()
-	middlewares := m.middlewares
-	handler := m.Handler
-	source := m.Source
-	group := m.group
-	definition := m.definition
-	triggerPrefix := m.triggerPrefix
-	regexPattern := m.regexPattern
-	rt := matcherRuntime{
-		isTemp:      atomic.LoadInt32(&m.rt.isTemp),
-		useCount:    m.rt.useCount,
-		maxUseCount: m.rt.maxUseCount,
-		createdAt:   m.rt.createdAt,
-		expiresAt:   m.rt.expiresAt,
-	}
-	m.rt.mu.RUnlock()
-
-	newRules := append([]context.Rule(nil), rules...)
-	newMiddlewares := append([]context.Middleware(nil), middlewares...)
-
-	newM := &Matcher{
-		rt: matcherRuntime{
-			isTemp:      rt.isTemp,
-			useCount:    rt.useCount,
-			maxUseCount: rt.maxUseCount,
-			createdAt:   rt.createdAt,
-			expiresAt:   rt.expiresAt,
-		},
-		EventType:     m.EventType,
-		Rules:         newRules,
-		Handler:       handler,
-		Source:        source,
-		group:         group,
-		middlewares:   newMiddlewares,
-		definition:    definition,
-		triggerPrefix: triggerPrefix,
-		execProfile:   m.execProfile,
-	}
-	newM.priority.Store(m.priority.Load())
-	newM.isBlock.Store(m.isBlock.Load())
-	newM.commandIndexed.Store(m.commandIndexed.Load())
-	newM.regexIndexed.Store(m.regexIndexed.Load())
-	newM.regexPattern = regexPattern
-	newM.hasHandler.Store(m.hasHandler.Load())
-	return newM
-}
-
 // GetCommand 获取匹配器的触发命令（含前缀，如 "/help" 或 "!help"）
 func (m *Matcher) GetCommand() string {
 	if m == nil {
@@ -330,15 +279,6 @@ func (m *Matcher) getChainCache() ([]context.Middleware, uint64, uint64) {
 	groupGen := m.cachedGen.group
 	m.cacheMu.RUnlock()
 	return chain, globalGen, groupGen
-}
-
-// setCombinedChain 设置组合的中间件链（写操作）
-func (m *Matcher) setCombinedChain(chain []context.Middleware, globalGen, groupGen uint64) {
-	m.cacheMu.Lock()
-	m.cachedGen.global = globalGen
-	m.cachedGen.group = groupGen
-	m.combinedChain.Store(chain)
-	m.cacheMu.Unlock()
 }
 
 // Delete 从所属引擎中删除该匹配器

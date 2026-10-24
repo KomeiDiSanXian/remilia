@@ -39,7 +39,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // QuantileHistogram 支持分位数查询的直方图
@@ -159,32 +158,6 @@ func (qh *QuantileHistogram) Reset() {
 	qh.head = 0
 	qh.count = 0
 	qh.sorted = false
-}
-
-// BatchStats 批量处理统计信息。
-//
-// Deprecated: 无内部使用者，且 core/engine 使用自身的统计类型。
-// 仅为兼容保留，新代码请直接定义所需的统计结构。
-type BatchStats struct {
-	TotalBatches    uint64        // 总批次数
-	TotalEvents     uint64        // 总事件数
-	TotalDuration   time.Duration // 总耗时
-	AvgBatchSize    float64       // 平均批量大小
-	AvgDuration     time.Duration // 平均每批次耗时
-	EventsPerSecond float64       // 吞吐量（事件/秒）
-}
-
-// EngineStats engine 统计信息。
-//
-// Deprecated: 无内部使用者。core/engine 使用 MatcherStats 与
-// TempManagerStats（见 core/engine/engine_query.go、
-// core/engine/temp_manager.go）。
-type EngineStats struct {
-	MatcherCount      int   // 匹配器数量
-	EventsProcessed   int64 // 已处理事件数
-	EventsFailed      int64 // 失败事件数
-	ActiveMatchers    int   // 活跃匹配器数
-	TempMatchersCount int   // 临时匹配器数量
 }
 
 // Counter 原子计数器

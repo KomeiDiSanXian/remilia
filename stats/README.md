@@ -58,40 +58,6 @@ avg := histogram.Avg()      // 平均值
 
 ## 类型定义
 
-### BatchStats（已废弃）
-
-> **Deprecated**：无内部使用者，且 `core/engine` 使用自身的统计类型。仅为兼容保留。
-
-批量处理统计信息：
-
-```go
-type BatchStats struct {
-    TotalBatches    uint64
-    TotalEvents     uint64
-    TotalDuration   time.Duration
-    AvgBatchSize    float64
-    AvgDuration     time.Duration
-    EventsPerSecond float64
-}
-```
-
-### EngineStats（已废弃）
-
-> **Deprecated**：无内部使用者。`core/engine` 使用 `MatcherStats` 与 `TempManagerStats`
-> （见 `core/engine/engine_query.go`、`core/engine/temp_manager.go`）。
-
-Engine 统计信息：
-
-```go
-type EngineStats struct {
-    MatcherCount      int
-    EventsProcessed   int64
-    EventsFailed      int64
-    ActiveMatchers    int
-    TempMatchersCount int
-}
-```
-
 ## 性能
 
 所有统计类型都是线程安全的，使用原子操作实现：

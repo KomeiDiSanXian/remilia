@@ -82,10 +82,6 @@
 - ✅ 80% 命中率
 - ✅ 0% 命中率（全部 news）
 
-**TestEventDroppedCounter**
-- ✅ 向后兼容性方法
-- ✅ 返回正确的 CounterVec
-
 #### 集成测试（3 个测试）
 
 **TestMetricsIntegration**
@@ -136,7 +132,6 @@
 - ✅ RecordRetryAttempt / Success / Failure: 100%
 - ✅ RecordEventDropped / Processed: 100%
 - ✅ GetPoolMetrics: 100%
-- ✅ EventDroppedCounter: 100%
 
 **测试覆盖的场景**:
 - 正常流程（所有方法）

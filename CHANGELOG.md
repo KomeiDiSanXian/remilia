@@ -57,6 +57,26 @@
 - `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`，satori webhook / discord interactions 分别构造出 `*satori.WebhookAdapter` / `*discord.InteractionsAdapter`，以及 telegram webhook 的字段映射与默认值。
 - `platform/telegram`：新增 Webhook 用例，覆盖 `public_url` 路径推导、`secret_token` 鉴权（缺失/错误 401）、队列满 503、非 POST 405 与构造参数校验。
 
+### 🧹 死代码清理
+
+**`core/engine` — 测试专用实现移出生产文件**
+
+`state.clone` / `addMatcher` / `removeGroup` / `deleteMatcher(s)` / `deleteFromSlice`、`Engine.getOrBuildIterChain`、`Matcher.copy` / `setCombinedChain` 此前只被单测调用，生产路径早已改走选择性 COW 的 `with*` 方法与 `buildHandlerChain`。这些实现整体移入 `core/engine/testhelpers_test.go`，生产二进制不再包含，测试调用方式不变（约 200 行）。
+
+**移除零引用的兼容层**
+
+- `plugin.DependencyError`：全仓库零引用（连测试都没有），移除。
+- `stats.BatchStats` / `EngineStats`：早已标注 Deprecated 且无使用者，连同 `stats/README.md` 的对应章节一并删除。
+- `infra/metrics` 的 `Collector.EventDroppedCounter()`：仅为旧代码直读内部指标保留，只有它自己的老测试在用；新代码用 `RecordEventDropped`。
+- `infra/netguard` 的 5 个 Deprecated 原语（`HostAllowlist.DialAddrs`、`AllowURLOrHosts`、`GuardTransport`、`RedirectPolicy`、`RedirectPolicyWithHosts`）及其专属的拨号白名单内部实现：出站请求统一走 `infra/outbound`（URL 准入 + 拨号 + 逐跳重定向绑定在同一个客户端），本包只保留策略原语（`AllowURL` / `IsPublicHost` / `DialContext` / `HostAllowlist`）。
+- 根包 `pprof.go` 的 `NewPprofServer` / `DefaultPprofConfig` / `CaptureTrace`：`WithPprof` 改用 `infra/pprof.NewServer`，根包只保留 `PprofConfig` / `PprofServer` 类型别名。pprof 的单测随之迁到 `infra/pprof`（该包此前没有测试）。
+
+**刻意保留**
+
+- `helper`：包内已无仓库使用者，但 `docs/03-architecture/LAYERING.md` 已规划在主版本中把 `Extract*` 并入 `platform`、组合器并入 `core/context` 后整体清空，本次不动。
+- `platform/qq/openapi/dto` 的 `ClickLimit` / `AtBotShowChannelList`：官方已弃用，但仍是旧按钮数据反序列化所需，保留。
+- `builtin/ai/execution.RunCommand`：本仓库无调用，但它是 `docs/notes/29-ai-package-boundaries.md` 明确记录的对外端口，不按死代码处理。
+
 ## v1.78.0 (2026-10-24)
 
 ### 🛠 修复与优化

@@ -293,22 +293,6 @@ func TestRecordEventProcessed(t *testing.T) {
 	assert.Equal(t, float64(2), value)
 }
 
-// TestEventDroppedCounter tests backward compatibility method
-func TestEventDroppedCounter(t *testing.T) {
-	collector := NewMetricsCollector("test_" + t.Name())
-
-	counter := collector.EventDroppedCounter()
-	require.NotNil(t, counter)
-
-	// Verify it's the same as internal eventDropped
-	assert.Equal(t, collector.eventDropped, counter)
-
-	// Verify it can be used
-	counter.WithLabelValues("test-reason").Inc()
-	value := testutil.ToFloat64(counter.WithLabelValues("test-reason"))
-	assert.Equal(t, float64(1), value)
-}
-
 // TestMetricsIntegration tests integration of multiple metrics
 func TestMetricsIntegration(t *testing.T) {
 	collector := NewMetricsCollector("integration_test")

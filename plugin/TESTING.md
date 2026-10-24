@@ -114,10 +114,6 @@
 - ✅ ErrCircularDependency
 - ✅ ErrDependencyNotFound
 
-**TestDependencyError**
-- ✅ 错误消息格式
-- ✅ 错误包装
-
 **TestCircularDependencyError**
 - ✅ 循环依赖错误
 

@@ -177,38 +177,6 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	}
 }
 
-// getOrBuildIterChain returns a single Handler that, when called, executes
-// the full middleware chain iteratively (no nested closures on hot path).
-//
-// 性能优化（版本计数器代替 reflect 指纹）：
-//
-// 原实现每次调用都执行 handlerID(reflect.ValueOf.Pointer) + chainSignature
-// (len(chain) 次 reflect.ValueOf.Pointer)，在 1000-matcher 场景下产生
-// ~11 000 次 reflect 调用/事件，占总 CPU 时间约 21%。
-//
-// 新实现改为比较 m.compiledVersion（atomic.Uint64 计数器）：
-//   - Fast path（99.9% of calls）：1 次 atomic.Load + 1 次整数比较，零 reflect 调用。
-//   - Slow path（链或 handler 变化后首次调用）：才真正重建并缓存。
-//
-// m.compiledVersion 在以下时机递增：
-//   - invalidateCombinedChain()：中间件链重建时
-//   - ensureChain()：combined chain 实际更新时
-//   - Handle()：handler 更换时
-//
-// 注意：调用方必须保证传入的 chain 与当前中间件状态一致
-// （invokeHandler 走 buildHandlerChain，它会做这项校验）。
-func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he context.Handler) context.Handler {
-	cv := m.compiledVersion.Load()
-
-	if cc := m.compiledHandlers.Load(); cc != nil && cc.version == cv {
-		return cc.head
-	}
-
-	head := e.composeIterChain(chain, he)
-	m.compiledHandlers.Store(&compiledChain{head: head, version: cv})
-	return head
-}
-
 // buildHandlerChain 构建 matcher 的中间件处理链并写入缓存。
 //
 // 事件协程可能与中间件变更（Use / UseForGroup / ResetMiddlewares）并发：

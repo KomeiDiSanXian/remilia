@@ -1,4 +1,4 @@
-package remilia_test
+package pprof_test
 
 import (
 	"context"
@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // startPprofOnDynamicPort 在随机端口上启动 pprof 服务器，返回 server 和实际监听地址。
-func startPprofOnDynamicPort(t *testing.T, cfg remilia.PprofConfig) (*remilia.PprofServer, string) {
+func startPprofOnDynamicPort(t *testing.T, cfg pprof.Config) (*pprof.Server, string) {
 	t.Helper()
 	cfg.Addr = "127.0.0.1:0"
-	server := remilia.NewPprofServer(cfg)
+	server := pprof.NewServer(cfg)
 	require.NotNil(t, server)
 	err := server.Start()
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func waitPprofServer(t *testing.T, addr string) {
 }
 
 func TestPprofServer(t *testing.T) {
-	cfg := remilia.PprofConfig{
+	cfg := pprof.Config{
 		Enabled:     true,
 		AutoProfile: false,
 	}
@@ -56,10 +56,10 @@ func TestPprofServer(t *testing.T) {
 }
 
 func TestPprofServerDisabled(t *testing.T) {
-	config := remilia.PprofConfig{
+	config := pprof.Config{
 		Enabled: false,
 	}
-	server := remilia.NewPprofServer(config)
+	server := pprof.NewServer(config)
 	require.NotNil(t, server)
 	err := server.Start()
 	assert.NoError(t, err)
@@ -73,7 +73,7 @@ func TestPprofAutoProfile(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	cfg := remilia.PprofConfig{
+	cfg := pprof.Config{
 		Enabled:         true,
 		AutoProfile:     true,
 		ProfileInterval: 2 * time.Second,
@@ -90,7 +90,7 @@ func TestPprofAutoProfile(t *testing.T) {
 }
 
 func TestPprofUpdateConfig(t *testing.T) {
-	cfg := remilia.PprofConfig{
+	cfg := pprof.Config{
 		Enabled:         true,
 		AutoProfile:     false,
 		EnableMutex:     false,
@@ -100,7 +100,7 @@ func TestPprofUpdateConfig(t *testing.T) {
 	}
 	server, addr := startPprofOnDynamicPort(t, cfg)
 
-	server.UpdateConfig(remilia.PprofConfig{
+	server.UpdateConfig(pprof.Config{
 		AutoProfile:          true,
 		ProfileInterval:      30 * time.Minute,
 		ProfileDuration:      10 * time.Second,
@@ -116,7 +116,7 @@ func TestPprofUpdateConfig(t *testing.T) {
 }
 
 func TestPprofMutexAndBlock(t *testing.T) {
-	cfg := remilia.PprofConfig{
+	cfg := pprof.Config{
 		Enabled:              true,
 		EnableMutex:          true,
 		EnableBlock:          true,
@@ -133,7 +133,7 @@ func TestCaptureTrace(t *testing.T) {
 	tmpDir := t.TempDir()
 	filename := fmt.Sprintf("%s/trace.out", tmpDir)
 
-	err := remilia.CaptureTrace(context.Background(), 100*time.Millisecond, filename)
+	err := pprof.CaptureTrace(context.Background(), 100*time.Millisecond, filename)
 	assert.NoError(t, err)
 
 	_, err = os.Stat(filename)

@@ -163,25 +163,6 @@ func copyRegexIndex(src map[EventType][]*Matcher) map[EventType][]*Matcher {
 // with* 方法 — 选择性 COW，只复制需要修改的 map
 // ============================================================================
 
-// clone 完整深拷贝所有 map（仅在测试中使用，生产代码使用 with* 方法做选择性 COW）
-func (s *state) clone() *state {
-	dst := &state{
-		matchers:         s.matchers[:len(s.matchers):len(s.matchers)],
-		matcherIndex:     copyMatcherIndex(s.matcherIndex),
-		commandIndex:     copyCommandIndex(s.commandIndex),
-		regexIndex:       copyRegexIndex(s.regexIndex),
-		groupIndex:       copyGroupIndex(s.groupIndex),
-		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
-		commandInfoCache: make(map[string]*CommandInfo, len(s.commandInfoCache)),
-		commandListCache: s.commandListCache,
-		commandListVer:   s.commandListVer,
-		block:            s.block,
-		maxMatchers:      s.maxMatchers,
-	}
-	maps.Copy(dst.commandInfoCache, s.commandInfoCache)
-	return dst
-}
-
 // withBlock 仅修改 block 字段，共享所有 map
 func (s *state) withBlock(block bool) *state {
 	return &state{
@@ -816,100 +797,6 @@ func (s *state) rebuildCommandListCache() {
 	}
 	s.commandListCache = list
 	s.commandListVer++
-}
-
-// addMatcher 添加匹配器到状态（仅供测试用，生产代码使用 withAddedMatcher）
-func (s *state) addMatcher(m *Matcher) {
-	s.matchers = append(s.matchers, m)
-
-	// 自动推导 hasHandler：直接设置 Handler 字段（非 Handle() 调用）也生效
-	if m.handlerLocked() != nil {
-		m.hasHandler.Store(true)
-	}
-
-	cmd := m.GetCommand()
-	if cmd != "" {
-		m.commandIndexed.Store(true)
-		if s.commandIndex[cmd] == nil {
-			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
-		}
-		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
-		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
-		s.rebuildCommandInfoCache(m, cmd)
-	} else if m.regexIndexed.Load() {
-		if m.handlerLocked() != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
-			s.regexIndex[m.EventType] = append(s.regexIndex[m.EventType], m)
-			sortMatchersByPriority(s.regexIndex[m.EventType])
-		}
-	} else {
-		et := m.EventType
-		s.matcherIndex[et] = append(s.matcherIndex[et], m)
-
-		matchers := s.matcherIndex[et]
-		sorted := makeRunnableSlice(matchers)
-		sortMatchersByPriority(sorted)
-		s.sortedCache[et] = sorted
-	}
-
-	if grp := m.GetGroup(); grp != "" {
-		s.groupIndex[grp] = append(s.groupIndex[grp], m)
-	}
-}
-
-// removeGroup 移除指定分组的所有匹配器（仅供测试用，生产代码使用 withRemovedGroup）
-func (s *state) removeGroup(groupName string) {
-	if groupName == "" {
-		return
-	}
-	if _, ok := s.groupIndex[groupName]; !ok {
-		return
-	}
-
-	newMatchers := make([]*Matcher, 0, len(s.matchers))
-	for _, m := range s.matchers {
-		if m.GetGroup() != groupName {
-			newMatchers = append(newMatchers, m)
-		}
-	}
-	s.matchers = newMatchers
-	s.rebuildIndex()
-}
-
-// deleteMatcher 从状态中删除匹配器（仅供测试用，生产代码使用 withDeletedMatcher）
-func (s *state) deleteMatcher(m *Matcher) {
-	s.matchers = deleteFromSlice(s.matchers, m)
-	s.rebuildIndex()
-}
-
-// deleteMatchers 从状态中批量删除匹配器（仅供测试用，生产代码使用 withDeletedMatchers）
-func (s *state) deleteMatchers(matchersToDelete []*Matcher) {
-	if len(matchersToDelete) == 0 {
-		return
-	}
-
-	toDelete := make(map[*Matcher]struct{}, len(matchersToDelete))
-	for _, m := range matchersToDelete {
-		toDelete[m] = struct{}{}
-	}
-
-	newMatchers := make([]*Matcher, 0, len(s.matchers))
-	for _, m := range s.matchers {
-		if _, ok := toDelete[m]; !ok {
-			newMatchers = append(newMatchers, m)
-		}
-	}
-	s.matchers = newMatchers
-	s.rebuildIndex()
-}
-
-// deleteFromSlice 删除切片中第一个匹配的元素（辅助函数）
-func deleteFromSlice[T comparable](slice []T, elem T) []T {
-	for i, v := range slice {
-		if v == elem {
-			return append(slice[:i], slice[i+1:]...)
-		}
-	}
-	return slice
 }
 
 // makeRunnableSlice 从 matchers 中过滤出「有 handler 且未被删除」的匹配器
