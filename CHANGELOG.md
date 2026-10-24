@@ -1,94 +1,103 @@
 # Changelog
 
-## Unreleased
+## v1.79.0 (2026-10-25)
 
-### 🔌 接入与接线修复
+### ✨ 新特性
 
-**内置插件 · 管理 — `/logs`（logviewer）此前从未注册**
+**平台 · Telegram — 实现 Webhook 接入（此前只有配置项，没有实现）**
 
-`builtin/logviewer` 已实现 `/logs`（search / user / action / stats / recent），`qqpanel` 的命令面板里也把它列为 `/logs` 的提供者，但 `cmd/bot` 的装配清单一直没有注册它——面板点得到、命令却不存在。现在随 `auditlog` 一并注册（`logs.view` 权限，权限插件未加载时按现有 `permcheck` 语义放行）。
+`bot.telegram.webhook` 配置块和示例文档一直都在，声称"启用后自动切换为 Webhook 模式"，但包里从来没有 Webhook 实现：装配层永远构造长轮询适配器，配了 webhook 也照旧轮询。
 
-**平台 · OneBot — 三种接入方式真正可选**
+- 新增 `platform/telegram/webhook.go`：HTTP 端点接收更新，启动时自动 `setWebhook`（无需手动在 @BotFather 配置）；收到推送先做鉴权（`secret_token` 常数时间比较）与解码，入队后**立即返回 200**，附件换链与 handler 执行在 worker 中完成——避免 `getFile` 抖动让 Telegram 超时重投、造成重复消息。
+- 队列满时返回 503 让 Telegram 重投，而不是回 200 静默丢消息；停机不注销 webhook，让 Telegram 缓存更新并在恢复后补投。
+- 新增 `bot.telegram.mode`：`polling`（默认）| `webhook`，留空时按是否配置 `webhook` 块推断。`webhook.public_url` 必填且必须是 HTTPS（Telegram 不接受明文回调），`path` 留空从 `public_url` 推导。
+- 能力集、发件器与附件解析与长轮询共用，两种模式行为一致；客户端补 `setWebhook` / `deleteWebhook` / `getWebhookInfo`。
 
-装配层此前把 OneBot 写死为正向 WS：`platform/onebot` 的反向 WS（`ws_reverse.go`）与 HTTP POST（`http_post.go`）两套实现完整、有测试，但 `bot.onebot.listen_addr` 从来没有传进适配器，配置了也不生效。
+**平台 · Satori — 新增 Webhook 接入**
+
+`satori.NewWebhookAdapter` 实现完整、有测试，但装配层只会构造常驻 WS 版本，切换不出去。
+
+- 新增 `bot.satori.mode`：`ws`（默认）| `webhook`，留空时按是否配置 `webhook` 块推断。
+- `webhook` 块支持 `listen_addr`（必填）、`path`、`token`、`event_buffer_size`；事件靠 SDK 推入，**发送仍走 `server_url` + `token`**（适配器用 `WithSendConfig` 绑定 HTTP API 客户端）。
+- `satori.webhook.token` 是校验 SDK 推送携带的 Bearer，与 `satori.token`（本端调用 SDK 的令牌）方向相反，刻意分成两个字段。
+
+**平台 · Discord — 新增 HTTP Interactions 接入**
+
+`discord.NewInteractionsAdapter`（斜杠命令/按钮/表单的 HTTPS 端点，无需常驻 WS）同样没有装配入口。
+
+- 新增 `bot.discord.mode`：`gateway`（默认）| `interactions`，留空时按是否配置 `interactions` 块推断。
+- `interactions` 块支持 `listen_addr`、`public_key`（Ed25519，必填）、`path`、`auto_defer`（默认 true）、`ack_timeout`、`worker_count`、`event_buffer_size`。
+- `token` 仍必填：默认走 deferred ACK + follow-up API 回复，没有 token 时所有回复都会静默丢失。
+
+**平台 · QQ — 新增官方 WebSocket 网关接入**
+
+`platform/qq/wsconn.go` 与 `qq.NewWSAdapter` 此前没有任何装配入口，只能在 live test 里用。
+
+- 新增 `bot.qq.mode`：`webhook`（默认）| `ws`，以及 `bot.qq.intents`（事件订阅位掩码，0/缺省 = 全部）。
+- `ws` 模式主动连接官方网关，无需公网回调地址，适合内网/无公网 IP 部署。
+
+**平台 · OneBot — 反向 WebSocket 与 HTTP POST 两种接入方式生效**
+
+装配层此前把 OneBot 写死为正向 WS：`ws_reverse.go` / `http_post.go` 两套实现完整、有测试，但 `bot.onebot.listen_addr` 从来没有传进适配器，配置了也不生效。
 
 - 新增 `bot.onebot.mode`：`forward_ws`（默认）| `reverse_ws` | `http_post`，留空时按字段推断（填了 `url` 走正向，只填 `listen_addr` 走反向），既有配置行为不变。
 - 校验随模式收紧：`reverse_ws` 要求 `listen_addr`，`http_post` 要求 `listen_addr` + `url`（API 基址），未知 `mode` 直接报错。
 
-**平台 · QQ — 新增官方 WebSocket 网关接入**
+**内置插件 · 管理 — `/logs`（logviewer）接入**
 
-`platform/qq/wsconn.go` 与 `qq.NewWSAdapter` 此前没有任何装配入口。新增 `bot.qq.mode`：
+`builtin/logviewer` 已实现 `/logs`（search / user / action / stats / recent），`qqpanel` 的命令面板里也把它列为 `/logs` 的提供者，但装配清单一直没有注册——面板点得到、命令却不存在。现在随 `auditlog` 一并注册（`logs.view` 权限；权限插件未加载时按 `permcheck` 现有语义放行）。
 
-- `webhook`（默认）：维持现状，监听官方回调。
-- `ws`：主动连接官方 WebSocket 网关，无需公网回调地址；`bot.qq.intents` 可选（0/缺省 = 全部事件）。
+**可观测 · 崩溃转储（coredump）接入**
 
-**平台 · Discord — 新增 HTTP Interactions 接入**
+`infra/coredump` 此前无任何调用点。新增顶层 `coredump` 配置节（`enable` / `dir` / `diagnose_on_enable`，默认关闭）：
 
-`discord.NewInteractionsAdapter`（斜杠命令/按钮/表单的 HTTPS 端点，无需常驻 WS）实现完整、有测试，但装配层只会构造 `NewAdapter`（Gateway）。新增 `bot.discord.mode`：
+- 启用后在进程启动早期生效：崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），并把 Go 运行时崩溃报告写入 `dir` 下的 `crash-*.log`。
+- 启用失败只告警、不阻断启动——转储是排障增强，不是运行前提。容器环境仍需自行放开 `--ulimit core=-1` 与 `SYS_PTRACE`。
 
-- `gateway`（默认）：维持常驻 WebSocket。
-- `interactions`：监听 `discord.interactions.listen_addr`，用 `public_key` 校验 Ed25519 签名；`auto_defer`（默认 true）、`ack_timeout`、`worker_count`、`event_buffer_size` 可按需调整。`mode` 留空时按是否配置 `interactions` 块推断。
-- `token` 仍必填：默认走 deferred ACK + follow-up API 回复，没有 token 时回复会静默丢失。
+**工具 · 离线数据迁移命令 `scripts/migrations`**
 
-**平台 · Satori — 新增 Webhook 接入**
+数据层的兼容迁移一直绑在启动流程里（messagelog 的 `user_version` 0→2、AI 会话表 `records` → `ai_session_records`），无法在副本上先验证、也无法在不停 Bot 的窗口外单独处理。
 
-`satori.NewWebhookAdapter`（由 SDK 反向 POST 事件）同样没有装配入口。新增 `bot.satori.mode`：
+- `go run ./scripts/migrations -db data/db/bot.db` 只读报告：`user_version`、相关表是否存在、将要执行哪些迁移。
+- 加 `-apply` 才写入，写入前默认用 `VACUUM INTO` 生成一致性备份；所有步骤幂等，重复执行只输出"跳过"。
+- messagelog 迁移直接调用 `builtin/messagelog.OpenDB`，**与运行时共用同一份实现**，避免脚本与启动流程的 SQL 漂移；AI 会话表改名不复制数据，目标表已存在时跳过。
+- 仅支持 SQLite 文件；PostgreSQL/MySQL 的等价手工 SQL 写在目录 README 里。
 
-- `ws`（默认）：常驻 WebSocket 订阅。
-- `webhook`：监听 `satori.webhook.listen_addr`（`path` / `token` / `event_buffer_size` 可选）；事件靠 SDK 推入，发送仍走 `server_url` + `token`，因此两者必须同时配置。`satori.webhook.token` 校验 SDK 推送携带的 Bearer，与 `satori.token`（本端调用 SDK 的令牌）方向相反，不可复用。
-- `mode` 留空时按是否配置 `webhook` 块推断。
+### 🧹 清理与重构
 
-**平台 · Telegram — 实现并接入 Webhook 模式**
+**框架 · core/engine — 测试专用实现移出生产文件**
 
-`bot.telegram.webhook` 配置块和示例文档一直都在，声称"启用后自动切换为 Webhook 模式"，但包里**从来没有 Webhook 实现**：工厂永远构造长轮询适配器，配了 webhook 也照旧轮询。
+`state.clone` / `addMatcher` / `removeGroup` / `deleteMatcher(s)` / `deleteFromSlice`、`Engine.getOrBuildIterChain`、`Matcher.copy` / `setCombinedChain` 此前只被单测调用，生产路径早已改走选择性 COW 的 `with*` 方法与 `buildHandlerChain`。这些实现整体移入 `core/engine/testhelpers_test.go`：生产二进制不再包含（约 200 行），测试调用方式不变。
 
-- 新增 `platform/telegram/webhook.go`：HTTP 端点接收更新，启动时自动 `setWebhook`（无需手动在 @BotFather 配置）；收到推送先鉴权（`secret_token` 常数时间比较）与解码，入队后立即返回 200，附件换链与 handler 执行在 worker 中完成，避免 Telegram 因响应超时重投造成重复消息。
-- 队列满时返回 503 让 Telegram 重投，而不是回 200 静默丢消息；停机不注销 webhook，让 Telegram 缓存更新并在恢复后补投。
-- 新增 `bot.telegram.mode`：`polling`（默认）| `webhook`，留空时按是否配置 `webhook` 块推断。`webhook.public_url` 必填且必须是 HTTPS（Telegram 不接受明文回调），`path` 留空从 `public_url` 推导。
-- 能力集、发件器与附件解析逻辑与长轮询共用，两种模式行为一致。
+**移除零引用的兼容层**
 
-**可观测 · 崩溃转储接入**
+- `plugin.DependencyError`：全仓库零引用（连测试都没有）。
+- `stats.BatchStats` / `EngineStats`：早已标注 Deprecated 且无使用者，连同 README 对应章节删除。
+- `infra/metrics` 的 `Collector.EventDroppedCounter()`：仅为旧代码直读内部指标保留，只有它自己的老测试在用。
+- `infra/netguard` 的 5 个 Deprecated 原语（`HostAllowlist.DialAddrs`、`AllowURLOrHosts`、`GuardTransport`、`RedirectPolicy`、`RedirectPolicyWithHosts`）及其专属的拨号白名单内部实现。
+- 根包 `pprof.go` 的 `NewPprofServer` / `DefaultPprofConfig` / `CaptureTrace`。
 
-`infra/coredump` 此前无任何调用点。新增顶层 `coredump` 配置节（`enable` / `dir` / `diagnose_on_enable`，默认关闭），启用后在进程启动早期生效：崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），并把 Go 运行时崩溃报告写入 `dir` 下的 `crash-*.log`。启用失败只告警，不阻断启动。
+**刻意保留**
+
+- `helper`：包内已无仓库使用者，但 `docs/03-architecture/LAYERING.md` 已规划在主版本中把 `Extract*` 并入 `platform`、组合器并入 `core/context` 后整体清空。
+- `platform/qq/openapi/dto` 的 `ClickLimit` / `AtBotShowChannelList`：官方已弃用，但仍是旧按钮数据反序列化所需。
+- `builtin/ai/execution.RunCommand`：本仓库无调用，但它是 `docs/notes/29-ai-package-boundaries.md` 明确记录的对外端口。
+
+### ⚠️ 破坏性变更（库使用者）
+
+- **API 移除**：`netguard.GuardTransport` / `AllowURLOrHosts` / `RedirectPolicy*` / `HostAllowlist.DialAddrs` → 改用 `infra/outbound`（URL 准入 + 拨号 + 逐跳重定向绑定在同一个客户端）；本包只保留策略原语（`AllowURL` / `IsPublicHost` / `DialContext` / `HostAllowlist`）。
+- **API 移除**：`remilia.NewPprofServer` / `DefaultPprofConfig` / `CaptureTrace` → 改用 `infra/pprof`。根包的 `PprofConfig` / `PprofServer` 类型别名保留（`WithPprof` 的参数类型不变），内部实现改调 `infra/pprof.NewServer`。
+- **API 移除**：`stats.BatchStats` / `EngineStats`、`plugin.DependencyError`、`metrics.Collector.EventDroppedCounter()` → 分别改为自定义结构、`plugin.PluginError`、`RecordEventDropped`。
+- **配置**：各平台新增的 `mode` 均可留空，按现有字段/配置块推断，老配置无需改动；`telegram.webhook` 的语义从"存在即隐式启用（但从未生效）"变为"存在即启用（真正生效）"，此前配了它而实际在长轮询的部署升级后会切换到 Webhook，请确认 `public_url` 可达。
+- **数据**：无需手工迁移，启动时仍会自动升级；`scripts/migrations` 是可选路径。下个大版本会把 messagelog 的遗留分支降级为"检测到即报错并提示运行脚本"。
 
 ### ✅ 测试
 
 - `config`：新增 `QQConfig` / `OneBotConfig` / `SatoriConfig` / `DiscordConfig` / `TelegramConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"、"配置 webhook/interactions 块即推断对应模式"的兼容断言）。
-- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`，satori webhook / discord interactions 分别构造出 `*satori.WebhookAdapter` / `*discord.InteractionsAdapter`，以及 telegram webhook 的字段映射与默认值。
+- `cmd/bot`：新增平台工厂用例，断言各 `mode` 构造出对应适配器类型（`ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`、`*satori.WebhookAdapter`、`*discord.InteractionsAdapter`），以及 telegram webhook 的字段映射与 fail-fast 分支。
 - `platform/telegram`：新增 Webhook 用例，覆盖 `public_url` 路径推导、`secret_token` 鉴权（缺失/错误 401）、队列满 503、非 POST 405 与构造参数校验。
-
-### 🧹 死代码清理
-
-**`core/engine` — 测试专用实现移出生产文件**
-
-`state.clone` / `addMatcher` / `removeGroup` / `deleteMatcher(s)` / `deleteFromSlice`、`Engine.getOrBuildIterChain`、`Matcher.copy` / `setCombinedChain` 此前只被单测调用，生产路径早已改走选择性 COW 的 `with*` 方法与 `buildHandlerChain`。这些实现整体移入 `core/engine/testhelpers_test.go`，生产二进制不再包含，测试调用方式不变（约 200 行）。
-
-**移除零引用的兼容层**
-
-- `plugin.DependencyError`：全仓库零引用（连测试都没有），移除。
-- `stats.BatchStats` / `EngineStats`：早已标注 Deprecated 且无使用者，连同 `stats/README.md` 的对应章节一并删除。
-- `infra/metrics` 的 `Collector.EventDroppedCounter()`：仅为旧代码直读内部指标保留，只有它自己的老测试在用；新代码用 `RecordEventDropped`。
-- `infra/netguard` 的 5 个 Deprecated 原语（`HostAllowlist.DialAddrs`、`AllowURLOrHosts`、`GuardTransport`、`RedirectPolicy`、`RedirectPolicyWithHosts`）及其专属的拨号白名单内部实现：出站请求统一走 `infra/outbound`（URL 准入 + 拨号 + 逐跳重定向绑定在同一个客户端），本包只保留策略原语（`AllowURL` / `IsPublicHost` / `DialContext` / `HostAllowlist`）。
-- 根包 `pprof.go` 的 `NewPprofServer` / `DefaultPprofConfig` / `CaptureTrace`：`WithPprof` 改用 `infra/pprof.NewServer`，根包只保留 `PprofConfig` / `PprofServer` 类型别名。pprof 的单测随之迁到 `infra/pprof`（该包此前没有测试）。
-
-**刻意保留**
-
-- `helper`：包内已无仓库使用者，但 `docs/03-architecture/LAYERING.md` 已规划在主版本中把 `Extract*` 并入 `platform`、组合器并入 `core/context` 后整体清空，本次不动。
-- `platform/qq/openapi/dto` 的 `ClickLimit` / `AtBotShowChannelList`：官方已弃用，但仍是旧按钮数据反序列化所需，保留。
-- `builtin/ai/execution.RunCommand`：本仓库无调用，但它是 `docs/notes/29-ai-package-boundaries.md` 明确记录的对外端口，不按死代码处理。
-
-### 🧰 迁移脚本
-
-新增 `scripts/migrations/`（离线数据迁移命令，用法见该目录 README）。
-
-**背景**：数据层的兼容迁移一直绑在启动流程里（messagelog 的 `user_version` 0→2、AI 会话表 `records` → `ai_session_records`），好处是升级即可用，坏处是无法在副本上先验证、也无法在不停 Bot 的窗口外单独处理。
-
-- `go run ./scripts/migrations -db data/db/bot.db` 只读报告：`user_version`、`message_records` / `records` / `ai_session_records` 是否存在、将要执行哪些迁移。
-- 加 `-apply` 才写入，写入前默认用 `VACUUM INTO` 生成一致性备份；所有步骤幂等，可重复执行。
-- messagelog 迁移直接调用 `builtin/messagelog.OpenDB`，**与运行时共用同一份实现**，避免脚本与启动流程的 SQL 漂移；AI 会话表改名不复制数据，目标表已存在时跳过。
-- 仅支持 SQLite 文件；其它驱动的等价手工 SQL 写在 README 里。
-
-**当前版本启动时仍会自动迁移**（不改变既有升级体验）。计划在下个大版本把 messagelog 的遗留分支降级为"检测到即报错并提示运行本脚本"，届时删除运行时里的兼容代码——脚本就是那个过渡路径。
+- `infra/pprof`：单测从根包迁入（该包此前没有任何测试）。
+- `scripts/migrations`：覆盖表改名（数据保留、旧索引清理、幂等）、目标表已存在的保护、messagelog 迁移判定。
 
 ## v1.78.0 (2026-10-24)
 
