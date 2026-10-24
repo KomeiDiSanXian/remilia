@@ -58,13 +58,13 @@ func TestBridge_OnConfigChange_UpdatesDegradation(t *testing.T) {
 		newCfg := &config.Config{
 			Middleware: config.MiddlewareConfig{
 				Degradation: config.DegradationConfig{
-					Enable:             true,
-					CPUThreshold:       90.0,
-					MemoryThreshold:    95.0,
-					LatencyThreshold:   "1s",
-					GoroutineThreshold: 20000,
-					MonitorInterval:    "10s",
-					Strategy:           "delay",
+					Enable:               true,
+					CPUThreshold:         90.0,
+					MemoryThreshold:      95.0,
+					EnableGoroutineLimit: true,
+					GoroutineThreshold:   20000,
+					MonitorInterval:      "10s",
+					Strategy:             "delay",
 				},
 			},
 		}

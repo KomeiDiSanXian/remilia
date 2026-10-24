@@ -514,7 +514,6 @@ func (dc *DegradationConfig) Validate() error {
 		return fmt.Errorf("degradation.memory_threshold must be between 0 and 100, got %f", dc.MemoryThreshold)
 	}
 	durations := []struct{ name, val string }{
-		{"degradation.latency_threshold", dc.LatencyThreshold},
 		{"degradation.monitor_interval", dc.MonitorInterval},
 		{"degradation.recovery_interval", dc.RecoveryInterval},
 	}

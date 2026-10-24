@@ -200,12 +200,16 @@ middleware:
     enable: false                                              # [H]  运行时开关
     cpu_threshold: 80.0                                         # [H]  下一监控周期生效
     memory_threshold: 85.0                                      # [H]  下一监控周期生效
-    latency_threshold: "500ms"                                  # [H]  下一监控周期生效
     monitor_interval: "5s"                                      # [H]  下一监控周期生效（ticker 重建）
     recovery_interval: "10s"                                    # [N/A] 需要重建控制器
     delay_queue_size: 1000                                      # [N/A] 仅创建时读取
+    # 是否把协程数纳入降级判定。等待外部 API 的插件（AI/搜索/天气）会长期占用
+    # 协程，开启前请确认阈值留足余量。                                    [N/A] 关闭需重启
+    enable_goroutine_limit: false
     goroutine_threshold: 10000                                  # [H]  下一监控周期生效
     strategy: "drop"                                            # [H]  运行时读取
+    # 注意：这里没有延迟阈值。handler 墙钟延迟不是可靠的过载信号——等待 API
+    # 的正常耗时会被误判成过载，所以降级只看 CPU / 内存 /（可选）协程数。
 
 # ====================================
 # 死信队列配置（可选）                                           [R]

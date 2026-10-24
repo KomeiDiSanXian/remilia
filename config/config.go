@@ -566,16 +566,25 @@ type EngineConfig struct {
 //
 // 由 middleware/ 自适应降级组件消费。
 // 此类型嵌套在 [MiddlewareConfig.Degradation] 中（原顶层 Config.Degradation 已废弃）。
+//
+// 注意：这里**没有**延迟阈值。handler 墙钟延迟不是可靠的过载信号——AI、搜索、
+// 天气等插件正常工作时就要等外部 API 几秒到几十秒，把它当压力会把健康流量
+// 判成过载。降级只按 CPU、内存与（显式开启的）协程数判定。
 type DegradationConfig struct {
-	Enable             bool    `yaml:"enable" mapstructure:"enable"`
-	CPUThreshold       float64 `yaml:"cpu_threshold" mapstructure:"cpu_threshold"`
-	MemoryThreshold    float64 `yaml:"memory_threshold" mapstructure:"memory_threshold"`
-	LatencyThreshold   string  `yaml:"latency_threshold" mapstructure:"latency_threshold"`
-	MonitorInterval    string  `yaml:"monitor_interval" mapstructure:"monitor_interval"`
-	RecoveryInterval   string  `yaml:"recovery_interval" mapstructure:"recovery_interval"`
-	DelayQueueSize     int     `yaml:"delay_queue_size" mapstructure:"delay_queue_size"`
-	GoroutineThreshold int     `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
-	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
+	Enable          bool    `yaml:"enable" mapstructure:"enable"`
+	CPUThreshold    float64 `yaml:"cpu_threshold" mapstructure:"cpu_threshold"`
+	MemoryThreshold float64 `yaml:"memory_threshold" mapstructure:"memory_threshold"`
+	MonitorInterval string  `yaml:"monitor_interval" mapstructure:"monitor_interval"`
+	// RecoveryInterval 恢复检查间隔。
+	RecoveryInterval string `yaml:"recovery_interval" mapstructure:"recovery_interval"`
+	// DelayQueueSize delay 策略的延迟队列容量。
+	DelayQueueSize int `yaml:"delay_queue_size" mapstructure:"delay_queue_size"`
+	// EnableGoroutineLimit 是否把协程数纳入降级判定，默认 false。
+	// 等待外部 API 的 handler 会长期占用协程，开启前请确认阈值留足余量。
+	EnableGoroutineLimit bool `yaml:"enable_goroutine_limit" mapstructure:"enable_goroutine_limit"`
+	// GoroutineThreshold 协程数阈值（仅 EnableGoroutineLimit 为 true 时生效）。
+	GoroutineThreshold int    `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
+	Strategy           string `yaml:"strategy" mapstructure:"strategy"`
 }
 
 // APIConfig 管理 API 配置。

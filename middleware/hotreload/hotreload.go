@@ -110,7 +110,7 @@ func (b *Bridge) WatchDedup(df *dedup.DedupFilter) *Bridge {
 }
 
 // WatchDegradation 注册 AdaptiveDegradation 接收热更新
-// （CPUThreshold、MemoryThreshold、LatencyThreshold、GoroutineThreshold 等下一监控周期生效）
+// （CPUThreshold、MemoryThreshold、GoroutineThreshold、EnableGoroutineLimit 等下一监控周期生效）
 func (b *Bridge) WatchDegradation(ad *degradation.AdaptiveDegradation) *Bridge {
 	b.mu.Lock()
 	b.degradations = append(b.degradations, ad)
@@ -251,12 +251,12 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		strat := parseDegradationStrategy(mc.Degradation.Strategy)
 		for _, ad := range b.degradations {
 			ad.UpdateConfig(degradation.DegradationConfig{
-				CPUThreshold:       mc.Degradation.CPUThreshold,
-				MemoryThreshold:    mc.Degradation.MemoryThreshold,
-				LatencyThreshold:   parseDuration(mc.Degradation.LatencyThreshold, 0),
-				GoroutineThreshold: mc.Degradation.GoroutineThreshold,
-				MonitorInterval:    parseDuration(mc.Degradation.MonitorInterval, 5*time.Second),
-				Strategy:           strat,
+				CPUThreshold:         mc.Degradation.CPUThreshold,
+				MemoryThreshold:      mc.Degradation.MemoryThreshold,
+				EnableGoroutineLimit: mc.Degradation.EnableGoroutineLimit,
+				GoroutineThreshold:   mc.Degradation.GoroutineThreshold,
+				MonitorInterval:      parseDuration(mc.Degradation.MonitorInterval, 5*time.Second),
+				Strategy:             strat,
 			})
 		}
 		b.lastDegradationCfg = mc.Degradation

@@ -152,9 +152,16 @@ type AdaptiveConfig struct {
 	InitialLimit   int `yaml:"initial_limit" json:"initial_limit"`
 
 	// 目标指标
-	TargetCPU     float64       `yaml:"target_cpu" json:"target_cpu"`         // 目标 CPU 使用率 (0.0-1.0)
-	TargetMemory  float64       `yaml:"target_memory" json:"target_memory"`   // 目标内存使用率 (0.0-1.0)
-	TargetLatency time.Duration `yaml:"target_latency" json:"target_latency"` // 目标 P99 延迟
+	TargetCPU    float64 `yaml:"target_cpu" json:"target_cpu"`       // 目标 CPU 使用率 (0.0-1.0)
+	TargetMemory float64 `yaml:"target_memory" json:"target_memory"` // 目标内存使用率 (0.0-1.0)
+
+	// TargetLatency 仅作为日志/告警参考，**不参与限流决策**。
+	//
+	// 直接用 handler 墙钟延迟当压力会让"等待外部 API"被当成过载：AI 回合、
+	// 搜索、天气等插件正常就要挂几秒到几十秒，一旦纳入决策，限流器会持续
+	// 下调到 MinConcurrency，把健康流量压死。按类别做准入（P1 设计）之前，
+	// 这里只保留可观测性用途。
+	TargetLatency time.Duration `yaml:"target_latency" json:"target_latency"`
 
 	// 调整策略
 	AdjustInterval time.Duration `yaml:"adjust_interval" json:"adjust_interval"` // 调整间隔
@@ -389,8 +396,8 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 			cfg := arl.config
 			arl.mu.RUnlock()
 
-			// 决策是否调整
-			newLimit := arl.decideLimitWithConfig(cfg, cpuUsageVal, memory, latency, currentLimit)
+			// 决策是否调整：延迟只用于日志，不参与压力计算（见 decideLimitWithConfig）
+			newLimit := arl.decideLimitWithConfig(cfg, cpuUsageVal, memory, latency > 0, currentLimit)
 
 			if newLimit != currentLimit {
 				arl.adjustLimit(newLimit)
@@ -465,23 +472,30 @@ func (arl *AdaptiveRateLimiter) collectMetrics() {
 	}
 }
 
-// decideLimit 决策新的限制值（使用 arl.config，注意调用方需持有 mu.RLock 或保证不并发写）
-func (arl *AdaptiveRateLimiter) decideLimit(cpu, memory float64, latency time.Duration, currentLimit int32) int32 {
+// decideLimit 决策新的限制值（使用 arl.config，注意调用方需持有 mu.RLock 或保证不并发写）。
+//
+// hasTraffic 表示采样窗口内是否有事件完成：没有流量时不主动上调上限，
+// 避免空转把并发上限一路推到最大值。
+func (arl *AdaptiveRateLimiter) decideLimit(cpu, memory float64, hasTraffic bool, currentLimit int32) int32 {
 	arl.mu.RLock()
 	cfg := arl.config
 	arl.mu.RUnlock()
-	return arl.decideLimitWithConfig(cfg, cpu, memory, latency, currentLimit)
+	return arl.decideLimitWithConfig(cfg, cpu, memory, hasTraffic, currentLimit)
 }
 
-// decideLimitWithConfig 决策新的限制值（使用显式传入的 config 快照，无需锁）
-func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, memory float64, latency time.Duration, currentLimit int32) int32 {
+// decideLimitWithConfig 决策新的限制值（使用显式传入的 config 快照，无需锁）。
+//
+// 压力只取 CPU 与内存：**不用 handler 墙钟延迟**。等待外部 API 的插件
+// （AI 回合、搜索、天气等）正常工作时 handler 就要挂几秒到几十秒，它的 P99
+// 会远超 TargetLatency，把这种等待当成系统压力会让限流器一路降到下限——
+// 越是健康的长耗时插件，越会把全局并发压死。延迟仍被采集，仅用于日志与指标。
+func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, memory float64, hasTraffic bool, currentLimit int32) int32 {
 	// 计算压力得分（0-1，越大压力越大）
 	cpuPressure := cpu / cfg.TargetCPU
 	memoryPressure := memory / cfg.TargetMemory
-	latencyPressure := float64(latency) / float64(cfg.TargetLatency)
 
 	// 取最大压力作为系统压力
-	systemPressure := maxFloat(cpuPressure, memoryPressure, latencyPressure)
+	systemPressure := max(cpuPressure, memoryPressure)
 
 	var newLimit int32
 
@@ -491,8 +505,8 @@ func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, m
 	} else if systemPressure > 1.0 {
 		// 轻度压力，小幅降低
 		newLimit = currentLimit - int32(cfg.AdjustStep)
-	} else if latency <= 0 {
-		// 无流量采样（latencyP99==0），不做上调防止空转膨胀
+	} else if !hasTraffic {
+		// 采样窗口内没有任何事件完成，不做上调防止空转膨胀
 		newLimit = currentLimit
 	} else if systemPressure < 0.7 {
 		// 压力很小，大幅提升
@@ -582,17 +596,6 @@ type AdaptiveStats struct {
 }
 
 // Helper functions
-
-func maxFloat(a, b, c float64) float64 {
-	m := a
-	if b > m {
-		m = b
-	}
-	if c > m {
-		m = c
-	}
-	return m
-}
 
 func maxInt64(a, b int64) int64 {
 	if a > b {

@@ -112,10 +112,10 @@ middleware:
     enable: false               # [H]  运行时开关
     cpu_threshold: 80.0
     memory_threshold: 85.0
-    latency_threshold: "500ms"
     monitor_interval: "5s"
     recovery_interval: "10s"
     delay_queue_size: 1000
+    enable_goroutine_limit: false   # 等待型插件多时建议保持关闭
     goroutine_threshold: 10000
     strategy: "drop"
 

@@ -164,12 +164,11 @@ func (a *app) setupAdaptiveDegradation() {
 	deg := degradation.NewAdaptiveDegradation(degradation.DegradationConfig{
 		CPUThreshold:         dc.CPUThreshold,
 		MemoryThreshold:      dc.MemoryThreshold,
-		LatencyThreshold:     parseDuration(dc.LatencyThreshold, 0),
 		Strategy:             parseDegradationStrategy(dc.Strategy),
 		MonitorInterval:      parseDuration(dc.MonitorInterval, 5*time.Second),
 		RecoveryInterval:     parseDuration(dc.RecoveryInterval, 10*time.Second),
 		DelayQueueSize:       dc.DelayQueueSize,
-		EnableGoroutineLimit: dc.GoroutineThreshold > 0,
+		EnableGoroutineLimit: dc.EnableGoroutineLimit,
 		GoroutineThreshold:   dc.GoroutineThreshold,
 	})
 	deg.StartMonitor(a.bot.Context())

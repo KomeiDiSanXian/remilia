@@ -12,6 +12,7 @@ import (
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -141,15 +142,17 @@ const (
 
 // AdaptiveDegradation 自适应降级控制器
 //
-// 根据系统负载（CPU、内存、延迟等）自动调整降级级别，
+// 根据系统负载（CPU、内存、协程数）自动调整降级级别，
 // 在系统过载时自动丢弃或延迟处理低优先级事件，保护系统稳定性。
+//
+// 刻意不用"handler 墙钟延迟"作为信号：等待外部 API 的插件（AI、搜索、天气等）
+// 正常工作时 handler 就要挂几秒到几十秒，把这种等待当成过载会把健康流量压垮。
 //
 // 使用示例：
 //
 //	deg := middleware.NewAdaptiveDegradation(middleware.DegradationConfig{
 //	    CPUThreshold:    80.0,
 //	    MemoryThreshold: 85.0,
-//	    LatencyThreshold: 500 * time.Millisecond,
 //	    Strategy: middleware.DegradationDrop,
 //	})
 //	go deg.StartMonitor(context.Background())
@@ -167,9 +170,8 @@ type AdaptiveDegradation struct {
 	delayedEvents atomic.Int64
 
 	// 监控指标
-	lastCPU     infraatomic.Value[float64]
-	lastMemory  infraatomic.Value[float64]
-	lastLatency infraatomic.Value[time.Duration]
+	lastCPU    infraatomic.Value[float64]
+	lastMemory infraatomic.Value[float64]
 
 	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
 	metrics *degradationMetrics
@@ -187,10 +189,6 @@ type DegradationConfig struct {
 
 	// MemoryThreshold 内存使用率阈值（百分比，0-100）
 	MemoryThreshold float64
-
-	// LatencyThreshold 延迟阈值
-	// 超过此值开始降级
-	LatencyThreshold time.Duration
 
 	// Strategy 降级策略
 	Strategy DegradationStrategy
@@ -239,9 +237,6 @@ func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus
 	if config.MemoryThreshold <= 0 {
 		config.MemoryThreshold = 85.0
 	}
-	if config.LatencyThreshold == 0 {
-		config.LatencyThreshold = 500 * time.Millisecond
-	}
 	if config.MonitorInterval == 0 {
 		config.MonitorInterval = 5 * time.Second
 	}
@@ -267,7 +262,6 @@ func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus
 	ad.level.Store(LevelNormal)
 	ad.lastCPU.Store(0.0)
 	ad.lastMemory.Store(0.0)
-	ad.lastLatency.Store(time.Duration(0))
 	ad.strategy.Store(int32(config.Strategy))
 
 	// 初始化指标初始值
@@ -527,32 +521,45 @@ func (ad *AdaptiveDegradation) shouldDrop(level DegradationLevel, priority Event
 	}
 }
 
-// defaultPriorityClassifier 默认优先级分类器
+// defaultPriorityClassifier 默认优先级分类器。
+//
+// 按 [platform.EventKind] 分类（跨平台统一口径），而不是按各平台的原始事件名：
+// 早先这里匹配的是 QQ 官方原始类型（GROUP_AT_MESSAGE_CREATE / MESSAGE_CREATE /
+// C2C_MESSAGE_CREATE …），而 eventctx.Context.GetEventType() 返回的是
+// platform.EventKind（GROUP_MESSAGE / PRIVATE_MESSAGE / INTERACTION …）。
+// 两者永不相等，导致所有平台的所有消息都被判为 PriorityLow——轻度降级
+// （LevelLight，丢弃 < PriorityNormal）就会把全部消息静默丢掉。
+//
+// 未知事件类型一律按 PriorityNormal 处理（fail-open）：判不清的事件宁可不丢。
 func defaultPriorityClassifier(ctx *eventctx.Context) EventPriority {
-	eventType := ctx.GetEventType()
-
-	// 根据事件类型分类
-	switch eventType {
-	case "GROUP_AT_MESSAGE_CREATE":
-		// 群 @ 消息（高优先级）
-		return PriorityHigh
-	case "MESSAGE_CREATE":
-		// 普通消息
+	if ctx == nil {
 		return PriorityNormal
-	case "C2C_MESSAGE_CREATE":
-		// 私聊消息（高优先级）
+	}
+
+	switch ctx.GetEventKind() {
+	case platform.EventKindPrivateMessage, platform.EventKindInteraction:
+		// 私聊与交互（按钮/回调）直接面向用户，属于高优先级。
 		return PriorityHigh
-	case "GUILD_CREATE", "GUILD_DELETE":
-		// 关键系统事件
+	case platform.EventKindGroupMessage, platform.EventKindGuildMessage:
+		// 群/频道消息：@ 机器人的（需要响应）为高优先级，其余为普通优先级，
+		// 保证轻度降级不会扫掉全部群聊。
+		if platform.MentionedBot(ctx.GetPlatformEvent()) {
+			return PriorityHigh
+		}
+		return PriorityNormal
+	case platform.EventKindBotAdded, platform.EventKindBotRemoved,
+		platform.EventKindSystem, platform.EventKindMsgPermissionChange:
 		return PriorityCritical
-	case "GROUP_ADD_ROBOT", "GROUP_DEL_ROBOT":
-		// 机器人加入/退出群聊
-		return PriorityCritical
-	case "INTERACTION_CREATE":
-		// 交互事件
-		return PriorityHigh
-	default:
+	case platform.EventKindMemberJoin, platform.EventKindMemberLeave,
+		platform.EventKindMemberUpdate, platform.EventKindChannelChange,
+		platform.EventKindFriendAdded, platform.EventKindFriendRemoved:
+		return PriorityNormal
+	case platform.EventKindNotice, platform.EventKindReaction,
+		platform.EventKindMessageUpdate, platform.EventKindMessageDelete:
+		// 只读/可丢失的事件，降级时最先丢。
 		return PriorityLow
+	default:
+		return PriorityNormal
 	}
 }
 
@@ -600,7 +607,7 @@ func (ad *AdaptiveDegradation) Reset() {
 
 // UpdateConfig 热更新降级控制器配置（线程安全）。
 //
-// 支持运行时更新：CPUThreshold、MemoryThreshold、LatencyThreshold、
+// 支持运行时更新：CPUThreshold、MemoryThreshold、
 // GoroutineThreshold、EnableGoroutineLimit、MonitorInterval、Strategy。
 // 不支持热更新：RecoveryInterval、PriorityClassifier（这些参数修改需要重建控制器）。
 func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
@@ -611,9 +618,6 @@ func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
 	}
 	if cfg.MemoryThreshold > 0 {
 		ad.config.MemoryThreshold = cfg.MemoryThreshold
-	}
-	if cfg.LatencyThreshold > 0 {
-		ad.config.LatencyThreshold = cfg.LatencyThreshold
 	}
 	if cfg.GoroutineThreshold > 0 {
 		ad.config.GoroutineThreshold = cfg.GoroutineThreshold

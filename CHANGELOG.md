@@ -12,6 +12,29 @@
 - 现在以下键全部生效：`cpu_threshold`、`memory_threshold`、`latency_threshold`、`monitor_interval`、`recovery_interval`、`delay_queue_size`、`goroutine_threshold`（>0 时启用协程数判定）、`strategy`（`drop` / `delay` / `simplify`）。
 - 顺带修正 `CONFIGURATION_QUICKREF.md` 里过时的示例：配置节位置是 `middleware.degradation`，Go 侧取 `cfg.Middleware.Degradation`（原示例写的 `cfg.Degradation` 早已不存在）。
 
+### 🐛 修复
+
+**降级分类器按 QQ 原始事件名匹配，跨平台会把所有消息判成最低优先级**
+
+`defaultPriorityClassifier` 原来 switch 的是 QQ 官方原始类型（`GROUP_AT_MESSAGE_CREATE` / `MESSAGE_CREATE` / `C2C_MESSAGE_CREATE` …），而 `ctx.GetEventType()` 返回的是 `platform.EventKind`（`GROUP_MESSAGE` / `PRIVATE_MESSAGE` / `INTERACTION` …）——两者永不相等，于是所有平台、所有消息都落到 `PriorityLow`，而 `LevelLight`（最轻一档）就会丢弃 `< PriorityNormal` 的事件：**一旦开启降级，第一条 CPU/内存阈值就是全量静默丢消息**。
+
+- 改为按 `platform.EventKind` 分类：私聊/交互 → High，群/频道消息 → Normal（@ 机器人时 High），机器人加入/退出、系统事件 → Critical，Notice/Reaction/消息编辑与撤回 → Low。
+- 未知类型一律 **fail-open** 返回 Normal：判不清的事件宁可不丢。
+- 新增回归用例：`LevelLight` 下普通群消息必须被处理、Notice 被丢弃。
+
+**降级的协程数触发改为显式开关；移除失效的延迟阈值**
+
+- `middleware.degradation.enable_goroutine_limit`（默认 **false**）控制协程数是否参与判定。初版接线是"阈值 > 0 就启用"，而示例配置默认 10000，等于默认开启——等待外部 API 的 AI/搜索/天气插件会长期占用协程，很容易被误判。
+- 删除 `latency_threshold`：该键从未被采样（`lastLatency` 只在构造时置 0，`calculateLevel` 也不读它），是纯粹的装饰性配置；同时移除 `adaptiveDegradation` 里未使用的延迟字段。handler 墙钟延迟不构成可靠负载信号（见下一条），所以不是"补实现"而是移除。
+
+**自适应限流不再把 handler 墙钟延迟当压力**
+
+`middleware/ratelimit` 把 `time.Since(handler 开始)` 的 **P99** 与 `TargetLatency`（默认 500ms）之比作为压力，而 AI 回合、搜索、天气等插件正常工作时 handler 就要挂几秒到几十秒：只要慢请求占到 1%，P99 就远超阈值，限流器每 10 秒下调一档，约 45 秒从 100 压到下限 10，随后连 AI 自己都被拒。
+
+- 压力只取 `max(CPU, 内存)`；延迟仍被采集并出现在调整日志里，但**不参与决策**（`TargetLatency` 改为"仅可观测性"并在字段注释中说明）。
+- 保留"采样窗口内没有事件完成则不上调"的防空转逻辑，改为显式的 `hasTraffic` 参数。
+- 新增回归用例：CPU/内存都空闲时，慢 handler 只会让上限上调或无变化，绝不下降。
+
 ### 🗑 移除
 
 **整包删除 11 个无消费者模块**
@@ -37,10 +60,16 @@
 
 - **`helper` 包整体删除**：`ExtractContent` / `ExtractSenderID` / `ExtractChatID` → `platform.Content(e)` / `e.Sender().ID` / `e.Chat().ID`；`BytesToString` / `StringToBytes` / `FNVHash` → `infra/bytesconv`；`Chain` / `ToMiddleware` 等组合器 → `core/context` 的中间件与 handler 组合。
 - **删除的其它包**：`builtin/bundle`（改为显式 `pm.Register(...)` 逐个注册）、`builtin/calendar`、`builtin/idiomdict`、`infra/{option,pool,expr,webimage,persist,audit}`、`middleware/audit`（审计请用 `builtin/auditlog`）。`infra/pool` 的使用方请直接用 `sync.Pool` 或自建池。
+- **配置键 `middleware.degradation.latency_threshold` 移除**：它从未参与判定；降级只看 CPU / 内存 /（可选）协程数。配置里保留该键不会报错（未知键被忽略），但不再有任何作用。
+- **`degradation.DegradationConfig.LatencyThreshold` 字段移除**：自定义分类器/阈值的库使用者请删掉该字段；延迟不再影响降级级别。
+- `ratelimit.AdaptiveConfig.TargetLatency` 保留但语义变更：仅用于日志与告警参考，**不参与限流决策**。依赖"高延迟自动降并发"的部署请改用 CPU/内存阈值或外层准入。
+- **降级的协程数判定默认关闭**：此前"阈值 > 0 即启用"（示例默认 10000），现在需要显式 `enable_goroutine_limit: true`。
 - 本批按项目既有惯例以 1.x minor 发布（v1.78.0 也曾在 minor 内调整对外接口），不升 v2 以避免 Go 模块 `/v2` 路径迁移。
 
 ### ✅ 测试
 
+- `middleware/degradation`：分类器改为按 `EventKind` 断言（私聊/群消息/@ 机器人/交互/系统事件/未知类型 fail-open），并新增"LevelLight 不丢普通群消息、只丢低优先级事件"的回归用例。
+- `middleware/ratelimit`：`decideLimit` 用例改为 `hasTraffic` 语义，新增"CPU/内存空闲时慢 handler 不压缩上限"与"无流量不上调"两条回归。
 - `cmd/bot`：新增 `parseDegradationStrategy` 映射用例（含未知值按 `drop` 兜底）。
 - 全量 `go test -short ./...`、`go build`/`go vet`（两个模块）、`golangci-lint` 均通过。
 

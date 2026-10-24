@@ -148,7 +148,7 @@ func TestAdaptiveRateLimiter_DynamicAdjustment(t *testing.T) {
 	limiter.cpuUsage.Store(0.90) // 90% CPU，超过目标70%
 
 	// 直接执行限流调整（无需等待 adjustLoop ticker）
-	newLimit := limiter.decideLimit(0.90, 0.5, 0, initialLimit)
+	newLimit := limiter.decideLimit(0.90, 0.5, true, initialLimit)
 	limiter.adjustLimit(newLimit)
 
 	newLimit = limiter.maxConcurrency.Load()
@@ -296,7 +296,7 @@ func TestAdaptiveRateLimiter_DecideLimit(t *testing.T) {
 		name         string
 		cpu          float64
 		memory       float64
-		latency      time.Duration
+		hasTraffic   bool
 		currentLimit int32
 		expectHigher bool
 		expectLower  bool
@@ -305,7 +305,7 @@ func TestAdaptiveRateLimiter_DecideLimit(t *testing.T) {
 			name:         "high_pressure_should_decrease",
 			cpu:          0.90,
 			memory:       0.85,
-			latency:      800 * time.Millisecond,
+			hasTraffic:   true,
 			currentLimit: 50,
 			expectLower:  true,
 		},
@@ -313,7 +313,7 @@ func TestAdaptiveRateLimiter_DecideLimit(t *testing.T) {
 			name:         "low_pressure_should_increase",
 			cpu:          0.30,
 			memory:       0.40,
-			latency:      200 * time.Millisecond,
+			hasTraffic:   true,
 			currentLimit: 50,
 			expectHigher: true,
 		},
@@ -321,14 +321,32 @@ func TestAdaptiveRateLimiter_DecideLimit(t *testing.T) {
 			name:         "moderate_pressure_should_maintain",
 			cpu:          0.72,
 			memory:       0.75,
-			latency:      450 * time.Millisecond,
+			hasTraffic:   true,
+			currentLimit: 50,
+		},
+		{
+			// 回归：慢 handler（AI 回合等）只说明"有流量、在等外部 API"，
+			// 不能让 CPU/内存都空闲时的上限被压低。
+			name:         "slow handlers alone do not shrink the limit",
+			cpu:          0.10,
+			memory:       0.20,
+			hasTraffic:   true,
+			currentLimit: 50,
+			expectHigher: true,
+		},
+		{
+			// 没有任何事件完成（无采样）时不上调，避免空转膨胀。
+			name:         "no traffic keeps the limit",
+			cpu:          0.10,
+			memory:       0.20,
+			hasTraffic:   false,
 			currentLimit: 50,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			newLimit := limiter.decideLimit(tt.cpu, tt.memory, tt.latency, tt.currentLimit)
+			newLimit := limiter.decideLimit(tt.cpu, tt.memory, tt.hasTraffic, tt.currentLimit)
 
 			if tt.expectHigher {
 				assert.Greater(t, newLimit, tt.currentLimit, "Should increase limit")

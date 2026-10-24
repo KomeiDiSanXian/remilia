@@ -25,7 +25,6 @@ func TestAdaptiveDegradation_ConstructionAndDefaults(t *testing.T) {
 		ad.mu.RLock()
 		assert.Equal(t, 80.0, ad.config.CPUThreshold)
 		assert.Equal(t, 85.0, ad.config.MemoryThreshold)
-		assert.Equal(t, 500*time.Millisecond, ad.config.LatencyThreshold)
 		assert.Equal(t, 5*time.Second, ad.config.MonitorInterval)
 		assert.Equal(t, 10*time.Second, ad.config.RecoveryInterval)
 		assert.Equal(t, 1000, ad.config.DelayQueueSize)
@@ -419,14 +418,12 @@ func TestAdaptiveDegradation_UpdateConfig(t *testing.T) {
 		ad.UpdateConfig(DegradationConfig{
 			CPUThreshold:         90.0,
 			MemoryThreshold:      95.0,
-			LatencyThreshold:     1 * time.Second,
 			GoroutineThreshold:   20000,
 			EnableGoroutineLimit: true,
 		})
 		ad.mu.RLock()
 		assert.Equal(t, 90.0, ad.config.CPUThreshold)
 		assert.Equal(t, 95.0, ad.config.MemoryThreshold)
-		assert.Equal(t, 1*time.Second, ad.config.LatencyThreshold)
 		assert.Equal(t, 20000, ad.config.GoroutineThreshold)
 		assert.True(t, ad.config.EnableGoroutineLimit)
 		ad.mu.RUnlock()
@@ -442,7 +439,6 @@ func TestAdaptiveDegradation_UpdateConfig(t *testing.T) {
 		ad.mu.RLock()
 		assert.Equal(t, 80.0, ad.config.CPUThreshold)
 		assert.Equal(t, 85.0, ad.config.MemoryThreshold)
-		assert.Equal(t, 500*time.Millisecond, ad.config.LatencyThreshold)
 		ad.mu.RUnlock()
 	})
 
@@ -525,59 +521,63 @@ func TestAdaptiveDegradation_OnLevelChange(t *testing.T) {
 
 // ── G. defaultPriorityClassifier ───────────────────────────────────────────
 
+// TestDefaultPriorityClassifier 固化跨平台优先级口径。
+//
+// 回归背景：旧实现匹配 QQ 官方原始事件名（GROUP_AT_MESSAGE_CREATE 等），
+// 而 ctx.GetEventType() 返回 platform.EventKind（GROUP_MESSAGE 等），两者
+// 永不相等 → 所有平台所有消息都是 PriorityLow，轻度降级即全量静默丢消息。
 func TestDefaultPriorityClassifier(t *testing.T) {
-	t.Run("unknown event type returns PriorityLow", func(t *testing.T) {
-		ctx := testutil.CreateTestContext()
-		assert.Equal(t, PriorityLow, defaultPriorityClassifier(ctx))
+	mk := func(kind platform.EventKind) *eventctx.Context {
+		return eventctx.NewContextFromEvent(&testutil.MiddlewareTestEvent{EventID: "1", EventKind: kind}, nil)
+	}
+
+	tests := []struct {
+		name string
+		kind platform.EventKind
+		want EventPriority
+	}{
+		{"private message", platform.EventKindPrivateMessage, PriorityHigh},
+		{"group message", platform.EventKindGroupMessage, PriorityNormal},
+		{"guild message", platform.EventKindGuildMessage, PriorityNormal},
+		{"interaction", platform.EventKindInteraction, PriorityHigh},
+		{"bot added", platform.EventKindBotAdded, PriorityCritical},
+		{"bot removed", platform.EventKindBotRemoved, PriorityCritical},
+		{"system", platform.EventKindSystem, PriorityCritical},
+		{"member join", platform.EventKindMemberJoin, PriorityNormal},
+		{"notice", platform.EventKindNotice, PriorityLow},
+		{"reaction", platform.EventKindReaction, PriorityLow},
+		{"unknown kind fails open", platform.EventKindUnknown, PriorityNormal},
+		{"custom kind fails open", platform.EventKind("SOMETHING_NEW"), PriorityNormal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, defaultPriorityClassifier(mk(tt.kind)))
+		})
+	}
+
+	t.Run("nil context fails open", func(t *testing.T) {
+		assert.Equal(t, PriorityNormal, defaultPriorityClassifier(nil))
 	})
 
-	t.Run("MESSAGE_CREATE returns PriorityNormal", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("MESSAGE_CREATE")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityNormal, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("GROUP_AT_MESSAGE_CREATE returns PriorityHigh", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("GROUP_AT_MESSAGE_CREATE")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("C2C_MESSAGE_CREATE returns PriorityHigh", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("C2C_MESSAGE_CREATE")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("GUILD_CREATE returns PriorityCritical", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("GUILD_CREATE")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("GUILD_DELETE returns PriorityCritical", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("GUILD_DELETE")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("GROUP_ADD_ROBOT returns PriorityCritical", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("GROUP_ADD_ROBOT")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("GROUP_DEL_ROBOT returns PriorityCritical", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("GROUP_DEL_ROBOT")}
-		ctx := eventctx.NewContextFromEvent(evt, nil)
-		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
-	})
-
-	t.Run("INTERACTION_CREATE returns PriorityHigh", func(t *testing.T) {
-		evt := &testutil.MiddlewareTestEvent{EventID: "1", EventKind: platform.EventKind("INTERACTION_CREATE")}
+	t.Run("group message mentioning the bot is high priority", func(t *testing.T) {
+		evt := &mentioningTestEvent{
+			MiddlewareTestEvent: testutil.MiddlewareTestEvent{
+				EventID:   "1",
+				EventKind: platform.EventKindGroupMessage,
+			},
+		}
 		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
 	})
+}
+
+// mentioningTestEvent 在通用测试事件上补充「@ 了机器人」的结构化列表。
+type mentioningTestEvent struct {
+	testutil.MiddlewareTestEvent
+}
+
+func (e *mentioningTestEvent) Mentions() []platform.UserInfo {
+	return []platform.UserInfo{{ID: "self", IsSelf: true}}
 }
 
 // ── H. SetDegraded / IsDegraded ────────────────────────────────────────────
@@ -714,4 +714,34 @@ func TestAdaptiveDegradation_MetricsIsolation(t *testing.T) {
 		assert.NotNil(t, ad1)
 		assert.NotNil(t, ad2)
 	})
+}
+
+// TestDegradation_LevelLightKeepsNormalEvents 回归：轻度降级只丢低优先级事件。
+//
+// 旧分类器把所有平台的消息判为 PriorityLow，LevelLight 会静默丢掉全部消息。
+func TestDegradation_LevelLightKeepsNormalEvents(t *testing.T) {
+	ad := NewAdaptiveDegradationWithRegistry(DegradationConfig{}, testReg())
+	ad.ForceLevel(LevelLight)
+
+	called := false
+	h := ad.Middleware()(func(*eventctx.Context) error {
+		called = true
+		return nil
+	})
+
+	ctx := eventctx.NewContextFromEvent(&testutil.MiddlewareTestEvent{
+		EventID:   "1",
+		EventKind: platform.EventKindGroupMessage,
+	}, nil)
+	require.NoError(t, h(ctx))
+	assert.True(t, called, "轻度降级不得丢弃普通群消息")
+
+	// 同一级别下 Notice/Reaction 这类低优先级事件仍应被丢弃。
+	called = false
+	ctx = eventctx.NewContextFromEvent(&testutil.MiddlewareTestEvent{
+		EventID:   "2",
+		EventKind: platform.EventKindNotice,
+	}, nil)
+	require.NoError(t, h(ctx))
+	assert.False(t, called, "轻度降级应丢弃低优先级事件")
 }
