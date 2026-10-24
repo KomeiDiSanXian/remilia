@@ -235,7 +235,29 @@ bot:
   #   mode: "reverse_ws"
   #   listen_addr: ":8080"
   #   url: "http://127.0.0.1:5700"
-  # discord: / satori: / milky: / telegram: / wechat: 同理
+
+  # discord 两种接入方式（mode 留空时按是否配置 interactions 块推断）：
+  #   gateway（默认）— 常驻 WebSocket，收全量事件
+  #   interactions    — 只收斜杠命令/按钮/表单交互（端点须为 HTTPS）
+  # discord:
+  #   mode: "interactions"
+  #   token: "your_discord_bot_token"
+  #   interactions:
+  #     listen_addr: ":8080"
+  #     public_key: "YOUR_APP_PUBLIC_KEY"
+
+  # satori 两种接入方式（mode 留空时按是否配置 webhook 块推断）：
+  #   ws（默认）— 常驻 WebSocket 订阅；webhook — SDK 把事件 POST 到本端
+  # 注意 platform / user_id 是适配器必填项。
+  # satori:
+  #   mode: "webhook"
+  #   server_url: "http://localhost:5140"
+  #   platform: "chronocat"
+  #   user_id: "1234567890"
+  #   webhook:
+  #     listen_addr: ":5140"
+
+  # milky: / telegram: / wechat: 同理
 ```
 
 ```go

@@ -93,3 +93,106 @@ func TestOneBotConfig_ValidateMode(t *testing.T) {
 		})
 	}
 }
+
+// TestSatoriConfig_ResolveMode 固化 Satori 接入方式的推断语义：
+// 配置了 webhook 块即视为 webhook，否则维持 ws。
+func TestSatoriConfig_ResolveMode(t *testing.T) {
+	hook := &SatoriWebhookConfig{ListenAddr: ":5140"}
+
+	tests := []struct {
+		name string
+		cfg  SatoriConfig
+		want string
+	}{
+		{"empty defaults to ws", SatoriConfig{}, SatoriModeWS},
+		{"webhook block infers webhook", SatoriConfig{Webhook: hook}, SatoriModeWebhook},
+		{"explicit ws wins over block", SatoriConfig{Mode: SatoriModeWS, Webhook: hook}, SatoriModeWS},
+		{"unknown kept as is", SatoriConfig{Mode: "sse"}, "sse"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.ResolveMode())
+		})
+	}
+}
+
+// TestSatoriConfig_ValidateMode webhook 模式必须有监听地址，server_url 始终必填。
+func TestSatoriConfig_ValidateMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     SatoriConfig
+		wantErr string
+	}{
+		{"missing server url", SatoriConfig{}, "satori.server_url"},
+		{"ws ok", SatoriConfig{ServerURL: "http://localhost:5140"}, ""},
+		{"webhook needs block", SatoriConfig{Mode: SatoriModeWebhook, ServerURL: "http://h"}, "satori.webhook"},
+		{"webhook needs listen", SatoriConfig{Mode: SatoriModeWebhook, ServerURL: "http://h", Webhook: &SatoriWebhookConfig{}}, "satori.webhook.listen_addr"},
+		{"webhook ok", SatoriConfig{Mode: SatoriModeWebhook, ServerURL: "http://h", Webhook: &SatoriWebhookConfig{ListenAddr: ":5140"}}, ""},
+		{"unknown mode", SatoriConfig{Mode: "sse", ServerURL: "http://h"}, "satori.mode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestDiscordConfig_ResolveMode 固化 Discord 接入方式的推断语义：
+// 配置了 interactions 块即视为 interactions，否则仍是 gateway。
+func TestDiscordConfig_ResolveMode(t *testing.T) {
+	ic := &DiscordInteractionsConfig{ListenAddr: ":8080", PublicKey: "ab"}
+
+	tests := []struct {
+		name string
+		cfg  DiscordConfig
+		want string
+	}{
+		{"empty defaults to gateway", DiscordConfig{}, DiscordModeGateway},
+		{"interactions block infers interactions", DiscordConfig{Interactions: ic}, DiscordModeInteractions},
+		{"explicit gateway wins over block", DiscordConfig{Mode: DiscordModeGateway, Interactions: ic}, DiscordModeGateway},
+		{"unknown kept as is", DiscordConfig{Mode: "shard"}, "shard"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.ResolveMode())
+		})
+	}
+}
+
+// TestDiscordConfig_ValidateMode interactions 模式要求监听地址与公钥。
+func TestDiscordConfig_ValidateMode(t *testing.T) {
+	valid := DiscordInteractionsConfig{ListenAddr: ":8080", PublicKey: "ab"}
+	badAck := valid
+	badAck.AckTimeout = "soon"
+
+	tests := []struct {
+		name    string
+		cfg     DiscordConfig
+		wantErr string
+	}{
+		{"missing token", DiscordConfig{}, "discord.token"},
+		{"gateway ok", DiscordConfig{Token: "t"}, ""},
+		{"interactions needs block", DiscordConfig{Token: "t", Mode: DiscordModeInteractions}, "discord.interactions"},
+		{"interactions needs listen", DiscordConfig{Token: "t", Mode: DiscordModeInteractions, Interactions: &DiscordInteractionsConfig{PublicKey: "ab"}}, "discord.interactions.listen_addr"},
+		{"interactions needs public key", DiscordConfig{Token: "t", Mode: DiscordModeInteractions, Interactions: &DiscordInteractionsConfig{ListenAddr: ":8080"}}, "discord.interactions.public_key"},
+		{"interactions bad ack timeout", DiscordConfig{Token: "t", Mode: DiscordModeInteractions, Interactions: &badAck}, "discord.interactions.ack_timeout"},
+		{"interactions ok", DiscordConfig{Token: "t", Mode: DiscordModeInteractions, Interactions: &valid}, ""},
+		{"interactions inferred from block", DiscordConfig{Token: "t", Interactions: &valid}, ""},
+		{"unknown mode", DiscordConfig{Token: "t", Mode: "shard"}, "discord.mode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

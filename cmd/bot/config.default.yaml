@@ -27,12 +27,19 @@
 #     token: "your_onebot_token"
 #     secret: "your_onebot_secret"
 #   discord:
+#     mode: "gateway"             # gateway（默认）| interactions（HTTP 交互端点）
 #     token: "your_discord_bot_token"
+#     # interactions:            # 仅 mode: interactions 生效
+#     #   listen_addr: ":8080"
+#     #   public_key: "YOUR_APP_PUBLIC_KEY"
 #   satori:
+#     mode: "ws"                  # ws（默认）| webhook
 #     server_url: "http://localhost:5140"
 #     token: "your_satori_token"
-#     platform: "chronocat"
-#     user_id: "1234567890"
+#     platform: "chronocat"       # 必填（适配器校验）
+#     user_id: "1234567890"       # 必填（适配器校验）
+#     # webhook:                 # 仅 mode: webhook 生效
+#     #   listen_addr: ":5140"
 #   milky:
 #     base_url: "http://127.0.0.1:6700"
 #     access_token: "your_milky_token"

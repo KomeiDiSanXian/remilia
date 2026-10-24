@@ -137,16 +137,37 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 
 	if c := cfg.Bot.Discord; c != nil {
 		factories["discord"] = func() (platform.Adapter, error) {
+			if c.ResolveMode() == config.DiscordModeInteractions {
+				return newDiscordInteractions(c)
+			}
 			return discord.NewAdapter(c.Token)
 		}
 	}
 
 	if c := cfg.Bot.Satori; c != nil {
 		factories["satori"] = func() (platform.Adapter, error) {
-			return satori.NewAdapter(satori.Config{
+			sendCfg := satori.Config{
 				ServerURL: c.ServerURL, Token: c.Token,
 				Platform: c.Platform, UserID: c.UserID,
-			})
+			}
+			if c.ResolveMode() != config.SatoriModeWebhook {
+				return satori.NewAdapter(sendCfg)
+			}
+			wh := c.Webhook
+			if wh == nil {
+				return nil, fmt.Errorf("satori.webhook is required in %q mode", config.SatoriModeWebhook)
+			}
+			hookCfg := satori.DefaultWebhookConfig(wh.ListenAddr, c.Platform, c.UserID)
+			if wh.Path != "" {
+				hookCfg.Path = wh.Path
+			}
+			// Token 是 SDK 推送时携带的 Bearer，与 sendCfg.Token 方向相反，不能复用。
+			hookCfg.Token = wh.Token
+			if wh.EventBufferSize > 0 {
+				hookCfg.EventBufferSize = wh.EventBufferSize
+			}
+			// Webhook 只负责收事件，回复仍走 SDK 的 HTTP API。
+			return satori.NewWebhookAdapter(hookCfg).WithSendConfig(sendCfg), nil
 		}
 	}
 
@@ -168,4 +189,35 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 	}
 
 	return factories
+}
+
+// newDiscordInteractions 把配置映射为 HTTP Interactions 适配器。
+//
+// AutoDefer 默认 true：先回 deferred ACK，handler 再用 follow-up API 回复，
+// 避免 handler 超过 3 秒导致 Discord 显示"交互失败"。
+func newDiscordInteractions(c *config.DiscordConfig) (platform.Adapter, error) {
+	ic := c.Interactions
+	if ic == nil {
+		return nil, fmt.Errorf("discord.interactions is required in %q mode", config.DiscordModeInteractions)
+	}
+	adaptCfg := discord.InteractionsConfig{
+		Addr:            ic.ListenAddr,
+		PublicKey:       ic.PublicKey,
+		Token:           c.Token,
+		Path:            ic.Path,
+		AutoDefer:       true,
+		WorkerCount:     ic.WorkerCount,
+		EventBufferSize: ic.EventBufferSize,
+	}
+	if ic.AutoDefer != nil {
+		adaptCfg.AutoDefer = *ic.AutoDefer
+	}
+	if ic.AckTimeout != "" {
+		d, err := config.ParseDuration(ic.AckTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("discord.interactions.ack_timeout: %w", err)
+		}
+		adaptCfg.AckTimeout = d
+	}
+	return discord.NewInteractionsAdapter(adaptCfg)
 }

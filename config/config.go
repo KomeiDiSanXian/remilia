@@ -254,17 +254,111 @@ func (oc OneBotConfig) ResolveMode() string {
 	return OneBotModeForwardWS
 }
 
+// Discord 平台接入方式（[DiscordConfig.Mode]）。
+const (
+	// DiscordModeGateway 常驻 WebSocket Gateway：接收消息、成员等全量事件，
+	// 未显式配置 mode 时的默认值。
+	DiscordModeGateway = "gateway"
+	// DiscordModeInteractions HTTP Interactions 端点：只收斜杠命令/按钮/表单交互，
+	// 无需常驻连接，适合 serverless 部署。
+	DiscordModeInteractions = "interactions"
+)
+
 // DiscordConfig Discord 平台适配器配置。
 type DiscordConfig struct {
+	// Mode 接入方式："gateway"（默认）或 "interactions"。
+	// 留空时：配置了 interactions 块则走 interactions，否则 gateway。
+	Mode  string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
 	Token string `yaml:"token" mapstructure:"token"`
+	// Interactions 仅 mode: interactions 生效。
+	Interactions *DiscordInteractionsConfig `yaml:"interactions,omitempty" mapstructure:"interactions,omitempty"`
 }
+
+// DiscordInteractionsConfig Discord HTTP Interactions 端点配置。
+//
+// Discord 只在用户触发斜杠命令/按钮/表单时 POST 到该端点（无需常驻连接）：
+//   - 端点必须是对外可达的 HTTPS 地址（TLS 由反向代理或托管平台终止）
+//   - PublicKey 用于校验 Ed25519 签名，缺失即拒绝所有请求
+type DiscordInteractionsConfig struct {
+	// ListenAddr HTTP 监听地址，如 ":8080"。
+	ListenAddr string `yaml:"listen_addr" mapstructure:"listen_addr"`
+	// PublicKey 应用公钥（Dev Portal → General Information，十六进制 Ed25519）。
+	PublicKey string `yaml:"public_key" mapstructure:"public_key"`
+	// Path 端点路径，默认 "/"（接受任意路径）。
+	Path string `yaml:"path,omitempty" mapstructure:"path,omitempty"`
+	// AutoDefer 是否先回 deferred ACK 再交给 handler（默认 true）。
+	// 关闭后 handler 必须在 3 秒内回复，否则 Discord 显示"交互失败"。
+	AutoDefer *bool `yaml:"auto_defer,omitempty" mapstructure:"auto_defer,omitempty"`
+	// AckTimeout 同步 ACK 的等待时长，默认 2.5s（需小于 Discord 的 3s 限制）。
+	AckTimeout string `yaml:"ack_timeout,omitempty" mapstructure:"ack_timeout,omitempty"`
+	// WorkerCount 事件处理协程数，0 = runtime.NumCPU()。
+	WorkerCount int `yaml:"worker_count,omitempty" mapstructure:"worker_count,omitempty"`
+	// EventBufferSize 内部事件通道容量，默认 100。
+	EventBufferSize int `yaml:"event_buffer_size,omitempty" mapstructure:"event_buffer_size,omitempty"`
+}
+
+// ResolveMode 返回规范化的接入方式：留空时按是否配置 interactions 块推断。
+func (dc DiscordConfig) ResolveMode() string {
+	switch dc.Mode {
+	case DiscordModeGateway, DiscordModeInteractions:
+		return dc.Mode
+	case "":
+		if dc.Interactions != nil {
+			return DiscordModeInteractions
+		}
+		return DiscordModeGateway
+	default:
+		return dc.Mode
+	}
+}
+
+// Satori 协议接入方式（[SatoriConfig.Mode]）。
+const (
+	// SatoriModeWS 常驻 WebSocket 订阅事件，未显式配置 mode 时的默认值。
+	SatoriModeWS = "ws"
+	// SatoriModeWebhook 由 SDK 把事件 POST 到本端，适合 SDK 无法被动连接的环境。
+	SatoriModeWebhook = "webhook"
+)
 
 // SatoriConfig Satori 协议适配器配置。
 type SatoriConfig struct {
+	// Mode 接入方式："ws"（默认）或 "webhook"。
+	// 留空时：配置了 webhook 块则走 webhook，否则 ws。
+	Mode      string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
 	ServerURL string `yaml:"server_url" mapstructure:"server_url"`
 	Token     string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
 	Platform  string `yaml:"platform,omitempty" mapstructure:"platform,omitempty"`
 	UserID    string `yaml:"user_id,omitempty" mapstructure:"user_id,omitempty"`
+	// Webhook 仅 mode: webhook 生效；发送消息仍走 ServerURL + Token。
+	Webhook *SatoriWebhookConfig `yaml:"webhook,omitempty" mapstructure:"webhook,omitempty"`
+}
+
+// SatoriWebhookConfig Satori Webhook 模式的端点配置。
+type SatoriWebhookConfig struct {
+	// ListenAddr HTTP 监听地址，如 ":5140"。
+	ListenAddr string `yaml:"listen_addr" mapstructure:"listen_addr"`
+	// Path SDK 推送事件的路径，默认 "/satori/webhook"。
+	Path string `yaml:"path,omitempty" mapstructure:"path,omitempty"`
+	// Token 校验 SDK 推送时携带的 Bearer 令牌；留空不校验。
+	// 注意与 SatoriConfig.Token（本端调用 SDK 的令牌）不是同一个值。
+	Token string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
+	// EventBufferSize 内部事件通道容量，默认 256。
+	EventBufferSize int `yaml:"event_buffer_size,omitempty" mapstructure:"event_buffer_size,omitempty"`
+}
+
+// ResolveMode 返回规范化的接入方式：留空时按是否配置 webhook 块推断。
+func (sc SatoriConfig) ResolveMode() string {
+	switch sc.Mode {
+	case SatoriModeWS, SatoriModeWebhook:
+		return sc.Mode
+	case "":
+		if sc.Webhook != nil {
+			return SatoriModeWebhook
+		}
+		return SatoriModeWS
+	default:
+		return sc.Mode
+	}
 }
 
 // MilkyConfig Milky QQ 协议适配器配置。

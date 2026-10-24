@@ -342,6 +342,20 @@ func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)
 
 事件包装参考 `platform/qq/event.go` 的实现。
 
+## 接入方式（可配置）
+
+同一个平台可能有多种传输形态，`cmd/bot` 通过配置的 `mode` 选择，未配置时按字段推断以兼容老配置：
+
+| 平台 | `mode` 取值 | 说明 |
+|---|---|---|
+| `qq` | `webhook`（默认）/ `ws` | 官方 Webhook 回调，或主动连接官方 WebSocket 网关（`intents` 可选） |
+| `onebot` | `forward_ws`（默认）/ `reverse_ws` / `http_post` | 主动连接、被动接受 WS 连入、HTTP POST 事件上报 |
+| `discord` | `gateway`（默认）/ `interactions` | 常驻 Gateway，或只接 HTTP Interactions（斜杠命令/按钮/表单） |
+| `satori` | `ws`（默认）/ `webhook` | 常驻 WS 订阅，或由 SDK 反向 POST 事件 |
+| `telegram` | 仅长轮询 | `webhook` 配置块尚未实现，勿依赖 |
+
+各模式的必填字段见 `config.example.yaml` 与 `docs/02-user-guides/CONFIGURATION_QUICKREF.md`。
+
 ## 完整数据流
 
 ```

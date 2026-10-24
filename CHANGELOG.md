@@ -22,14 +22,30 @@
 - `webhook`（默认）：维持现状，监听官方回调。
 - `ws`：主动连接官方 WebSocket 网关，无需公网回调地址；`bot.qq.intents` 可选（0/缺省 = 全部事件）。
 
+**平台 · Discord — 新增 HTTP Interactions 接入**
+
+`discord.NewInteractionsAdapter`（斜杠命令/按钮/表单的 HTTPS 端点，无需常驻 WS）实现完整、有测试，但装配层只会构造 `NewAdapter`（Gateway）。新增 `bot.discord.mode`：
+
+- `gateway`（默认）：维持常驻 WebSocket。
+- `interactions`：监听 `discord.interactions.listen_addr`，用 `public_key` 校验 Ed25519 签名；`auto_defer`（默认 true）、`ack_timeout`、`worker_count`、`event_buffer_size` 可按需调整。`mode` 留空时按是否配置 `interactions` 块推断。
+- `token` 仍必填：默认走 deferred ACK + follow-up API 回复，没有 token 时回复会静默丢失。
+
+**平台 · Satori — 新增 Webhook 接入**
+
+`satori.NewWebhookAdapter`（由 SDK 反向 POST 事件）同样没有装配入口。新增 `bot.satori.mode`：
+
+- `ws`（默认）：常驻 WebSocket 订阅。
+- `webhook`：监听 `satori.webhook.listen_addr`（`path` / `token` / `event_buffer_size` 可选）；事件靠 SDK 推入，发送仍走 `server_url` + `token`，因此两者必须同时配置。`satori.webhook.token` 校验 SDK 推送携带的 Bearer，与 `satori.token`（本端调用 SDK 的令牌）方向相反，不可复用。
+- `mode` 留空时按是否配置 `webhook` 块推断。
+
 **可观测 · 崩溃转储接入**
 
 `infra/coredump` 此前无任何调用点。新增顶层 `coredump` 配置节（`enable` / `dir` / `diagnose_on_enable`，默认关闭），启用后在进程启动早期生效：崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），并把 Go 运行时崩溃报告写入 `dir` 下的 `crash-*.log`。启用失败只告警，不阻断启动。
 
 ### ✅ 测试
 
-- `config`：新增 `QQConfig` / `OneBotConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"的兼容断言）。
-- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`。
+- `config`：新增 `QQConfig` / `OneBotConfig` / `SatoriConfig` / `DiscordConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"、"配置 webhook/interactions 块即推断对应模式"的兼容断言）。
+- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`，以及 satori webhook / discord interactions 分别构造出 `*satori.WebhookAdapter` / `*discord.InteractionsAdapter`。
 
 ## v1.78.0 (2026-10-24)
 

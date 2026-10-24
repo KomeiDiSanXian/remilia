@@ -64,14 +64,35 @@ bot:
 
   # ----- Discord Bot（Gateway WebSocket）-----
   # discord:                                                   # [H⚠]
+  #   # 接入方式: gateway（默认，常驻 WS，收全量事件）| interactions
+  #   #   interactions — 只收斜杠命令/按钮/表单交互，无需常驻连接        [R]
+  #   mode: "gateway"
   #   token: "your_discord_bot_token"                           # [H⚠]
+  #   # 仅 mode: interactions 生效：端点须为对外可达的 HTTPS（TLS 交给
+  #   # 反向代理/托管平台），public_key 用于校验 Ed25519 签名。
+  #   # interactions:
+  #   #   listen_addr: ":8080"
+  #   #   public_key: "YOUR_APP_PUBLIC_KEY"                      # Dev Portal → General Information
+  #   #   path: "/"                                              # 默认接受任意路径
+  #   #   auto_defer: true                                       # 默认 true：先 ACK 再由 handler 回复
+  #   #   ack_timeout: "2.5s"                                    # 需小于 Discord 的 3s 限制
+  #   #   worker_count: 0                                        # 0 = NumCPU
+  #   #   event_buffer_size: 100
 
   # ----- Satori 协议（Chronocat / Lagrange 等）-----
   # satori:                                                    # [H⚠]
-  #   server_url: "http://localhost:5140"                       # [H⚠]
+  #   # 接入方式: ws（默认，常驻 WS 订阅）| webhook（SDK POST 到本端）   [R]
+  #   mode: "ws"
+  #   server_url: "http://localhost:5140"                       # [H⚠] 发送消息仍走此地址
   #   token: "your_satori_token"                                # [H⚠]
-  #   platform: "chronocat"                                     # [H⚠]
-  #   user_id: "1234567890"                                     # [H⚠]
+  #   platform: "chronocat"                                     # [H⚠] 必填（适配器校验）
+  #   user_id: "1234567890"                                     # [H⚠] 必填（适配器校验）
+  #   # 仅 mode: webhook 生效
+  #   # webhook:
+  #   #   listen_addr: ":5140"
+  #   #   path: "/satori/webhook"
+  #   #   token: "your_webhook_bearer"                          # 校验 SDK 推送携带的 Bearer；留空不校验
+  #   #   event_buffer_size: 256
 
   # ----- Milky QQ 协议（NTQQ 协议端）-----
   # milky:                                                     # [H⚠]

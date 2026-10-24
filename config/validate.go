@@ -225,19 +225,60 @@ func (oc *OneBotConfig) Validate() error {
 }
 
 // Validate 验证 Discord 配置。
+//
+// interactions 模式下还需要监听地址与应用公钥；token 仍必填——默认
+// AutoDefer 走 follow-up API 发送回复，没有 token 时所有回复都会静默丢失。
 func (dc *DiscordConfig) Validate() error {
 	if dc.Token == "" {
 		return fmt.Errorf("discord.token is required and cannot be empty")
 	}
-	return nil
+	switch dc.ResolveMode() {
+	case DiscordModeGateway:
+		return nil
+	case DiscordModeInteractions:
+		if dc.Interactions == nil {
+			return fmt.Errorf("discord.interactions is required in %q mode", DiscordModeInteractions)
+		}
+		if dc.Interactions.ListenAddr == "" {
+			return fmt.Errorf("discord.interactions.listen_addr is required in %q mode", DiscordModeInteractions)
+		}
+		if dc.Interactions.PublicKey == "" {
+			return fmt.Errorf("discord.interactions.public_key is required in %q mode", DiscordModeInteractions)
+		}
+		if dc.Interactions.AckTimeout != "" {
+			if _, err := ParseDuration(dc.Interactions.AckTimeout); err != nil {
+				return fmt.Errorf("discord.interactions.ack_timeout is not a valid duration: %w", err)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("discord.mode must be %q or %q, got %q",
+			DiscordModeGateway, DiscordModeInteractions, dc.Mode)
+	}
 }
 
 // Validate 验证 Satori 配置。
+//
+// webhook 模式下需要监听地址；server_url 仍必填——发送消息要走 SDK 的 HTTP API。
 func (sc *SatoriConfig) Validate() error {
 	if sc.ServerURL == "" {
 		return fmt.Errorf("satori.server_url is required and cannot be empty")
 	}
-	return nil
+	switch sc.ResolveMode() {
+	case SatoriModeWS:
+		return nil
+	case SatoriModeWebhook:
+		if sc.Webhook == nil {
+			return fmt.Errorf("satori.webhook is required in %q mode", SatoriModeWebhook)
+		}
+		if sc.Webhook.ListenAddr == "" {
+			return fmt.Errorf("satori.webhook.listen_addr is required in %q mode", SatoriModeWebhook)
+		}
+		return nil
+	default:
+		return fmt.Errorf("satori.mode must be %q or %q, got %q",
+			SatoriModeWS, SatoriModeWebhook, sc.Mode)
+	}
 }
 
 // Validate 验证 Milky 配置。
