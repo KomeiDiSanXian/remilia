@@ -14,6 +14,9 @@ secrets/
 
 .idea/
 
+# 编辑器/工具本地状态（Serena MCP 等自动创建，不属于仓库内容）
+.serena/
+
 data/
 
 # 性能分析产物。目录名与框架内的 pprof 服务器（infra/pprof）区分开：
