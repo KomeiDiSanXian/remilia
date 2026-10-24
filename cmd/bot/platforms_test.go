@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/middleware/degradation"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/onebot"
 )
@@ -205,5 +206,21 @@ func TestPlatformFactories_TelegramModeGuard(t *testing.T) {
 	}}}
 	if _, err := platformFactories(cfg)["telegram"](); err == nil {
 		t.Fatal("expected error when mode=webhook without webhook block")
+	}
+}
+
+// TestParseDegradationStrategy 固化配置字符串 → 降级策略的映射（未知值按 drop）。
+func TestParseDegradationStrategy(t *testing.T) {
+	cases := map[string]degradation.DegradationStrategy{
+		"drop":     degradation.DegradationDrop,
+		"delay":    degradation.DegradationDelay,
+		"simplify": degradation.DegradationSimplify,
+		"":         degradation.DegradationDrop,
+		"unknown":  degradation.DegradationDrop,
+	}
+	for in, want := range cases {
+		if got := parseDegradationStrategy(in); got != want {
+			t.Errorf("parseDegradationStrategy(%q) = %v, want %v", in, got, want)
+		}
 	}
 }

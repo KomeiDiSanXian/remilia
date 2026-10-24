@@ -30,7 +30,7 @@
 | **L0** | `errutil`、`stats`、`infra/*` 叶子包（`atomic`、`bytesconv`、`logger`、`fs`、`cache`…） | 零依赖基础设施与纯工具 |
 | **L1** | `command`、`config`、`lifecycle`、`infra/*` 其余包（`dlq`、`health`、`pprof`、`buildinfo`…） | 解析、配置、生命周期、基础设施服务 |
 | **L2** | `core/context`、`core/engine`、`core/fsm`、`core/permission` | 事件引擎与运行时核心 |
-| **L3** | `router`、`platform/*`、`helper` | 命令路由、平台适配、公开工具 |
+| **L3** | `router`、`platform/*` | 命令路由、平台适配、公开工具 |
 | **L4** | `plugin/*`、`middleware/*` | 插件系统与中间件 |
 | **L5** | `remilia`（根包） | 面向用户的 Bot 门面与组装 API |
 | **L6** | `builtin/*` | 随框架分发的内置插件 |
@@ -64,7 +64,6 @@ L4  plugin/*           ──▶ core, infra, platform, command, config, lifecyc
     middleware/*       ──▶ core, infra, platform, command, config, errutil
 L3  router             ──▶ core, infra
     platform/*         ──▶ infra, config, errutil
-    helper             ──▶ core, infra, platform
 L2  core/*             ──▶ infra, command, platform, errutil
 L1  command            ──▶ infra
     config             ──▶ infra, errutil    （+ 一处到 core/engine 的例外，见下）
@@ -103,16 +102,16 @@ L0  errutil, stats     ──▶ 仅标准库
 `MountEndpoints(mux)` 并由 `api` 统一挂载）。这是一次独立的功能设计，不属于分层
 清理，因此暂以文档记录。
 
-### 3. `helper → core, infra, platform`
+### 3. `helper`（已移除）
 
 `helper` 曾是「字节转换 + 字符串哈希 + 平台事件取值 + handler 组合器」的混合包。
 零拷贝转换与哈希已抽为 `infra/bytesconv`（叶子包），消除了原先
-`platform ↔ helper` 的环；其余函数保留为 `Deprecated` 转发以兼容既有调用方，
-因此 `helper` 仍依赖 `platform`（`ExtractContent` 等）与 `core/context`
-（`Chain` / `ToMiddleware` 等）。
+`platform ↔ helper` 的环。
 
-`helper` 目前**已无仓库内使用者**，仅有公开 API 与测试。后续可在主版本中把
-`Extract*` 并入 `platform`、把组合器并入 `core/context`，彻底清空本包。
+v1.80.0 起该包整体删除：`ExtractContent` / `ExtractSenderID` / `ExtractChatID`
+改用 `platform.Content(e)` / `e.Sender().ID` / `e.Chat().ID`；`BytesToString` /
+`StringToBytes` / `FNVHash` 改用 `infra/bytesconv`；`Chain` / `ToMiddleware` 等
+组合器改用 `core/context` 的中间件与 handler 组合。
 
 ### 4. `infra/health` 测试引用 `core/engine`
 

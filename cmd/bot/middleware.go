@@ -8,6 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/degradation"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
 	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
 	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
@@ -148,6 +149,45 @@ func (a *app) setupAdaptiveLimiter() {
 	arl.Start()
 	a.eng.Use(arl.Middleware())
 	logger.Info("[remilia] Adaptive rate limiter started (bound to bot lifecycle)")
+}
+
+// setupAdaptiveDegradation 按配置启用自适应降级（middleware.degradation）。
+//
+// 与限流器一样在 bot.Start() 之后装配：StartMonitor 绑定 bot 的 lifecycle context，
+// 监控 goroutine 随 bot 停止而退出。此前 middleware.degradation.* 的所有阈值
+// 只被 config 校验读取，运行时从不创建控制器——配了等于没配。
+func (a *app) setupAdaptiveDegradation() {
+	dc := a.cfg.Middleware.Degradation
+	if !dc.Enable {
+		return
+	}
+	deg := degradation.NewAdaptiveDegradation(degradation.DegradationConfig{
+		CPUThreshold:         dc.CPUThreshold,
+		MemoryThreshold:      dc.MemoryThreshold,
+		LatencyThreshold:     parseDuration(dc.LatencyThreshold, 0),
+		Strategy:             parseDegradationStrategy(dc.Strategy),
+		MonitorInterval:      parseDuration(dc.MonitorInterval, 5*time.Second),
+		RecoveryInterval:     parseDuration(dc.RecoveryInterval, 10*time.Second),
+		DelayQueueSize:       dc.DelayQueueSize,
+		EnableGoroutineLimit: dc.GoroutineThreshold > 0,
+		GoroutineThreshold:   dc.GoroutineThreshold,
+	})
+	deg.StartMonitor(a.bot.Context())
+	a.eng.Use(deg.Middleware())
+	a.bridge.WatchDegradation(deg)
+	logger.Info("[remilia] Adaptive degradation started (bound to bot lifecycle)")
+}
+
+// parseDegradationStrategy 将配置字符串转换为降级策略，未知值按 drop 处理。
+func parseDegradationStrategy(s string) degradation.DegradationStrategy {
+	switch s {
+	case "delay":
+		return degradation.DegradationDelay
+	case "simplify":
+		return degradation.DegradationSimplify
+	default:
+		return degradation.DegradationDrop
+	}
 }
 
 // errorHandlerMiddleware 捕获 handler 错误并记录日志。

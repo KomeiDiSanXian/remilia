@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+### ✨ 新特性
+
+**框架 · 自适应降级真正生效**
+
+`middleware.degradation.*` 的 9 个配置键一直能被校验、示例文档还写着"下一监控周期生效"，但运行时从不创建降级控制器——除了 `goroutine_threshold` 被 `WithGoroutineThreshold` 读走，其余全部形同虚设（与 v1.79.0 修的 Telegram webhook 是同一类问题）。
+
+- `cmd/bot` 在 `middleware.degradation.enable: true` 时装配控制器：绑定 Bot 生命周期启动监控、注册中间件、接入配置热更新（阈值改动下一监控周期生效）。
+- 现在以下键全部生效：`cpu_threshold`、`memory_threshold`、`latency_threshold`、`monitor_interval`、`recovery_interval`、`delay_queue_size`、`goroutine_threshold`（>0 时启用协程数判定）、`strategy`（`drop` / `delay` / `simplify`）。
+- 顺带修正 `CONFIGURATION_QUICKREF.md` 里过时的示例：配置节位置是 `middleware.degradation`，Go 侧取 `cfg.Middleware.Degradation`（原示例写的 `cfg.Degradation` 早已不存在）。
+
+### 🗑 移除
+
+**整包删除 11 个无消费者模块**
+
+| 包 | 规模 | 判定依据 |
+|---|---|---|
+| `helper` | 569 行 | 包内无仓库使用者；`LAYERING.md` 原计划"主版本清理"，本次提前执行 |
+| `builtin/bundle` | 89 行 | 批量注册入口，`cmd/bot` 一直显式注册，无使用者 |
+| `builtin/calendar` | 322 行 | 节假日数据只覆盖 2025–2027，零使用者，到期后会静默给出错误结果 |
+| `builtin/idiomdict` | 355 行 | 静态成语词典，零使用者 |
+| `infra/option` | 185 行 | Option 工具包，零使用者 |
+| `infra/pool` | 89 行 | 文档自述"V4 起不再池化事件 Context"，当前无场景 |
+| `infra/expr` | 301 行 | 数学表达式求值，零使用者 |
+| `infra/webimage` | 200 行 | 网页截图工具，零使用者（`textimage`/`gif` 保留） |
+| `infra/persist` | 34 行 | 与 `builtin/internal/jsonfile` 重复且无文档 |
+| `infra/audit` + `middleware/audit` | 约 400 行 | 与 `builtin/auditlog`（走 storage、有命令与 API）是两套审计栈，唯一消费者是 e2e 测试 |
+
+- **保留** `platform/qq/miniapp`：它是 QQ 协议实现的一部分（小程序加密），不按"无消费者"处理。
+- `tests/integration/e2e_test.go` 中依赖被删审计栈的集成用例一并移除。
+- 文档同步：`builtin/README.md`（去掉 bundle 推荐路径与 calendar/idiomdict 条目）、`INFRA_TOOLKIT.md`（去掉 persist/audit/pool/option/expr/webimage）、`LAYERING.md`（helper 章节改为"已移除"并给出替代写法）。
+
+### ⚠️ 破坏性变更（库使用者）
+
+- **`helper` 包整体删除**：`ExtractContent` / `ExtractSenderID` / `ExtractChatID` → `platform.Content(e)` / `e.Sender().ID` / `e.Chat().ID`；`BytesToString` / `StringToBytes` / `FNVHash` → `infra/bytesconv`；`Chain` / `ToMiddleware` 等组合器 → `core/context` 的中间件与 handler 组合。
+- **删除的其它包**：`builtin/bundle`（改为显式 `pm.Register(...)` 逐个注册）、`builtin/calendar`、`builtin/idiomdict`、`infra/{option,pool,expr,webimage,persist,audit}`、`middleware/audit`（审计请用 `builtin/auditlog`）。`infra/pool` 的使用方请直接用 `sync.Pool` 或自建池。
+- 本批按项目既有惯例以 1.x minor 发布（v1.78.0 也曾在 minor 内调整对外接口），不升 v2 以避免 Go 模块 `/v2` 路径迁移。
+
+### ✅ 测试
+
+- `cmd/bot`：新增 `parseDegradationStrategy` 映射用例（含未知值按 `drop` 兜底）。
+- 全量 `go test -short ./...`、`go build`/`go vet`（两个模块）、`golangci-lint` 均通过。
+
 ## v1.79.0 (2026-10-25)
 
 ### ✨ 新特性

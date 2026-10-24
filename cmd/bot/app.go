@@ -86,6 +86,7 @@ func (a *app) run() {
 	}
 
 	a.setupAdaptiveLimiter()
+	a.setupAdaptiveDegradation()
 
 	// 仅在 bot.* 配置实际变化时同步平台，避免修改日志级别等无关字段导致连接断开
 	a.subscribePlatformHotReload()

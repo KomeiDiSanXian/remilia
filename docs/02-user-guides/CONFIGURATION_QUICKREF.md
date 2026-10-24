@@ -187,26 +187,35 @@ defer token.Cancel()
 ### 4. 高级功能：自适应降级
 
 ```yaml
-degradation:
-  enable: true
-  cpu_threshold: 80.0           # CPU 超过 80% 开始降级
-  memory_threshold: 85.0        # 内存超过 85% 开始降级
-  latency_threshold: "500ms"    # 延迟超过 500ms 开始降级
-  monitor_interval: "5s"        # 每 5 秒检查一次
-  strategy: "drop"              # 降级策略：drop/delay/simplify
+middleware:
+  degradation:                  # 注意：位于 middleware 节下
+    enable: true
+    cpu_threshold: 80.0         # CPU 超过 80% 开始降级
+    memory_threshold: 85.0      # 内存超过 85% 开始降级
+    latency_threshold: "500ms"  # 延迟超过 500ms 开始降级
+    monitor_interval: "5s"      # 每 5 秒检查一次
+    recovery_interval: "10s"    # 恢复检查间隔
+    delay_queue_size: 1000      # delay 策略的延迟队列容量
+    goroutine_threshold: 10000  # 协程数阈值（>0 时参与降级判定）
+    strategy: "drop"            # 降级策略：drop/delay/simplify
 ```
 
+`cmd/bot` 在 `enable: true` 时自动装配：创建控制器、绑定 Bot 生命周期启动监控、
+注册中间件，并接入配置热更新（阈值改动下一监控周期生效）。库使用者自己装配时参考：
+
 ```go
-// 使用降级配置
-if cfg.Degradation.Enable {
-    deg := degradation.NewAdaptiveDegradation(degradation.DegradationConfig{
-        CPUThreshold:    cfg.Degradation.CPUThreshold,
-        MemoryThreshold: cfg.Degradation.MemoryThreshold,
-        // ... 其他配置
-    })
-    go deg.StartMonitor(ctx)
-    engine.Use(deg.Middleware())
-}
+dc := cfg.Middleware.Degradation
+deg := degradation.NewAdaptiveDegradation(degradation.DegradationConfig{
+    CPUThreshold:       dc.CPUThreshold,
+    MemoryThreshold:    dc.MemoryThreshold,
+    LatencyThreshold:   parseDuration(dc.LatencyThreshold, 500*time.Millisecond),
+    Strategy:           degradation.DegradationDrop,
+    EnableGoroutineLimit: dc.GoroutineThreshold > 0,
+    GoroutineThreshold: dc.GoroutineThreshold,
+})
+deg.StartMonitor(bot.Context())
+engine.Use(deg.Middleware())
+bridge.WatchDegradation(deg)   // 阈值热更新
 ```
 
 ## 平台与运维配置

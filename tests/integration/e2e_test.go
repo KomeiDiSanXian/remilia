@@ -11,11 +11,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/infra/audit"
-	auditmw "github.com/KomeiDiSanXian/remilia/middleware/audit"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestE2E_BasicCommandFlow 测试基本命令流程
@@ -149,48 +146,6 @@ func TestE2E_ErrorHandling(t *testing.T) {
 }
 
 // TestE2E_AuditLogging 测试审计日志集成
-func TestE2E_AuditLogging(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		// 创建临时审计日志
-		tmpDir := t.TempDir()
-		auditConfig := audit.Config{
-			Enabled:       true,
-			OutputFile:    tmpDir + "/audit.log",
-			AsyncWrite:    false, // 同步写入便于测试
-			BufferSize:    10,
-			FlushInterval: 1 * time.Second,
-		}
-
-		auditLogger, err := audit.NewLogger(auditConfig)
-		require.NoError(t, err)
-		defer func() {
-			_ = auditLogger.Close()
-		}()
-
-		// 创建 engine 并注册审计中间件
-		eng := engine.NewEngine(engine.WithExecPoolDisabled())
-		defer eng.Shutdown(context.Background())
-		eng.Use(auditmw.Middleware(auditLogger))
-
-		// 注册命令
-		executed := false
-		eng.OnCommand(string(platform.EventKindPrivateMessage), "/audit_test").Handle(func(ctx *rcontext.Context) error {
-			executed = true
-			return nil
-		})
-
-		// 处理事件
-		ctx := newIntegrationContext("/audit_test")
-		eng.ProcessEvent(ctx)
-
-		// 验证
-		assert.True(t, executed)
-
-		// 等待日志写入
-		time.Sleep(100 * time.Millisecond)
-	})
-}
-
 // TestE2E_TempMatcher 测试临时匹配器
 func TestE2E_TempMatcher(t *testing.T) {
 	eng := engine.NewEngine(engine.WithExecPoolDisabled())

@@ -9,7 +9,6 @@
 |----|------|-------------|
 | `kv` | LevelDB 键值存储 | 插件状态持久化（antispam/stats 用） |
 | `storage` | 统一持久化存储抽象（GORM，默认 SQLite） | 结构化数据存储（messagelog 用） |
-| `persist` | JSON 文件持久化 | 简单配置/状态落盘 |
 | `future` | Future 异步结果 | `ctx.Reply` 返回值；等待发送结果 |
 | `logger` | 结构化日志（zerolog） | 插件日志（`ctx.Log` 同源） |
 | `dlq` | 死信队列（文件/Webhook 目标） | 发送失败消息持久化 |
@@ -17,17 +16,13 @@
 | `tracing` | OpenTelemetry 分布式追踪 | 链路追踪（见 tracing 文档） |
 | `metrics` | Prometheus 指标 | 暴露插件自定义指标 |
 | `health` | 健康检查树 | Bot/Adapter/DLQ 健康探针 |
-| `audit` | 结构化审计日志 | 操作审计（auditlog 插件用） |
 | `atomic` | 泛型原子值（`atomic.Value[T]`） | 并发安全的配置/状态 |
 | `syncx` | 泛型并发数据结构 | 并发容器扩展 |
-| `pool` | 对象池（带统计） | 高分配热路径复用 |
 | `cache` | 通用缓存工具 | 热点数据缓存 |
-| `option` | Option 模式工具 | 配置化构造 |
 | `trie` | 前缀树 + Aho-Corasick | 关键词匹配 |
-| `expr` | 安全数学表达式求值 | 计算/校验逻辑 |
 | `server` | HTTP 服务器封装（优雅关闭） | 插件内置 HTTP 服务 |
 | `fs` | 文件系统工具（惰性资源） | 文件读写 |
-| `gif` / `textimage` / `webimage` / `zhtext` | 图片/文本生成 | 趣味插件渲染 |
+| `gif` / `textimage` / `zhtext` | 图片/文本生成 | 趣味插件渲染 |
 | `coredump` | 崩溃时自动生成 core dump | 排障（`coredump.enable` 开启） |
 
 ## 🔑 常用包详解
@@ -101,23 +96,9 @@ resp, err := httpclient.Get("https://api.example.com/data").
 - 内置重试（默认重试策略）与超时；`httpclient.NewClient()` 可定制 Transport 与中间件
   （`AuthBearerMiddleware` / `RateLimitMiddleware` / `TimeoutMiddleware` 等）
 
-### audit — 审计日志
+### atomic / syncx — 并发原语
 
 ```go
-alog, _ := audit.NewLogger(audit.DefaultConfig())
-eng.Use(alog.Middleware())                     // 全事件审计
-eng.Use(audit.CommandMiddleware(alog, "/ban")) // 指定命令审计
-```
-
-### pool / atomic / syncx — 并发原语
-
-```go
-// 对象池（带统计）
-p := pool.NewInstrumentedPool(func() any { return &MyObj{} })
-obj := p.Get().(*MyObj)
-// ... 使用后放回
-p.Put(obj)
-
 // 泛型原子值
 v := atomic.Value[int64]{}   // 或 atomic.Value[any]
 v.Store(42)
