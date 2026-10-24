@@ -1,5 +1,77 @@
 # Changelog
 
+## v1.78.0 (2026-10-24)
+
+### 🛠 修复与优化
+
+**内置插件 · AI — 会话读失败不再静默清空历史（数据安全）**
+
+v1.77.0 把持久化存储的一次瞬时读失败（`SQLITE_BUSY`、锁等待、连接抖动）当作"没有历史"：内存里拿到一个空会话，回合结束时的整记录 upsert 就把库里那份历史覆盖成刚说的那一句。
+
+- 读失败现在进入**降级态**：本回合照常回复（只是没有上下文），落库前先重试加载，成功则把库中旧历史合并回来（旧历史在前、本回合新消息在后，计数取大值）；仍失败则跳过写库，宁可这个回合不持久化，也不覆盖旧行。
+- 新增 `ai_session_load_failures_total`：降级对用户表现为"这一轮没有上下文"，只有指标能暴露底层存储不稳。
+- 历史 JSON 损坏时 `Load` 返回错误而不是空历史（同样走降级路径，留给运维修复）；`/ai reset` 仍是清掉损坏行的出口。
+
+**内置插件 · AI — 会话历史不再持有附件二进制（引用 + 按需补取）**
+
+v1.77.0 里图片/音频的字节跟着 `session.Messages` 常驻到被裁出窗口为止；`contentCache` 只是同一份切片，缓存淘汰并不释放它们。现在历史只保存**引用**，字节在构建请求时按需装入请求副本。
+
+- 历史消息只保留 `ContentPart{Type, MimeType, SourceURL, AttachmentID}`。新增的 `AttachmentID`（messagelog 附件行 ID）让引用图片、待合并图片可以脱离原始 URL，在重启后重新取回。
+- 请求构建新增一次补水：对保留窗口内的附件依次从「会话缓存 → 本机附件存储 → 原始 URL」取字节，只写入请求副本、不写回会话；同一回合的工具轮复用缓存。三个来源都失败时降级为文本占位（`[历史图片已不可用]`）。
+- 新增 `ai_attachment_hydrations_total{source}` 与 `ai_attachment_unavailable_total{kind}`。
+- 附件缓存（`contentCache`）从"仅 32 条"改为**条数 + 字节双上限**，新增 `image_cache_max_mb`（默认 64）。v1.77.0 下 32 条 × `max_attachment_size`（默认 20MB）可达 640MB/会话。
+- 回合结束时把 `image_context_window` 之外的片段降级为文本（`Session.StripBinaryPartsOlderThan`）。这些附件本来就不会再随请求发送；降级文案与请求侧共用同一份实现，不会额外打断前缀缓存。
+- 落库保留引用（`content_parts` 只含引用，`Data` 永不落库），重启后默认仍可恢复；`Content` 同步写入扁平化文本，作为引用也失效时的降级内容。
+- 限制：直发图片未经 messagelog 解析，只有 `SourceURL` 引用，平台直链过期后无法取回。
+
+**内置插件 · AI — 保留期与内存 TTL 解耦，过期会话才有库侧清理（配置项变更）**
+
+v1.77.0 用同一个 `session_ttl` 管两件事：会话在内存里放多久、库里那行留多久。结果是"缓存淘汰 = 删用户历史"（默认 24h 下一天不聊就永久删除），而被 LRU 淘汰的行反倒永远不会被清理，数据库单调增长。
+
+- 新增 `plugins.ai.session_retention`（默认 `720h` = 30 天）：持久化历史的保留期，到点才删行；配 `0s` 表示不限，只有 `/ai reset` 这类显式操作才删行。
+- `session_ttl` 收窄为纯缓存语义：闲置超过它的会话移出内存、**不删库**，下次有人说话时重新加载。
+- 库侧清理由 `session_retention` 驱动新增的 `session.ExpiredPurger` 能力（`GormStore` 已实现）；`CleanupExpired` 拆成 `sweepMemory` / `purgeStorage`，新增 `ai_session_purged_total`。
+
+**内置插件 · AI — 会话表改名 `ai_session_records`，迁移可自愈**
+
+`session.Record` 在 v1.77.0 没有声明表名，GORM 把它复数化成了通用的 `records`（文档注释写的却是 `session_records`），共享库中与其它插件的记录表极易混淆——同库 `dnd`/`coc` 都专门加了前缀避开它。
+
+- 表名固定为 `ai_session_records`；初始化时检测到遗留的 `records` 表则 `ALTER TABLE ... RENAME TO` 原地改名（不重建、不复制数据）。
+- 改名失败会中止本次初始化并在下次启动重试，不再"建一张新空表、把旧表里的历史变成读不到的孤儿数据"。
+- 顺带调整索引：`user_id` / `chat_id` 没有任何查询使用（会话一律按 ID 取），删掉以减少 upsert 开销；库侧清理过滤的 `updated_at` 补上索引。升级时自动删除旧索引（索引名沿用旧表名，一并匹配）。
+
+**内置插件 · AI — 落库不再持着会话锁做数据库 I/O**
+
+保存一条会话要重写整行（最多 20 条历史，单条工具结果可达 8K 字符）。v1.77.0 的 JSON 序列化 + upsert 全程持有会话写锁，同会话的消息读取、中断检查、工具集/检索缓存访问都被顺带阻塞。现在锁内只做快照（刷新活跃时间、裁剪窗口、复制消息切片与计划/待合并图片），序列化与数据库往返在会话锁之外完成；顺序由会话 ID 分片锁串行化，不会出现旧快照覆盖新快照。
+
+**内置插件 · AI — 序列化失败不再写成空历史**
+
+`ToRecord` 的 marshal 失败在 v1.77.0 被吞掉并写入 `"[]"`，等于主动清空历史；`ToSession` 遇到损坏 JSON 也只打一条 Warn 就返回空历史。现在两者都返回错误：落库路径序列化失败即跳过本次写库，读取失败由降级态承接。
+
+**内置插件 · AI — 会话缓存容量可配置**
+
+新增 `plugins.ai.session_cache_size`（默认 1000）。v1.77.0 的 LRU 上限硬编码在装配处，而内存占用约等于 `会话数 × max_history × 单条消息大小`，大群场景无法按机器内存下调。
+
+**内置插件 · AI — `/ai clear` 级联取消活动任务**
+
+会话记录与任务记录是两张表：v1.77.0 清空会话只删会话，本会话的活动任务仍以"进行中"出现在 `/ai task status`，预算与计划推进逻辑仍可能按 sessionID 找到它继续跑（而历史已经没了）。现在清空会话会一并取消该会话的活动任务。
+
+**框架 · 存储层补齐 SQLite 连接级设置**
+
+`infra/storage` 用 `db.Exec` 设置 `synchronous = NORMAL`，但它只作用于连接池里的某一条连接，之后新建的连接仍按默认 `FULL`——持久化/性能策略取决于"这次写刚好用了哪条连接"。现在改为通过驱动的 `_pragma` 参数在每条连接建立时设置（调用方自己配置过 `_pragma` 时不介入），并把连接池上限收到 5（WAL 允许多读者 + 单写者，与 messagelog 一致）。`busy_timeout` 无需显式设置——驱动已为每条连接默认置为 5000ms。
+
+**内置插件 · AI — 会话存储的集成测试**
+
+`GormStore` 此前只有 `NewGormSessionStore(nil)` 一个用例，`upsert`、大字段、计数归零、表名迁移、过期清理全靠人工推断。新增基于真实 SQLite 的回归测试，并补上读失败降级、保留期清理、并发落库、附件引用往返这几条管理器/持久化契约。
+
+### ⚠️ 破坏性变更（库使用者）
+
+- **行为**：`CleanupExpired` 不再"过期即删库"，库侧删除改由 `SetRetention` 的保留期驱动（管理器默认 0 = 不删）。想沿用 v1.77.0 的"一天不聊就清掉历史"，请显式设置 `session_retention: 24h`。
+- **API**：`SessionManager.SaveLocked` 已移除——新实现要求写库时**不**持有会话锁，持锁调用会与 `SaveSession` 的分片锁顺序相反、形成死锁。持有锁修改历史的调用方请先解锁再调用 `SaveSession`。
+- **API**：`Session.ToRecord()` 现在返回 `(*Record, error)`，`Record.ToSession()` 现在返回 `(*Session, error)`；历史 JSON 损坏时后者不再返回空历史的会话。
+- **数据格式**：会话记录的 `messages` JSON 现在包含 `content_parts`（只含引用，无二进制）。回滚到 v1.77.0 时这些字段被忽略、消息退化为文本占位，不会报错。
+- `Session.SetCachedContent` 保持四参数签名（使用默认 64MB 字节预算），需要按配置收紧时用新增的 `SetCachedContentWithBudget`。
+
 ## v1.77.0 (2026-10-23)
 
 ### ✨ 新特性

@@ -76,7 +76,10 @@ plugins:
     max_history: 0                # 保留的历史消息数
     api_timeout: ""               # LLM API 超时
     tool_timeout: ""              # 工具执行超时
-    session_ttl: ""               # 会话存活时间（过期自动清理）
+    session_ttl: ""               # 会话在内存缓存中的闲置存活时长（只影响缓存，库里的历史仍保留）
+    session_retention: ""         # 持久化历史保留时长（默认 720h = 30 天；0s = 不限，只有 /ai reset 删行）
+    session_cache_size: 0         # 内存驻留会话上限（LRU，默认 1000；大群可下调到 200~500 省内存）
+    image_cache_max_mb: 64        # 单会话附件内存缓存字节预算（MB）；超出按最早过期淘汰
     system_prompt: ""             # 系统提示词
     trigger_cmd: "/ai"            # 命令触发前缀
     at_bot: true                  # 允许 @机器人 触发

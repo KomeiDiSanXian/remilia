@@ -208,7 +208,9 @@ S2 是成败检查点：**S2 全绿之前不动 S3**。否则一旦分区不成�
   别名，不混入命名调整。
 - **跨包必需的导出**：`Record`（`ai` 侧以 `SessionRecord` 再导出，避免泛名进入
   `ai` 公共面）、`PendingImageRef`/`PendingImageState`、`TrimMessages`、
-  `MessagesForPersistence`、`SaveLocked`（原 `saveNoLock`，装配层在已持锁时调用），
+  `MessagesForPersistence`、`SaveLocked`（原 `saveNoLock`，装配层在已持锁时调用；
+  **已于 v1.78.0 移除**——写库改为"锁内快照、锁外落库"后，持锁调用与
+  `SaveSession` 的分片锁顺序相反会死锁，调用方需先解锁再调用 `SaveSession`），
   以及计划状态常量与 `FormatPlan`/`TerminalStatus`。
 - **承载字段名保持原样**：`plan`/`pendingImage`/`trace`/`toolFailures` 等仍是未导出字段，
   只有随类型同名的 `ragCache` 字段跟着类型一起变成 `RAGCache`；因此代理状态清单
