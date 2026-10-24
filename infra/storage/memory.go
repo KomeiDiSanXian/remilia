@@ -30,5 +30,7 @@ func NewMemory() (*Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: open in-memory db failed: %w", err)
 	}
+	// 与文件库一致的锁等待策略：多连接共享同一内存库时同样会撞写锁。
+	applySQLitePragmas(db)
 	return newPlugin(db), nil
 }
