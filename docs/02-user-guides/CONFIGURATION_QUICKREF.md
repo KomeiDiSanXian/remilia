@@ -218,14 +218,24 @@ if cfg.Degradation.Enable {
 ```yaml
 bot:
   qq:
+    mode: "webhook"               # webhook（默认，官方回调）| ws（官方 WebSocket 网关）
+    # intents: 33554432           # 仅 ws 模式：事件订阅位掩码，0/缺省 = 全部
     app_id: 123456789
     bot_id: 987654321
     token: "your_qq_bot_token"
     secret: "your_qq_bot_secret"
-    webhook:
+    webhook:                      # 仅 mode: webhook 生效
       host: "0.0.0.0"
       port: 8080
-  # onebot: / discord: / satori: / milky: / telegram: / wechat: 同理
+  # onebot 三种接入方式（mode 留空时按字段推断）：
+  #   forward_ws（默认）— 适配器主动连接实现端，需要 url
+  #   reverse_ws        — 适配器监听，由实现端连入，需要 listen_addr
+  #   http_post         — 实现端 POST 事件到 listen_addr，API 调用走 url
+  # onebot:
+  #   mode: "reverse_ws"
+  #   listen_addr: ":8080"
+  #   url: "http://127.0.0.1:5700"
+  # discord: / satori: / milky: / telegram: / wechat: 同理
 ```
 
 ```go
@@ -280,6 +290,21 @@ pprof:
   enable_mutex: false                 # [H] mutex profile 开关
   enable_block: false                 # [H] block profile 开关
 ```
+
+### 崩溃核心转储（coredump）
+
+```yaml
+coredump:
+  enable: false                       # [R] 仅启动时生效
+  dir: "data/coredumps"               # [R] 留空用默认 coredumps
+  # diagnose_on_enable: true          # [R] 启用时输出一次环境诊断
+```
+
+启用后进程崩溃时由操作系统生成 core（Linux/macOS）或 MiniDump（Windows），
+并把 Go 运行时的崩溃报告写入 `dir` 下的 `crash-*.log`（与转储互补，
+Windows 上 MiniDump 不含异常上下文，寄存器快照只能从这里看）。
+容器环境需额外放开 `--ulimit core=-1` 与 `SYS_PTRACE`，否则转储静默失败；
+启用失败只告警，不影响 Bot 启动。
 
 ### 管理 API（api）
 

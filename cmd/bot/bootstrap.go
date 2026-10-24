@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/api"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/coredump"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 )
@@ -80,6 +81,27 @@ func (a *app) initTracing() {
 		logger.WithError(err).Fatal("[remilia] Failed to initialize tracing")
 	}
 	a.tp = tp
+}
+
+// initCoredump 按配置启用崩溃核心转储（infra/coredump）。
+//
+// 必须在进程启动早期（logger 初始化之后）调用：它通过 GOTRACEBACK=crash 与
+// 平台特定的转储机制生效，晚于崩溃点调用就没有意义。失败只告警不阻断启动——
+// 转储是排障增强，不是运行前提。
+func (a *app) initCoredump() {
+	if !a.cfg.Coredump.Enable {
+		return
+	}
+	opts := make([]coredump.Option, 0, 2)
+	if dir := a.cfg.Coredump.Dir; dir != "" {
+		opts = append(opts, coredump.WithDir(dir))
+	}
+	if diag := a.cfg.Coredump.DiagnoseOnEnable; diag != nil {
+		opts = append(opts, coredump.WithDiagnoseOnEnable(*diag))
+	}
+	if err := coredump.Enable(opts...); err != nil {
+		logger.WithError(err).Warn("[remilia] Failed to enable coredump")
+	}
 }
 
 // buildBot 基于配置和平台注册表构建 Bot 实例。

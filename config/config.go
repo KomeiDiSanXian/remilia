@@ -63,6 +63,11 @@ type Config struct {
 	// 需要重启生效 [R]。
 	Messagelog *MessagelogConfig `yaml:"messagelog,omitempty" mapstructure:"messagelog,omitempty"`
 
+	// Coredump 崩溃核心转储配置（infra/coredump）。
+	// 启用后进程崩溃时生成 core / MiniDump 与崩溃日志，便于事后分析。
+	// 需要重启生效 [R]。
+	Coredump CoredumpConfig `yaml:"coredump" mapstructure:"coredump"`
+
 	// Plugins 业务插件的扩展配置节点。
 	//
 	// 键为插件名称，值为该插件的配置键值对（支持任意类型）。
@@ -165,6 +170,15 @@ type BotConfig struct {
 	WeChat   *WeChatConfig   `yaml:"wechat,omitempty" mapstructure:"wechat,omitempty"`
 }
 
+// QQ 平台接入方式（[QQConfig.Mode]）。
+const (
+	// QQModeWebhook 官方 Webhook 回调：适配器监听 HTTP 端口，由 QQ 平台推送事件。
+	// 未显式配置 mode 时的默认值，兼容既有配置文件。
+	QQModeWebhook = "webhook"
+	// QQModeWS 官方 WebSocket 网关：适配器主动连接 gateway，无需公网回调地址。
+	QQModeWS = "ws"
+)
+
 // QQConfig QQ 机器人平台配置。
 //
 // 由 QQ 平台适配器（platform/qq）在初始化时读取。
@@ -174,6 +188,12 @@ type BotConfig struct {
 // 避免 JavaScript 的 Number（2^53 精度上限）在仪表盘里损坏大整数；
 // 内部类型与配置文件仍是数字，写回时由 api 层还原（见 writeConfigUpdate）。
 type QQConfig struct {
+	// Mode 接入方式："webhook"（默认，官方回调）或 "ws"（官方 WebSocket 网关）。
+	// 留空等价于 "webhook"。
+	Mode string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
+	// Intents 事件订阅位掩码，仅 "ws" 模式生效；0 表示订阅全部事件。
+	// 取值见 platform/qq.Intents（如 1<<25 只收群聊与单聊消息）。
+	Intents  int                `yaml:"intents,omitempty" mapstructure:"intents,omitempty"`
 	AppID    uint64             `yaml:"app_id" mapstructure:"app_id" json:"AppID,string"`
 	BotID    uint64             `yaml:"bot_id" mapstructure:"bot_id" json:"BotID,string"`
 	Token    string             `yaml:"token" mapstructure:"token"`
@@ -182,8 +202,32 @@ type QQConfig struct {
 	TokenMgr TokenManagerConfig `yaml:"token_manager" mapstructure:"token_manager"`
 }
 
+// ResolveMode 返回规范化的接入方式：留空或未知值回退为 [QQModeWebhook]。
+func (qc QQConfig) ResolveMode() string {
+	switch qc.Mode {
+	case QQModeWS, QQModeWebhook:
+		return qc.Mode
+	default:
+		return QQModeWebhook
+	}
+}
+
+// OneBot V11 接入方式（[OneBotConfig.Mode]）。
+const (
+	// OneBotModeForwardWS 正向 WebSocket：适配器主动连接 OneBot 实现的 WS 服务端。
+	// 未显式配置 mode 且填了 url 时的默认值，兼容既有配置文件。
+	OneBotModeForwardWS = "forward_ws"
+	// OneBotModeReverseWS 反向 WebSocket：适配器监听，由 OneBot 实现连入。
+	OneBotModeReverseWS = "reverse_ws"
+	// OneBotModeHTTPPost HTTP POST 上报：适配器监听事件上报，API 调用走 URL。
+	OneBotModeHTTPPost = "http_post"
+)
+
 // OneBotConfig OneBot V11 协议适配器配置。
 type OneBotConfig struct {
+	// Mode 接入方式："forward_ws"（默认）| "reverse_ws" | "http_post"。
+	// 留空时按字段推断：填了 url 走 forward_ws，只填 listen_addr 走 reverse_ws。
+	Mode       string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
 	URL        string `yaml:"url,omitempty" mapstructure:"url,omitempty"`
 	ListenAddr string `yaml:"listen_addr,omitempty" mapstructure:"listen_addr,omitempty"`
 	Token      string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
@@ -191,6 +235,23 @@ type OneBotConfig struct {
 	// MediaBaseURL 是 OneBot 实现托管媒体直链的基址（如 http://127.0.0.1:3000）。
 	// 声明后框架把该来源加入受信名单，插件下载平台附件不再被 SSRF 策略误伤。
 	MediaBaseURL string `yaml:"media_base_url,omitempty" mapstructure:"media_base_url,omitempty"`
+}
+
+// ResolveMode 返回规范化的接入方式。
+//
+// 显式 mode 原样返回（校验阶段负责拒绝非法值）；留空时按字段推断，
+// 保证老配置（只写 url）继续走正向 WS。
+func (oc OneBotConfig) ResolveMode() string {
+	if oc.Mode != "" {
+		return oc.Mode
+	}
+	if oc.URL != "" {
+		return OneBotModeForwardWS
+	}
+	if oc.ListenAddr != "" {
+		return OneBotModeReverseWS
+	}
+	return OneBotModeForwardWS
 }
 
 // DiscordConfig Discord 平台适配器配置。
@@ -391,6 +452,20 @@ type PprofConfig struct {
 	AutoProfile     bool   `yaml:"auto_profile" mapstructure:"auto_profile"`
 	EnableMutex     bool   `yaml:"enable_mutex" mapstructure:"enable_mutex"`
 	EnableBlock     bool   `yaml:"enable_block" mapstructure:"enable_block"`
+}
+
+// CoredumpConfig 崩溃核心转储配置（infra/coredump）。
+//
+// 启用后进程崩溃时由操作系统生成 core（Linux/macOS）或 MiniDump（Windows），
+// 同时把 Go 运行时的崩溃报告写入 Dir 下的 crash-*.log。
+type CoredumpConfig struct {
+	// Enable 是否启用核心转储；默认关闭。
+	Enable bool `yaml:"enable" mapstructure:"enable"`
+	// Dir 转储目录；留空使用 infra/coredump 的默认值 "coredumps"。
+	Dir string `yaml:"dir,omitempty" mapstructure:"dir,omitempty"`
+	// DiagnoseOnEnable 是否在启用时输出一次环境诊断（容器/ulimit 等限制）。
+	// 留空视为 true。
+	DiagnoseOnEnable *bool `yaml:"diagnose_on_enable,omitempty" mapstructure:"diagnose_on_enable,omitempty"`
 }
 
 // MessagelogConfig 消息日志配置（builtin/messagelog）。

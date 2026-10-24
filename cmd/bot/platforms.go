@@ -93,21 +93,45 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 
 	if c := cfg.Bot.QQ; c != nil {
 		factories["qq"] = func() (platform.Adapter, error) {
-			addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
-			return qq.NewWebhookServerAdapter(addr, &dto.BotInfo{
+			info := &dto.BotInfo{
 				QQNum: c.BotID, AppID: c.AppID,
 				Token: c.Token, AppSecret: c.Secret,
-			}), nil
+			}
+			// 接入方式由 qq.mode 决定：webhook（默认）监听官方回调，
+			// ws 主动连接官方 WebSocket 网关（无公网回调地址时使用）。
+			if c.ResolveMode() == config.QQModeWS {
+				if c.Intents != 0 {
+					return qq.NewWSAdapterWithIntents(info, qq.Intents(c.Intents)), nil
+				}
+				return qq.NewWSAdapter(info), nil
+			}
+			addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
+			return qq.NewWebhookServerAdapter(addr, info), nil
 		}
 	}
 
 	if c := cfg.Bot.OneBot; c != nil {
 		factories["onebot"] = func() (platform.Adapter, error) {
-			return onebot.NewForwardWSAdapter(onebot.Config{
-				URL: c.URL, Token: c.Token, Secret: c.Secret,
+			obCfg := onebot.Config{
+				URL: c.URL, ListenAddr: c.ListenAddr, Token: c.Token, Secret: c.Secret,
 				MediaBaseURL: c.MediaBaseURL,
-				Mode:         onebot.ModeForwardWS,
-			}), nil
+			}
+			// 三种接入方式共用同一份配置，仅传输层不同：
+			// forward_ws（默认）主动连接、reverse_ws 监听 OneBot 连入、
+			// http_post 监听事件上报并把 API 调用发往 url。
+			switch c.ResolveMode() {
+			case config.OneBotModeReverseWS:
+				obCfg.Mode = onebot.ModeReverseWS
+				return onebot.NewReverseWSAdapter(obCfg), nil
+			case config.OneBotModeHTTPPost:
+				obCfg.Mode = onebot.ModeHTTPPost
+				return onebot.NewHTTPPostAdapter(obCfg), nil
+			case config.OneBotModeForwardWS:
+				obCfg.Mode = onebot.ModeForwardWS
+				return onebot.NewForwardWSAdapter(obCfg), nil
+			default:
+				return nil, fmt.Errorf("unsupported onebot.mode %q", c.Mode)
+			}
 		}
 	}
 

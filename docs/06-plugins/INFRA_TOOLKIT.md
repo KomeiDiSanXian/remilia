@@ -28,7 +28,7 @@
 | `server` | HTTP 服务器封装（优雅关闭） | 插件内置 HTTP 服务 |
 | `fs` | 文件系统工具（惰性资源） | 文件读写 |
 | `gif` / `textimage` / `webimage` / `zhtext` | 图片/文本生成 | 趣味插件渲染 |
-| `coredump` | 崩溃时自动生成 core dump | 排障 |
+| `coredump` | 崩溃时自动生成 core dump | 排障（`coredump.enable` 开启） |
 
 ## 🔑 常用包详解
 

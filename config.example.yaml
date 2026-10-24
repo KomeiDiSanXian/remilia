@@ -17,12 +17,19 @@
 bot:
   # ----- QQ 机器人（QQ 官方 API / Webhook）-----           # [H⚠]
   qq:                                                          # 增删平台 → 零停机；更换 webhook.port → 需重启
+    # 接入方式: webhook / ws                                    [R]
+    #   webhook（默认）— 适配器监听 HTTP 端口，由 QQ 平台推送事件回调
+    #   ws              — 适配器主动连接官方 WebSocket 网关，无需公网回调地址
+    mode: "webhook"
+    # WS 事件订阅位掩码（仅 mode: ws 生效）                       [N/A] 仅创建时读取
+    # 0 = 订阅全部；1<<25 = 只收群聊与单聊消息（参考 platform/qq.Intents）
+    # intents: 33554432
     app_id: 123456789                                         # [H⚠] 更换后旧连接用完即断，新连接自动建立
     bot_id: 987654321                                         # [H⚠] 同上
     token: "your_qq_bot_token"                                # [H⚠] 同上
     secret: "your_qq_bot_secret"                              # [H⚠] 同上
 
-    # Webhook 事件服务配置
+    # Webhook 事件服务配置（仅 mode: webhook 生效）
     webhook:                                                  # [H⚠]
       host: "0.0.0.0"                                         # [R]  更换监听地址需释放旧端口再 bind
       port: 8080                                               # [R]  同上
@@ -38,6 +45,12 @@ bot:
 
   # ----- OneBot V11 协议（go-cqhttp / NapCat 等）-----
   # onebot:                                                    # [H⚠]
+  #   # 接入方式: forward_ws / reverse_ws / http_post           [R]
+  #   #   forward_ws（默认，只填 url）— 适配器主动连接实现端
+  #   #   reverse_ws（只填 listen_addr）— 适配器监听，由实现端连入
+  #   #   http_post — 适配器监听事件上报，API 调用发往 url
+  #   # 留空时按字段推断：填了 url 走 forward_ws，只填 listen_addr 走 reverse_ws。
+  #   # mode: "forward_ws"
   #   url: "ws://127.0.0.1:6700"                               # [H⚠]
   #   listen_addr: ":8080"                                     # [R]
   #   token: "your_onebot_token"                                # [H⚠]
@@ -221,6 +234,17 @@ pprof:
   output_dir: "data/profiles"                                  # [R]  仅创建时读取
   enable_mutex: false                                          # [H]  运行时生效
   enable_block: false                                          # [H]  运行时生效
+
+# ====================================
+# 崩溃核心转储配置（可选）
+# ====================================
+coredump:
+  # 启用后进程崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），
+  # 并把 Go 运行时的崩溃报告写入 dir 下的 crash-*.log。
+  enable: false                                                # [R]  仅启动时生效
+  dir: "data/coredumps"                                        # [R]  同上（留空用默认 coredumps）
+  # 是否在启用时输出一次环境诊断（容器 ulimit / core_pattern 限制等）  [R]
+  # diagnose_on_enable: true
 
 # ====================================
 # 管理 API 配置（可选）                                          [R]

@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### 🔌 接入与接线修复
+
+**内置插件 · 管理 — `/logs`（logviewer）此前从未注册**
+
+`builtin/logviewer` 已实现 `/logs`（search / user / action / stats / recent），`qqpanel` 的命令面板里也把它列为 `/logs` 的提供者，但 `cmd/bot` 的装配清单一直没有注册它——面板点得到、命令却不存在。现在随 `auditlog` 一并注册（`logs.view` 权限，权限插件未加载时按现有 `permcheck` 语义放行）。
+
+**平台 · OneBot — 三种接入方式真正可选**
+
+装配层此前把 OneBot 写死为正向 WS：`platform/onebot` 的反向 WS（`ws_reverse.go`）与 HTTP POST（`http_post.go`）两套实现完整、有测试，但 `bot.onebot.listen_addr` 从来没有传进适配器，配置了也不生效。
+
+- 新增 `bot.onebot.mode`：`forward_ws`（默认）| `reverse_ws` | `http_post`，留空时按字段推断（填了 `url` 走正向，只填 `listen_addr` 走反向），既有配置行为不变。
+- 校验随模式收紧：`reverse_ws` 要求 `listen_addr`，`http_post` 要求 `listen_addr` + `url`（API 基址），未知 `mode` 直接报错。
+
+**平台 · QQ — 新增官方 WebSocket 网关接入**
+
+`platform/qq/wsconn.go` 与 `qq.NewWSAdapter` 此前没有任何装配入口。新增 `bot.qq.mode`：
+
+- `webhook`（默认）：维持现状，监听官方回调。
+- `ws`：主动连接官方 WebSocket 网关，无需公网回调地址；`bot.qq.intents` 可选（0/缺省 = 全部事件）。
+
+**可观测 · 崩溃转储接入**
+
+`infra/coredump` 此前无任何调用点。新增顶层 `coredump` 配置节（`enable` / `dir` / `diagnose_on_enable`，默认关闭），启用后在进程启动早期生效：崩溃时生成 core（Linux/macOS）或 MiniDump（Windows），并把 Go 运行时崩溃报告写入 `dir` 下的 `crash-*.log`。启用失败只告警，不阻断启动。
+
+### ✅ 测试
+
+- `config`：新增 `QQConfig` / `OneBotConfig` 的 `ResolveMode` 与按模式校验用例（含"只填 url 仍走正向 WS"的兼容断言）。
+- `cmd/bot`：新增平台工厂用例，断言 `onebot.mode` 三种取值分别构造出 `ForwardWSAdapter` / `ReverseWSAdapter` / `HTTPPostAdapter`。
+
 ## v1.78.0 (2026-10-24)
 
 ### 🛠 修复与优化

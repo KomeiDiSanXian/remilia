@@ -22,6 +22,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/job"
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
 	"github.com/KomeiDiSanXian/remilia/builtin/knowledgebase"
+	"github.com/KomeiDiSanXian/remilia/builtin/logviewer"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/moderation"
 	"github.com/KomeiDiSanXian/remilia/builtin/ping"
@@ -141,6 +142,7 @@ func (a *app) setupPlugins() {
 		i18n.New(i18n.Config{DefaultLocale: "zh-CN", Fallback: "zh-CN"}),
 		sp.Descriptor(),
 		auditlog.New(),
+		logviewer.New(),
 		statistics.New(statistics.WithStore(dataDir + "/db/statistics.db")),
 		schedPlugin.Descriptor(),
 		rlPlugin.Descriptor(),

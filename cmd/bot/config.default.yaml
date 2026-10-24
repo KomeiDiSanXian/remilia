@@ -13,6 +13,7 @@
 # ====================================
 # bot:
 #   qq:
+#     mode: "webhook"             # webhook（默认）| ws（官方 WebSocket 网关）
 #     app_id: 123456789
 #     bot_id: 987654321
 #     token: "your_qq_bot_token"
@@ -21,7 +22,8 @@
 #       host: "0.0.0.0"
 #       port: 8080
 #   onebot:
-#     url: "ws://127.0.0.1:6700"
+#     mode: "forward_ws"          # forward_ws（默认）| reverse_ws | http_post
+#     url: "ws://127.0.0.1:6700"  # reverse_ws 模式可只填 listen_addr
 #     token: "your_onebot_token"
 #     secret: "your_onebot_secret"
 #   discord:
@@ -160,6 +162,14 @@ pprof:
   output_dir: "data/profiles"   # [R]
   enable_mutex: false           # [H]
   enable_block: false           # [H]
+
+# ====================================
+# 崩溃核心转储配置（可选）
+# ====================================
+coredump:
+  enable: false                 # [R]  仅启动时生效
+  dir: "data/coredumps"         # [R]  留空用默认 coredumps
+  # diagnose_on_enable: true    # [R]  启用时输出一次环境诊断
 
 # ====================================
 # 管理 API 配置  [R]

@@ -78,7 +78,15 @@ engine.On(string(platform.EventKindGroupMessage), spam.Rule()).Handle(myHandler)
 
 ### logviewer — 日志查询
 
-`/logs` 在聊天中查询运行日志。
+`/logs` 在聊天中查询运行日志（需 `logs.view` 权限；依赖 `auditlog` 插件）。
+
+| 子命令 | 用途 |
+|---|---|
+| `/logs search <关键词>` | 搜索日志内容/操作类型 |
+| `/logs user <用户ID> [数量]` | 查看某用户的操作记录 |
+| `/logs action <类型> [数量]` | 按操作类型过滤 |
+| `/logs stats` | 按操作类型的分布统计 |
+| `/logs recent [数量]` | 查看最近日志 |
 
 ### ratelimitui — 限流状态
 

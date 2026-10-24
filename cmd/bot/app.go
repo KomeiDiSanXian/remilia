@@ -62,6 +62,7 @@ func (a *app) run() {
 
 	a.loadConfig()
 	a.initLogger()
+	a.initCoredump()
 	a.initTracing()
 
 	a.setupPlatforms()

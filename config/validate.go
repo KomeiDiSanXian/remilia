@@ -164,6 +164,9 @@ func (bc *BotConfig) Validate() error {
 // QQ 配置采用宽松验证策略：全部字段零值时跳过验证，
 // 零值字段视为"不需要 QQ 平台"。
 func (qc *QQConfig) Validate() error {
+	if qc.Mode != "" && qc.Mode != QQModeWebhook && qc.Mode != QQModeWS {
+		return fmt.Errorf("qq.mode must be %q or %q, got %q", QQModeWebhook, QQModeWS, qc.Mode)
+	}
 	if err := qc.Webhook.Validate(); err != nil {
 		return fmt.Errorf("qq.webhook: %w", err)
 	}
@@ -185,13 +188,38 @@ func (qc *QQConfig) Validate() error {
 	if qc.Secret == "" {
 		return fmt.Errorf("qq.secret is required and cannot be empty")
 	}
+	if qc.Intents < 0 {
+		return fmt.Errorf("qq.intents must be >= 0, got %d", qc.Intents)
+	}
 	return nil
 }
 
 // Validate 验证 OneBot 配置。
+//
+// 必填字段随 mode 变化（见 [OneBotConfig.ResolveMode]）：
+//   - forward_ws：需要 url
+//   - reverse_ws：需要 listen_addr
+//   - http_post：需要 listen_addr（接收事件）与 url（调用 API）
 func (oc *OneBotConfig) Validate() error {
-	if oc.URL == "" && oc.ListenAddr == "" {
-		return fmt.Errorf("onebot.url or onebot.listen_addr must be set")
+	switch oc.ResolveMode() {
+	case OneBotModeForwardWS:
+		if oc.URL == "" {
+			return fmt.Errorf("onebot.url is required in %q mode", OneBotModeForwardWS)
+		}
+	case OneBotModeReverseWS:
+		if oc.ListenAddr == "" {
+			return fmt.Errorf("onebot.listen_addr is required in %q mode", OneBotModeReverseWS)
+		}
+	case OneBotModeHTTPPost:
+		if oc.ListenAddr == "" {
+			return fmt.Errorf("onebot.listen_addr is required in %q mode", OneBotModeHTTPPost)
+		}
+		if oc.URL == "" {
+			return fmt.Errorf("onebot.url (API base) is required in %q mode", OneBotModeHTTPPost)
+		}
+	default:
+		return fmt.Errorf("onebot.mode must be one of %q, %q, %q, got %q",
+			OneBotModeForwardWS, OneBotModeReverseWS, OneBotModeHTTPPost, oc.Mode)
 	}
 	return nil
 }
