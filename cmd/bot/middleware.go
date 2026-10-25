@@ -244,7 +244,9 @@ func errorHandlerMiddleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			err := next(ctx)
-			if err != nil {
+			// 准入拒绝不是业务错误：引擎已经交给 matcher 的 OnReject 处理，
+			// 这里只返回让引擎识别，不再刷错误日志。
+			if err != nil && !eventctx.IsBusy(err) {
 				logger.WithError(err).Error("[remilia] Handler error")
 			}
 			return err
