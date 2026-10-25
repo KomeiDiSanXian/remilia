@@ -9,8 +9,35 @@
 `middleware.degradation.*` 的 9 个配置键一直能被校验、示例文档还写着"下一监控周期生效"，但运行时从不创建降级控制器——除了 `goroutine_threshold` 被 `WithGoroutineThreshold` 读走，其余全部形同虚设（与 v1.79.0 修的 Telegram webhook 是同一类问题）。
 
 - `cmd/bot` 在 `middleware.degradation.enable: true` 时装配控制器：绑定 Bot 生命周期启动监控、注册中间件、接入配置热更新（阈值改动下一监控周期生效）。
-- 现在以下键全部生效：`cpu_threshold`、`memory_threshold`、`latency_threshold`、`monitor_interval`、`recovery_interval`、`delay_queue_size`、`goroutine_threshold`（>0 时启用协程数判定）、`strategy`（`drop` / `delay` / `simplify`）。
+- 现在以下键全部生效：`cpu_threshold`、`memory_threshold`、`monitor_interval`、`recovery_interval`、`delay_queue_size`、`strategy`（`drop` / `delay` / `simplify`），以及显式开启的 `enable_goroutine_limit` + `goroutine_threshold`。`latency_threshold` 已删除（从未参与判定，且墙钟延迟不是可靠负载信号）。
 - 顺带修正 `CONFIGURATION_QUICKREF.md` 里过时的示例：配置节位置是 `middleware.degradation`，Go 侧取 `cfg.Middleware.Degradation`（原示例写的 `cfg.Degradation` 早已不存在）。
+
+**框架 · 按成本类别的准入控制（`middleware/admission`）**
+
+降级回答"系统是否过载"（CPU/内存），准入回答"还能不能再接一个"（这条 handler 会占多久槽位）。等待外部 API 的 handler（AI、搜索、天气）长时间占着槽位，但等待不代表过载；把它们和 `/help` 放进同一个信号量，慢请求会挤掉快请求。
+
+- 两类独立预算：`local`（默认并发 200、不排队、满了立即拒绝）与 `io`（默认并发 64、队列 200、等待上限 10s、队满才拒绝）。
+- **类别由框架自己判断，插件无需登记**：
+  1. 插件在 `Descriptor.Cost` 声明默认类别（内置 `ai` / `mcp` / `knowledgebase` 与 `cmd/bot` 全部网络型插件已在各自描述符里声明 `CostIO`）；混合成本插件用 `Matcher.SetCost` 覆盖单条路由（AI 的 `/ai` 命令入口就显式标为 `CostLocal`）；
+  2. 未声明的由引擎按实测 p50 判定（p50 ≥ `slow_p50`，默认 500ms）；
+  3. 冷启动/未知按 `local` 放行，避免新插件第一条消息就被排队。
+- **忙时文案由插件声明**：`Matcher.OnReject(handler)`。引擎捕获 `context.ErrBusy` 后调用它（panic 隔离、不算 handler 错误）；没有声明就静默结束。AI 在对话路由上挂了"当前对话较多，请稍后再发一条"。装配层不再需要断言插件类型或注册回调。
+- **与 backpressure 互斥而非叠加**：启用 admission 时不再注册 backpressure（两者都是并发限制，叠加会让有效额度难以推算）。默认关闭；启用需重启生效。
+- 引擎侧新增：`Context.SetMatcherCost/MatcherCost`（成本快照，同步与池化路径都注入）、`Matcher.SetCost/Cost`、`Matcher.OnReject`、`ExecProfile.P50/Samples`（滑窗缓存，只在首次读取时排序）。`Matcher.Handle` 现在返回 `*Matcher` 以支持链式 `Handle(...).OnReject(...)`（原调用方无需改动）。
+
+配置示例：
+
+```yaml
+middleware:
+  backpressure:
+    limit: 0                  # 启用 admission 时必须为 0（互斥）
+  admission:
+    enable: true
+    slow_p50: "500ms"
+    min_samples: 3
+    local: { limit: 200, queue: 0 }
+    io:    { limit: 64, queue: 200, wait_timeout: "10s" }
+```
 
 ### 🐛 修复
 
@@ -68,6 +95,8 @@
 
 ### ✅ 测试
 
+- `middleware/admission`：类别解析（声明 > 观测 > 冷启动）、local 立即拒绝、io 排队与队满拒绝、排队响应 ctx 取消。
+- `plugin` / `core/engine`：Descriptor.Cost 自动应用到注册的 matcher、Matcher.SetCost 覆盖生效、被拒绝时走 OnReject 且不执行业务 handler。
 - `middleware/degradation`：分类器改为按 `EventKind` 断言（私聊/群消息/@ 机器人/交互/系统事件/未知类型 fail-open），并新增"LevelLight 不丢普通群消息、只丢低优先级事件"的回归用例。
 - `middleware/ratelimit`：`decideLimit` 用例改为 `hasTraffic` 语义，新增"CPU/内存空闲时慢 handler 不压缩上限"与"无流量不上调"两条回归。
 - `cmd/bot`：新增 `parseDegradationStrategy` 映射用例（含未知值按 `drop` 兜底）。
