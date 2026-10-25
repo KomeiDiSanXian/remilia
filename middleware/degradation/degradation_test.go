@@ -561,10 +561,8 @@ func TestDefaultPriorityClassifier(t *testing.T) {
 
 	t.Run("group message mentioning the bot is high priority", func(t *testing.T) {
 		evt := &mentioningTestEvent{
-			MiddlewareTestEvent: testutil.MiddlewareTestEvent{
-				EventID:   "1",
-				EventKind: platform.EventKindGroupMessage,
-			},
+			EventID:   "1",
+			EventKind: platform.EventKindGroupMessage,
 		}
 		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
