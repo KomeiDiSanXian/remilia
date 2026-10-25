@@ -7,7 +7,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -253,11 +252,11 @@ func (r *liveRegistryWriter) applyDeclaredCost(m *engine.Matcher) {
 		return
 	}
 	desc := r.instance.descriptor()
-	if desc == nil || desc.Cost == corectx.CostUnknown {
+	if desc == nil || desc.Cost == context.CostUnknown {
 		return
 	}
 	// 只填充未声明的 matcher：插件可能已在 Setup 中对少数路由做了细化覆盖。
-	if m.Cost() == corectx.CostUnknown {
+	if m.Cost() == context.CostUnknown {
 		m.SetCost(desc.Cost)
 	}
 }

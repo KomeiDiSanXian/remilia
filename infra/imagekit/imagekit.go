@@ -9,9 +9,7 @@ import (
 	"image"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/jpeg"
 	"image/png"
-	_ "image/png"
 	"strings"
 
 	"golang.org/x/image/draw"
