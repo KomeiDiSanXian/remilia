@@ -108,7 +108,7 @@ L0  errutil, stats     ──▶ 仅标准库
 零拷贝转换与哈希已抽为 `infra/bytesconv`（叶子包），消除了原先
 `platform ↔ helper` 的环。
 
-v1.80.0 起该包整体删除：`ExtractContent` / `ExtractSenderID` / `ExtractChatID`
+v1.79.0 起该包整体删除：`ExtractContent` / `ExtractSenderID` / `ExtractChatID`
 改用 `platform.Content(e)` / `e.Sender().ID` / `e.Chat().ID`；`BytesToString` /
 `StringToBytes` / `FNVHash` 改用 `infra/bytesconv`；`Chain` / `ToMiddleware` 等
 组合器改用 `core/context` 的中间件与 handler 组合。
