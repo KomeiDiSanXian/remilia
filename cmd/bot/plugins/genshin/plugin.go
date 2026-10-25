@@ -56,6 +56,7 @@ func New() *plugin.Descriptor {
 	p := &gsPlugin{}
 	return &plugin.Descriptor{
 		Name:    "genshin",
+		Cost:    eventctx.CostIO,
 		Version: "1.0.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Community",

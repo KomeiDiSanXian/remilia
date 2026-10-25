@@ -38,12 +38,20 @@ const execProfileDemoteAfterFast = 10
 //   - ShouldPool 基于历史数据做决策，Record 记录本次耗时供下次使用
 //   - 默认怀疑慢（前几次走池），用事实证明自己快后才降级
 //   - 一次慢立刻提升（promote），长时间快才降级（demote）
+//
+// 同一份窗口数据还用于准入控制的成本分类（见 P50/Samples）：
+// 那里关心的是「这条 handler 会占多久槽位」，与「是否该走池」是两套阈值。
 type ExecProfile struct {
 	mu       sync.Mutex
 	results  [execProfileWindowSize]time.Duration
 	idx      atomic.Uint64
 	promoted atomic.Bool
 	demoted  atomic.Bool // 已确认为快 handler，跳过排序
+
+	// 供准入控制读取的 p50 快照：Record 后标记 dirty，P50 首次读取时重算。
+	// 避免每个事件在 ShouldPool 之外再做一次排序。
+	cachedP50 atomic.Int64
+	p50Dirty  atomic.Bool
 }
 
 func newExecProfile() *ExecProfile {
@@ -117,12 +125,43 @@ func (p *ExecProfile) Record(elapsed time.Duration) {
 	p.mu.Lock()
 	p.results[idx%execProfileWindowSize] = elapsed
 	p.mu.Unlock()
+	p.p50Dirty.Store(true)
 
 	// 单次极慢也直接提升（快速隔离故障）
 	if elapsed > defaultSlowThreshold*2 {
 		p.promoted.Store(true)
 		p.demoted.Store(false)
 	}
+}
+
+// Samples 返回窗口中已有的样本数（上限为窗口大小）。
+func (p *ExecProfile) Samples() int {
+	return int(min(p.idx.Load(), execProfileWindowSize))
+}
+
+// P50 返回最近窗口内执行耗时的中位数。
+//
+// 无样本时返回 0。结果按需重算并缓存：Record 只置 dirty 标记，
+// 真正的排序发生在第一次读取（每个事件每个 matcher 至多一次）。
+func (p *ExecProfile) P50() time.Duration {
+	if !p.p50Dirty.Load() {
+		return time.Duration(p.cachedP50.Load())
+	}
+
+	p.mu.Lock()
+	n := int(min(p.idx.Load(), execProfileWindowSize))
+	var snapshot [execProfileWindowSize]time.Duration
+	copy(snapshot[:], p.results[:n])
+	p.mu.Unlock()
+
+	var p50 time.Duration
+	if n > 0 {
+		slices.Sort(snapshot[:n])
+		p50 = snapshot[n/2]
+	}
+	p.cachedP50.Store(int64(p50))
+	p.p50Dirty.Store(false)
+	return p50
 }
 
 // IsPromoted 返回当前 handler 是否被标记为"慢"。

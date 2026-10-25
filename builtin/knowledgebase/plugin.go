@@ -94,6 +94,7 @@ type Plugin struct {
 func New() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "knowledgebase",
+		Cost:    eventctx.CostIO,
 		Version: "1.0.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",

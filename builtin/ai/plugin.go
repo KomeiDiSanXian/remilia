@@ -97,6 +97,7 @@ type Plugin struct {
 func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "ai",
+		Cost:         eventctx.CostIO,
 		Version:      "1.0.0",
 		OptionalDeps: []string{"storage", "permission"},
 		Meta: &plugin.Metadata{
@@ -653,7 +654,11 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	if trigger != "" {
 		p.triggerCmd = trigger
 		def := p.aiDefinition()
-		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
+		// 触发命令路由本身是廉价入口（帮助、状态、参数错误），真正的 LLM 调用
+		// 发生在下面的对话 matcher 里；不跟随插件的 I/O 类声明。
+		if m := ctx.OnCommandDefWith("", trigger, def, p.handleAI); m != nil {
+			m.SetCost(eventctx.CostLocal)
+		}
 	}
 
 	// fallback（无命令匹配时兜底回复）归一化为"群聊 + 私聊对全部非命令消息
@@ -679,7 +684,8 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		for _, kind := range groupChatKinds() {
 			ctx.Reg.RegisterMatcher(string(kind)).
 				Where(p.autoReplyEligible()).
-				Handle(p.handleAI)
+				Handle(p.handleAI).
+				OnReject(p.handleBusy)
 		}
 	} else if p.cfg.AtBot {
 		// @机器人 触发：响应 @机器人 的任意消息，排除命令消息（其他插件的
@@ -695,7 +701,8 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 			ctx.Reg.RegisterMatcher(string(kind)).
 				Where(eventctx.OnMentionedBot()).
 				Where(p.autoReplyEligible()).
-				Handle(p.handleAI)
+				Handle(p.handleAI).
+				OnReject(p.handleBusy)
 		}
 	}
 
@@ -717,14 +724,16 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 					// 群策略允许自主发言：放行未 @ 且不属于其他入口的消息
 					return !eventctx.OnMentionedBot()(c) && p.autoReplyEligible()(c)
 				}).
-				Handle(p.handleAI)
+				Handle(p.handleAI).
+				OnReject(p.handleBusy)
 		}
 	}
 
 	if privateCatchAll {
 		ctx.Reg.RegisterMatcher(string(platform.EventKindPrivateMessage)).
 			Where(p.autoReplyEligible()).
-			Handle(p.handleAI)
+			Handle(p.handleAI).
+			OnReject(p.handleBusy)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -233,11 +234,31 @@ func (r *liveRegistryWriter) afterRegister(m *engine.Matcher) {
 			Warn("[plugin] registration rolled back: instance is no longer active")
 		return
 	}
+	r.applyDeclaredCost(m)
 	r.mu.RLock()
 	hook := r.postRegister
 	r.mu.RUnlock()
 	if hook != nil {
 		hook(m)
+	}
+}
+
+// applyDeclaredCost 把插件声明的成本类别应用到它注册的 Matcher 上。
+//
+// 由 Descriptor.Cost 统一声明（AI/搜索/天气等 I/O 型插件），插件无需在装配层
+// 登记、也不需要在 Setup 里逐个 matcher 设置；混合成本插件仍可用
+// Matcher.SetCost 覆盖单条路由。
+func (r *liveRegistryWriter) applyDeclaredCost(m *engine.Matcher) {
+	if r.instance == nil {
+		return
+	}
+	desc := r.instance.descriptor()
+	if desc == nil || desc.Cost == corectx.CostUnknown {
+		return
+	}
+	// 只填充未声明的 matcher：插件可能已在 Setup 中对少数路由做了细化覆盖。
+	if m.Cost() == corectx.CostUnknown {
+		m.SetCost(desc.Cost)
 	}
 }
 

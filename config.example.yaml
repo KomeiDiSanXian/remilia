@@ -196,6 +196,27 @@ middleware:
     policy: "trywait"                                          # [N/A] 仅创建时读取
     wait_timeout: "500ms"                                      # [N/A] 仅创建时读取
 
+  # 按 handler 成本类别做准入控制（推荐替代 backpressure）。
+  #
+  # 等待外部 API 的 handler（AI/搜索/天气）会长时间占用并发槽位，把它和
+  # /help 之类廉价请求放进同一个信号量，慢请求会挤掉快请求。启用后按类别
+  # 各给一套预算：local 满了立即拒绝，io 允许有界排队、队满才拒绝。
+  #
+  # 类别来源：插件在 Descriptor.Cost 声明（内置与 cmd/bot 的网络型插件已声明
+  # CostIO）> 引擎耗时画像（p50 ≥ slow_p50 判为 io）> 冷启动按 local 放行。
+  # 启用时请把 backpressure.limit 设为 0，两者互斥。
+  admission:                                                   # [R]
+    enable: false
+    slow_p50: "500ms"                                          # p50 达到该值判为 I/O 型
+    min_samples: 3                                             # 冷启动样本阈值（不足按 local）
+    local:
+      limit: 200                                               # 本地类并发上限
+      queue: 0                                                 # 不排队
+    io:
+      limit: 64                                                # I/O 类并发上限
+      queue: 200                                               # 允许的排队数量
+      wait_timeout: "10s"                                      # 排队等待上限
+
   degradation:                                                 # [H⚠]
     enable: false                                              # [H]  运行时开关
     cpu_threshold: 80.0                                         # [H]  下一监控周期生效

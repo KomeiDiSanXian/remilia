@@ -1,6 +1,10 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
+)
 
 // descriptor.go — 插件描述符及相关类型定义
 //
@@ -175,6 +179,17 @@ type Descriptor struct {
 	//
 	// 不确定时保持 false 并显式声明 [Deps]——这是所有插件都应遵循的契约。
 	DryRunSafe bool
+
+	// Cost 声明本插件注册的 Matcher 的默认成本类别（可选）。
+	//
+	// 用于准入控制（middleware/admission）：会等待外部 API 的插件（AI、搜索、
+	// 天气等）声明 [corectx.CostIO]，让它们走独立的并发预算与排队，而不是和
+	// /help 这类廉价请求抢同一个信号量。
+	//
+	// CostUnknown（零值）表示不声明：由引擎按实测 p50 自动判定（冷启动按 local）。
+	// 混合成本插件（同一插件既有毫秒级命令又有长耗时对话）可在注册具体 matcher
+	// 后用 [engine.Matcher.SetCost] 覆盖。
+	Cost corectx.CostClass
 
 	// Privileged 声明为管理类插件（可选，默认 false）
 	//

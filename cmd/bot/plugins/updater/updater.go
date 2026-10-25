@@ -82,6 +82,7 @@ func New(opts ...Option) *plugin.Descriptor {
 
 	return &plugin.Descriptor{
 		Name:         "updater",
+		Cost:         eventctx.CostIO,
 		Version:      "1.0.0",
 		Privileged:   true,
 		OptionalDeps: []string{"permission"},

@@ -82,6 +82,33 @@ func (e *Engine) processEventGuarded(ctx *context.Context, allowPool bool) {
 //
 //  3. 终止路径
 //     deleted 或 handler == nil 时提前返回
+//
+// invokeRejectHandler 调用 matcher 声明的「忙时处理器」。
+//
+// 处理器的 panic 与普通 handler 一样会被隔离：它只是给用户一句说明，
+// 不能让准入拒绝升级为进程级故障。
+func (e *Engine) invokeRejectHandler(ctx *context.Context, m *Matcher) {
+	m.rt.mu.RLock()
+	h := m.rejectHandlerLocked()
+	m.rt.mu.RUnlock()
+	if h == nil {
+		return
+	}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WithFields(logger.Fields{
+					"panic":   r,
+					"matcher": m.sourceLocked(),
+				}).Warn("[engine] Reject handler panic recovered")
+			}
+		}()
+		if err := h(ctx); err != nil {
+			logger.WithError(err).Debugf("[engine] Reject handler error in matcher: %s", m.sourceLocked())
+		}
+	}()
+}
+
 func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// ── 快速终止：atomic deleted 检查，无需任何锁 ──────────────────────────────
 	if m.rt.deleted.Load() {
@@ -144,6 +171,13 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	}()
 
 	err := finalHandler(ctx)
+
+	// 准入/限流拒绝：被拒事件没有执行任何业务代码，不算 handler 错误；
+	// 交给 matcher 声明的忙时处理器（插件决定文案），没有就静默结束。
+	if context.IsBusy(err) {
+		e.invokeRejectHandler(ctx, m)
+		err = nil
+	}
 
 	// 记录正常路径错误
 	if err != nil {

@@ -64,6 +64,13 @@ type Matcher struct {
 	// regexPattern 是 Regex() 注册的正则模式，供 regexIndex 候选预匹配使用。
 	regexPattern string
 	hasHandler   atomic.Bool
+	// rejectHandler 是「事件被准入/限流拒绝」时的兜底处理器（可选）。
+	// 判定发生在中间件里、业务 handler 之前，被拒事件不会进入插件，
+	// 因此需要插件自己声明文案（如 AI 的"排队中"）。
+	rejectHandler context.Handler
+	// declaredCost 是插件/调用方声明的成本类别（Descriptor.Cost / SetCost），
+	// CostUnknown 表示交给引擎实测 p50 判定。
+	declaredCost context.CostClass
 	EventType    EventType
 	Rules        []context.Rule
 	Handler      context.Handler
@@ -398,9 +405,9 @@ func (m *Matcher) isTempMatcher() bool {
 //	    Handle(func(ctx *context.Context) error {  // ← 终结点，无返回值
 //	        return ctx.Reply("Pong!")
 //	    })
-func (m *Matcher) Handle(handler context.Handler) {
+func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	if m.isNoop() {
-		return
+		return m
 	}
 	m.rt.mu.Lock()
 	hadHandler := m.Handler != nil
@@ -442,6 +449,55 @@ func (m *Matcher) Handle(handler context.Handler) {
 	if registrar != nil && def != nil && len(def.Aliases) > 0 {
 		registrar(def, handler)
 	}
+	return m
+}
+
+// SetCost 声明该 matcher 的成本类别（[context.CostLocal] / [context.CostIO]）。
+//
+// 插件通过 [plugin.Descriptor.Cost] 声明时由框架自动应用；混合成本插件
+// （如 AI：`/ai help` 便宜、对话昂贵）可在注册具体 matcher 后单独覆盖。
+// CostUnknown（零值）表示交给引擎实测 p50 判定。
+func (m *Matcher) SetCost(c context.CostClass) *Matcher {
+	if m == nil || m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	m.declaredCost = c
+	m.rt.mu.Unlock()
+	return m
+}
+
+// Cost 返回该 matcher 声明的成本类别（CostUnknown 表示未声明）。
+func (m *Matcher) Cost() context.CostClass {
+	if m == nil {
+		return context.CostUnknown
+	}
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.declaredCost
+}
+
+// OnReject 声明「事件被准入/限流拒绝时」的处理器（可选）。
+//
+// 判定发生在中间件里、业务 handler 之前，被拒事件不会进入插件；引擎捕获
+// [context.ErrBusy] 后会调用本处理器，让插件决定文案（如 AI 回"当前对话较多，
+// 请稍后再试"）。不设置时事件静默结束（只记指标与 debug 日志）。
+//
+// 该处理器不参与匹配、不继承中间件链，且只应在"这个 matcher 的入口确实会
+// 被拒绝"时才需要；普通插件无需关心。
+func (m *Matcher) OnReject(handler context.Handler) *Matcher {
+	if m == nil || m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	m.rejectHandler = handler
+	m.rt.mu.Unlock()
+	return m
+}
+
+// rejectHandlerLocked 读取忙时处理器（调用方需持有 rt.mu 或构造期保证不可变）。
+func (m *Matcher) rejectHandlerLocked() context.Handler {
+	return m.rejectHandler
 }
 
 // SetPriority 设置 Matcher 的优先级

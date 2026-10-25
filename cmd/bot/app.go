@@ -14,6 +14,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
+	"github.com/KomeiDiSanXian/remilia/middleware/admission"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -35,6 +36,9 @@ type app struct {
 	bridge *hotreload.Bridge
 	fsmMgr *fsm.Manager
 	pm     *plugin.Manager
+
+	// admission 按成本类别做准入控制（nil 表示未启用）。
+	admission *admission.Admission
 
 	configWatcher *config.Watcher
 

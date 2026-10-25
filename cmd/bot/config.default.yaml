@@ -108,6 +108,19 @@ middleware:
     policy: "drop"
     wait_timeout: "500ms"
 
+  # 按成本类别的准入控制（启用时把上面的 backpressure.limit 置 0，二者互斥）
+  admission:                    # [R]
+    enable: false
+    slow_p50: "500ms"
+    min_samples: 3
+    local:
+      limit: 200
+      queue: 0
+    io:
+      limit: 64
+      queue: 200
+      wait_timeout: "10s"
+
   degradation:                  # [H⚠]
     enable: false               # [H]  运行时开关
     cpu_threshold: 80.0

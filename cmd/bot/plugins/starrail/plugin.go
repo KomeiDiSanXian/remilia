@@ -50,6 +50,7 @@ func New() *plugin.Descriptor {
 	p := &hsrPlugin{}
 	return &plugin.Descriptor{
 		Name:    "starrail",
+		Cost:    eventctx.CostIO,
 		Version: "1.0.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Community",

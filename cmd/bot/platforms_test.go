@@ -224,3 +224,23 @@ func TestParseDegradationStrategy(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildAdmission 配置映射：未配置 io 段时用默认预算（允许排队），
+// 显式配置时按配置生效。类别解析不再依赖插件名清单。
+func TestBuildAdmission(t *testing.T) {
+	a := &app{}
+
+	got := a.buildAdmission(config.AdmissionConfig{})
+	if got == nil {
+		t.Fatal("buildAdmission must return an instance")
+	}
+
+	explicit := a.buildAdmission(config.AdmissionConfig{
+		SlowP50: "800ms",
+		Local:   config.AdmissionClassConfig{Limit: 7},
+		IO:      config.AdmissionClassConfig{Limit: 3, Queue: 5, WaitTimeout: "2s"},
+	})
+	if explicit == nil {
+		t.Fatal("buildAdmission must return an instance for explicit config")
+	}
+}

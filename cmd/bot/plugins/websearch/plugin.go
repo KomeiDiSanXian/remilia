@@ -144,6 +144,7 @@ func New() *plugin.Descriptor {
 	}
 	return &plugin.Descriptor{
 		Name:    "websearch",
+		Cost:    eventctx.CostIO,
 		Version: "1.1.1",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",

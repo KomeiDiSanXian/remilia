@@ -202,6 +202,7 @@ func New() *plugin.Descriptor {
 	p := &mcPlugin{cfg: DefaultConfig}
 	return &plugin.Descriptor{
 		Name:         "minecraft",
+		Cost:         eventctx.CostIO,
 		Version:      "1.3.0",
 		OptionalDeps: []string{"storage", "permission", "auditlog"},
 		Meta: &plugin.Metadata{

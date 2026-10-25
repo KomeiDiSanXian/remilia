@@ -44,6 +44,7 @@ func New() *plugin.Descriptor {
 	p := &Plugin{}
 	return &plugin.Descriptor{
 		Name:    "aimage",
+		Cost:    eventctx.CostIO,
 		Version: "1.0.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Community",

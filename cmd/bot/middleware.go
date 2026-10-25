@@ -4,9 +4,11 @@ import (
 	"slices"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/admission"
 	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
 	"github.com/KomeiDiSanXian/remilia/middleware/degradation"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
@@ -30,6 +32,23 @@ func (a *app) setupMiddleware() {
 	// 始终注册的基础中间件
 	mws = append(mws, middleware.RequestID())
 	mws = append(mws, middleware.Timeout(30*time.Second))
+
+	// 准入控制（按 handler 成本类别）— 最外层之一：被拒绝的事件不再消耗后续中间件的预算。
+	// 与 backpressure 互斥：两者都是并发限制，叠加会让有效额度难以推算。
+	if mc.Admission.Enable {
+		if adm := a.buildAdmission(mc.Admission); adm != nil {
+			a.admission = adm
+			mws = append(mws, adm.Middleware())
+			logger.Info("[remilia] Admission control enabled (per-cost-class budgets)")
+		}
+	} else if mc.Backpressure.Limit > 0 {
+		policy := parseBackpressurePolicy(mc.Backpressure.Policy)
+		wTimeout := parseDuration(mc.Backpressure.WaitTimeout, 200*time.Millisecond)
+		innerBP := middleware.Backpressure(mc.Backpressure.Limit, policy, wTimeout)
+		mws = append(mws, wrapEnabled(func() bool {
+			return bridge.GetMiddlewareConfig().Backpressure.Limit > 0
+		}, innerBP))
+	}
 
 	// Recover — 运行时检查开关
 	mws = append(mws, wrapEnabled(func() bool { return bridge.GetMiddlewareConfig().Recover }, middleware.Recover()))
@@ -68,16 +87,6 @@ func (a *app) setupMiddleware() {
 	})
 	bridge.WatchCircuitBreaker(cb)
 	mws = append(mws, resilience.CircuitBreakerMiddleware(cb))
-
-	// Backpressure — 运行时检查开关，Limit 仅创建时确定
-	if mc.Backpressure.Limit > 0 {
-		policy := parseBackpressurePolicy(mc.Backpressure.Policy)
-		wTimeout := parseDuration(mc.Backpressure.WaitTimeout, 200*time.Millisecond)
-		innerBP := middleware.Backpressure(mc.Backpressure.Limit, policy, wTimeout)
-		mws = append(mws, wrapEnabled(func() bool {
-			return bridge.GetMiddlewareConfig().Backpressure.Limit > 0
-		}, innerBP))
-	}
 
 	eng.Use(mws...)
 
@@ -187,6 +196,47 @@ func parseDegradationStrategy(s string) degradation.DegradationStrategy {
 	default:
 		return degradation.DegradationDrop
 	}
+}
+
+// 准入控制的默认预算：local 只防失控；io 允许排队，队满才拒绝。
+const (
+	defaultAdmissionLocalLimit = 200
+	defaultAdmissionIOLimit    = 64
+	defaultAdmissionIOQueue    = 200
+	defaultAdmissionIOWait     = 10 * time.Second
+)
+
+// buildAdmission 把配置映射为准入控制实例（配置非法时校验阶段已拦截）。
+func (a *app) buildAdmission(ac config.AdmissionConfig) *admission.Admission {
+	local := admission.ClassConfig{
+		Limit:       ac.Local.Limit,
+		Queue:       ac.Local.Queue,
+		WaitTimeout: parseDuration(ac.Local.WaitTimeout, 0),
+	}
+	if local.Limit <= 0 {
+		local.Limit = defaultAdmissionLocalLimit
+	}
+
+	io := admission.ClassConfig{
+		Limit:       ac.IO.Limit,
+		Queue:       ac.IO.Queue,
+		WaitTimeout: parseDuration(ac.IO.WaitTimeout, 0),
+	}
+	if io.Limit <= 0 && io.Queue <= 0 && ac.IO.WaitTimeout == "" {
+		// 整段未配置：使用 I/O 类默认值（允许排队）。
+		io = admission.ClassConfig{
+			Limit:       defaultAdmissionIOLimit,
+			Queue:       defaultAdmissionIOQueue,
+			WaitTimeout: defaultAdmissionIOWait,
+		}
+	}
+
+	return admission.New(admission.Config{
+		SlowP50:    parseDuration(ac.SlowP50, 500*time.Millisecond),
+		MinSamples: ac.MinSamples,
+		Local:      local,
+		IO:         io,
+	})
 }
 
 // errorHandlerMiddleware 捕获 handler 错误并记录日志。

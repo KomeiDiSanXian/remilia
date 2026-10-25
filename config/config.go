@@ -485,6 +485,41 @@ type MiddlewareConfig struct {
 	// Degradation 自适应降级配置（原 Config.Degradation，整合至此处，同时支持热更新）
 	Degradation  DegradationConfig  `yaml:"degradation" mapstructure:"degradation"`
 	Backpressure BackpressureConfig `yaml:"backpressure" mapstructure:"backpressure"`
+	// Admission 按 handler 成本类别做准入控制（middleware/admission）。
+	//
+	// 与 Backpressure 互斥：启用后由分类预算取代单一全局信号量，
+	// 避免等待外部 API 的 handler（AI/搜索/天气）挤掉廉价请求。
+	Admission AdmissionConfig `yaml:"admission" mapstructure:"admission"`
+}
+
+// AdmissionConfig 按 handler 成本类别做准入控制。
+//
+// 类别来源（优先级从高到低）：
+//  1. 插件声明：Descriptor.Cost（或 Matcher.SetCost）显式标注；
+//  2. 引擎耗时画像：某条 matcher 的 p50 ≥ SlowP50 视为 I/O 型；
+//  3. 冷启动/未知：按 local 放行（不排队）。
+type AdmissionConfig struct {
+	// Enable 是否启用；默认关闭。启用后请同时把 backpressure.limit 设为 0，
+	// 否则两套并发限制会叠加。需要重启生效 [R]。
+	Enable bool `yaml:"enable" mapstructure:"enable"`
+	// SlowP50 判定 I/O 型的 p50 阈值，默认 "500ms"。
+	SlowP50 string `yaml:"slow_p50,omitempty" mapstructure:"slow_p50,omitempty"`
+	// MinSamples 冷启动样本阈值，默认 3；样本不足一律按 local。
+	MinSamples int `yaml:"min_samples,omitempty" mapstructure:"min_samples,omitempty"`
+	// Local 本地/廉价 handler 的预算（默认 limit 200，不排队）。
+	Local AdmissionClassConfig `yaml:"local,omitempty" mapstructure:"local,omitempty"`
+	// IO 外部 I/O 型 handler 的预算（默认 limit 64、queue 200、等待 10s）。
+	IO AdmissionClassConfig `yaml:"io,omitempty" mapstructure:"io,omitempty"`
+}
+
+// AdmissionClassConfig 单个成本类别的预算。
+type AdmissionClassConfig struct {
+	// Limit 并发上限；0 使用该类默认值。
+	Limit int `yaml:"limit,omitempty" mapstructure:"limit,omitempty"`
+	// Queue 允许排队的等待者数量；0 表示不排队（拿不到槽立即拒绝）。
+	Queue int `yaml:"queue,omitempty" mapstructure:"queue,omitempty"`
+	// WaitTimeout 排队等待上限（如 "10s"）；留空跟随类默认值。
+	WaitTimeout string `yaml:"wait_timeout,omitempty" mapstructure:"wait_timeout,omitempty"`
 }
 
 // AuthMiddlewareConfig 认证中间件配置

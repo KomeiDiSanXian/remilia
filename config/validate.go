@@ -409,6 +409,9 @@ func (mc *MiddlewareConfig) Validate() error {
 	if err := mc.Backpressure.Validate(); err != nil {
 		return err
 	}
+	if err := mc.Admission.Validate(); err != nil {
+		return err
+	}
 	return mc.Degradation.Validate()
 }
 
@@ -497,6 +500,36 @@ func (ec *EngineConfig) Validate() error {
 	for _, n := range nonNeg {
 		if n.val < 0 {
 			return fmt.Errorf("%s must be >= 0, got %d", n.name, n.val)
+		}
+	}
+	return nil
+}
+
+// Validate 验证 AdmissionConfig。
+func (ac *AdmissionConfig) Validate() error {
+	if !ac.Enable {
+		return nil
+	}
+	if ac.SlowP50 != "" {
+		if _, err := ParseDuration(ac.SlowP50); err != nil {
+			return fmt.Errorf("admission.slow_p50 is not a valid duration: %w", err)
+		}
+	}
+	if ac.MinSamples < 0 {
+		return fmt.Errorf("admission.min_samples must be >= 0, got %d", ac.MinSamples)
+	}
+
+	for name, c := range map[string]AdmissionClassConfig{"local": ac.Local, "io": ac.IO} {
+		if c.Limit < 0 {
+			return fmt.Errorf("admission.%s.limit must be >= 0, got %d", name, c.Limit)
+		}
+		if c.Queue < 0 {
+			return fmt.Errorf("admission.%s.queue must be >= 0, got %d", name, c.Queue)
+		}
+		if c.WaitTimeout != "" {
+			if _, err := ParseDuration(c.WaitTimeout); err != nil {
+				return fmt.Errorf("admission.%s.wait_timeout is not a valid duration: %w", name, err)
+			}
 		}
 	}
 	return nil

@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -36,6 +37,7 @@ type Plugin struct {
 func New() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "mcp",
+		Cost:    eventctx.CostIO,
 		Version: "1.0.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",

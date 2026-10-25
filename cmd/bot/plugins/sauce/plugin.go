@@ -56,6 +56,7 @@ func New(opts ...Option) *plugin.Descriptor {
 	}
 	return &plugin.Descriptor{
 		Name:    "sauce",
+		Cost:    eventctx.CostIO,
 		Version: "2.1.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Community",

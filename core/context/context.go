@@ -46,6 +46,7 @@ type Context struct {
 	cancel   stdctx.CancelFunc
 
 	matcher        Matcher
+	matcherCost    MatcherCost
 	platformEvent  platform.Event
 	platformSender platform.Sender
 	platformCaps   platform.Capabilities
