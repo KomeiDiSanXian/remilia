@@ -453,6 +453,21 @@ func (m *MockAPI) UpdatePanelTarget(_ context.Context, _ string, _ *dto.UpdatePa
 	return gjson.Result{}, nil
 }
 
+// ── 素材管理 ────────────────────────────────────────────────────────────────
+
+func (m *MockAPI) PrepareMediaImage(_ context.Context, _ *dto.MediaImagePrepareRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) CompleteMediaImage(_ context.Context, _ *dto.MediaImageCompleteRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetMediaImages(_ context.Context, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) DeleteMediaImage(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 
 // ---------------------------------------------------------------------------

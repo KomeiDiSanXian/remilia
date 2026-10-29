@@ -480,4 +480,32 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id_target.put.html
 	PanelTargetURL = PanelsURL + "/%s/target"
+
+	// MediaImagesURL GET /v2/media-images
+	//
+	// 查询当前机器人的有效素材图片（cursor 分页，按上传时间倒序，默认上限 100 张）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+	MediaImagesURL = OpenAPIURL + "/v2/media-images"
+
+	// MediaImagePrepareURL POST /v2/media-images/prepare
+	//
+	// 申请图片上传：返回 upload_id 与预签名 PUT URL（上传任务 4 小时内有效）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+	MediaImagePrepareURL = OpenAPIURL + "/v2/media-images/prepare"
+
+	// MediaImageCompleteURL POST /v2/media-images/complete
+	//
+	// 完成图片上传：返回 qqbot-media:// 引用与 image_id。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+	MediaImageCompleteURL = OpenAPIURL + "/v2/media-images/complete"
+
+	// MediaImageDeleteURL DELETE /v2/media-images/{image_id}/delete
+	//
+	// 删除素材图片并释放数量配额（删除不存在的 image_id 返回 40035008）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+	MediaImageDeleteURL = OpenAPIURL + "/v2/media-images/%s/delete"
 )

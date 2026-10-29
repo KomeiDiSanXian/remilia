@@ -349,6 +349,50 @@ func TestBuildGuildDTOMessage_MarkdownTemplate(t *testing.T) {
 	assert.Equal(t, "tmpl_chan", guildMsg.Markdown.CustomTemplateID)
 }
 
+// TestBuildGuildDTOMessage_Embed 验证频道侧使用原生 embed（单聊/群聊不支持
+// embed，那边走图文卡片，两条路径互不影响）。
+func TestBuildGuildDTOMessage_Embed(t *testing.T) {
+	msg := platform.TextMessage("正文在上").
+		WithEmbeds(platform.Embed{
+			Title:        "频道卡片",
+			Description:  "这是描述",
+			ThumbnailURL: "https://example.com/thumb.png",
+			FooterText:   "页脚提示",
+			Fields: []platform.EmbedField{
+				{Name: "等级", Value: "黄金"},
+				{Name: "继续努力"},
+			},
+		})
+	chat := platform.ChatInfo{ID: "chan_001", ParentID: "guild_001"}
+	s := &qqSender{}
+	got := s.buildGuildDTOMessage(msg, chat)
+
+	require.NotNil(t, got.Embed)
+	assert.Equal(t, "频道卡片", got.Embed.Title)
+	assert.Equal(t, "页脚提示", got.Embed.Prompt)
+	require.NotNil(t, got.Embed.Thumbnail)
+	assert.Equal(t, "https://example.com/thumb.png", got.Embed.Thumbnail.URL)
+	// Description 与 Fields 都折进 fields（字段名 name 为纯文本行）
+	require.Len(t, got.Embed.Fields, 3)
+	assert.Equal(t, "这是描述", got.Embed.Fields[0].Name)
+	assert.Equal(t, "等级：黄金", got.Embed.Fields[1].Name)
+	assert.Equal(t, "继续努力", got.Embed.Fields[2].Name)
+	assert.Equal(t, "正文在上", got.Content, "频道 embed 可与正文共存")
+	assert.Nil(t, got.Markdown, "embed 与 markdown 互斥")
+}
+
+// TestBuildGuildDTOMessage_EmbedEmptyFallsBackToText 验证空 Embed 不产生
+// 空的 embed 载荷（平台会拒绝），而是退回纯文本。
+func TestBuildGuildDTOMessage_EmbedEmptyFallsBackToText(t *testing.T) {
+	msg := platform.TextMessage("只有正文").WithEmbeds(platform.Embed{})
+	chat := platform.ChatInfo{ID: "chan_001", ParentID: "guild_001"}
+	s := &qqSender{}
+	got := s.buildGuildDTOMessage(msg, chat)
+
+	assert.Nil(t, got.Embed)
+	assert.Equal(t, "只有正文", got.Content)
+}
+
 // ── 出站段路径：段 → 便捷字段等价物，at 内联标签保序 ──────────────────
 
 func TestQQSegmentsToFlat_InterleavedAt(t *testing.T) {

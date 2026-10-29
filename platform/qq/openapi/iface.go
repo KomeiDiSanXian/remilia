@@ -232,6 +232,21 @@ type PanelManager interface {
 	UpdatePanelTarget(ctx context.Context, panelID string, req *dto.UpdatePanelTargetRequest) (gjson.Result, error)
 }
 
+// MediaImageManager 素材管理：把 Markdown 图片预先上传到平台，
+// 换取 qqbot-media:// 引用后在 Markdown 里引用（无需公网 URL）。
+//
+// 图片与机器人绑定，单机器人默认上限 100 张，滑动过期 90 天。
+type MediaImageManager interface {
+	// PrepareMediaImage 申请图片上传，返回 upload_id 与预签名 PUT URL。
+	PrepareMediaImage(ctx context.Context, req *dto.MediaImagePrepareRequest) (gjson.Result, error)
+	// CompleteMediaImage 完成上传，返回 image_id 与 qqbot-media:// 引用。
+	CompleteMediaImage(ctx context.Context, req *dto.MediaImageCompleteRequest) (gjson.Result, error)
+	// GetMediaImages 查询有效图片（cursor 分页，limit=0 用平台默认值）。
+	GetMediaImages(ctx context.Context, cursor string, limit int) (gjson.Result, error)
+	// DeleteMediaImage 删除图片并释放数量配额。
+	DeleteMediaImage(ctx context.Context, imageID string) (gjson.Result, error)
+}
+
 // ── 聚合接口 ────────────────────────────────────────────────────────────────
 
 // OpenAPI 是所有 QQ 开放平台能力的完整聚合接口。
@@ -258,4 +273,5 @@ type OpenAPI interface {
 	BotManager
 	MenuManager
 	PanelManager
+	MediaImageManager
 }

@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### ✨ 新特性
+
+**平台 · QQ 图文卡片消息（`msg_type=8`）**
+
+官方 2026-10-28 把图文卡片从"仅群聊"扩展到**群聊与单聊都支持**，此前框架的 `dto.Card` 只是个不会被自动使用的死代码字段。
+
+- **`platform.Embed` → 图文卡片**：跨平台代码继续写 `Embed`，QQ Sender 自动升级为 `tuwen` 卡片（Title→title、Description→description、URL→url、ImageURL/ThumbnailURL→pic_url）。`Capabilities().Embeds` 对 QQ 由 `false` 改为 `true`。
+- **`dto.NewTuwenCard` + `Card.Normalize`**：平台对卡片四个字段做硬校验（title 1~50、description 1~200、url/pic_url 必须 https 且 ≤1024），越界整条消息被拒。`Normalize` 截断超长文本（按字符，不切半个多字节字符）、补默认 `type`，并把"缺必填项"判定为不可发送。
+- **降级而非硬失败**：缺 URL 或图片的 `Embed`、缺字段的 `MessageExtra.Card` 都**不**按卡片发送，而是退回 Markdown/文本渲染——"卡片发不出去"比"整条消息发不出去"更可取。
+- **卡片不携带按钮与 AT**：卡片没有正文通道，`keyboard` / `<qqbot-at-user>` 无处安放，与 Ark 一样跳过。
+- 卡片分组（`extra.Card`）只作用于副本，不会改写调用方持有的对象。
+
+**平台 · QQ 素材管理（2026-10-21 新增）**
+
+Markdown 消息要用的图片现在可以先上传到平台，换取 `qqbot-media://` 引用，不依赖公网图床（外部图床挂了、链接带鉴权参数都会让图片转存失败）。
+
+- `openapi.MediaImageManager`：`PrepareMediaImage` / `CompleteMediaImage` / `GetMediaImages` / `DeleteMediaImage`，对应 `POST /v2/media-images/prepare`、`POST /v2/media-images/complete`、`GET /v2/media-images`、`DELETE /v2/media-images/{image_id}/delete`。
+- **`(*qqSender).UploadMediaImage` 把三步收敛成一步**：自动嗅探图片类型（二进制魔数优先——pic 压缩链路会把 PNG 转 JPEG，声明不可靠）、校验 10MB 上限、PUT 直传预签名 URL，并用 PUT 响应头里的 **ETag** 作为 complete 的 `md5`（服务端会与 COS 对象实际 ETag 比对，用本地算的值会 40035003；COS 不回 ETag 时才退回本地 MD5）。
+- **素材能力是 QQ 专属的，走类型断言取用**：`qq.MediaImageUploader`（`UploadMediaImage` / `ListMediaImages` / `DeleteMediaImage`），与 `platform.GroupInfoProvider` 的用法一致；只有 openapi 客户端时用包级 `qq.UploadMediaImage(ctx, api, att)`。
+- 本地预检：非 png/jpeg/gif/webp（平台只认这四种）与超过 10MB 的图片在发出请求前就报错，而不是拿一个必然失败的请求去打平台；文件名缺扩展名时按 MIME 补上（平台按扩展名与 MIME 匹配校验，缺了会 40035001）。
+- `MediaImage.MarkdownImage(w, h)` 渲染带尺寸参数的图片语法；缺尺寸时 QQ 客户端不渲染图片（只剩文字/链接），因此总会带上（默认 600px 长边）。
+- `ListMediaImages` 自动跟随 `next_cursor` 翻页，并在游标不前进时终止，避免服务端回环导致死循环；`DeleteMediaImage` 用于释放配额（单机器人上限 100 张，见 `qq.MaterialMaxImageCount`）。
+
+**平台 · QQ 其余官方变更（2026-08 ~ 2026-10）**
+
+- **`force_verify_image_resource`** 接进 `qq.MessageExtra`：为 `true` 时 Markdown 图片转存失败会中断发送并返回错误，而不是发出一条"图片缺失"的消息（此前 DTO 有这个字段，但 Sender 无处设置）。
+- **频道原生 Embed 接线**：`dto.GuildEmbed` 一直存在却从未使用。现在 `platform.Embed` 在频道场景映射为原生 `embed`（title + prompt + thumbnail + fields），可与正文共存；Description 与 Fields 折进 `fields`，空 Embed 退回纯文本。频道不支持 embed→图片卡片以外的形态，群聊/单聊也不支持 embed，两条路径互不影响。
+- **`qq.ParseArkData` / `qq.ArkDataFromSegment`**：入站结构化卡片（`message_type=3`）的解析助手。官方 2026-09-16 补全了 `ark_type` 枚举（新增 `picture`，常量见 `qq.ArkType*`）与 `fields` 常见键名，此前调用方只能自己掏 gjson。数组字段逗号拼接、嵌套对象保留原始 JSON，非对象输入返回 `false`。
+- `dto.AtAll()` 补注平台限制：仅群聊的文本/Markdown 消息、机器人需为群管理员、每群每天 1 次。
+
 ### 🐛 修复
 
 **`builtin/ai` 四个用户可见缺陷**

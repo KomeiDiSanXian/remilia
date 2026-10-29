@@ -3,6 +3,7 @@ package dto
 import (
 	"encoding/json"
 	"net/url"
+	"strings"
 )
 
 // MessageType ...
@@ -31,9 +32,19 @@ const (
 	File
 )
 
-// Card 卡片消息（msg_type=8），适用于群聊场景。
+// Card 卡片消息（msg_type=8），单聊与群聊均支持（2026-10-28 官方文档）。
+//
+// 目前唯一公开的卡片类型是 tuwen（图文卡片）：一张预览图 + 标题 + 描述，
+// 点击整卡跳转到 url。字段限制（平台强校验，越界会返回 304061/40034006）：
+//   - title 1~50 字符
+//   - description 1~200 字符
+//   - url / pic_url 必须为 https，长度 ≤ 1024
+//
+// 大多数场景直接用 NewTuwenCard 构造，Sender 发送前会调用 Normalize
+// 把超长文本截断到平台限制内。
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html
 type Card struct {
 	Type    string      `json:"type"`
 	Content CardContent `json:"content"`
@@ -45,6 +56,76 @@ type CardContent struct {
 	Description string `json:"description,omitempty"`
 	PicURL      string `json:"pic_url,omitempty"`
 	URL         string `json:"url,omitempty"`
+}
+
+// 图文卡片（tuwen）的类型标识与字段上限。
+const (
+	// CardTypeTuwen 图文卡片：预览图 + 标题 + 描述 + 跳转链接。
+	CardTypeTuwen = "tuwen"
+	// CardTitleMaxRunes 标题最大字符数。
+	CardTitleMaxRunes = 50
+	// CardDescMaxRunes 描述最大字符数。
+	CardDescMaxRunes = 200
+	// CardURLMaxLen 跳转链接 / 预览图链接最大长度。
+	CardURLMaxLen = 1024
+)
+
+// NewTuwenCard 构造一张图文卡片。
+//
+// 四个参数都对应平台必填项（缺失时平台会拒绝整条消息）：
+// title、description 为文字内容，url 为点击跳转地址，picURL 为预览图地址。
+// 后两者必须是 https 且长度不超过 1024。
+func NewTuwenCard(title, description, url, picURL string) *Card {
+	return &Card{
+		Type: CardTypeTuwen,
+		Content: CardContent{
+			Title:       title,
+			Description: description,
+			URL:         url,
+			PicURL:      picURL,
+		},
+	}
+}
+
+// Normalize 按平台限制规范化卡片：补默认类型、截断超长文本与链接。
+//
+// 平台对 tuwen 卡片的字段是做硬校验的（title 1~50、description 1~200、
+// url/pic_url 必须 https 且 ≤1024），任一项越界整条消息都会被拒绝
+// （304061/40034006）。截断而不是报错，是为了让"描述是模型生成的长文"
+// 这类常见输入仍能发出去。返回 false 表示卡片缺少必填项，无法发送。
+func (c *Card) Normalize() bool {
+	if c == nil {
+		return false
+	}
+	if c.Type == "" {
+		c.Type = CardTypeTuwen
+	}
+	c.Content.Title = truncateRunes(strings.TrimSpace(c.Content.Title), CardTitleMaxRunes)
+	c.Content.Description = truncateRunes(strings.TrimSpace(c.Content.Description), CardDescMaxRunes)
+	c.Content.URL = truncateBytes(strings.TrimSpace(c.Content.URL), CardURLMaxLen)
+	c.Content.PicURL = truncateBytes(strings.TrimSpace(c.Content.PicURL), CardURLMaxLen)
+	return c.Content.Title != "" && c.Content.Description != "" &&
+		c.Content.URL != "" && c.Content.PicURL != ""
+}
+
+// truncateRunes 按字符截断，避免把多字节字符切成半个。
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
+}
+
+// truncateBytes 按字节截断（用于 URL：平台限制的是链接长度）。
+func truncateBytes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 // InputNotify 输入中状态（msg_type=6），仅 C2C 单聊场景。
@@ -279,6 +360,14 @@ func At(openID string) string {
 // 需要嵌入文本消息中，例如：
 //
 //	"Hello " + AtAll() + ", welcome!"
+//
+// 平台限制（2026-10-26 官方文档）：
+//   - 仅群聊场景的**文本消息与 Markdown 消息**支持，单聊与频道不适用；
+//   - 机器人必须是该群管理员；
+//   - 每个群每天仅可发送 1 次。
+//
+// 在框架里通常不必直接拼标签：构造 platform.Segment{Type: platform.SegmentMentionAll}
+// 即可，QQ Sender 会折叠成该标签（见 qqSegmentsToFlat）。
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#%E4%BD%BF%E7%94%A8-%E8%83%BD%E5%8A%9B
 func AtAll() string {

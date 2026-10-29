@@ -1306,3 +1306,112 @@ func TestClient_GetChannelMessage(t *testing.T) {
 	require.NoError(t, err)
 	assertLast(t, m, http.MethodGet, "/channels/chan_1/messages/msg_1", "")
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 素材管理（2026-10-21 新增）
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+// ────────────────────────────────────────────────────────────────────────────
+
+func TestClient_PrepareMediaImage(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.PrepareMediaImage(context.Background(), &dto.MediaImagePrepareRequest{
+		FileName:    "kline.png",
+		FileSize:    40156,
+		ContentType: "image/png",
+		MD5:         "e10adc3949ba59abbe56e057f20f883e",
+		SHA1:        "d5c5d9b5b3d5d9e0a1b2c3d4e5f60718293a4b5c",
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/media-images/prepare",
+		`{"file_name":"kline.png","file_size":40156,"content_type":"image/png","md5":"e10adc3949ba59abbe56e057f20f883e","sha1":"d5c5d9b5b3d5d9e0a1b2c3d4e5f60718293a4b5c"}`)
+}
+
+func TestClient_CompleteMediaImage(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.CompleteMediaImage(context.Background(), &dto.MediaImageCompleteRequest{
+		UploadID: "upload_1792051409302628435_772218",
+		MD5:      "e10adc3949ba59abbe56e057f20f883e",
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/media-images/complete",
+		`{"upload_id":"upload_1792051409302628435_772218","md5":"e10adc3949ba59abbe56e057f20f883e"}`)
+}
+
+func TestClient_GetMediaImages(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetMediaImages(context.Background(), "cur_1", 50)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, http.MethodGet, req.method)
+	assert.Equal(t, "/v2/media-images", req.path)
+	assert.Equal(t, "cursor=cur_1&limit=50", req.query)
+}
+
+func TestClient_GetMediaImages_NoQuery(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetMediaImages(context.Background(), "", 0)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/media-images", req.path)
+	assert.Equal(t, "", req.query)
+}
+
+func TestClient_DeleteMediaImage(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.DeleteMediaImage(context.Background(), "102083127_3f9a1c4b7d2e8065")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodDelete, "/v2/media-images/102083127_3f9a1c4b7d2e8065/delete", "")
+}
+
+// TestClient_MediaImageErrorCode 验证素材接口的业务错误码（如数量超限 40035007）
+// 会被解析成 error，而不是被当成成功响应吞掉。
+func TestClient_MediaImageErrorCode(t *testing.T) {
+	m := newMockQQ(t)
+	m.status["/v2/media-images/prepare"] = http.StatusBadRequest
+	m.resp["/v2/media-images/prepare"] = `{"code":40035007,"message":"图片数量超过上限"}`
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.PrepareMediaImage(context.Background(), &dto.MediaImagePrepareRequest{FileName: "a.png"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "40035007")
+	assert.Contains(t, err.Error(), "图片数量超过上限")
+}
+
+// TestClient_GroupChat_ImageCard 验证图文卡片（msg_type=8）的线上载荷形态：
+// 单聊与群聊共用 dto.Message，card 字段与 msg_type 必须同时出现。
+func TestClient_GroupChat_ImageCard(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GroupChat(context.Background(), "gid_1", &dto.Message{
+		Type: dto.CardMessage,
+		Card: dto.NewTuwenCard("iPhone 17 Pro 正式发布", "全新 A20 芯片", "https://news.qq.com/a", "https://inews.gtimg.com/a.jpg"),
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/messages",
+		`{"msg_type":8,"card":{"type":"tuwen","content":{"title":"iPhone 17 Pro 正式发布","description":"全新 A20 芯片","url":"https://news.qq.com/a","pic_url":"https://inews.gtimg.com/a.jpg"}}}`)
+}
+
+// TestClient_SingleChat_ImageCard 单聊同样支持图文卡片（2026-10-28 更新）。
+func TestClient_SingleChat_ImageCard(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.SingleChat(context.Background(), "openid_1", &dto.Message{
+		Type: dto.CardMessage,
+		Card: dto.NewTuwenCard("标题", "描述", "https://a", "https://b"),
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/users/openid_1/messages",
+		`{"msg_type":8,"card":{"type":"tuwen","content":{"title":"标题","description":"描述","url":"https://a","pic_url":"https://b"}}}`)
+}

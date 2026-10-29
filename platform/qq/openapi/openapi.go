@@ -938,3 +938,57 @@ func (api *Client) DeletePanel(ctx context.Context, panelID string) (gjson.Resul
 func (api *Client) UpdatePanelTarget(ctx context.Context, panelID string, req *dto.UpdatePanelTargetRequest) (gjson.Result, error) {
 	return api.Put(ctx, fmt.Sprintf(constant.PanelTargetURL, panelID), req)
 }
+
+// ── 素材管理（2026-10-21 新增）─────────────────────────────────────────────
+
+// PrepareMediaImage 申请素材图片上传（POST /v2/media-images/prepare）。
+//
+// 返回 upload_id 与预签名 URL：调用方用 HTTP PUT 把图片二进制直传到
+// PresignedURL（Content-Type 必须与请求里声明的 ContentType 完全一致，
+// 否则 COS 返回 403），再调用 CompleteMediaImage 完成上传。
+// 推荐用 UploadMediaImage 一步完成三步流程。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+func (api *Client) PrepareMediaImage(ctx context.Context, req *dto.MediaImagePrepareRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.MediaImagePrepareURL, req)
+}
+
+// CompleteMediaImage 完成素材图片上传（POST /v2/media-images/complete）。
+//
+// 返回 image_id 与 qqbot-media://image/v1/<token> 引用，可直接写进 Markdown
+// 图片语法。md5 必须是分片 PUT 响应头里的 ETag（去引号），服务端会与 COS
+// 对象的实际 ETag 比对，不一致返回 40035003。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+func (api *Client) CompleteMediaImage(ctx context.Context, req *dto.MediaImageCompleteRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.MediaImageCompleteURL, req)
+}
+
+// GetMediaImages 查询当前机器人的有效素材图片（GET /v2/media-images）。
+//
+// cursor 为分页游标（首次传空串），limit 留 0 时用平台默认值（响应侧最多返回
+// 全部有效图片，上限 100 张）；翻页用上一页的 next_cursor，为空表示已到末页。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+func (api *Client) GetMediaImages(ctx context.Context, cursor string, limit int) (gjson.Result, error) {
+	url := constant.MediaImagesURL
+	sep := "?"
+	if cursor != "" {
+		url += sep + "cursor=" + cursor
+		sep = "&"
+	}
+	if limit > 0 {
+		url += fmt.Sprintf("%slimit=%d", sep, limit)
+	}
+	return api.Get(ctx, url)
+}
+
+// DeleteMediaImage 删除素材图片并释放数量配额（DELETE /v2/media-images/{image_id}/delete）。
+//
+// 删除后引用链接立即失效（已发送的消息不受影响，发送时平台已转存副本）。
+// 删除不存在的 image_id 返回 40035008。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/material-management.html
+func (api *Client) DeleteMediaImage(ctx context.Context, imageID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.MediaImageDeleteURL, imageID))
+}

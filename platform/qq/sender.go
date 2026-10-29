@@ -724,11 +724,16 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platf
 	guildMsg := &dto.GuildMessage{}
 	extra := extractExtra(msg)
 
-	// 消息类型优先级：Ark > Markdown > Text
+	// 消息类型优先级：Ark > Embed > Markdown > Text
 	if extra.Ark != nil {
 		guildMsg.Ark = convertArk(extra.Ark)
+	} else if emb := convertGuildEmbed(msg.Embeds); emb != nil {
+		guildMsg.Embed = emb
+		// 频道的 embed 是可带正文的（正文在上、卡片在下），因此保留纯文本；
+		// Markdown 与 embed 互斥，降级为纯文本以免被平台拒绝。
+		guildMsg.Content = msg.Text
 	} else if msg.Markdown != "" || extra.MarkdownTemplateID != "" {
-		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams}
+		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams, ForceVerifyImageResource: extra.ForceVerifyImageResource}
 	} else {
 		guildMsg.Content = msg.Text
 	}
@@ -816,26 +821,29 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	dtoMsg := &dto.Message{}
 	extra := extractExtra(msg)
 
-	// 消息类型优先级：InputNotify > Ark > Card > Markdown > Text
+	// 消息类型优先级：InputNotify > Ark > Card > Embed > Markdown > Text
 	if extra.InputNotify != nil {
 		dtoMsg.Type = dto.InputNotifyMsg
 		dtoMsg.InputNotify = extra.InputNotify
 	} else if extra.Ark != nil {
 		dtoMsg.Type = dto.ArkMessage
 		dtoMsg.Ark = convertArk(extra.Ark)
-	} else if extra.Card != nil {
+	} else if card := resolveCard(extra, msg); card != nil {
 		dtoMsg.Type = dto.CardMessage
-		dtoMsg.Card = extra.Card
+		dtoMsg.Card = card
 	} else if msg.Markdown != "" || extra.MarkdownTemplateID != "" {
 		dtoMsg.Type = dto.MarkdownMessage
-		dtoMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams}
+		dtoMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams, ForceVerifyImageResource: extra.ForceVerifyImageResource}
 	} else {
 		dtoMsg.Type = dto.TextMessage
 		dtoMsg.Content = msg.Text
 	}
 
 	// 处理 Mentions（@ 用户）：将用户 ID 列表转换为 QQ AT 标签，前置于正文
-	if len(msg.Mentions) > 0 && extra.Ark == nil {
+	//
+	// 卡片消息没有正文通道（内容全在 card.content 里），AT 标签无处安放，
+	// 因此与 Ark 一样跳过，避免写进一个不会被渲染的 content 字段。
+	if len(msg.Mentions) > 0 && extra.Ark == nil && dtoMsg.Card == nil {
 		var sb strings.Builder
 		for _, uid := range msg.Mentions {
 			sb.WriteString(dto.At(uid))
@@ -854,7 +862,7 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	// 消息仍以 msg_type=0（纯文本）发出，QQ 直接忽略按钮：
 	// 用户只看到一段没有任何按钮的文本，且**不会收到任何错误**，
 	// 而 Capabilities().Buttons 却声明为 true。
-	if len(msg.Buttons) > 0 && extra.Ark == nil {
+	if len(msg.Buttons) > 0 && extra.Ark == nil && dtoMsg.Card == nil {
 		dtoMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
 		if dtoMsg.Type != dto.MarkdownMessage {
 			// 把已有的纯文本正文迁移到 markdown 载荷里，再切换消息类型。
@@ -938,8 +946,92 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	return dtoMsg
 }
 
-// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（段路径）。
+// convertGuildEmbed 把平台无关的 Embed 转成频道专用 Embed（MessageEmbed）。
 //
+// 频道的 embed 与群聊/单聊的图文卡片是两套东西：
+//   - embed 支持 title + prompt + thumbnail + fields[]，没有跳转链接与正文；
+//   - 图文卡片只有 title/description/url/pic_url 四个字段。
+//
+// 因此这里把 Description 折进 fields（embed 的 fields.name 是纯文本行），
+// URL 无处可放只能丢弃——正文里的链接请在 msg.Text 里给出。
+// 没有任何可渲染内容时返回 nil，让上层退回 Markdown/文本。
+func convertGuildEmbed(embeds []platform.Embed) *dto.GuildEmbed {
+	if len(embeds) == 0 {
+		return nil
+	}
+	emb := embeds[0]
+	out := &dto.GuildEmbed{
+		Title:  emb.Title,
+		Prompt: emb.FooterText,
+	}
+	if emb.ThumbnailURL != "" {
+		out.Thumbnail = &dto.GuildEmbedMedia{URL: emb.ThumbnailURL}
+	} else if emb.ImageURL != "" {
+		// 频道 embed 只有缩略图这一种图位，大图退回缩略图。
+		out.Thumbnail = &dto.GuildEmbedMedia{URL: emb.ImageURL}
+	}
+	if emb.Description != "" {
+		out.Fields = append(out.Fields, dto.GuildEmbedField{Name: emb.Description})
+	}
+	for _, f := range emb.Fields {
+		name := f.Name
+		if f.Value != "" {
+			name += "：" + f.Value
+		}
+		if name != "" {
+			out.Fields = append(out.Fields, dto.GuildEmbedField{Name: name})
+		}
+	}
+	if out.Title == "" && out.Prompt == "" && out.Thumbnail == nil && len(out.Fields) == 0 {
+		return nil
+	}
+	return out
+}
+
+// resolveCard 决定本条消息是否以图文卡片（msg_type=8）发送。
+// 优先级：extra.Card（显式指定，可自定义类型与非 tuwen 卡片）> msg.Embeds[0]
+// （平台无关的 Embed 映射为 tuwen 卡片）> nil（不发送卡片）。
+//
+// Embed 映射规则（字段与图文卡片的交集）：
+//   - Title       → title
+//   - Description → description（为空时用正文纯文本兜底）
+//   - URL         → url（点击跳转）
+//   - ImageURL    → pic_url（无 ImageURL 时退回 ThumbnailURL）
+//
+// 平台把四个字段都当必填项，缺任何一个整条消息都会被拒绝，因此缺 URL 或图片
+// 的 Embed 不按卡片发送，而返回 nil 让它退回 Markdown/文本渲染——"卡片发不
+// 出去"比"整条消息发不出去"更可取。
+func resolveCard(extra MessageExtra, msg platform.OutboundMessage) *dto.Card {
+	if extra.Card != nil {
+		card := *extra.Card // 复制，避免 Normalize 改动调用方持有的对象
+		if card.Normalize() {
+			return &card
+		}
+		return nil
+	}
+	if len(msg.Embeds) == 0 {
+		return nil
+	}
+	emb := msg.Embeds[0]
+	pic := emb.ImageURL
+	if pic == "" {
+		pic = emb.ThumbnailURL
+	}
+	desc := emb.Description
+	if desc == "" {
+		desc = plainTextFromMarkdown(msg.Markdown)
+	}
+	if desc == "" {
+		desc = msg.Text
+	}
+	card := dto.NewTuwenCard(emb.Title, desc, emb.URL, pic)
+	if !card.Normalize() {
+		return nil
+	}
+	return card
+}
+
+// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（段路径）。
 // QQ 的文本接口支持内联 AT 标签（<qqbot-at-user id="..."/>），因此文本/at
 // 可以保序交错进 Content；媒体取首个（QQ 单媒体限制）；富媒体消息（msg_type=7）
 // 支持携带 content，文本/at 折叠后可与图片在同一条消息展示（2026-09 真机验证）；
@@ -1094,7 +1186,11 @@ func qqCapabilities() platform.Capabilities {
 		MultiAttachment: false,
 		MessageEdit:     false,
 		MessageDelete:   true,
-		Embeds:          false,
+		// Embeds：Embed 映射为图文卡片（msg_type=8，2026-10-28 官方新增）。
+		// 注意映射是有损的：卡片只有 title/description/url/pic_url 四个字段，
+		// 因此 Embed 的 Fields/Color/Footer/Timestamp 会被丢弃；缺少 URL 或
+		// 图片的 Embed 不走卡片路径（平台四项皆必填）。
+		Embeds:          true,
 		FileUpload:      true,
 		GuildSupport:    true,
 		Reactions:       true,

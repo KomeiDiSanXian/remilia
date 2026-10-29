@@ -138,31 +138,37 @@ type ButtonExtra struct {
 //	msg = qq.ApplyExtra(msg, qq.MessageExtra{MsgSeq: 1, EventID: rawEventID})
 //	ctx.Reply(msg)
 type MessageExtra struct {
-	// MsgSeq 消息序列号，用于防重放（QQ v2 API 要求）
-	MsgSeq uint64
-	// EventID 触发事件 ID，用于被动回复时关联来源事件
-	EventID string
-	// IsWakeup 互动召回消息（2026/01/10 新增）。
-	// 与 msg_id/event_id 互斥，用于在用户主动对话后的召回窗口内下发一条消息。
-	// 使用时不要同时设置 EventID，否则行为未定义。
-	IsWakeup bool
 	// Ark ARK 模板消息（QQ 平台专属卡片消息）。
 	// 设置后优先于 Text/Markdown 等普通消息类型。
 	Ark *Ark
-	// Card 卡片消息（msg_type=8），适用于群聊图文卡片。
-	// 优先级高于 Ark。
+	// Card 卡片消息（msg_type=8，2026-10-28 起群聊与单聊均支持）。
+	// 优先级低于 Ark、高于 Embed/Markdown/Text。
+	// 通常不必直接构造：给 platform.OutboundMessage 设置 Embeds 即可自动映射；
+	// 需要自定义 card.type 时（目前官方只有 tuwen）才用这个字段。
 	Card *dto.Card
 	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
 	InputNotify *dto.InputNotify
-	// MarkdownTemplateID 自定义 Markdown 模板 ID（已废弃但仍可用）。
-	MarkdownTemplateID string
-	// MarkdownParams Markdown 模板参数，与 MarkdownTemplateID 配合使用。
-	MarkdownParams []dto.MarkdownParam
 	// ActionButton 操作按钮（实验性透传字段，见 dto.ActionButton 说明；
 	// 公开消息按钮请使用 msg.Buttons → keyboard）。
 	ActionButton *dto.ActionButton
 	// PromptKeyboard 提示键盘（用户点击后自动填充输入框的快捷指令）。
 	PromptKeyboard *dto.PromptKeyboard
+	// EventID 触发事件 ID，用于被动回复时关联来源事件
+	EventID string
+	// MarkdownTemplateID 自定义 Markdown 模板 ID（已废弃但仍可用）。
+	MarkdownTemplateID string
+	// MarkdownParams Markdown 模板参数，与 MarkdownTemplateID 配合使用。
+	MarkdownParams []dto.MarkdownParam
+	// MsgSeq 消息序列号，用于防重放（QQ v2 API 要求）
+	MsgSeq uint64
+	// IsWakeup 互动召回消息（2026/01/10 新增）。
+	// 与 msg_id/event_id 互斥，用于在用户主动对话后的召回窗口内下发一条消息。
+	// 使用时不要同时设置 EventID，否则行为未定义。
+	IsWakeup bool
+	// ForceVerifyImageResource 是否校验 Markdown 图片转存结果（2026-08 新增）。
+	// 为 true 时，图片转存失败会中断发送并返回错误，而不是发出一条
+	// "图片缺失" 的消息。默认 false（保持平台默认行为）。
+	ForceVerifyImageResource bool
 }
 
 // qqExtraKey 是注入到 OutboundMessage.Extra 的键（包级私有常量）。

@@ -71,7 +71,7 @@
 | MultiAttachment | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
 | MessageEdit | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
 | MessageDelete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Embeds | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Embeds | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
 | FileUpload | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | GuildSupport | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | Reactions | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
@@ -89,3 +89,6 @@
 > QQ 官方将图片以原生 markdown 图片语法内嵌（本地图片先经分片上传换取
 > 公网 `raw_url`，markdown 权限缺失时回退 msg_type=7 富媒体图文混排）；
 > Satori 在发送前通过 `upload.create` 上传二进制附件并回填 `<img>` 元素。
+> QQ 的 Embeds 是有损映射：群聊/单聊映射为图文卡片（`msg_type=8`，只有 title/description/url/pic_url，
+> 因此 Fields/Color/Footer/Timestamp 会丢弃，缺 URL 或图片时降级为 Markdown/文本），
+> 频道映射为原生 `embed`（title + prompt + thumbnail + fields）。
