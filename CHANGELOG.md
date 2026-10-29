@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.80.0 (2026-10-29)
 
 ### ✨ 新特性
 
