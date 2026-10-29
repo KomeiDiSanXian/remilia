@@ -1,8 +1,9 @@
-// Package ai artifacts.go — 任务产物登记：把工作区写入记录到活动任务。
+// artifacts.go — 任务产物登记：把工作区写入记录到活动任务。
 //
 // 任务报告需要回答"这次改了什么"。文件写入/精确替换成功后，本文件把路径与
 // 大小登记到会话的活动任务（task.Artifact），随任务持久化，并由 /ai task 与
 // 管理 API 展示。没有活动任务（只读部署、任务已终结）时静默跳过。
+
 package ai
 
 import (
@@ -42,7 +43,7 @@ func (r artifactRecorder) Edit(rel, oldString, newString string) (catalog.FileEd
 
 // fileArtifactRecordingWriter 包装写入端口；inner 为空时返回 nil。
 func (p *Plugin) fileArtifactRecordingWriter(ctx *eventctx.Context, inner catalog.FileWriteAccess) catalog.FileWriteAccess {
-	if p == nil || inner == nil || ctx == nil {
+	if inner == nil || ctx == nil {
 		return nil
 	}
 	return artifactRecorder{p: p, ctx: ctx, inner: inner}
@@ -53,7 +54,7 @@ func (p *Plugin) fileArtifactRecordingWriter(ctx *eventctx.Context, inner catalo
 // 失败（无活动任务、任务已终结、存储报错）只记日志，不影响写入结果：
 // 产物登记是观测，不是写入成功的前提。
 func (p *Plugin) recordFileArtifact(ctx *eventctx.Context, path string, size int, created bool) {
-	if p == nil || ctx == nil || path == "" {
+	if ctx == nil || path == "" {
 		return
 	}
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)

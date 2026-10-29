@@ -1,4 +1,4 @@
-// Package ai options.go — 「插件配置 → 子包参数」的唯一映射点。
+// options.go — 「插件配置 → 子包参数」的唯一映射点。
 //
 // 子包各自声明自己需要的最小参数结构（protocol.ProviderOptions、
 // decision.SelectionOptions、promptctx.ContextOptions、runtime.Limits），
@@ -7,6 +7,7 @@
 // 这样配置包只被装配根引用，子包也可以脱离整份插件配置独立构造与测试；
 // 新增一个子包开关时，代价是显式在对应映射函数里加一行，而不是让子包伸手
 // 去读配置对象的任意字段。
+
 package ai
 
 import (

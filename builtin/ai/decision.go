@@ -1,4 +1,4 @@
-// Package ai decision.go — 回合动作决策的装配门面：候选发现与调用策略评估。
+// decision.go — 回合动作决策的装配门面：候选发现与调用策略评估。
 //
 // 本文件把"本轮该把哪些动作交给模型"收敛到一处，但只做装配：
 //
@@ -16,6 +16,7 @@
 // 决策只回答"发给模型什么"与"这次调用是否放行"，从不执行动作本身：
 // 执行路径只消费结论，不重新推导策略。审批交互（提示发给谁、等多久）读的是
 // 配置与回复能力，只在装配点可得，因此留在本侧。
+
 package ai
 
 import (
@@ -33,23 +34,22 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// actionCandidates 收集本轮可见的动作候选（管线视图，不含执行载荷）。
+// actionCandidatesWithGeneration 收集本轮可见的动作候选（管线视图，不含执行载荷）。
 //
 // 顺序即语义：先取注册表与用户 Skill（动作全集），再按群策略收敛出本群
 // 可用边界，最后按 RBAC 剔除当前调用者无权调用的动作——声明了 Permissions
 // 但无权的动作不进入模型视野（避免占名额与"调用了才被告知无权"）。
 // 执行路径的权限校验保留为纵深防御。
-func (p *Plugin) actionCandidates(ctx *eventctx.Context, session *session.Session) []toolkit.Action {
-	_, actions := p.actionCandidatesWithGeneration(ctx, session)
-	return actions
-}
-
-func (p *Plugin) actionCandidatesWithGeneration(ctx *eventctx.Context, session *session.Session) (uint64, []toolkit.Action) {
+//
+// 同时返回快照的目录代数：调用方（选择与稳定策略）必须用它标注缓存，
+// 因此代数与动作集只能来自同一次读取——不提供"只要动作"的入口，
+// 那会让调用方拿到一份无法与缓存对齐的集合。
+func (p *Plugin) actionCandidatesWithGeneration(ctx *eventctx.Context, sess *session.Session) (uint64, []toolkit.Action) {
 	// 目录快照是聚合边界：来源（注册表、外部工具服务器）的可变状态在此固定为
 	// 一份只读视图；本函数只在其上做每调用者的收敛（用户 Skill、群策略、RBAC）。
 	snapshot := p.catalogSnapshot()
 	actions := snapshot.Actions()
-	actions = append(actions, p.userSkillActions(session.UserID)...)
+	actions = append(actions, p.userSkillActions(sess.UserID)...)
 
 	// per-group 工具白名单过滤（/ai group set tools）
 	if gp := p.groupPolicyFor(ctx); gp != nil {
@@ -79,40 +79,41 @@ func (p *Plugin) actionCandidatesWithGeneration(ctx *eventctx.Context, session *
 // 调用点不得绕过闸门自行判定；直接传 false 只用于锁定上述保留集语义的测试。
 //
 // 选择与稳定策略的实现见 builtin/ai/decision，本方法只交出插件持有的会话。
-func (p *Plugin) decideTurnActions(ctx *eventctx.Context, session *session.Session, needAction bool) []toolkit.Action {
-	generation, candidates := p.actionCandidatesWithGeneration(ctx, session)
+func (p *Plugin) decideTurnActions(ctx *eventctx.Context, sess *session.Session, needAction bool) []toolkit.Action {
+	generation, candidates := p.actionCandidatesWithGeneration(ctx, sess)
 	if !needAction {
-		return p.stabilizeToolSetAtGeneration(session, candidates,
-			decision.RetainedActions(candidates, decision.SessionUsedTools(session)), generation)
+		return p.stabilizeToolSetAtGeneration(sess, candidates,
+			decision.RetainedActions(candidates, decision.SessionUsedTools(sess)), generation)
 	}
-	return p.selectToolsForTurnAtGeneration(ctx, session, candidates, generation)
+	return p.selectToolsForTurnAtGeneration(ctx, sess, candidates, generation)
 }
 
-// selectToolsForTurn 从可用工具中选择本轮发送给 LLM 的子集。
+// selectToolsForTurnAtGeneration 从可用工具中选择本轮发送给 LLM 的子集。
+//
 // 打分、会话缓存与稳定策略见 builtin/ai/decision；本方法只交出插件持有的配置、
-// 嵌入器、会话与本轮查询（最后一条用户消息）。
-func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *session.Session, actions []toolkit.Action) []toolkit.Action {
-	return p.selectToolsForTurnAtGeneration(ctx, session, actions, p.catalogGeneration())
-}
-
-func (p *Plugin) selectToolsForTurnAtGeneration(ctx *eventctx.Context, session *session.Session,
+// 嵌入器、会话与本轮查询（最后一条用户消息）。generation 由调用方从同一次
+// 目录读取中取得（见 actionCandidatesWithGeneration），用于标注选择缓存。
+func (p *Plugin) selectToolsForTurnAtGeneration(ctx *eventctx.Context, sess *session.Session,
 	actions []toolkit.Action, generation uint64) []toolkit.Action {
 	opts := selectionOptions(p.cfg)
 	opts.CatalogGeneration = generation
-	return decision.SelectToolsForTurn(opts, p.emb, ctx, session, runtime.LastUserMessage(session), actions, recordToolSet)
+	return decision.SelectToolsForTurn(opts, decision.SelectInput{
+		Context:  ctx,
+		Session:  sess,
+		Query:    runtime.LastUserMessage(sess),
+		Actions:  actions,
+		Embedder: p.emb,
+	}, recordToolSelectPath, recordToolSet)
 }
 
-// stabilizeToolSet 在检索候选之上应用会话级稳定策略。
+// stabilizeToolSetAtGeneration 在检索候选之上应用会话级稳定策略。
+//
 // 实现见 builtin/ai/decision；recordToolSet 作为观测端口注入，指标名与标签不变。
-func (p *Plugin) stabilizeToolSet(session *session.Session, available, candidate []toolkit.Action) []toolkit.Action {
-	return p.stabilizeToolSetAtGeneration(session, available, candidate, p.catalogGeneration())
-}
-
-func (p *Plugin) stabilizeToolSetAtGeneration(session *session.Session, available, candidate []toolkit.Action,
+func (p *Plugin) stabilizeToolSetAtGeneration(sess *session.Session, available, candidate []toolkit.Action,
 	generation uint64) []toolkit.Action {
 	opts := selectionOptions(p.cfg)
 	opts.CatalogGeneration = generation
-	return decision.StabilizeToolSet(opts, session, available, candidate, recordToolSet)
+	return decision.StabilizeToolSet(opts, sess, available, candidate, recordToolSet)
 }
 
 // needAction 判断本轮是否需要主动寻找并执行新的动作。
@@ -130,7 +131,7 @@ func (p *Plugin) stabilizeToolSetAtGeneration(session *session.Session, availabl
 // 执行上述判定。判否会改变发给模型的工具集，属行为变更（见 CHANGELOG）；需要
 // 恢复旧行为时把该配置设为 always。
 func (p *Plugin) needAction(ctx *eventctx.Context, sess *session.Session) bool {
-	if p == nil || p.cfg == nil || p.cfg.NeedActionGate == config.NeedActionAlways {
+	if p.cfg == nil || p.cfg.NeedActionGate == config.NeedActionAlways {
 		return true
 	}
 	var planActive bool
@@ -164,7 +165,7 @@ type toolInvocationDecision struct {
 	sendToGranted bool
 }
 
-// decideToolInvocation 是单次工具调用的唯一策略评估点。
+// decideToolInvocationWithSnapshot 是单次工具调用的唯一策略评估点。
 //
 // 顺序即语义：
 //  1. RBAC：动作声明 Permissions 时先校验调用者权限，避免"先请求审批后告知无权"；
@@ -173,12 +174,12 @@ type toolInvocationDecision struct {
 //
 // 两种拒绝都以工具级结果返回，不中断整个对话。
 //
+// snapshot 由调用方在执行前一次性取得并复用（见 process.go 的 execOneTool）：
+// 权限、审批摘要与真正执行必须看到同一份工具定义，否则 Provider 在两者之间
+// 刷新定义时会出现"按旧定义审批、按新定义执行"。
+//
 // interruptCtx 是回合中断感知上下文（可 nil）：审批等待会监听它，
 // /ai stop / 用户新消息抢占时立即取消等待，不再阻塞后续消息处理。
-func (p *Plugin) decideToolInvocation(ctx *eventctx.Context, interruptCtx context.Context, tc protocol.ToolCall) toolInvocationDecision {
-	return p.decideToolInvocationWithSnapshot(ctx, interruptCtx, tc, p.executionToolSnapshot(tc.Name))
-}
-
 func (p *Plugin) decideToolInvocationWithSnapshot(ctx *eventctx.Context, interruptCtx context.Context,
 	tc protocol.ToolCall, snapshot toolExecutionSnapshot) toolInvocationDecision {
 	action, hasAction := snapshot.action()
@@ -191,7 +192,7 @@ func (p *Plugin) decideToolInvocationWithSnapshot(ctx *eventctx.Context, interru
 			}
 		}
 	}
-	if !p.approvalModeForAction(ctx, tc.Name, action, hasAction) {
+	if !p.approvalModeForAction(ctx, action, hasAction) {
 		return toolInvocationDecision{allowed: true}
 	}
 	if !p.requestApproval(ctx, interruptCtx, tc.Name, p.approvalSummaryForAction(ctx, tc, action, hasAction), runtime.EffectiveApprovalTimeout(runtimeLimits(p.cfg))) {
@@ -203,11 +204,11 @@ func (p *Plugin) decideToolInvocationWithSnapshot(ctx *eventctx.Context, interru
 }
 
 // needsApproval 判断指定动作在给定审批模式下是否需要用户批准。
-func (p *Plugin) needsApproval(a toolkit.Action, mode string) bool {
-	switch mode {
-	case "always":
+func needsApproval(a toolkit.Action, mode string) bool {
+	switch toolApprovalMode(mode) {
+	case approvalAlways:
 		return true
-	case "restricted":
+	case approvalRestricted:
 		return a.Policy.RequiresApproval
 	default:
 		return false
@@ -217,10 +218,12 @@ func (p *Plugin) needsApproval(a toolkit.Action, mode string) bool {
 // approvalModeFor 判断指定工具在当前生效审批模式下是否需要审批。
 func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
 	action, ok := p.reg.Action(toolName)
-	return p.approvalModeForAction(ctx, toolName, action, ok)
+	return p.approvalModeForAction(ctx, action, ok)
 }
 
-func (p *Plugin) approvalModeForAction(ctx *eventctx.Context, toolName string, action toolkit.Action, ok bool) bool {
+// approvalModeForAction 是 approvalModeFor 与 decideToolInvocation 共用的判定体：
+// 调用者已经拿到（或确定拿不到）工具定义，无需再查一次注册表。
+func (p *Plugin) approvalModeForAction(ctx *eventctx.Context, action toolkit.Action, ok bool) bool {
 	mode := p.effectiveApprovalMode(ctx)
 	if mode == "" || mode == string(approvalOff) {
 		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
@@ -230,5 +233,5 @@ func (p *Plugin) approvalModeForAction(ctx *eventctx.Context, toolName string, a
 		// 工具不存在（如 Skill）时：always 模式审批，restricted 不审批
 		return mode == string(approvalAlways)
 	}
-	return p.needsApproval(action, mode)
+	return needsApproval(action, mode)
 }

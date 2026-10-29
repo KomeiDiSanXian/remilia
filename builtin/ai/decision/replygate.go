@@ -15,6 +15,7 @@
 //	弱信号：其余一切 → 全部判定依次执行
 //
 // ShouldReply 保留纯分层语义；装配侧另用 MustReply 绕过冷却和抽签。
+
 package decision
 
 import (

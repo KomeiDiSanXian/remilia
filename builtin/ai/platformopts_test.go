@@ -3,6 +3,7 @@ package ai
 import (
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,4 +36,20 @@ func TestWithMediaOriginSourceAppliesToPlugin(t *testing.T) {
 	if assert.NotNil(t, p.mediaSource) {
 		assert.Equal(t, []string{"http://127.0.0.1:3000"}, p.mediaSource.MediaOrigins())
 	}
+}
+
+// TestWithDataDirAppliesToPlugin 持久化目录可注入，默认值与仓库其他插件一致。
+func TestWithDataDirAppliesToPlugin(t *testing.T) {
+	p := &Plugin{dataDir: defaultDataDir}
+	WithDataDir("/var/lib/remilia")(p)
+	assert.Equal(t, "/var/lib/remilia", p.dataDir)
+	assert.Equal(t, "data", defaultDataDir)
+}
+
+// TestWithHistoryAppliesToPlugin 消息历史可注入，插件不再只能依赖包级单例。
+func TestWithHistoryAppliesToPlugin(t *testing.T) {
+	history := messagelog.New(16)
+	p := &Plugin{}
+	WithHistory(history)(p)
+	assert.Same(t, history, p.history)
 }

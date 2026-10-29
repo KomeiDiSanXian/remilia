@@ -9,6 +9,7 @@
 //
 // 作用域以"种类 + 标识"表达（user:<id> / group:<id> 的键格式由装配侧决定），
 // 依赖装配侧注入的 MemoryAccess；未注入（memory_enabled 未开启）时动作返回"未启用"。
+
 package catalog
 
 import (

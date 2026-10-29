@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,10 +16,9 @@ func TestToolCapabilitiesNilSafety(t *testing.T) {
 	assert.Nil(t, bare.Todos, "todos 未启用时端口必须为 nil")
 	assert.Nil(t, bare.Reminders, "reminders 未启用时端口必须为 nil")
 	assert.Nil(t, bare.Scheduler, "scheduler 未启用时端口必须为 nil")
-
-	// 空 Plugin 指针同样不得 panic，端口保持为零值。
-	var nilPlugin *Plugin
-	assert.Equal(t, catalog.Capabilities{}, nilPlugin.toolCapabilities(nil))
+	assert.Nil(t, bare.Files, "files 未启用时端口必须为 nil")
+	assert.Nil(t, bare.FileWrite, "file write 未启用时端口必须为 nil")
+	assert.Nil(t, bare.Process, "process 未启用时端口必须为 nil")
 }
 
 // TestToolCapabilitiesComposition 校验组合根按启用状态装配端口。

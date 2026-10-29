@@ -3,6 +3,7 @@
 //
 // 消息历史来自 messagelog（框架层，非插件状态），因此本包直接消费它而不额外
 // 声明端口。命中出站消息（机器人自己的回复）时以"机器人"标注发送者。
+
 package promptctx
 
 import (
@@ -102,12 +103,7 @@ func ResolveReplyChain(history *messagelog.Logger, chatID, replyID string) []Rep
 		if entry.IsOutbound {
 			name = "机器人"
 		}
-		if name == "" {
-			name = entry.UserID
-		}
-		if name == "" {
-			name = "未知"
-		}
+		name = displayName(name, entry.UserID)
 		chain = append(chain, ReplyChainLink{Name: name, Content: text})
 
 		next := entry.ReplyToEventID

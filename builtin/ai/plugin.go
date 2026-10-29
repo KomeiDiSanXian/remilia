@@ -1,13 +1,15 @@
-// Package ai plugin.go — 插件入口与消息路由注册。
+// plugin.go — 插件入口与消息路由注册。
 //
 // 本文件定义 AI 插件的主结构体 Plugin，包含其字段说明、
 // 插件描述符 New 函数、命令定义（buildAIDefinition）
 // 以及三种触发方式的 handler 注册逻辑（registerHandlers）。
+
 package ai
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -50,6 +52,8 @@ type Plugin struct {
 	// mediaSource 平台媒体来源的只读视图（可空，见 WithMediaOriginSource）：
 	// 用于读取适配器自声明的媒体来源。
 	mediaSource platform.MediaOriginSource
+	// dataDir 插件自有持久化数据的根目录（见 WithDataDir，默认 "data"）。
+	dataDir string
 
 	catalogState
 	contextState
@@ -90,11 +94,13 @@ type Plugin struct {
 //     实现该窄接口）调用 Complete —— 继承插件的模型/Key/超时/重试/指标，
 //     无工具、无会话、不走审批
 //   - 无权限的普通框架命令无需任何注册：会被自动发现包装成工具
-//   - 外部 MCP 工具服务器：由 ai/mcp 插件按配置接入，非编程面
+//   - 外部 MCP 工具服务器：由 builtin/mcp 插件按配置接入，非编程面
 //
 // 不要绕开这些面手工改注册表/会话：回合纪律、审批与发送预算都在上述
 // 入口之后。
 func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
+	// 观测接线放在构造入口而不是包级 init：见 observability.go 的说明。
+	installObservers()
 	return &plugin.Descriptor{
 		Name:         "ai",
 		Cost:         eventctx.CostIO,
@@ -169,16 +175,26 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 
 			lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 
+			// 先只应用 host 可注入的依赖（数据目录、消息历史来源），再据此打开
+			// 持久化存储：这些 Option 影响 Setup 期间就要创建的资源，不能等到
+			// Plugin 组装完成才生效。其余字段由下面的构造字面量填写。
+			hostOpts := &Plugin{dataDir: defaultDataDir, history: messagelog.Default()}
+			for _, opt := range opts {
+				opt(hostOpts)
+			}
+			dataDir := hostOpts.dataDir
+			history := hostOpts.history
+
 			// RBAC 权限插件（工具级权限校验与按角色注入；未注册时保持 nil）。
 			var perms *permission.Plugin
 			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				perms = svc
 			}
 
-			// 群策略存储：优先使用 data/ai 目录（LevelDB），失败时降级为纯内存。
+			// 群策略存储：优先使用 <dataDir>/ai 目录（LevelDB），失败时降级为纯内存。
 			var groupPolicies *groupPolicyManager
 			if !ctx.DryRun {
-				gp, gpErr := openGroupPolicyStore("data")
+				gp, gpErr := openGroupPolicyStore(dataDir)
 				if gpErr != nil {
 					ctx.Log.Warnf("Failed to open group policy store: %v, using in-memory only", gpErr)
 					groupPolicies = newGroupPolicyManager(nil, "")
@@ -210,13 +226,13 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 			// 避免与群策略共用 data/ai 触发 LevelDB 锁冲突。
 			var memory *memoryStore
 			if cfg.MemoryEnabled && !ctx.DryRun {
-				mem, memErr := openMemoryStore("data", cfg.MemoryMaxFacts, cfg.MemoryMinInterval)
+				mem, memErr := openMemoryStore(dataDir, cfg.MemoryMaxFacts, cfg.MemoryMinInterval)
 				if memErr != nil {
 					ctx.Log.Warnf("Failed to open memory store: %v, memory disabled", memErr)
 				} else {
 					memory = mem
 					memory.SetEmbedder(emb)
-					ctx.Log.Info("AI long-term memory enabled (auto-extract, data/ai_memory)")
+					ctx.Log.Infof("AI long-term memory enabled (auto-extract, %s/ai_memory)", dataDir)
 				}
 			}
 
@@ -290,13 +306,14 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 				coord:           coord,
 				syncer:          syncer,
 				prov:            prov,
+				dataDir:         dataDir,
+				history:         history,
 				reg:             toolkit.NewToolRegistry(),
 				sm:              session.NewSessionManager(cfg.SessionCacheSize, cfg.MaxHistory, cfg.SessionTTL, store),
 				tasks:           tasks,
 				cmdPatterns:     make(map[string]string),
 				skillReg:        toolkit.NewSkillRegistry(),
 				summaries:       make(map[string]bool),
-				history:         messagelog.Default(),
 				fsmEngine:       fsm.NewEngine(nil),
 				lifecycleCtx:    lifecycleCtx,
 				lifecycleCancel: lifecycleCancel,
@@ -390,7 +407,7 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 
 			// 思考程度只作用于 OpenAI 兼容端点（reasoning_effort）；Anthropic
 			// 的思考由 thinking 参数控制，配置了也不生效，提示避免静默失效。
-			if cfg.Provider == "anthropic" && cfg.ReasoningEffort != "" {
+			if cfg.Provider == config.ProviderAnthropic && cfg.ReasoningEffort != "" {
 				ctx.Log.Warnf("[AI] reasoning_effort=%q has no effect on the anthropic provider "+
 					"(its thinking is controlled by the thinking parameter)", cfg.ReasoningEffort)
 			}
@@ -450,18 +467,52 @@ func New(syncer vevent.EventProcessor, opts ...Option) *plugin.Descriptor {
 }
 
 // HealthCheckers 返回 AI 提供商 API 端点可达性检查器，实现 health.CheckProvider。
+//
+// 探针必须同时验证"网络可达"与"鉴权有效"：只测可达性时，一把失效的 API Key
+// （401/403）也会被判健康，而这正是线上最常见的故障。因此：
+//
+//   - 认证头按提供商走各自的协议：Anthropic 用 x-api-key + anthropic-version，
+//     OpenAI 兼容端点用 Authorization: Bearer。用错 scheme 会让探针恒定 401，
+//     也等于把 Key 以错误的头名发往 base_url 指向的代理。
+//   - 状态码只接受 2xx 与 429（限流说明鉴权已通过，只是额度吃紧），
+//     其余 4xx 一律判不健康。
 func (p *Plugin) HealthCheckers() []health.Checker {
 	probeName := "ai-" + p.cfg.Provider
 	probeURL := buildHealthProbeURL(p.cfg)
-	opts := []health.APIProbeOption{
-		health.WithHeader("Authorization", "Bearer "+p.cfg.APIKey),
-		health.WithAcceptStatus(func(code int) bool {
-			return code >= 200 && code < 500
-		}),
-	}
 	return []health.Checker{
-		health.NewAPIProbe(probeName, probeURL, 5*time.Second, opts...),
+		health.NewAPIProbe(probeName, probeURL, 5*time.Second, healthProbeOptions(p.cfg)...),
 	}
+}
+
+// healthProbeOptions 按提供商协议构造探测请求的认证头与可接受状态码。
+func healthProbeOptions(cfg *config.Config) []health.APIProbeOption {
+	opts := make([]health.APIProbeOption, 0, 3)
+	for name, value := range healthProbeHeaders(cfg) {
+		opts = append(opts, health.WithHeader(name, value))
+	}
+	return append(opts, health.WithAcceptStatus(healthAcceptsStatus))
+}
+
+// healthProbeHeaders 返回探针必须携带的认证头。
+//
+// Anthropic 只认 x-api-key + anthropic-version；OpenAI 兼容端点用
+// Authorization: Bearer。用错 scheme 的探针会恒定 401。
+func healthProbeHeaders(cfg *config.Config) map[string]string {
+	if cfg.Provider == config.ProviderAnthropic {
+		return map[string]string{
+			"x-api-key":         cfg.APIKey,
+			"anthropic-version": protocol.AnthropicAPIVersion,
+		}
+	}
+	return map[string]string{"Authorization": "Bearer " + cfg.APIKey}
+}
+
+// healthAcceptsStatus 判断探针响应是否代表"鉴权有效且服务可用"。
+//
+// 只接受 2xx 与 429：401/403 是 Key 失效（线上最常见的故障），
+// 4xx 的其余取值说明请求根本不被端点接受；429 表示鉴权通过、只是被限流。
+func healthAcceptsStatus(code int) bool {
+	return (code >= 200 && code < 300) || code == http.StatusTooManyRequests
 }
 
 // registerSkillAddFSM 注册技能添加两步对话的 FSM。
@@ -552,7 +603,7 @@ func buildHealthProbeURL(cfg *config.Config) string {
 		baseURL = "https://api.openai.com/v1"
 	}
 	switch cfg.Provider {
-	case "anthropic":
+	case config.ProviderAnthropic:
 		if strings.HasSuffix(baseURL, "/v1") {
 			return baseURL + "/messages"
 		}
@@ -652,7 +703,7 @@ func buildAIDefinition() *command.Definition {
 func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	trigger := p.cfg.TriggerCmd
 	if trigger != "" {
-		p.triggerCmd = trigger
+		p.registeredTrigger = trigger
 		def := p.aiDefinition()
 		// 触发命令路由本身是廉价入口（帮助、状态、参数错误），真正的 LLM 调用
 		// 发生在下面的对话 matcher 里；不跟随插件的 I/O 类声明。
@@ -779,8 +830,12 @@ func (r *runtimeState) autoReplyEligible() eventctx.Rule {
 // 自动响应入口的排除条件。
 //
 // 未配置 trigger_cmd（无触发命令 matcher）时恒为 false。
+//
+// 「是否配置了触发命令」由 registeredTrigger 记录：displayTrigger 会把空值
+// 兜底成默认前缀供展示，因此不能用它判断 matcher 是否存在——那会让禁用了
+// 命令触发的部署仍然把命令样式正文排除在自动响应之外。
 func (r *runtimeState) triggerParses(content string) bool {
-	if r.triggerCmd == "" {
+	if r.registeredTrigger == "" {
 		return false
 	}
 	content = strings.TrimSpace(content)
@@ -805,13 +860,13 @@ func newProvider(cfg *config.Config) (protocol.Provider, error) {
 	opts := providerOptions(cfg)
 	var prov protocol.Provider
 	switch cfg.Provider {
-	case "openai", "":
+	case config.ProviderOpenAI, "":
 		p, err := protocol.NewOpenAIProvider(opts)
 		if err != nil {
 			return nil, err
 		}
 		prov = p
-	case "anthropic":
+	case config.ProviderAnthropic:
 		p, err := protocol.NewAnthropicProvider(opts)
 		if err != nil {
 			return nil, err

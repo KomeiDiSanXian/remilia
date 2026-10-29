@@ -41,3 +41,24 @@ var mentionMarkupRegex = regexp.MustCompile(`<@!?&?\d+>|<#\d+>|@\d+|@everyone|@h
 func StripMentionMarkup(content string) string {
 	return mentionMarkupRegex.ReplaceAllString(content, "")
 }
+
+// IsPlainID 判断字符串能否直接当作平台原始 ID 使用：ASCII 标识符字符
+// （字母、数字、下划线、连字符）且非空。
+//
+// 这是"原始 ID"与"昵称/别名"的分界判据，两处注入点必须共用同一份：
+// send_to 的 target 与 send_message 的 @ 提及都会先尝试把它当 ID 直通，
+// 失败才回落到昵称解析。分开实现会让同一条字符串在一个入口当 ID、在另一个
+// 入口当昵称，行为随入口漂移。
+func IsPlainID(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}

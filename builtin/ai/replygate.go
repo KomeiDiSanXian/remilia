@@ -1,4 +1,4 @@
-// Package ai replygate.go — 群自主发言接话策略（smart/judge 档的装配侧）。
+// replygate.go — 群自主发言接话策略（smart/judge 档的装配侧）。
 //
 // decision 包（decision/replygate.go）承担纯算法分层；本文件负责三件事：
 //   - 解析生效配置：群策略（/ai group set reply，含群级概率）覆盖全局 config；
@@ -17,6 +17,7 @@
 // 冷静期数据源说明：出站记录由 messagelog 的 OutboundObserver 落库，发送
 // 是异步的，刚回复完的瞬间记录可能还没落库——冷静期窗口以分钟计，落在
 // 精度换简单性的区间内，可接受；messagelog 未启用时判定退化为不设冷却。
+
 package ai
 
 import (

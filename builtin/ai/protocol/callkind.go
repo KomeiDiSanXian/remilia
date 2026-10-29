@@ -13,6 +13,7 @@
 //
 // kind 与 scope 合并存放在同一个 context 值里：两者总是成对出现（同一
 // 次调用的用途与会话），合并在减少 context 槽位的同时也避免两次查找。
+
 package protocol
 
 import "context"

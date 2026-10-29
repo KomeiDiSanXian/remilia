@@ -21,6 +21,7 @@
 //
 // 硬约束：最终集合始终是 available 的子集。available 已经过群策略白名单与
 // RBAC 过滤，权限收缩必须立即生效——工具集状态不得成为绕过过滤的旁路。
+
 package decision
 
 import (

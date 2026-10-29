@@ -10,6 +10,7 @@
 // 取消/超时与追踪。
 //
 // 协议格式（参数 Schema、工具声明序列化与调用解析）见 builtin/ai/protocol.
+
 package toolkit
 
 import (
@@ -211,8 +212,12 @@ type registeredAction struct {
 	selection *SelectionClass
 }
 
-// cloneTool 隔离注册表边界上的可变数据；执行回调本身是不可变函数值，直接复制。
-func cloneTool(t Tool) Tool {
+// CloneTool 深拷贝工具中可变的类别、权限、选择级别与参数 Schema。
+// 执行回调是函数值，按值复制即可。
+//
+// 注册表边界（Register/Upsert 入、Get/List 出）一律经过它：调用方与注册表
+// 之后对切片/指针的改写不会互相穿透。
+func CloneTool(t Tool) Tool {
 	t.Categories = slices.Clone(t.Categories)
 	t.Parameters = protocol.CloneToolParamSchema(t.Parameters)
 	t.Permissions = slices.Clone(t.Permissions)
@@ -223,13 +228,9 @@ func cloneTool(t Tool) Tool {
 	return t
 }
 
-// CloneTool 深拷贝工具中可变的类别、权限、选择级别与参数 Schema。
-// 执行回调是函数值，按值复制即可。
-func CloneTool(t Tool) Tool { return cloneTool(t) }
-
 // tool 把注册记录还原为工具，逐字段与注册时一致。
 func (e registeredAction) tool() Tool {
-	return cloneTool(Tool{
+	return CloneTool(Tool{
 		Name:                  e.action.Spec.Name,
 		Description:           e.action.Spec.Description,
 		Categories:            e.action.Spec.Categories,
@@ -255,7 +256,7 @@ func NewToolRegistry() *ToolRegistry {
 func (r *ToolRegistry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	t = normalizeToolName(t)
+	t = NormalizeToolName(t)
 	if _, exists := r.entries[t.Name]; exists {
 		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
 		return
@@ -271,11 +272,15 @@ func (r *ToolRegistry) Register(t Tool) {
 func (r *ToolRegistry) Upsert(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.put(normalizeToolName(t))
+	r.put(NormalizeToolName(t))
 }
 
-// normalizeToolName 校验并修正名称，保证注册表内名称合法。
-func normalizeToolName(t Tool) Tool {
+// NormalizeToolName 校验并修正工具名，返回修正后的副本；名称非法时记录告警。
+//
+// 导出给目录装配侧复用：把真实命令/外部工具包装成 Tool 时也必须走同一套
+// 规则，否则会出现"包装器认为合法、注册表认为非法"的两套判定，且日志文案
+// 也会随之分叉。
+func NormalizeToolName(t Tool) Tool {
 	if !ValidToolName(t.Name) {
 		original := t.Name
 		t.Name = SanitizeToolName(t.Name)

@@ -56,9 +56,8 @@ func newUsageCtx(content, senderID string, isGroup bool, senderRole platform.Gro
 // newUsagePlugin 构造带最小依赖的插件实例（会话管理器 + 触发前缀）。
 func newUsagePlugin() *Plugin {
 	return &Plugin{
-		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
-		cfg:        &config.Config{TriggerCmd: "/ai", Markdown: true},
-		triggerCmd: "/ai",
+		sm:  session.NewSessionManager(100, 20, time.Hour, nil),
+		cfg: &config.Config{TriggerCmd: "/ai", Markdown: true},
 	}
 }
 

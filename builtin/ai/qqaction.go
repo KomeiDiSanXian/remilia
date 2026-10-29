@@ -1,4 +1,4 @@
-// Package ai qqaction.go — QQ"重新生成/清空会话"操作按钮接入。
+// qqaction.go — QQ"重新生成/清空会话"操作按钮接入。
 //
 // QQ v2 公开文档中的消息按钮只有 keyboard（挂在 markdown 消息上的按钮行，
 // 见 https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html）；
@@ -63,6 +63,7 @@
 //     按钮（Command=/ai stop，见上）与文本命令 /ai stop 提供（中断管线见
 //     Session.TurnCtx / process.go，用户新消息抢占亦走同一管线）。
 //   - 文本命令 /ai retry、/ai stop、/ai reset 始终可用，按钮只是快捷入口。
+
 package ai
 
 import (
@@ -70,7 +71,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
-	"github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
 )
@@ -121,7 +122,7 @@ type qqActionRateState struct {
 
 // rateKey 组装限流 map 的键：动作（ai:regenerate / ai:clear /
 // "重新生成" 等）与会话 ID 以 NUL 分隔，保证不同动作互不干扰。
-func (a *adminState) rateKey(action, sessionID string) string {
+func rateKey(action, sessionID string) string {
 	return action + "\x00" + sessionID
 }
 
@@ -154,7 +155,7 @@ func shouldAttachQQButtons(anyEnabled bool, platformName string, chat platform.C
 // Enter 故仅填入输入框）；"清空会话"始终不自动发送（破坏性动作，点击仅填入
 // 输入框由用户手动发送，避免误触）。
 // ID 保留用于限流动作键与旧回调兼容识别。
-func (p *Plugin) maybeAttachQQButtons(ctx *context.Context, msg platform.OutboundMessage) platform.OutboundMessage {
+func (p *Plugin) maybeAttachQQButtons(ctx *eventctx.Context, msg platform.OutboundMessage) platform.OutboundMessage {
 	if p.cfg == nil {
 		return msg
 	}
@@ -186,7 +187,7 @@ func (p *Plugin) maybeAttachQQButtons(ctx *context.Context, msg platform.Outboun
 // Markdown，见 shouldAttachQQButtons / newQQActionButton）。"查看计划"在单聊
 // 携带 Enter=true（手机端自动发送）；"停止生成"始终不自动发送（破坏性动作，
 // 点击仅填入输入框由用户手动发送，避免误触）。
-func (p *Plugin) maybeAttachQQPlanButtons(ctx *context.Context, msg platform.OutboundMessage, running bool) platform.OutboundMessage {
+func (p *Plugin) maybeAttachQQPlanButtons(ctx *eventctx.Context, msg platform.OutboundMessage, running bool) platform.OutboundMessage {
 	if p.cfg == nil || !p.cfg.QQPlanButton {
 		return msg
 	}
@@ -232,7 +233,7 @@ func newQQActionButton(id, label, command string, style platform.ButtonStyle, au
 //   - "ai:clear" / "clear_session" → 清空会话（等价 /ai reset；后者是平台层
 //     为原生 type=14 清空会话事件合成的内容）
 //   - ai:approve:* / ai:deny:* → 工具执行审批（见 approval.go）
-func (p *Plugin) handleInteraction(ctx *context.Context) error {
+func (p *Plugin) handleInteraction(ctx *eventctx.Context) error {
 	switch platform.Content(ctx.GetPlatformEvent()) {
 	case regenButtonData:
 		return p.handleRegenAction(ctx)
@@ -251,7 +252,7 @@ func (p *Plugin) handleInteraction(ctx *context.Context) error {
 //  2. 空闲时触发冷却窗口内的重复触发/重复投递直接静默忽略；
 //  3. 兜底：忙时判断与点击之间的竞态（判断后回合才启动）由 retryLastReply
 //     的 TryLockTurn 拒绝，同样走节流提示。
-func (p *Plugin) handleRegenAction(ctx *context.Context) error {
+func (p *Plugin) handleRegenAction(ctx *eventctx.Context) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
@@ -276,7 +277,7 @@ func (p *Plugin) handleRegenAction(ctx *context.Context) error {
 // 防护顺序与 handleRegenAction 相同：会话忙时不清空（生成中的回合持有会话
 // 指针，此时删除会让进行中的回合失去历史且仍会输出），仅节流提示一次；
 // 空闲时冷却窗口内重复触发静默忽略；通过后删除会话历史，并以确认文案回复。
-func (p *Plugin) handleClearAction(ctx *context.Context) error {
+func (p *Plugin) handleClearAction(ctx *eventctx.Context) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
@@ -319,7 +320,7 @@ func (a *adminState) qqActionClickAllowed(action, sessionID string) bool {
 	a.actionMu.Lock()
 	defer a.actionMu.Unlock()
 	a.pruneQQActionRateLocked()
-	key := a.rateKey(action, sessionID)
+	key := rateKey(action, sessionID)
 	st := a.actionRate[key]
 	now := time.Now()
 	if now.Sub(st.lastClick) < qqActionClickCooldown {
@@ -335,7 +336,7 @@ func (a *adminState) qqActionBusyNoticeAllowed(action, sessionID string) bool {
 	a.actionMu.Lock()
 	defer a.actionMu.Unlock()
 	a.pruneQQActionRateLocked()
-	key := a.rateKey(action, sessionID)
+	key := rateKey(action, sessionID)
 	st := a.actionRate[key]
 	now := time.Now()
 	if now.Sub(st.lastBusyNotice) < qqActionBusyNoticeInterval {
@@ -349,7 +350,7 @@ func (a *adminState) qqActionBusyNoticeAllowed(action, sessionID string) bool {
 // notifyQQActionBusy 在会话忙时给出节流后的提示；节流窗口内静默忽略。
 // 忙时拒绝不消耗触发冷却（lastClick），回合结束后用户再触发一次即可立即
 // 生效。
-func (a *adminState) notifyQQActionBusy(ctx *context.Context, label, sessionID string) {
+func (a *adminState) notifyQQActionBusy(ctx *eventctx.Context, label, sessionID string) {
 	if !a.qqActionBusyNoticeAllowed(label, sessionID) {
 		return
 	}

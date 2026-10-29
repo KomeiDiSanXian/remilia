@@ -1,4 +1,4 @@
-// Package ai process.go — 回合 LLM 调用循环与工具回填。
+// process.go — 回合 LLM 调用循环与工具回填。
 //
 // 本文件包含：
 //   - processWithTools: 主工具调用循环（流式 LLM 调用 + 工具执行 + 回填）
@@ -9,6 +9,7 @@
 //
 // processWithTools 是整个 AI 插件的核心编排逻辑，
 // 在工具调用循环中交替调用 LLM 和执行工具，直至达到最大深度或无工具调用。
+
 package ai
 
 import (
@@ -18,14 +19,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -63,25 +62,34 @@ func (p *Plugin) runtimeClient(kind protocol.CallKind) runtime.Client {
 //  5. 无工具调用时返回最终文本（含捕获的附件）
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
-func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
+//
+// 单轮内的"读流"与"收尾策略"分开实现：事件归集见 consumeTurnStream，
+// 请求组装见 buildTurnRequest，工具结果回填见 recordToolResults。
+func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) (*chatResult, error) {
 	// 回合内会追加多条中间消息（assistant/tool/反思/重规划），统一走
 	// AppendMessageNoPersist，回合结束（含提前 return / 出错 / 中断）在这里
 	// 一次性落库：把每条工具结果一次整记录 upsert 降为每回合一次，消除写放大。
 	// 用户消息等跨回合的即时持久化仍由 handler / generateVerified 负责。
-	defer p.sm.SaveSession(session)
+	defer p.sm.SaveSession(sess)
 	// 回合结束回收"本来就不会再随请求发送"的历史图片/音频字节：
 	// 请求构建只保留 image_context_window 内的附件（runtime.PrepareRequestMessages），
 	// 更早的二进制留在会话里只是白占内存。降级后的文本与请求侧逐字节一致
 	// （共用 session.StripBinaryParts），不会额外打断前缀缓存。
-	defer p.releaseStaleAttachmentBytes(session)
+	defer p.releaseStaleAttachmentBytes(sess)
 
-	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
-
-	cs := &execution.CaptureSender{}
-	// 模型直接输出的附件（原生图像输出等多模态响应）跨轮次累积，
-	// 最终与工具捕获的附件合并后随回复发送。
-	provAttachments := make([]platform.Attachment, 0, 4)
+	// 回合级可变状态：会话、命令输出捕获器、跨轮累积的模型输出附件、
+	// 当前输出预算。它们同时被多个收尾步骤读写，因此收进 turnRun（见
+	// process_steps.go），而不是作为长参数列表逐个传递。
+	run := &turnRun{
+		p:    p,
+		sess: sess,
+		cs:   &execution.CaptureSender{},
+		// 模型直接输出的附件（原生图像输出等多模态响应）跨轮次累积，
+		// 最终与工具捕获的附件合并后随回复发送。
+		provAttachments: make([]platform.Attachment, 0, 4),
+		maxTokens:       p.cfg.MaxTokens,
+	}
 	// 消息发送预算：一次运行内 send_message/send_to 的总发送次数上限，
 	// 跨工具调用共享（含并行路径），超限报错回填给模型。
 	budget := &sendBudget{limit: p.cfg.MaxSendsPerRound}
@@ -96,167 +104,61 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 	// 回合中断感知上下文：RequestInterrupt（/ai stop 命令、用户新消息抢占）
 	// 会取消该上下文，从而中止进行中的 LLM 流请求，使"停止生成"对单轮流
 	// 同样生效（否则中断只在工具轮之间的检查点生效，单轮流需等流自然结束）。
-	turnCtx, cancelTurnCtx := session.TurnCtx(ctx.Context())
+	turnCtx, cancelTurnCtx := sess.TurnCtx(ctx.Context())
 	defer cancelTurnCtx()
 	// 标注调用用途与会话范围：ai_llm_tokens_total 的 kind 标签据此区分
 	// "对话回合"与辅助调用，单次调用日志则带上会话 ID，便于按会话还原
 	// 前缀缓存未命中的轮次（见 metrics.go）。
-	turnCtx = protocol.WithCallKind(protocol.WithCallScope(turnCtx, session.ID), protocol.CallKindChat)
+	turnCtx = protocol.WithCallKind(protocol.WithCallScope(turnCtx, sess.ID), protocol.CallKindChat)
 
 	// 动作决策：候选发现（注册表 + 用户 Skill，经群策略与 RBAC）→ 选择
 	// （工具较多时按当前用户消息本地检索 Top-K，替代旧的 LLM 单分类路由）
 	// → 稳定策略。见 decision.go。
-	activeTools := p.decideTurnActions(ctx, session, p.needAction(ctx, session))
+	activeTools := p.decideTurnActions(ctx, sess, p.needAction(ctx, sess))
 
 	// 动态上下文（运行时/群聊窗口/长期记忆/相关历史）逐轮变化，统一挂到本轮
 	// 用户消息尾部发送，不写进 System 消息（见 buildDynamicContext）。
 	// 一个回合内只构建一次并复用：同一回合的各次请求（工具轮）因此拥有
 	// 字节一致的前缀，本回合生成的工具结果能继续被前缀缓存复用。
-	dynamicContext := p.buildDynamicContext(ctx, session)
+	dynamicContext := p.buildDynamicContext(ctx, sess)
 
-	// 输出预算：被截断且毫无可见产出时会临时提高本值重试一次。
-	maxTokens := p.cfg.MaxTokens
 	// 每个回合最多提升一次预算，避免反复重试放大思考成本。
 	budgetEscalated := false
 
-	for currentDepth < maxDepth {
-		currentDepth++
-
+	for currentDepth := 1; currentDepth <= maxDepth; currentDepth++ {
 		// 中断检查点：用户新消息抢占时，未开始的轮次直接收尾。
-		if session.Interrupted() {
-			return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
+		if sess.Interrupted() {
+			return &chatResult{Text: run.capturedText(), Attachments: run.provAttachments}, nil
 		}
 
-		session.Lock()
-		session.CallCount++
-		msgs := make([]protocol.Message, len(session.Messages))
-		copy(msgs, session.Messages)
-		session.Unlock()
-
-		// 附件保留策略：当前轮附件始终保留；历史图片在保留窗口（最近 N 条
-		// user 消息 + 时间窗）内随请求发送，支持"继续追问图片细节"；
-		// 更早/更老的图片降级为文本占位，避免无限上传（内存与 token 浪费）。
-		msgs, budgetDropped, staleDropped := runtime.PrepareRequestMessages(msgs, runtime.Retention{
-			MaxTurns:      p.cfg.ImageContextTurns,
-			Window:        p.cfg.ImageContextWindow,
-			MaxPerRequest: p.cfg.MaxImagesPerRequest,
-		})
-		// 只在回合首轮统计：保留策略每轮都会跑一遍，逐轮累加会把同一次
-		// 剥离计成 2~3 次（工具轮的请求数）。
-		if currentDepth == 1 {
-			recordImagesDropped("budget", budgetDropped)
-			recordImagesDropped("stale", staleDropped)
-			imagesInRequest.Observe(float64(countRequestImages(msgs)))
-		}
-		if budgetDropped > 0 && session.MarkImageOverflowNotified() {
-			logger.Warnf("[AI] %d historical image(s) dropped over budget (max_images_per_request=%d)",
-				budgetDropped, p.cfg.MaxImagesPerRequest)
-			ctx.ReplyText(fmt.Sprintf("本次对话图片较多，已保留最近 %d 张，更早的图片不再显示",
-				p.cfg.MaxImagesPerRequest))
-		}
-
-		// 历史消息只存附件引用（AttachmentID / SourceURL），这里按引用把二进制补进
-		// **请求副本**：会话本身不持有字节，所以历史里有多少图都不影响常驻内存。
-		// 补齐结果同时写回会话缓存，同一回合的后续工具轮直接命中。
-		if filled, unavailable := p.hydrateAttachmentParts(turnCtx, msgs, session); filled > 0 || unavailable > 0 {
-			logger.Debugf("[AI] hydrated %d attachment(s), %d unavailable (session %s)",
-				filled, unavailable, session.ID)
-		}
-
-		// 兜底修复工具调用序列：中断跳过的工具、进程异常退出或持久化损坏
-		// 都可能让 assistant(tool_calls) 缺少对应 tool 消息（OpenAI/Anthropic
-		// API 硬性约束，缺失即 400）。按需补占位 tool 消息，自愈会话历史。
-		msgs = runtime.RepairToolCallSequence(msgs)
-		msgs = runtime.InjectDynamicContext(msgs, dynamicContext)
-
-		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"附在消息序列末尾，
-		// 而不是插到系统提示词之后，让模型有状态可依地推进多步任务，同时不使
-		// 已完成的历史（含本回合的工具结果）失去缓存复用能力。
-		//
-		// 角色必须是 user 而不是 system：Anthropic 适配器只把数组内的第一条
-		// system 放进顶级 system 字段，数组里的其余 system 消息会被整条丢弃
-		// （见 protocol.toAnthropicMessages），若用 system 则计划对 Claude 完全
-		// 不可见；尾部 user 消息对所有 provider 都成立，与反思/重规划指令同一约定。
-		if text := session.PlanText(); text != "" {
-			msgs = append(msgs, protocol.Message{Role: protocol.RoleUser, Content: "===== 当前执行计划 =====\n" + text})
-		}
-
-		req := &protocol.ChatRequest{
-			Model:           p.cfg.Model,
-			Messages:        msgs,
-			Tools:           wireSpecs(activeTools),
-			Temperature:     p.cfg.Temperature,
-			TopP:            p.cfg.TopP,
-			MaxTokens:       maxTokens,
-			ReasoningEffort: p.cfg.ReasoningEffort,
-		}
+		sess.Lock()
+		sess.CallCount++
+		sess.Unlock()
+		req := p.buildTurnRequest(ctx, run, turnCtx, activeTools, dynamicContext, currentDepth == 1)
 
 		streamCtx, cancel := context.WithTimeout(turnCtx, p.cfg.APITimeout)
 		streamCh, err := p.prov.ChatStream(streamCtx, req)
 		if err != nil {
 			cancel()
-			if session.Interrupted() {
+			if sess.Interrupted() {
 				// 主动停止：流尚未产生任何内容，按已捕获内容收尾，不报错。
-				return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, nil
+				return &chatResult{Text: run.capturedText(), Attachments: run.provAttachments}, nil
 			}
-			return &chatResult{Text: cs.CapturedText, Attachments: provAttachments}, fmt.Errorf("chat stream: %w", err)
+			return &chatResult{Text: run.capturedText(), Attachments: run.provAttachments}, fmt.Errorf("chat stream: %w", err)
 		}
 
-		var fullResponse strings.Builder
-		var toolCalls []protocol.ToolCall
-		var streamErr error
-		doneReceived := false
-		finishReason := ""
-		// 推理内容只计数、不进入正文：思考型模型（DeepSeek 等）把推理
-		// token 也算进 max_tokens，预算被推理耗尽时正文为空而推理非空。
-		reasoningChars := 0
-		reasoningTokens := 0
-
-		for event := range streamCh {
-			switch event.Type {
-			case protocol.StreamEventText:
-				fullResponse.WriteString(event.Content)
-			case protocol.StreamEventReasoning:
-				reasoningChars += len(event.Content)
-			case protocol.StreamEventToolCall:
-				if event.ToolCall != nil && event.ToolCall.Name != "" {
-					toolCalls = append(toolCalls, *event.ToolCall)
-				}
-			case protocol.StreamEventAttachment:
-				if event.Attachment != nil {
-					provAttachments = append(provAttachments, *event.Attachment)
-				}
-			case protocol.StreamEventError:
-				// 部分 provider（如 Anthropic）在流被取消时会以错误事件收尾：
-				// 是否主动停止在收尾处按 Interrupted 判定，此处仅记录。
-				streamErr = event.Err
-			case protocol.StreamEventDone:
-				doneReceived = true
-				finishReason = event.FinishReason
-				if event.Usage != nil {
-					reasoningTokens = event.Usage.ReasoningTokens
-				}
-			}
-		}
+		outcome := consumeTurnStream(streamCh)
 		cancel()
-
-		responseText := fullResponse.String()
+		run.provAttachments = append(run.provAttachments, outcome.attachments...)
 
 		// 主动停止收尾：流因中断被取消（未收到结束事件，或 provider 以错误
 		// 事件收尾）。把已到手部分记入会话并作为最终回复返回，不视为错误——
 		// 停止由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
-		if session.Interrupted() && (!doneReceived || streamErr != nil) {
-			if responseText != "" {
-				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
-			}
-			text := responseText
-			if text == "" {
-				text = cs.CapturedText
-			}
-			return &chatResult{Text: text, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
+		if result, done := run.closeOnInterrupt(outcome); done {
+			return result, nil
 		}
-		if streamErr != nil {
-			return &chatResult{Text: cs.CapturedText}, streamErr
+		if outcome.err != nil {
+			return &chatResult{Text: run.capturedText()}, outcome.err
 		}
 		// 未被抢占却收不到结束事件：传输被中断/取消。部分 provider（如
 		// OpenAI 兼容实现）在 ctx 取消或连接中断时直接关闭 channel，不补发
@@ -265,17 +167,8 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		// 收尾，不丢弃；完全没有任何产出时这不是"模型正常返回空"，必须报错——
 		// 否则整回合会静默收尾，用户看不到任何回复，日志也停在调用之前
 		// （正是"没有后续生成/发送记录"的现象）。
-		if !doneReceived {
-			attachments := runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)
-			if responseText != "" || cs.CapturedText != "" || len(attachments) > 0 {
-				text := responseText
-				if text == "" {
-					text = cs.CapturedText
-				}
-				logger.Warnf("[AI] chat stream ended without done event (finish_reason=%q), using partial output", finishReason)
-				return &chatResult{Text: text, Attachments: attachments}, nil
-			}
-			return &chatResult{}, fmt.Errorf("chat stream: 连接中断（未收到结束事件，finish_reason=%q）", finishReason)
+		if result, done := run.closeWithoutDone(outcome); done {
+			return result.result, result.err
 		}
 
 		// 输出预算被思考过程耗尽：思考型模型还没轮到输出正文就把 max_tokens
@@ -286,135 +179,44 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *session.Sessio
 		//
 		// 重试不限于首轮：工具轮之后同样可能整轮被截断，而此时回合内还没有
 		// 任何可见产出（发送工具未发出内容、没有附件）。
-		if doneReceived && len(toolCalls) == 0 && responseText == "" &&
-			finishReason == finishReasonLength && cs.CapturedText == "" &&
-			len(provAttachments) == 0 && !budgetEscalated {
-			if next := escalateMaxTokens(maxTokens, p.cfg.MaxTokensCap); next > maxTokens {
+		if !budgetEscalated {
+			if next, ok := run.escalateOnTruncation(outcome); ok {
 				budgetEscalated = true
-				logger.Warnf("[AI] no visible output before truncation (finish_reason=%q, "+
-					"reasoning_chars=%d, reasoning_tokens=%d, max_tokens=%d); retrying with max_tokens=%d",
-					finishReason, reasoningChars, reasoningTokens, maxTokens, next)
-				maxTokens = next
+				run.maxTokens = next
 				continue
 			}
 		}
 
-		for i := range toolCalls {
-			if toolCalls[i].ID == "" {
-				toolCalls[i].ID = fmt.Sprintf("call_%s_%d", toolCalls[i].Name, i)
-			}
+		assignToolCallIDs(outcome.toolCalls)
+		replanMsg := buildReplanMessage(sess)
+
+		if len(outcome.toolCalls) == 0 {
+			return run.finishWithoutToolCalls(outcome, replanMsg, currentDepth == 1)
 		}
 
-		// 重规划闭环：前序步骤全部终态、自身失败的前沿步骤 → 自动追加
-		// 重规划指令（要求模型调整计划而非按旧计划继续），替代"软计划"
-		// 依赖模型自觉的现状。同一条指令不重复追加。
-		var replanMsg *protocol.Message
-		if plan := session.PlanSnapshot(); plan != nil && plan.Active {
-			if f := plan.FirstFailedFrontier(); f != nil && !runtime.LastUserIsReplan(session) {
-				m := runtime.BuildReplanMessage(f)
-				replanMsg = &m
-			}
-		}
-
-		if len(toolCalls) == 0 {
-			if responseText != "" {
-				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText})
-			}
-			if replanMsg != nil {
-				p.sm.AppendMessageNoPersist(session, *replanMsg)
-			}
-			attachments := runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)
-			// 首轮即空回复（无文本、无工具调用、无附件、无发送工具捕获输出）：
-			// 模型这次什么都没产出（如 finish_reason=length/content_filter，
-			// 或思考型模型的正文为空）。不能当成成功的空回答静默结束，否则用户
-			// 只看到"发了消息没反应"；报错让调用方给出可见反馈并留下日志。
-			// 仅限首轮：更深的轮次里用户可能已通过其他通道（如 create_plan 的
-			// 计划消息）收到输出，此时按空回复报错会误伤。
-			if responseText == "" && currentDepth == 1 && cs.CapturedText == "" && len(attachments) == 0 {
-				logger.Warnf("[AI] empty completion from model %q (finish_reason=%q, "+
-					"reasoning_chars=%d, reasoning_tokens=%d, max_tokens=%d)",
-					p.cfg.Model, finishReason, reasoningChars, reasoningTokens, maxTokens)
-				// 有推理产出却没有任何正文：思考型模型把 max_tokens 花在了
-				// 推理上，报错时给出可定位的原因（而非笼统的"空回复"）。
-				if finishReason == finishReasonLength && (reasoningChars > 0 || reasoningTokens > 0) {
-					return &chatResult{}, fmt.Errorf(
-						"模型思考过程耗尽了输出预算，未产出任何内容（finish_reason=length, reasoning_tokens=%d, max_tokens=%d）",
-						reasoningTokens, maxTokens)
-				}
-				return &chatResult{}, fmt.Errorf("模型未返回任何内容（空回复，finish_reason=%q）", finishReason)
-			}
-			return &chatResult{
-				Text:        responseText,
-				Attachments: attachments,
-			}, nil
-		}
-
-		p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleAssistant, Content: responseText, ToolCalls: toolCalls})
+		p.sm.AppendMessageNoPersist(sess, protocol.Message{
+			Role: protocol.RoleAssistant, Content: outcome.text, ToolCalls: outcome.toolCalls,
+		})
 
 		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；
 		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
-		results := runtime.ExecuteToolCallsParallel(toolCalls, p.cfg.ToolParallel, session.Interrupted,
+		results := runtime.ExecuteToolCallsParallel(outcome.toolCalls, p.cfg.ToolParallel, sess.Interrupted,
 			func(_ int, tc protocol.ToolCall) runtime.ToolExecResult {
-				return p.execOneTool(ctx, turnCtx, session, cs, budget, tc)
+				return p.execOneTool(ctx, turnCtx, sess, run.cs, budget, tc)
 			})
 
-		for i, tc := range toolCalls {
-			// 中断抢占后未启动的工具调用：补占位 tool 消息，保证 assistant
-			// 的每个 tool_call_id 都有对应 tool 响应（API 硬性约束，
-			// 缺失会导致下次请求被 400 拒绝）。
-			if results[i].Skipped {
-				p.sm.AppendMessageNoPersist(session, protocol.Message{
-					Role:       protocol.RoleTool,
-					Content:    "（工具未执行：对话被新消息打断）",
-					ToolCallID: tc.ID,
-				})
-				continue
-			}
-			toolResult := results[i].Result
-			p.sm.AppendMessageNoPersist(session, protocol.Message{
-				Role:       protocol.RoleTool,
-				Content:    runtime.TruncateToolResult(toolResult),
-				ToolCallID: tc.ID,
-			})
-
-			// 计划创建时同步展示给用户（chat 内可见计划，后续步骤更新不打扰）。
-			// 发生在进行中的回合：QQ 单聊/群聊（频道除外）Markdown 场景附带
-			// "查看计划/停止生成"指令按钮（见 maybeAttachQQPlanButtons），长任务
-			// 期间可一键刷新进度或中断。
-			if tc.Name == catalog.PlanCreateToolName && results[i].Err == nil {
-				msg := p.formatReplyMessage(toolResult)
-				p.replyAndRecord(ctx, p.maybeAttachQQPlanButtons(ctx, msg, true))
-			}
-
-			// 失败重试预算与反思引导：
-			//   - 失败结果已回填（模型天然可重试）
-			//   - 同一工具连续失败第 2 次起，追加"反思指令"用户消息，
-			//     强制模型先分析原因再采用不同策略（显式反思轮）
-			//   - 连续失败达到 tool_retry_limit+1 次时优雅中止本轮，
-			//     替代撞 max_depth 的裸错误
-			if results[i].Err == nil {
-				session.ResetToolFailure(tc.Name)
-				continue
-			}
-			fails := session.IncrToolFailure(tc.Name)
-			if fails > runtime.EffectiveToolRetryLimit(runtimeLimits(p.cfg)) {
-				msg := execution.BuildRetryAbortMessage(tc.Name, fails, toolResult)
-				p.sm.AppendMessageNoPersist(session, protocol.Message{Role: protocol.RoleUser, Content: msg})
-				return &chatResult{Text: msg, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)}, nil
-			}
-			if fails >= 2 {
-				p.sm.AppendMessageNoPersist(session, execution.BuildReflectionMessage(tc.Name, fails, toolResult))
-			}
+		if abort := run.recordToolResults(ctx, outcome.toolCalls, results); abort != nil {
+			return abort, nil
 		}
 
 		// 重规划指令在全部工具结果之后追加——assistant(tool_calls) 必须紧接
 		// tool 消息（API 约束），指令若插在二者之间会使消息序列非法被拒绝。
 		if replanMsg != nil {
-			p.sm.AppendMessageNoPersist(session, *replanMsg)
+			p.sm.AppendMessageNoPersist(sess, *replanMsg)
 		}
 	}
 
-	return &chatResult{Text: cs.CapturedText, Attachments: runtime.MergeChatAttachments(cs.CapturedAttachments, provAttachments)},
+	return &chatResult{Text: run.capturedText(), Attachments: run.attachments()},
 		fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
@@ -467,10 +269,10 @@ func escalateMaxTokens(current, cap int) int {
 // turnCtx 是回合中断感知上下文：工具超时与审批等待都从它派生，
 // /ai stop / 用户新消息抢占对已启动的工具与审批等待同样生效
 // （此前工具只用事件 ctx 的 per-tool 超时，中断无法中止在跑工具）。
-func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, session *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
+func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, sess *session.Session, cs *execution.CaptureSender, budget *sendBudget, tc protocol.ToolCall) runtime.ToolExecResult {
 	// 任务级预算：超限时终止任务并拒绝本次调用（模型只能在剩余预算内动作）。
-	if reason := p.chargeTaskBudget(session); reason != "" {
-		p.terminateTaskForBudget(session, reason)
+	if reason := p.chargeTaskBudget(sess); reason != "" {
+		p.terminateTaskForBudget(sess, reason)
 		err := fmt.Errorf("任务预算超限：%s", reason)
 		return runtime.ToolExecResult{
 			Result: "错误: " + err.Error() + "；任务已终止，请拆分为更小的任务后重试",
@@ -478,9 +280,9 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 		}
 	}
 
-	session.Lock()
-	session.ToolCount++
-	session.Unlock()
+	sess.Lock()
+	sess.ToolCount++
+	sess.Unlock()
 
 	// 策略评估（RBAC 权限 + 审批）由决策层给出结论：放行、拒绝文案与 SendTo 授权。
 	// 拒绝按工具级结果返回（不中断整个对话）。解析出的动作快照继续传给执行器，
@@ -498,25 +300,22 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, turnCtx context.Context, ses
 	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: verdict.sendToGranted, budget: budget}
 	// 计划端口由装配侧直接计算并随 Invocation 传入：runtime 只承载与具体动作
 	// 无关的机制，不反向依赖内置动作包（catalog）。
-	inv := p.newToolInvocation(ctx, sender, p.planAccessFor(ctx, session))
+	inv := p.newToolInvocation(ctx, sender, p.planAccessFor(ctx, sess))
 	traceStart := time.Now()
-	res := p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, inv, target)
-	runtime.RecordToolTrace(session, tc, traceStart, res.Text, res.Err)
+	res := p.executeToolResultWithSnapshot(ctx, tc, executionTarget{Ctx: toolCtx, CS: cs, Inv: inv}, target)
+	runtime.RecordToolTrace(sess, tc, traceStart, res.Text, res.Err)
 	recordToolExecution(tc.Name, time.Since(traceStart), res.Err)
 	return runtime.ToolExecResult{Result: res.Text, Err: res.Err}
 }
 
-// approvalSummaryForTool 生成工具审批展示用的参数摘要。
+// approvalSummaryForAction 生成工具审批展示用的参数摘要。
 //
 // 声明了 GrantsSendTo 的动作（会向其他会话推送，如 send_to）在审批前预解析目标，
 // 审批消息中显示解析后的目标（如 张三（12345）），让批准者明确知道消息将发送给
 // 谁——判定依据是动作的策略声明，不是写死的动作名。未声明者直接返回参数摘要，
 // 解析失败也回退摘要。
-func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc protocol.ToolCall) string {
-	action, ok := p.reg.Action(tc.Name)
-	return p.approvalSummaryForAction(ctx, tc, action, ok)
-}
-
+//
+// action/ok 由调用方从执行快照取得：与权限判定、真正执行必须看到同一份定义。
 func (p *Plugin) approvalSummaryForAction(ctx *eventctx.Context, tc protocol.ToolCall, action toolkit.Action, ok bool) string {
 	summary := runtime.SummarizeArgs(tc.Arguments)
 	if !ok || !action.Policy.GrantsSendTo {

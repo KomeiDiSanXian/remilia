@@ -2,6 +2,11 @@
 //
 // 合并转发消息不带 @、正文为空，触发规则与普通消息不同，因此单独成篇；
 // 这里只消费 platform.Event 的段结构，不读插件状态。
+//
+// 引用消息的图片提取（reply 段归一化附件、QQ 原始 JSON 兜底、类型判定）
+// 由 platform.QuotedImage 统一实现，跨插件共用同一套语义；本包不再包一层
+// 同名别名，调用方直接用它。
+
 package runtime
 
 import (
@@ -66,16 +71,4 @@ func collectForwardRecordImages(nodes []platform.ForwardNode, out *[]platform.At
 		}
 		collectForwardRecordImages(n.Related, out)
 	}
-}
-
-// QuotedImageFromSegments 从 reply 段提取被引用消息中的图片 URL 与 MIME 类型。
-//
-// 各平台适配器在解析引用消息时把被引用附件归一化存入
-// Extra[platform.SegmentExtraQuoteAtts]（[]platform.Attachment，URL 为事件
-// 时刻直链），优先消费；QQ 引用消息另以 Extra["raw_quote"]（msg_elements
-// 原始 JSON）与 Extra["parallel_message"]（并行视图）保留原始数据，作为
-// 约定键缺省时的兜底路径。实现委托 platform.QuotedImage，跨插件共享同一
-// 套提取/类型判定语义。
-func QuotedImageFromSegments(segs []platform.Segment) (url, mimeType string) {
-	return platform.QuotedImage(segs)
 }

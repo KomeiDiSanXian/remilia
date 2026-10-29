@@ -262,7 +262,10 @@ func TestRegisterHandlers_NonSymbolTriggerSingleDispatch(t *testing.T) {
 // TestTriggerParses 固定 triggerParses 与触发命令 matcher 的判据一致：
 // 只有"命令词匹配 + 解析成功"的消息才算已被命令 matcher 接管。
 func TestTriggerParses(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai", cfg: &config.Config{TriggerCmd: "/ai"}}
+	// triggerParses 判定的是"触发命令 matcher 是否已注册并会派发"，
+	// 因此这里必须模拟注册（生产路径由 registerHandlers 写入 registeredTrigger）。
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}}
+	p.registeredTrigger = p.cfg.TriggerCmd
 	cases := []struct {
 		content string
 		want    bool

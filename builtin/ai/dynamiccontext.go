@@ -1,4 +1,4 @@
-// Package ai dynamiccontext.go — 动态上下文的节来源（Provider）声明。
+// dynamiccontext.go — 动态上下文的节来源（Provider）声明。
 //
 // 每节只回答"我能提供什么上下文"：这一节是否参与本轮、标题是什么、在给定
 // 注入上限下生成什么正文。节序、预算编排与最终拼接由 builtin/ai/promptctx
@@ -14,6 +14,7 @@
 //
 // 两条路径共用同一套参与条件：正文为空的节一律不输出，群聊最近消息受
 // context_group_messages > 0 控制（关闭时两条路径都不纳入）。
+
 package ai
 
 import (
@@ -32,7 +33,7 @@ import (
 // session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含机器人回复
 // （context_group_include_bot）时去重；nil 时不去重。同时用于长期记忆/相关
 // 历史的检索查询词，因此调用时应保证本轮用户消息已写入会话。
-func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.Session) []promptctx.Source {
+func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, sess *session.Session) []promptctx.Source {
 	opts := contextOptions(p.cfg)
 	groupDefault := p.cfg.ContextGroupMessages
 	if groupDefault <= 0 {
@@ -43,7 +44,7 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 		memDefault = 8
 	}
 	// 机器人回复去重集合按需构建、只构建一次（预算缩减会多次生成正文）。
-	skipBot := sync.OnceValue(func() map[string]bool { return promptctx.BotReplyContents(opts, session) })
+	skipBot := sync.OnceValue(func() map[string]bool { return promptctx.BotReplyContents(opts, sess) })
 
 	return []promptctx.Source{
 		{
@@ -64,14 +65,14 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 			Header:  "长期记忆",
 			Enabled: func() bool { return p.memory != nil && p.memory.Enabled() },
 			Limit:   memDefault,
-			Body:    func(n int) string { return p.buildMemoryContextN(ctx, session, n) },
+			Body:    func(n int) string { return p.buildMemoryContextN(ctx, sess, n) },
 			Shrink:  true,
 		},
 		{
 			Header:  "相关历史消息",
 			Enabled: func() bool { return p.cfg.ContextRAGMessages > 0 },
 			Limit:   p.cfg.ContextRAGMessages,
-			Body:    func(n int) string { return p.buildRAGContextN(ctx, session, n) },
+			Body:    func(n int) string { return p.buildRAGContextN(ctx, sess, n) },
 			Shrink:  true,
 		},
 	}
@@ -90,30 +91,36 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, session *session.S
 //
 // 返回空串表示当前无动态上下文。调用方负责把它注入到请求尾部
 // （processWithTools 挂在本轮用户消息上），不要写进 System 消息。
-func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, session *session.Session) string {
+func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, sess *session.Session) string {
 	// 预算扣除复用会话里"实际会发送"的稳定系统提示词（回合开始时写入，
 	// 见 handler 的 runtime.SetSystemMessage），不重算：重算既浪费，
 	// 又可能在群策略热更新时与实际发送内容不一致。
-	return promptctx.BuildWindowed(p.dynamicContextSources(ctx, session),
-		p.cfg.ContextWindow, runtime.SystemMessage(session))
+	return promptctx.BuildWindowed(p.dynamicContextSources(ctx, sess),
+		p.cfg.ContextWindow, runtime.SystemMessage(sess))
 }
 
 // buildMemoryContextN 同上，注入条数由调用方给定（预算编排时可动态缩减）。
-func (s *contextState) buildMemoryContextN(ctx *eventctx.Context, session *session.Session, limit int) string {
+func (s *contextState) buildMemoryContextN(ctx *eventctx.Context, sess *session.Session, limit int) string {
 	sender := ctx.GetSenderInfo()
 	mem := promptctx.MemoryReader(nil)
 	if s.memory != nil {
 		mem = s.memory
 	}
-	return promptctx.BuildMemoryContext(mem, ctx, runtime.LastUserMessage(session),
+	return promptctx.BuildMemoryContext(mem, ctx, runtime.LastUserMessage(sess),
 		userScope(sender.ID), groupScope(ctx.GetChatInfo().ID), limit)
 }
 
 // buildRAGContextN 检索并格式化相关历史消息注入文本（无命中返回空串）。
 // max 为注入条数上限（<=0 表示关闭本功能）；条数上限由调用方给定。
-func (p *Plugin) buildRAGContextN(ctx *eventctx.Context, session *session.Session, max int) string {
+func (p *Plugin) buildRAGContextN(ctx *eventctx.Context, sess *session.Session, max int) string {
 	start := time.Now()
-	text := promptctx.BuildRAGContext(p.history, p.emb, contextOptions(p.cfg), ctx, session, runtime.LastUserMessage(session), max)
+	text := promptctx.BuildRAGContext(promptctx.RAGEnv{
+		History:  p.history,
+		Embedder: p.emb,
+		Opts:     contextOptions(p.cfg),
+		Ctx:      ctx,
+		Session:  sess,
+	}, runtime.LastUserMessage(sess), max)
 	recordRAG(time.Since(start), text)
 	return text
 }

@@ -8,6 +8,7 @@
 // properties / items / enum），其余 JSON Schema 关键字（anyOf、oneOf、$ref、
 // format 等）不参与判断。MCP 等外部来源的 Schema 可能使用这些关键字，
 // 宁可放行也不误拒合法调用。
+
 package protocol
 
 import (

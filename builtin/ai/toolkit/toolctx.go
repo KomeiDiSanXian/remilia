@@ -6,6 +6,7 @@
 // 构造时持有 sender，工具只消费端口。
 //
 // 工具回调不接触事件上下文，与 send_message / send_to 保持同一安全边界。
+
 package toolkit
 
 // ToolSource 插件可读取的会话源信息（经 [ToolSourceFromInvocation] 提取）。

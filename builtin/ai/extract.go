@@ -1,8 +1,9 @@
-// Package ai extract.go — 事实记忆自动抽取的装配门面。
+// extract.go — 事实记忆自动抽取的装配门面。
 //
 // 抽取提示词、最近一轮对话渲染、鲁棒解析与"跑一轮抽取并写入"见
 // builtin/ai/runtime；本文件保留依赖插件状态的装配：启用判定、节流
 // （memory_min_interval）、生命周期后台任务与作用域键格式。
+
 package ai
 
 import (
@@ -15,7 +16,7 @@ import (
 
 // maybeExtractMemory 在对话回复完成后异步抽取记忆（受 memory_enabled 与节流控制）。
 // 使用插件生命周期 context 执行，不依赖事件 context（事件可能在回复后很快超时）。
-func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Session) {
+func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, sess *session.Session) {
 	if p.memory == nil || !p.memory.Enabled() {
 		return
 	}
@@ -39,7 +40,7 @@ func (p *Plugin) maybeExtractMemory(ctx *eventctx.Context, session *session.Sess
 		}
 		scope := scope
 		p.lifecycleSpawn(func() {
-			facts, err := extractor.Extract(scope, sender.ID, chat, session)
+			facts, err := extractor.Extract(scope, sender.ID, chat, sess)
 			if err != nil {
 				recordMemoryExtract("error", 0)
 				logger.Debugf("[AI] Memory extract failed: %v", err)

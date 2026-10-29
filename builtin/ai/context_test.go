@@ -731,7 +731,7 @@ func TestQuotedImageFromRawQuote(t *testing.T) {
 				`{"url":"https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0","content_type":"image/jpeg","width":1070,"height":473,"size":49276}]}]`,
 		},
 	}}
-	url, mime := runtime.QuotedImageFromSegments(segs)
+	url, mime := platform.QuotedImage(segs)
 	if url != "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0" || mime != "image/jpeg" {
 		t.Errorf("expected quoted image url+mime, got (%q, %q)", url, mime)
 	}
@@ -746,7 +746,7 @@ func TestQuotedImageParallelFallback(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"message_type":7,"content":"[图片] ","attachments":[{"url":"https://ex.com/b.png","content_type":"image/png"}]}]}`,
 		},
 	}}
-	url, mime := runtime.QuotedImageFromSegments(segs)
+	url, mime := platform.QuotedImage(segs)
 	if url != "https://ex.com/b.png" || mime != "image/png" {
 		t.Errorf("expected parallel fallback image, got (%q, %q)", url, mime)
 	}
@@ -758,7 +758,7 @@ func TestQuotedImageParallelFallback(t *testing.T) {
 			"parallel_message": `{"msg_nodes":[{"attachments":[{"url":"https://ex.com/c.gif","content_type":"image/gif"}]}]}`,
 		},
 	}}
-	if url, _ := runtime.QuotedImageFromSegments(segs2); url != "https://ex.com/c.gif" {
+	if url, _ := platform.QuotedImage(segs2); url != "https://ex.com/c.gif" {
 		t.Errorf("expected image from parallel only, got %q", url)
 	}
 }
@@ -771,7 +771,7 @@ func TestQuotedImageSkipsNonImage(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://ex.com/v.mp4","content_type":"video/mp4"},{"url":"https://ex.com/a.jpg","content_type":"image/jpeg"}]}]`,
 		},
 	}}
-	url, mime := runtime.QuotedImageFromSegments(segs)
+	url, mime := platform.QuotedImage(segs)
 	if url != "https://ex.com/a.jpg" || mime != "image/jpeg" {
 		t.Errorf("expected image attachment picked over video, got (%q, %q)", url, mime)
 	}
@@ -785,7 +785,7 @@ func TestQuotedImageUntypedFallback(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://ex.com/no-type"}]}]`,
 		},
 	}}
-	url, mime := runtime.QuotedImageFromSegments(segs)
+	url, mime := platform.QuotedImage(segs)
 	if url != "https://ex.com/no-type" || mime != "" {
 		t.Errorf("expected fallback to untyped attachment, got (%q, %q)", url, mime)
 	}
@@ -803,7 +803,7 @@ func TestQuotedImageNone(t *testing.T) {
 		}}},
 	}
 	for i, segs := range cases {
-		if url, _ := runtime.QuotedImageFromSegments(segs); url != "" {
+		if url, _ := platform.QuotedImage(segs); url != "" {
 			t.Errorf("case %d: expected empty, got %q", i, url)
 		}
 	}
@@ -823,7 +823,7 @@ func TestQuotedImagePrefersTypedExtra(t *testing.T) {
 			"raw_quote": `[{"attachments":[{"url":"https://raw.example/b.jpg","content_type":"image/jpeg"}]}]`,
 		},
 	}}
-	url, mime := runtime.QuotedImageFromSegments(segs)
+	url, mime := platform.QuotedImage(segs)
 	if url != "https://typed.example/a.png" || mime != "image/png" {
 		t.Errorf("expected typed Extra to win, got (%q, %q)", url, mime)
 	}

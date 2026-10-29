@@ -1,4 +1,4 @@
-// Package ai managecmd.go — 记忆 / 待办 / 计划的管理子命令。
+// managecmd.go — 记忆 / 待办 / 计划的管理子命令。
 //
 // 这三个能力原本只有模型侧工具（memory_* / todo_* / create_plan），
 // 用户缺少直接查看与管理的入口。本文件补齐：
@@ -8,6 +8,7 @@
 //
 // 与 remind 子命令同构：子命令名之后的参数从消息内容解析（兼容
 // "/ai memory clear group" 与 "@bot memory clear group" 两种路径）。
+
 package ai
 
 import (
@@ -22,8 +23,10 @@ import (
 
 // subCommandRest 从消息内容中提取子命令之后的参数。
 // 如 "/ai memory clear group" → "clear group"（前缀来自调用方）。
-func (r *runtimeState) subCommandRest(ctx *eventctx.Context, prefixes ...string) string {
-	content := runtime.CleanMessage(ctx.GetMessageContent(), r.triggerCmd)
+//
+// 接收者是 *Plugin：剥离依赖 trigger_cmd 配置，而 runtimeState 不持有配置。
+func (p *Plugin) subCommandRest(ctx *eventctx.Context, prefixes ...string) string {
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	for _, prefix := range prefixes {
 		content = strings.TrimPrefix(content, prefix)
@@ -53,7 +56,7 @@ func (p *Plugin) handleMemoryCommand(ctx *eventctx.Context, rest string) error {
 	case "remove", "rm", "del", "删除":
 		return p.handleMemoryRemove(ctx, arg)
 	default:
-		p.replyFormatted(ctx, p.memoryHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, memoryHelpText(triggerCommand(p.cfg)))
 		return nil
 	}
 }
@@ -124,7 +127,7 @@ func (p *Plugin) handleMemoryClear(ctx *eventctx.Context, scope string) error {
 		}
 		return nil
 	default:
-		p.replyFormatted(ctx, "❌ 未知作用域，用法：`"+p.cfg.TriggerCmd+" memory clear [user|group]`")
+		p.replyFormatted(ctx, "❌ 未知作用域，用法：`"+triggerCommand(p.cfg)+" memory clear [user|group]`")
 		return nil
 	}
 }
@@ -145,9 +148,9 @@ func (p *Plugin) handleMemoryRemove(ctx *eventctx.Context, rest string) error {
 		}
 	}
 	if target == "" {
-		p.replyFormatted(ctx, "❌ 请指定要删除的记忆，用法：`"+p.cfg.TriggerCmd+
-			" memory remove <序号|文本>`（序号见 `"+p.cfg.TriggerCmd+" memory`；群记忆加 group：`"+
-			p.cfg.TriggerCmd+" memory remove group <序号|文本>`）")
+		p.replyFormatted(ctx, "❌ 请指定要删除的记忆，用法：`"+triggerCommand(p.cfg)+
+			" memory remove <序号|文本>`（序号见 `"+triggerCommand(p.cfg)+" memory`；群记忆加 group：`"+
+			triggerCommand(p.cfg)+" memory remove group <序号|文本>`）")
 		return nil
 	}
 
@@ -201,7 +204,7 @@ func (a *adminState) memoryCountLabel(n, max int) string {
 	return fmt.Sprintf("%d 条", n)
 }
 
-func (a *adminState) memoryHelpText(triggerCmd string) string {
+func memoryHelpText(triggerCmd string) string {
 	return fmt.Sprintf(`🧠 **长期记忆管理**
 
   `+"`%s memory`"+`                  — 查看我的记忆（群聊同时显示本群记忆）
@@ -236,7 +239,7 @@ func (p *Plugin) handleTodoCommand(ctx *eventctx.Context, rest string) error {
 		return p.handleTodoList(ctx, filter)
 	case "add", "新增", "添加":
 		if arg == "" {
-			p.replyFormatted(ctx, p.todoHelpText(p.cfg.TriggerCmd))
+			p.replyFormatted(ctx, p.todoHelpText(triggerCommand(p.cfg)))
 			return nil
 		}
 		id := p.todos.add(ctx.GetChatInfo().ID, arg)
@@ -249,7 +252,7 @@ func (p *Plugin) handleTodoCommand(ctx *eventctx.Context, rest string) error {
 	case "clear", "清空":
 		return p.handleTodoClear(ctx, strings.ToLower(arg))
 	default:
-		p.replyFormatted(ctx, p.todoHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.todoHelpText(triggerCommand(p.cfg)))
 		return nil
 	}
 }
@@ -296,13 +299,13 @@ func (p *Plugin) handleTodoList(ctx *eventctx.Context, filter string) error {
 func (p *Plugin) handleTodoDone(ctx *eventctx.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		p.replyFormatted(ctx, "❌ 请指定待办 ID，用法：`"+p.cfg.TriggerCmd+" todo done <ID>`")
+		p.replyFormatted(ctx, "❌ 请指定待办 ID，用法：`"+triggerCommand(p.cfg)+" todo done <ID>`")
 		return nil
 	}
 	if p.todos.setDone(ctx.GetChatInfo().ID, id, true) {
 		p.replyFormatted(ctx, fmt.Sprintf("✅ 待办 `%s` 已完成", id))
 	} else {
-		p.replyFormatted(ctx, "❌ 未找到待办 `"+id+"`（ID 见 `"+p.cfg.TriggerCmd+" todo list`）")
+		p.replyFormatted(ctx, "❌ 未找到待办 `"+id+"`（ID 见 `"+triggerCommand(p.cfg)+" todo list`）")
 	}
 	return nil
 }
@@ -311,13 +314,13 @@ func (p *Plugin) handleTodoDone(ctx *eventctx.Context, id string) error {
 func (p *Plugin) handleTodoRemove(ctx *eventctx.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		p.replyFormatted(ctx, "❌ 请指定待办 ID，用法：`"+p.cfg.TriggerCmd+" todo remove <ID>`")
+		p.replyFormatted(ctx, "❌ 请指定待办 ID，用法：`"+triggerCommand(p.cfg)+" todo remove <ID>`")
 		return nil
 	}
 	if p.todos.remove(ctx.GetChatInfo().ID, id) {
 		p.replyFormatted(ctx, fmt.Sprintf("🗑️ 已删除待办 `%s`", id))
 	} else {
-		p.replyFormatted(ctx, "❌ 未找到待办 `"+id+"`（ID 见 `"+p.cfg.TriggerCmd+" todo list`）")
+		p.replyFormatted(ctx, "❌ 未找到待办 `"+id+"`（ID 见 `"+triggerCommand(p.cfg)+" todo list`）")
 	}
 	return nil
 }
@@ -341,7 +344,7 @@ func (p *Plugin) handleTodoClear(ctx *eventctx.Context, arg string) error {
 			p.replyFormatted(ctx, fmt.Sprintf("🧹 已清空全部待办（%d 条）", n))
 		}
 	default:
-		p.replyFormatted(ctx, "❌ 未知参数，用法：`"+p.cfg.TriggerCmd+" todo clear [done|all]`")
+		p.replyFormatted(ctx, "❌ 未知参数，用法：`"+triggerCommand(p.cfg)+" todo clear [done|all]`")
 	}
 	return nil
 }
@@ -366,10 +369,6 @@ func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 	sess := p.sm.GetOrCreate(runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
-	if sess == nil {
-		p.replyFormatted(ctx, "📭 当前没有进行中的计划")
-		return nil
-	}
 
 	switch strings.ToLower(strings.TrimSpace(rest)) {
 	case "", "status", "查看":
@@ -401,7 +400,7 @@ func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 		}
 		return nil
 	default:
-		p.replyFormatted(ctx, p.planHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.planHelpText(triggerCommand(p.cfg)))
 		return nil
 	}
 }

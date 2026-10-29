@@ -192,7 +192,7 @@ func TestToAnthropicToolsEmpty(t *testing.T) {
 }
 
 func TestOpenAIMessageContentMarshalUnmarshal(t *testing.T) {
-	text := newOpenAITextContent("hello")
+	text := &openaiMessageContent{text: "hello"}
 	data, err := text.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON failed: %v", err)
@@ -201,9 +201,7 @@ func TestOpenAIMessageContentMarshalUnmarshal(t *testing.T) {
 		t.Errorf("expected %q, got %q", `"hello"`, string(data))
 	}
 
-	multi := newOpenAIMultiContent([]openaiContentPart{
-		{Type: "text", Text: "hello"},
-	})
+	multi := &openaiMessageContent{parts: []openaiContentPart{{Type: "text", Text: "hello"}}}
 	data, err = multi.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON failed: %v", err)

@@ -3,6 +3,7 @@
 //
 // 只读消息历史（messagelog）与配置（context_group_messages /
 // context_group_include_bot），不含任何插件状态。
+
 package promptctx
 
 import (
@@ -72,12 +73,7 @@ func BuildGroupWindowN(history *messagelog.Logger, opts ContextOptions, ctx *eve
 				continue
 			}
 		}
-		if name == "" {
-			name = e.UserID
-		}
-		if name == "" {
-			name = "未知"
-		}
+		name = displayName(name, e.UserID)
 		text := strings.TrimSpace(textutil.StripMentionMarkup(e.Content))
 		text = textutil.TruncateRunes(text, 120)
 		if text == "" {
@@ -116,12 +112,7 @@ func BuildGroupWindowN(history *messagelog.Logger, opts ContextOptions, ctx *eve
 				if target.IsOutbound {
 					tName = botName
 				}
-				if tName == "" {
-					tName = target.UserID
-				}
-				if tName == "" {
-					tName = "未知"
-				}
+				tName = displayName(tName, target.UserID)
 				tText := strings.TrimSpace(textutil.StripMentionMarkup(target.Content))
 				tText = textutil.TruncateRunes(tText, 60)
 				if tText != "" {

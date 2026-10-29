@@ -1,7 +1,8 @@
-// Package ai taskapi.go — 任务记录的查询与取消：面向管理面（REST API）的导出方法。
+// taskapi.go — 任务记录的查询与取消：面向管理面（REST API）的导出方法。
 //
 // 与 /ai task 命令共用同一份任务存储；这里只做参数校验与约定（上限、空会话
 // 拒绝），不复制任何查询逻辑。
+
 package ai
 
 import (
@@ -19,6 +20,9 @@ var ErrTaskSessionRequired = errors.New("ai: session id is required")
 
 // TasksBySession 返回指定会话的任务记录，按创建时间倒序。
 // limit <= 0 时取默认上限。
+//
+// p 为 nil 时返回 ErrNotFound 而不是 panic：这是导出给 REST 层的方法，
+// 服务查找失败得到的是零值指针，调用方需要能把它当"没有任务"处理。
 func (p *Plugin) TasksBySession(sessionID string, limit int) ([]*task.Task, error) {
 	if p == nil {
 		return nil, task.ErrNotFound

@@ -2,6 +2,7 @@
 //
 // 本包不依赖插件配置包（builtin/ai/config）：装配侧把与本包相关的开关显式
 // 映射成 [ContextOptions]，签名因此直接暴露本层真正读到的参数。
+
 package promptctx
 
 // 选项默认值（配置值非法时生效）。

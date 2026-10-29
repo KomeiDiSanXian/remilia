@@ -80,7 +80,7 @@ func TestIsAllowedDownloadURL(t *testing.T) {
 }
 
 func TestCleanMessage(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai"}
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}}
 	tests := []struct {
 		input string
 		want  string
@@ -91,7 +91,7 @@ func TestCleanMessage(t *testing.T) {
 		{"", ""},
 	}
 	for _, tt := range tests {
-		got := runtime.CleanMessage(tt.input, p.triggerCmd)
+		got := runtime.CleanMessage(tt.input, p.triggerPrefix())
 		if got != tt.want {
 			t.Errorf("cleanMessage(%q) = %q, want %q", tt.input, got, tt.want)
 		}
@@ -99,8 +99,8 @@ func TestCleanMessage(t *testing.T) {
 }
 
 func TestCleanMessageWithAt(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai"}
-	got := runtime.CleanMessage("@hello", p.triggerCmd)
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}}
+	got := runtime.CleanMessage("@hello", p.triggerPrefix())
 	if got != "hello" {
 		t.Errorf("cleanMessage(%q) = %q, want %q", "@hello", got, "hello")
 	}
@@ -130,9 +130,9 @@ func TestStripMentionMarkup(t *testing.T) {
 }
 
 func TestCleanMessageStripsMentions(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai"}
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}}
 	// onebot 场景：@机器人QQ号 + @他人，触发前缀 /ai
-	got := runtime.CleanMessage("/ai @10001 帮我 @123 查天气", p.triggerCmd)
+	got := runtime.CleanMessage("/ai @10001 帮我 @123 查天气", p.triggerPrefix())
 	if strings.Contains(got, "@") {
 		t.Errorf("cleanMessage should strip all mention markup, got %q", got)
 	}
@@ -140,7 +140,7 @@ func TestCleanMessageStripsMentions(t *testing.T) {
 		t.Errorf("cleanMessage should keep the real content, got %q", got)
 	}
 	// 纯 @ 提及的消息应被清空
-	if got := runtime.CleanMessage("@10001 @123", p.triggerCmd); got != "" {
+	if got := runtime.CleanMessage("@10001 @123", p.triggerPrefix()); got != "" {
 		t.Errorf("expected empty content after stripping mentions, got %q", got)
 	}
 }

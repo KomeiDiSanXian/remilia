@@ -2,6 +2,7 @@
 //
 // 这些函数只读写协议消息本身（文本提取、多模态占位、工具调用序列修复、
 // 参数摘要、错误文案），不依赖插件状态，因此从回合编排里独立出来。
+
 package runtime
 
 import (
@@ -22,6 +23,17 @@ const ToolResultMissing = "（工具结果缺失，消息序列已修复）"
 // MaxToolResultLen 单条工具结果回填给 LLM 的最大字符数。
 // 防止一条命令输出巨型结果撑爆上下文窗口。
 const MaxToolResultLen = 8000
+
+// CommandLine 拼出命令的展示用文本（"命令 参数1 参数2"）。
+//
+// 只用于给人看/给模型看的摘要，不参与执行：参数按原样拼接，不做 shell 转义，
+// 也不表示可以再喂回 shell。命令执行路径拿的是结构化 args。
+func CommandLine(command string, args []string) string {
+	if len(args) == 0 {
+		return command
+	}
+	return command + " " + strings.Join(args, " ")
+}
 
 // MergeChatAttachments 合并工具捕获附件与模型直接输出的附件（保持顺序）。
 func MergeChatAttachments(groups ...[]platform.Attachment) []platform.Attachment {
@@ -199,15 +211,6 @@ func RepairToolCallSequence(msgs []protocol.Message) []protocol.Message {
 		out = append(out, protocol.Message{Role: protocol.RoleTool, Content: ToolResultMissing, ToolCallID: id})
 	}
 	return out
-}
-
-// StripBinaryParts 将消息中的多模态附件二进制内容替换为文本占位。
-// 无 ContentParts 时原样返回。
-//
-// 实现见 session.StripBinaryParts：请求构建与会话内存回收共用同一份降级逻辑，
-// 两条路径产出的消息因此逐字节一致（前缀缓存不会因"内存里先降级"而失效）。
-func StripBinaryParts(m protocol.Message) protocol.Message {
-	return session.StripBinaryParts(m)
 }
 
 // TruncateToolResult 截断过长的工具结果，按 rune 截断避免劈开多字节字符。

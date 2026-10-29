@@ -3,6 +3,7 @@
 // 与 /ai remind 子命令共用同一份提醒管理器（由装配侧经 ReminderAccess /
 // ReminderScheduler 注入）：AI 可在对话中主动设置、查询、取消提醒，
 // 到期仍由装配侧的推送逻辑送达原会话。
+
 package catalog
 
 import (
@@ -90,33 +91,23 @@ func BuildReminderTools() []toolkit.Tool {
 				return toolkit.TextResult(strings.TrimRight(b.String(), "\n")), nil
 			},
 		},
-		{
+		sessionIDAction{
 			Name:        CancelReminderToolName,
-			Categories:  []string{toolkit.CategoryGeneral},
 			Description: "取消当前会话的一条定时提醒，id 来自 list_reminders",
-			Parameters: protocol.ToolParamSchema{
-				Type: "object",
-				Properties: map[string]protocol.ToolParamSchema{
-					"id": {Type: "string", Description: "提醒 ID（如 R1，见 list_reminders）"},
-				},
-				Required: []string{"id"},
+			IDHint:      "list_reminders",
+			IDExample:   "R1",
+			Unavailable: "提醒功能不可用",
+			MissingID:   "请指定要取消的提醒 ID（见 list_reminders）",
+			Available: func(inv *toolkit.Invocation) bool {
+				caps, ok := CapabilitiesFrom(inv)
+				return ok && caps.Reminders != nil
 			},
-			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
-				src, ok := toolkit.ToolSourceFromInvocation(inv)
-				caps, capsOK := CapabilitiesFrom(inv)
-				if !ok || !capsOK || caps.Reminders == nil {
-					return toolkit.ToolResult{}, errors.New("提醒功能不可用")
-				}
-				id, _ := args["id"].(string)
-				id = strings.TrimSpace(id)
-				if id == "" {
-					return toolkit.ToolResult{}, errors.New("请指定要取消的提醒 ID（见 list_reminders）")
-				}
-				if caps.Reminders.Remove(src.ChatID, id) {
-					return toolkit.TextResult(fmt.Sprintf("已取消提醒 %s", id)), nil
-				}
-				return toolkit.TextResult(fmt.Sprintf("未找到提醒 %s（ID 见 list_reminders）", id)), nil
+			Apply: func(inv *toolkit.Invocation, src toolkit.ToolSource, id string) bool {
+				caps, _ := CapabilitiesFrom(inv)
+				return caps.Reminders.Remove(src.ChatID, id)
 			},
-		},
+			Done:     func(id string) string { return fmt.Sprintf("已取消提醒 %s", id) },
+			NotFound: func(id string) string { return fmt.Sprintf("未找到提醒 %s（ID 见 list_reminders）", id) },
+		}.build(),
 	}
 }

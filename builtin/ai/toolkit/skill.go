@@ -6,6 +6,7 @@
 // 技能按 OwnerID 区分作用域：
 //   - OwnerSystem = "system"：系统内置技能，所有用户可见可调用
 //   - 用户 ID：用户自定义技能，仅该用户可见，会话时按需注入
+
 package toolkit
 
 import (

@@ -1,4 +1,4 @@
-// Package ai runner.go — 任务级执行模型（计划后台自动推进）。
+// runner.go — 任务级执行模型（计划后台自动推进）。
 //
 // 本文件实现"自主 Agent"分界线上最核心的能力：计划创建后机器人无需用户
 // 逐条消息推动，按 plan_auto_interval 间隔自动继续执行未完成步骤并主动汇报。
@@ -15,6 +15,7 @@
 //   - 复用原事件的 ctx.Clone() 重建可发送上下文（Clone 携带 dispatcher，
 //     Reply 才能真正投递；裸 NewContextFromEvent 没有 dispatcher，
 //     回复会被静默吞掉）；生命周期 context 控制后台任务生命周期
+
 package ai
 
 import (
@@ -31,15 +32,15 @@ import (
 // effectivePlanAutoRounds 返回计划后台推进轮次上限（<=0 用默认 3）。
 // maybeContinuePlan 在对话回合结束后检查是否需要安排计划后台推进：
 // 计划存在、仍有未完成步骤、未达轮次上限、未被无进度停止。
-func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Session) {
-	if !p.cfg.PlanAutoContinue || session == nil || p.lifecycleCtx == nil {
+func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, sess *session.Session) {
+	if !p.cfg.PlanAutoContinue || sess == nil || p.lifecycleCtx == nil {
 		return
 	}
-	plan := session.PlanSnapshot()
+	plan := sess.PlanSnapshot()
 	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
+	if sess.PlanAutoStopped() || sess.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
 	// 克隆当前上下文供后台使用：Clone 复制 dispatcher 与扩展/botID，
@@ -51,15 +52,15 @@ func (p *Plugin) maybeContinuePlan(ctx *eventctx.Context, session *session.Sessi
 	if evt == nil || sender == nil {
 		return
 	}
-	p.schedulePlanContinue(session, evt, sender, clone)
+	p.schedulePlanContinue(sess, evt, sender, clone)
 }
 
 // schedulePlanContinue 递增轮次并调度一次后台推进（间隔后执行）。
-func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
-	if session.PlanAutoStopped() || session.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
+func (p *Plugin) schedulePlanContinue(sess *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
+	if sess.PlanAutoStopped() || sess.PlanAutoRounds() >= runtime.EffectivePlanAutoRounds(runtimeLimits(p.cfg)) {
 		return
 	}
-	session.BumpPlanAutoRounds()
+	sess.BumpPlanAutoRounds()
 
 	interval := p.cfg.PlanAutoInterval
 	if interval <= 0 {
@@ -71,7 +72,7 @@ func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Eve
 		case <-p.lifecycleCtx.Done():
 			return
 		}
-		p.continuePlan(session, evt, sender, replyCtx)
+		p.continuePlan(sess, evt, sender, replyCtx)
 	})
 }
 
@@ -79,28 +80,28 @@ func (p *Plugin) schedulePlanContinue(session *session.Session, evt platform.Eve
 // 用户回合进行中跳过；本轮作为完整回合执行（BeginTurn 接上中断信号，
 // /ai stop 与用户新消息抢占同样中止后台轮）；无进度（计划签名不变）
 // 则停止自动推进；完成后仍有未完成步骤则继续调度下一轮。
-func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
-	if !session.TryLockTurn() {
+func (p *Plugin) continuePlan(sess *session.Session, evt platform.Event, sender platform.Sender, replyCtx *eventctx.Context) {
+	if !sess.TryLockTurn() {
 		// 用户回合进行中：跳过本轮（不消耗后续推进资格）。
 		return
 	}
-	defer session.UnlockTurn()
+	defer sess.UnlockTurn()
 
 	// 接上回合中断信号：signal 存在后 TurnCtx/RequestInterrupt/Interrupted
 	// 才有效（否则 /ai stop 判定回合不活跃，无法中止后台轮）。
-	if !session.BeginTurn() {
+	if !sess.BeginTurn() {
 		return
 	}
-	defer session.EndTurn()
+	defer sess.EndTurn()
 
-	plan := session.PlanSnapshot()
+	plan := sess.PlanSnapshot()
 	if plan == nil || !plan.Active || !plan.HasPending() {
 		return
 	}
 
-	result, err := p.generateVerified(replyCtx, session)
+	result, err := p.generateVerified(replyCtx, sess)
 	if err != nil {
-		if session.Interrupted() {
+		if sess.Interrupted() {
 			// 被停止/抢占：静默结束，不再推进也不再补发错误提示。
 			return
 		}
@@ -112,29 +113,24 @@ func (p *Plugin) continuePlan(session *session.Session, evt platform.Event, send
 	// 先把本轮产出发出去，再做"无进度"判定——模型没推进计划但产出了
 	// 有价值的回复文本时，丢弃它等于让一整轮 LLM/工具工作凭空蒸发。
 	if result != nil && (result.Text != "" || len(result.Attachments) > 0) {
-		msg := platform.OutboundMessage{}
-		if p.cfg.Markdown {
-			msg.Markdown = result.Text
-		} else {
-			msg.Text = result.Text
-		}
+		msg := p.formatReplyMessage(result.Text)
 		if len(result.Attachments) > 0 {
 			msg.Attachments = result.Attachments
 		}
 		p.replyAndRecord(replyCtx, msg)
 	}
 
-	after := session.PlanSnapshot()
+	after := sess.PlanSnapshot()
 	if runtime.PlanSignature(after) == runtime.PlanSignature(plan) {
 		// 本轮无进度（计划签名不变）→ 停止自动推进。
-		if !session.Interrupted() {
-			session.StopPlanAuto()
+		if !sess.Interrupted() {
+			sess.StopPlanAuto()
 			logger.Debugf("[AI] Plan auto-continue stopped: no progress")
 		}
 		return
 	}
 
-	if after != nil && after.Active && after.HasPending() && !session.PlanAutoStopped() {
-		p.schedulePlanContinue(session, evt, sender, replyCtx)
+	if after != nil && after.Active && after.HasPending() && !sess.PlanAutoStopped() {
+		p.schedulePlanContinue(sess, evt, sender, replyCtx)
 	}
 }

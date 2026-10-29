@@ -12,6 +12,7 @@
 // 设计取舍：关键词预筛作为硬门槛——语义仅靠 embedding 召回的能力由
 // 长期事实记忆承担（其检索自带语义加权），RAG 专注"记得原话关键词"的
 // 历史细节查询，从而把 embedding 调用控制在命中候选时。
+
 package promptctx
 
 import (
@@ -56,11 +57,31 @@ func ragHitTieBreak(a, b ragHit) bool {
 	return a.Entry.Content < b.Entry.Content
 }
 
+// RAGEnv 一次历史检索的环境：数据来源、检索参数与会话。
+//
+// 这五项在整个检索过程中不变，且被 BuildRAGContext 与其内层的 formatRAGHits
+// 共用。此前它们是两个函数各自重复的 5 个位置参数（其中 emb 与 opts、
+// history 与 ctx 的类型都不同，顺序写错编译器不会报错），收成结构体后
+// 每个字段在调用点都带名字。
+type RAGEnv struct {
+	// History 消息历史来源（messagelog）；nil 时检索降级为空。
+	History *messagelog.Logger
+	// Embedder 文本向量缓存；nil 或未启用时纯关键词打分。
+	Embedder *retrieval.TextVectorCache
+	// Opts 检索参数（时间窗、候选上限、注入上限）。
+	Opts ContextOptions
+	// Ctx 事件上下文（取会话信息与标准 context）。
+	Ctx *eventctx.Context
+	// Session 会话（读写历史检索缓存）。
+	Session *session.Session
+}
+
 // BuildRAGContext 检索并格式化相关历史消息注入文本（无命中返回空串）。
 //
 // query 为本轮检索用的用户消息文本（通常取最后一条用户消息）；
 // 由调用方给定，因为同一份查询也被记忆检索与工具选择复用。
-func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache, opts ContextOptions, ctx *eventctx.Context, sess *session.Session, query string, max int) string {
+func BuildRAGContext(env RAGEnv, query string, max int) string {
+	history, opts, ctx, sess := env.History, env.Opts, env.Ctx, env.Session
 	if history == nil || max <= 0 {
 		return ""
 	}
@@ -92,7 +113,7 @@ func BuildRAGContext(history *messagelog.Logger, emb *retrieval.TextVectorCache,
 		if opts.RAGInjectMax > 0 && opts.RAGInjectMax < injectMax {
 			injectMax = opts.RAGInjectMax
 		}
-		text = formatRAGHits(history, emb, opts, ctx, entries, query, injectMax)
+		text = formatRAGHits(env, entries, query, injectMax)
 	}
 
 	sess.SetRAGCache(&session.RAGCache{
@@ -127,7 +148,8 @@ func ragCandidates(history *messagelog.Logger, opts ContextOptions, chat platfor
 // 直接嵌入精排（覆盖"记不清原话"的查询，仅零命中才花费 embedding 调用）；
 // 阶段 2 对候选做 embedding 精排（失败降级纯关键词），取 Top-N 注入。
 // 与最近消息窗口（context_group_messages）按 EventID 去重。
-func formatRAGHits(history *messagelog.Logger, emb *retrieval.TextVectorCache, opts ContextOptions, ctx *eventctx.Context, entries []messagelog.RecordEntry, query string, max int) string {
+func formatRAGHits(env RAGEnv, entries []messagelog.RecordEntry, query string, max int) string {
+	history, emb, opts, ctx := env.History, env.Embedder, env.Opts, env.Ctx
 	if max <= 0 {
 		return ""
 	}
@@ -225,12 +247,7 @@ func formatRAGHits(history *messagelog.Logger, emb *retrieval.TextVectorCache, o
 	var b strings.Builder
 	for _, h := range scored {
 		name := h.Entry.UserName
-		if name == "" {
-			name = h.Entry.UserID
-		}
-		if name == "" {
-			name = "未知"
-		}
+		name = displayName(name, h.Entry.UserID)
 		ts := h.Entry.Timestamp.Format("01-02 15:04")
 		text := textutil.TruncateRunes(strings.TrimSpace(textutil.StripMentionMarkup(h.Entry.Content)), 200)
 		fmt.Fprintf(&b, "[%s] %s: %s\n", ts, name, text)

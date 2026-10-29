@@ -2,6 +2,7 @@
 //
 // 动作侧（set_reminder / list_reminders）与子命令侧（/ai remind）共用同一套
 // 文本约定，因此放在动作目录层，两边都只依赖这里。
+
 package catalog
 
 import (

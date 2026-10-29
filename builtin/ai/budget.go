@@ -1,4 +1,4 @@
-// Package ai budget.go — 任务级预算的运行时强制执行。
+// budget.go — 任务级预算的运行时强制执行。
 //
 // 每个会话的活动任务有工具调用次数与执行时长两个预算
 // （配置 task_max_tool_calls / task_max_duration）。预算在工具调用前检查并
@@ -7,6 +7,7 @@
 //
 // 计数是会话级、进程内状态：新计划开始时重置；重启后从零开始（重启恢复本身
 // 会把在途任务置为 interrupted，不会绕过恢复语义）。
+
 package ai
 
 import (
@@ -31,7 +32,7 @@ type taskUsage struct {
 // 计数与判定在锁内完成；终结动作（任务失败、计划取消）由调用方在锁外执行，
 // 避免与任务记录锁形成反向加锁顺序。
 func (p *Plugin) chargeTaskBudget(sess *session.Session) string {
-	if p == nil || sess == nil {
+	if sess == nil {
 		return ""
 	}
 	p.taskUsageMu.Lock()
@@ -63,9 +64,6 @@ func (p *Plugin) chargeTaskBudget(sess *session.Session) string {
 
 // resetTaskUsage 重置会话的任务预算计数（新计划开始时调用）。
 func (p *Plugin) resetTaskUsage(sessionID string) {
-	if p == nil {
-		return
-	}
 	p.taskUsageMu.Lock()
 	defer p.taskUsageMu.Unlock()
 	delete(p.taskUsage, sessionID)
@@ -76,9 +74,6 @@ func (p *Plugin) resetTaskUsage(sessionID string) {
 // 这两张表按会话键累积，长跑进程里会随会话数量无界增长；会话 TTL 之后它们
 // 已无意义（重启恢复与闸门都不依赖过期会话的旧证据），由插件的周期清理调用。
 func (p *Plugin) pruneSessionState(cutoff time.Time) int {
-	if p == nil {
-		return 0
-	}
 	removed := 0
 
 	p.evidenceMu.Lock()
@@ -105,7 +100,7 @@ func (p *Plugin) pruneSessionState(cutoff time.Time) int {
 // terminateTaskForBudget 预算超限的终结动作：活动任务置为失败并取消会话计划。
 // 终态任务不受影响（迟到结果不能覆盖已终结的任务）。
 func (p *Plugin) terminateTaskForBudget(sess *session.Session, reason string) {
-	if p == nil || sess == nil {
+	if sess == nil {
 		return
 	}
 	p.taskMu.Lock()

@@ -1,18 +1,14 @@
 // Package config 定义 AI 插件的配置结构与加载逻辑。
 //
-// 本文件定义 AI 插件的全部配置项（Config）、默认值（DefaultConfig）
-// 以及从 config.yaml 读取配置的加载函数（loadConfig）。
+// 本文件定义 AI 插件的全部配置项（Config）与默认值（DefaultConfig）；
+// 从 config.yaml 读取配置的过程见 load.go（按能力分组、区分零值语义）。
 //
 // 配置项覆盖 LLM 提供商选择、模型参数、超时控制、会话管理、触发方式、
 // Markdown 回复、Skill 系统等。
 package config
 
 import (
-	"encoding/json"
-	"strings"
 	"time"
-
-	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // Config AI 插件配置。
@@ -429,6 +425,30 @@ type Config struct {
 	PlanAutoContinue bool `yaml:"plan_auto_continue"`
 }
 
+// provider 取值。
+const (
+	// ProviderOpenAI OpenAI 兼容端点（含 DeepSeek、Kimi、vLLM、Ollama 等）。
+	ProviderOpenAI = "openai"
+	// ProviderAnthropic Anthropic Messages API。
+	ProviderAnthropic = "anthropic"
+)
+
+// ValidProvider 判断 provider 取值是否合法。
+func ValidProvider(v string) bool {
+	return v == ProviderOpenAI || v == ProviderAnthropic
+}
+
+// tool_approval 取值。与 builtin/ai 的 approvalOff/approvalRestricted/
+// approvalAlways 同值，配置层只做取值校验，不引入插件的内部枚举类型。
+const (
+	// approvalOff 不审批，工具直接执行（默认）。
+	approvalOff = "off"
+	// approvalRestricted 仅审批标记 RequiresApproval 的工具。
+	approvalRestricted = "restricted"
+	// approvalAlways 审批所有工具调用。
+	approvalAlways = "always"
+)
+
 // NeedActionGate 取值。
 const (
 	// NeedActionAuto 按本轮消息判定是否需要动作（默认）。
@@ -451,8 +471,12 @@ const (
 	ReasoningEffortHigh = "high"
 )
 
-// validReasoningEffort 判断 reasoning_effort 取值是否合法。
-func validReasoningEffort(v string) bool {
+// ValidReasoningEffort 判断 reasoning_effort 取值是否合法。
+//
+// 导出与 [ValidProvider] / [ValidGroupReplyPolicy] 保持一致：这三个都是配置
+// 取值的合法性判据，运维侧做配置校验时应当能用同一套判定，而不是自己再抄一份
+// 允许值列表。
+func ValidReasoningEffort(v string) bool {
 	switch v {
 	case ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
 		return true
@@ -554,417 +578,4 @@ var DefaultConfig = Config{
 	GroupReplyPolicy:       GroupReplyAll,
 	GroupReplyChance:       0.2,
 	GroupReplyCooldown:     2 * time.Minute,
-}
-
-// Load 从插件配置中读取配置项，未配置时使用默认值。
-//
-// 当前配置校验：
-//   - 至少启用一种触发方式（trigger_cmd / at_bot / private_chat）
-//   - provider、model、api_key 等由 Setup 阶段 newProvider 校验
-func Load(ctx *plugin.SetupContext) *Config {
-	cfg := DefaultConfig
-	if ctx.Config == nil {
-		return &cfg
-	}
-	if v := ctx.Config.GetString("provider", ""); v != "" {
-		cfg.Provider = v
-	}
-	if v := ctx.Config.GetString("model", ""); v != "" {
-		cfg.Model = v
-	}
-	if v := ctx.Config.GetString("base_url", ""); v != "" {
-		cfg.BaseURL = v
-	}
-	if v := ctx.Config.GetString("api_key", ""); v != "" {
-		cfg.APIKey = v
-	}
-	if v := ctx.Config.GetInt("max_tokens", 0); v > 0 {
-		cfg.MaxTokens = v
-	}
-	if v, ok := intOption(ctx, "max_tokens_cap"); ok {
-		if v >= 0 {
-			cfg.MaxTokensCap = v
-		} else {
-			ctx.Log.Warnf("max_tokens_cap must not be negative, ignoring %d", v)
-		}
-	}
-	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("reasoning_effort", ""))); v != "" {
-		if validReasoningEffort(v) {
-			cfg.ReasoningEffort = v
-		} else {
-			ctx.Log.Warnf("reasoning_effort must be one of none/minimal/low/medium/high, ignoring %q", v)
-		}
-	}
-	cfg.IncludeUsage = ctx.Config.GetBool("include_usage", DefaultConfig.IncludeUsage)
-	if v := ctx.Config.GetInt("max_depth", 0); v > 0 {
-		cfg.MaxDepth = v
-	}
-	if v := ctx.Config.GetInt("max_history", 0); v > 0 {
-		cfg.MaxHistory = v
-	}
-	if v, ok := floatOption(ctx, "temperature"); ok {
-		if v >= 0 && v <= 2 {
-			cfg.Temperature = v
-		} else {
-			ctx.Log.Warnf("temperature must be within [0, 2], ignoring %v", v)
-		}
-	}
-	if v, ok := floatOption(ctx, "top_p"); ok {
-		if v >= 0 && v <= 1 {
-			cfg.TopP = v
-		} else {
-			ctx.Log.Warnf("top_p must be within [0, 1], ignoring %v", v)
-		}
-	}
-	if v := ctx.Config.GetDuration("api_timeout", 0); v > 0 {
-		cfg.APITimeout = v
-	}
-	if v, ok := intOption(ctx, "max_retries"); ok {
-		if v >= 0 {
-			cfg.MaxRetries = v
-		} else {
-			ctx.Log.Warnf("max_retries must not be negative, ignoring %d", v)
-		}
-	}
-	if v := ctx.Config.GetDuration("tool_timeout", 0); v > 0 {
-		cfg.ToolTimeout = v
-	}
-	if v := ctx.Config.GetInt("tool_retry_limit", 0); v > 0 {
-		cfg.ToolRetryLimit = v
-	}
-	if v := ctx.Config.GetDuration("session_ttl", 0); v > 0 {
-		cfg.SessionTTL = v
-	}
-	// 显式存在性判断：允许 session_retention: 0s 表示"保留期不限"
-	//（GetDuration 拿到 0 走不到 > 0 的分支，会永远回退 30 天默认值）。
-	if ctx.Config.Get("session_retention") != nil {
-		if v := ctx.Config.GetDuration("session_retention", cfg.SessionRetention); v >= 0 {
-			cfg.SessionRetention = v
-		}
-	}
-	if v := ctx.Config.GetInt("session_cache_size", 0); v > 0 {
-		cfg.SessionCacheSize = v
-	}
-	if v, ok := intOption(ctx, "image_cache_max_mb"); ok {
-		if v >= 0 {
-			cfg.ImageCacheMaxMB = v
-		} else {
-			ctx.Log.Warnf("image_cache_max_mb must not be negative, ignoring %d", v)
-		}
-	}
-	if v := ctx.Config.GetString("system_prompt", ""); v != "" {
-		cfg.SystemPrompt = v
-	}
-	// 显式存在性判断：允许 trigger_cmd 配置为空以禁用命令触发
-	//（空串写入时 GetString 拿到 "" 走不到 v != ""，会永远回退默认 "/ai"）。
-	if ctx.Config.Get("trigger_cmd") != nil {
-		cfg.TriggerCmd = ctx.Config.GetString("trigger_cmd", cfg.TriggerCmd)
-	}
-	cfg.AtBot = ctx.Config.GetBool("at_bot", cfg.AtBot)
-	cfg.GroupAutonomous = ctx.Config.GetBool("group_autonomous", cfg.GroupAutonomous)
-	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("group_reply_policy", ""))); v != "" {
-		if ValidGroupReplyPolicy(v) {
-			cfg.GroupReplyPolicy = v
-		} else {
-			ctx.Log.Warnf("invalid group_reply_policy %q, must be all|smart|judge, ignoring", v)
-		}
-	}
-	if v, ok := floatOption(ctx, "group_reply_chance"); ok {
-		if v >= 0 && v <= 1 {
-			cfg.GroupReplyChance = v
-		} else {
-			ctx.Log.Warnf("group_reply_chance must be within [0, 1], ignoring %v", v)
-		}
-	}
-	if v := ctx.Config.GetDuration("group_reply_cooldown", 0); v > 0 {
-		cfg.GroupReplyCooldown = v
-	}
-	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
-	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
-	cfg.QQRegenButton = ctx.Config.GetBool("qq_regen_button", cfg.QQRegenButton)
-	cfg.QQClearButton = ctx.Config.GetBool("qq_clear_button", cfg.QQClearButton)
-	cfg.QQPlanButton = ctx.Config.GetBool("qq_plan_button", cfg.QQPlanButton)
-	cfg.Fallback = ctx.Config.GetBool("fallback", cfg.Fallback)
-
-	if v := ctx.Config.GetDuration("skill_timeout", 0); v > 0 {
-		cfg.SkillTimeout = v
-	}
-	if v := ctx.Config.GetInt("skill_max_depth", 0); v > 0 {
-		cfg.SkillMaxDepth = v
-	}
-	if v := ctx.Config.GetInt("max_attachment_size", 0); v > 0 {
-		cfg.MaxAttachmentSize = int64(v)
-	}
-	cfg.VisionEnabled = ctx.Config.GetBool("vision_enabled", cfg.VisionEnabled)
-	cfg.AudioEnabled = ctx.Config.GetBool("audio_enabled", cfg.AudioEnabled)
-
-	// 显式存在性判断：文档承诺 0 值语义的键必须接受配置中的 0
-	//（此前 Load 只认 v > 0，用户写 0 关闭功能时静默保持默认值）。
-	if ctx.Config.Get("image_merge_window") != nil {
-		cfg.ImageMergeWindow = ctx.Config.GetDuration("image_merge_window", cfg.ImageMergeWindow)
-	}
-	if v, ok := intOption(ctx, "image_context_turns"); ok {
-		if v < 0 {
-			ctx.Log.Warnf("image_context_turns must not be negative, ignoring %d", v)
-		} else {
-			cfg.ImageContextTurns = v
-		}
-	}
-	if ctx.Config.Get("image_context_window") != nil {
-		cfg.ImageContextWindow = ctx.Config.GetDuration("image_context_window", cfg.ImageContextWindow)
-	}
-	if v := ctx.Config.GetInt("max_images_per_message", 0); v > 0 {
-		cfg.MaxImagesPerMessage = v
-	}
-	if v := ctx.Config.GetInt("max_images_per_request", 0); v > 0 {
-		cfg.MaxImagesPerRequest = v
-	}
-
-	if v := ctx.Config.GetInt("max_user_skills", 0); v > 0 {
-		cfg.MaxUserSkills = v
-	}
-	if v := ctx.Config.GetInt("max_user_skill_prompt_len", 0); v > 0 {
-		cfg.MaxUserSkillPromptLen = v
-	}
-
-	if v := ctx.Config.Get("tool_allowlist"); v != nil {
-		if list, ok := v.([]any); ok {
-			cfg.ToolAllowlist = make([]string, 0, len(list))
-			for _, item := range list {
-				if s, ok := item.(string); ok && s != "" {
-					cfg.ToolAllowlist = append(cfg.ToolAllowlist, s)
-				}
-			}
-		}
-	}
-
-	if v := ctx.Config.Get("workspace_roots"); v != nil {
-		if list, ok := v.([]any); ok {
-			cfg.WorkspaceRoots = make([]string, 0, len(list))
-			for _, item := range list {
-				if s, ok := item.(string); ok {
-					if trimmed := strings.TrimSpace(s); trimmed != "" {
-						cfg.WorkspaceRoots = append(cfg.WorkspaceRoots, trimmed)
-					}
-				}
-			}
-		}
-	}
-	cfg.WorkspaceAllowWrite = ctx.Config.GetBool("workspace_allow_write", cfg.WorkspaceAllowWrite)
-
-	for _, listOpt := range []struct {
-		key string
-		dst *[]string
-	}{
-		{"exec_allowlist", &cfg.ExecAllowlist},
-		{"exec_env_allowlist", &cfg.ExecEnvAllowlist},
-		{"allow_private_media_hosts", &cfg.AllowPrivateMediaHosts},
-	} {
-		if v := ctx.Config.Get(listOpt.key); v != nil {
-			if list, ok := v.([]any); ok {
-				out := make([]string, 0, len(list))
-				for _, item := range list {
-					if s, ok := item.(string); ok {
-						if trimmed := strings.TrimSpace(s); trimmed != "" {
-							out = append(out, trimmed)
-						}
-					}
-				}
-				*listOpt.dst = out
-			}
-		}
-	}
-	if v := ctx.Config.GetDuration("exec_timeout", 0); v > 0 {
-		cfg.ExecTimeout = v
-	}
-	if v := ctx.Config.GetInt("exec_max_output_bytes", 0); v > 0 {
-		cfg.ExecMaxOutputBytes = v
-	}
-	cfg.ExecRequireApproval = ctx.Config.GetBool("exec_require_approval", cfg.ExecRequireApproval)
-
-	// 任务预算：0 或负数表示不限制（显式配置可关闭默认值）。
-	if v, ok := intOption(ctx, "task_max_tool_calls"); ok {
-		cfg.TaskMaxToolCalls = v
-	}
-	if v := ctx.Config.GetDuration("task_max_duration", 0); v != 0 {
-		cfg.TaskMaxDuration = v
-	}
-
-	// 执行节点归属：默认为本机。
-	if v := strings.ToLower(strings.TrimSpace(ctx.Config.GetString("exec_node", ""))); v != "" {
-		cfg.ExecNode = v
-	}
-	if v := strings.TrimSpace(ctx.Config.GetString("exec_remote_url", "")); v != "" {
-		cfg.ExecRemoteURL = v
-	}
-	if v := ctx.Config.GetString("exec_remote_token", ""); v != "" {
-		cfg.ExecRemoteToken = v
-	}
-	if v := ctx.Config.GetDuration("exec_remote_timeout", 0); v > 0 {
-		cfg.ExecRemoteTimeout = v
-	}
-
-	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)
-	cfg.IncludeMentionInfo = ctx.Config.GetBool("include_mention_info", cfg.IncludeMentionInfo)
-	cfg.IncludeReplyContext = ctx.Config.GetBool("include_reply_context", cfg.IncludeReplyContext)
-
-	if v := ctx.Config.GetString("tool_approval", ""); v != "" {
-		switch v {
-		case "off", "restricted", "always":
-			cfg.ToolApproval = v
-		default:
-			ctx.Log.Warnf("invalid tool_approval %q, must be off|restricted|always, ignoring", v)
-		}
-	}
-	if v := ctx.Config.GetDuration("approval_timeout", 0); v > 0 {
-		cfg.ApprovalTimeout = v
-	}
-
-	if v := ctx.Config.GetString("need_action_gate", ""); v != "" {
-		switch v {
-		case NeedActionAuto, NeedActionAlways:
-			cfg.NeedActionGate = v
-		default:
-			ctx.Log.Warnf("invalid need_action_gate %q, must be auto|always, ignoring", v)
-		}
-	}
-
-	if v := ctx.Config.GetInt("tool_select_max", 0); v > 0 {
-		cfg.ToolSelectMax = v
-	}
-	if v := ctx.Config.GetInt("tool_budget", 0); v > 0 {
-		cfg.ToolBudget = v
-	}
-	cfg.ToolSetSticky = ctx.Config.GetBool("tool_set_sticky", cfg.ToolSetSticky)
-	if v := ctx.Config.GetInt("tool_set_sticky_max", 0); v > 0 {
-		cfg.ToolSetStickyMax = v
-	}
-	// 非零即生效：允许负值显式关闭闲置衰减（0 等同于未配置）。
-	if v := ctx.Config.GetDuration("tool_set_ttl", 0); v != 0 {
-		cfg.ToolSetTTL = v
-	}
-	if v := ctx.Config.GetString("embedding_base_url", ""); v != "" {
-		cfg.EmbeddingBaseURL = v
-	}
-	if v := ctx.Config.GetString("embedding_api_key", ""); v != "" {
-		cfg.EmbeddingAPIKey = v
-	}
-	if v := ctx.Config.GetString("embedding_model", ""); v != "" {
-		cfg.EmbeddingModel = v
-	}
-	cfg.MemoryEnabled = ctx.Config.GetBool("memory_enabled", cfg.MemoryEnabled)
-	if v := ctx.Config.GetDuration("memory_min_interval", 0); v > 0 {
-		cfg.MemoryMinInterval = v
-	}
-	if v := ctx.Config.GetInt("memory_max_facts", 0); v > 0 {
-		cfg.MemoryMaxFacts = v
-	}
-	if v := ctx.Config.GetInt("memory_inject_max", 0); v > 0 {
-		cfg.MemoryInjectMax = v
-	}
-	if v := ctx.Config.GetInt("plan_max_steps", 0); v > 0 {
-		cfg.PlanMaxSteps = v
-	}
-	cfg.VerifyEnabled = ctx.Config.GetBool("verify_enabled", cfg.VerifyEnabled)
-	if v := ctx.Config.GetInt("verify_max_retries", 0); v > 0 {
-		cfg.VerifyMaxRetries = v
-	}
-	if v := ctx.Config.GetInt("context_rag_messages", 0); v > 0 {
-		cfg.ContextRAGMessages = v
-	}
-	if v := ctx.Config.GetInt("context_rag_days", 0); v > 0 {
-		cfg.ContextRAGDays = v
-	}
-	if v := ctx.Config.GetInt("context_rag_candidates", 0); v > 0 {
-		cfg.ContextRAGCandidates = v
-	}
-	if v := ctx.Config.GetInt("context_rag_inject_max", 0); v > 0 {
-		cfg.ContextRAGInjectMax = v
-	}
-	if v := ctx.Config.GetInt("context_window", 0); v > 0 {
-		cfg.ContextWindow = v
-	}
-	if v := ctx.Config.GetString("verify_model", ""); v != "" {
-		cfg.VerifyModel = v
-	}
-	if v := ctx.Config.GetString("extract_model", ""); v != "" {
-		cfg.ExtractModel = v
-	}
-	if v := ctx.Config.GetInt("tool_parallel", 0); v > 0 {
-		cfg.ToolParallel = v
-	}
-	cfg.PlanAutoContinue = ctx.Config.GetBool("plan_auto_continue", cfg.PlanAutoContinue)
-	if v := ctx.Config.GetDuration("plan_auto_interval", 0); v > 0 {
-		cfg.PlanAutoInterval = v
-	}
-	if v := ctx.Config.GetInt("plan_auto_rounds", 0); v > 0 {
-		cfg.PlanAutoRounds = v
-	}
-	// <=0 表示不限发送次数（sendBudget 对 limit<=0 恒放行），
-	// 显式存在性判断保证用户能配置 0/负值解除上限。
-	if v, ok := intOption(ctx, "max_sends_per_round"); ok {
-		cfg.MaxSendsPerRound = v
-	}
-	if v := ctx.Config.GetDuration("turn_timeout", 0); v > 0 {
-		cfg.TurnTimeout = v
-	}
-
-	// 0 = 关闭群消息注入（文档承诺的关闭语义）。
-	if v, ok := intOption(ctx, "context_group_messages"); ok {
-		if v < 0 {
-			ctx.Log.Warnf("context_group_messages must not be negative, ignoring %d", v)
-		} else {
-			cfg.ContextGroupMessages = v
-		}
-	}
-	cfg.ContextGroupIncludeBot = ctx.Config.GetBool("context_group_include_bot", cfg.ContextGroupIncludeBot)
-
-	if v := ctx.Config.Get("context_fields"); v != nil {
-		if list, ok := v.([]any); ok {
-			cfg.ContextFields = make([]string, 0, len(list))
-			for _, item := range list {
-				if s, ok := item.(string); ok && s != "" {
-					cfg.ContextFields = append(cfg.ContextFields, s)
-				}
-			}
-		}
-	}
-
-	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.GroupAutonomous && !cfg.PrivateChat {
-		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, group_autonomous, or private_chat in config")
-	}
-
-	return &cfg
-}
-
-func floatOption(ctx *plugin.SetupContext, key string) (float64, bool) {
-	switch v := ctx.Config.Get(key).(type) {
-	case float64:
-		return v, true
-	case int:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	case json.Number:
-		f, err := v.Float64()
-		return f, err == nil
-	default:
-		return 0, false
-	}
-}
-
-func intOption(ctx *plugin.SetupContext, key string) (int, bool) {
-	switch v := ctx.Config.Get(key).(type) {
-	case int:
-		return v, true
-	case int64:
-		return int(v), true
-	case float64:
-		return int(v), true
-	case json.Number:
-		n, err := v.Int64()
-		return int(n), err == nil
-	default:
-		return 0, false
-	}
 }

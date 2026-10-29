@@ -239,11 +239,10 @@ func TestMemoryRemoveInvalid(t *testing.T) {
 }
 
 func TestMemoryHelpText(t *testing.T) {
-	p := &Plugin{}
-	if h := p.memoryHelpText("/ai"); !strings.Contains(h, "/ai memory") {
+	if h := memoryHelpText("/ai"); !strings.Contains(h, "/ai memory") {
 		t.Errorf("memoryHelpText missing usage: %q", h)
 	}
-	if h := p.memoryHelpText("/ai"); !strings.Contains(h, "remove") {
+	if h := memoryHelpText("/ai"); !strings.Contains(h, "remove") {
 		t.Errorf("memoryHelpText missing remove usage: %q", h)
 	}
 }
@@ -370,7 +369,7 @@ func TestPlanHelpText(t *testing.T) {
 }
 
 func TestSubCommandRest(t *testing.T) {
-	p := &Plugin{triggerCmd: "/ai"}
+	p := &Plugin{cfg: &config.Config{TriggerCmd: "/ai"}}
 	cases := []struct {
 		content  string
 		prefixes []string

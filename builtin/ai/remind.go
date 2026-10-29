@@ -1,4 +1,4 @@
-// Package ai remind.go — 对话式定时提醒。
+// remind.go — 对话式定时提醒。
 //
 // 用户可在 AI 会话中设置定时提醒（如 "/ai remind 5分钟 去喝水"），
 // 到期后机器人主动推送提醒消息到原会话（群/私聊）。
@@ -10,6 +10,7 @@
 //
 // 主动推送依赖平台 Sender 实现 platform.SessionNotifier（QQ 已实现）；
 // 平台不支持时设置提醒仍成功，但到期推送会静默失败（日志记录）。
+
 package ai
 
 import (
@@ -140,13 +141,13 @@ func (p *Plugin) handleRemindCommand(ctx *eventctx.Context, rest string) error {
 		}
 		return p.handleRemindCancel(ctx, strings.TrimSpace(parts[1]))
 	case "":
-		p.replyFormatted(ctx, p.remindHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.remindHelpText(triggerCommand(p.cfg)))
 		return nil
 	default:
 		// 默认视为设置提醒：<时长> <内容>
-		duration, content, ok := p.parseRemindArgs(rest)
+		duration, content, ok := parseRemindArgs(rest)
 		if !ok {
-			p.replyFormatted(ctx, p.remindHelpText(p.cfg.TriggerCmd))
+			p.replyFormatted(ctx, p.remindHelpText(triggerCommand(p.cfg)))
 			return nil
 		}
 		return p.handleRemindAdd(ctx, duration, content)
@@ -165,7 +166,7 @@ func (a *adminState) remindHelpText(triggerCmd string) string {
 
 // parseRemindArgs 解析 "5分钟 去喝水" → (5m, "去喝水")。
 // 支持 "30秒/30s"、"5分钟/5分/5m"、"1小时/1h"、"2天/2d" 等常见写法。
-func (a *adminState) parseRemindArgs(rest string) (time.Duration, string, bool) {
+func parseRemindArgs(rest string) (time.Duration, string, bool) {
 	fields := strings.Fields(rest)
 	if len(fields) < 2 {
 		return 0, "", false

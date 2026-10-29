@@ -2,6 +2,7 @@
 // 发送者、会话）渲染成一行行文本。
 //
 // 只依赖事件上下文与配置白名单，不读任何插件状态。
+
 package promptctx
 
 import (
@@ -109,4 +110,22 @@ func GroupRoleName(role platform.GroupRole) string {
 	default:
 		return "未知"
 	}
+}
+
+// unknownSpeaker 发言人名称的兜底文本：既无昵称也无 ID 时使用。
+const unknownSpeaker = "未知"
+
+// displayName 把一个发言人的显示名解析成可注入提示词的形式。
+//
+// 三级回落（昵称 → 原始 ID → "未知"）在群聊窗口、相关历史、回复链里各写
+// 过一遍。这不只是重复：三处必须给出同一个名字，否则同一个人在窗口里叫
+// "张三"、在回复链里叫 "12345"，模型会当成两个人。
+func displayName(name, userID string) string {
+	if name != "" {
+		return name
+	}
+	if userID != "" {
+		return userID
+	}
+	return unknownSpeaker
 }

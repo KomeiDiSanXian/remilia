@@ -1,4 +1,4 @@
-// Package ai service.go — 面向其他插件的一次性 LLM 问答服务端口。
+// service.go — 面向其他插件的一次性 LLM 问答服务端口。
 //
 // 定位：插件凡是想让 AI "总结/翻译/判读/起名/打分"，不必复制本插件的
 // base_url / api_key / 超时 / 重试 / 指标 / 换模型逻辑，经 TryService 取到
@@ -18,6 +18,7 @@
 //     计入 ai_llm_* 指标；
 //   - ctx 无 deadline 时以 cfg.APITimeout 兜底派生，防止调用方忘挂超时；
 //     已有 deadline 则完全尊重调用方。
+
 package ai
 
 import (
@@ -77,14 +78,12 @@ func WithMaxTokens(n int) ChatOption {
 
 // Complete 实现 [LLMService]。
 func (p *Plugin) Complete(ctx context.Context, system, user string, opts ...ChatOption) (string, error) {
+	// WithModel 拒绝空串，因此初值即为最终默认值，无需事后兜底。
 	o := chatOptions{model: p.cfg.Model}
 	for _, fn := range opts {
 		if fn != nil {
 			fn(&o)
 		}
-	}
-	if o.model == "" {
-		o.model = p.cfg.Model
 	}
 
 	req := &protocol.ChatRequest{

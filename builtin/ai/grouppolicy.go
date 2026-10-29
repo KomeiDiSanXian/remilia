@@ -1,4 +1,4 @@
-// Package ai grouppolicy.go — per-group 工具策略/提示词（Group Policy）。
+// grouppolicy.go — per-group 工具策略/提示词（Group Policy）。
 //
 // 对齐官方 OpenClaw 插件的 per-group 配置能力：每个群可独立配置：
 //   - prompt:   群级系统提示词（覆盖全局 system_prompt）
@@ -18,6 +18,7 @@
 //	/ai group set mention on|off          — 设置群 @ 触发要求
 //	/ai group reset [prompt|tools|approval|mention|all] — 重置群配置
 //	/ai group global ...                  — 管理全局默认（superadmin）
+
 package ai
 
 import (
@@ -176,33 +177,24 @@ func (m *groupPolicyManager) Effective(groupID string) *groupPolicy {
 		global = &groupPolicy{}
 	}
 	if p, ok := m.policies[groupID]; ok {
-		merged := &groupPolicy{
-			SystemPrompt: mergeField(p.SystemPrompt, global.SystemPrompt),
-			ToolPolicy:   mergeField(p.ToolPolicy, global.ToolPolicy),
-			Approval:     mergeField(p.Approval, global.Approval),
-			ReplyPolicy:  mergeField(p.ReplyPolicy, global.ReplyPolicy),
-			ReplyChance:  mergeFloatField(p.ReplyChance, global.ReplyChance),
+		return &groupPolicy{
+			SystemPrompt:   mergeField(p.SystemPrompt, global.SystemPrompt),
+			ToolPolicy:     mergeField(p.ToolPolicy, global.ToolPolicy),
+			Approval:       mergeField(p.Approval, global.Approval),
+			ReplyPolicy:    mergeField(p.ReplyPolicy, global.ReplyPolicy),
+			ReplyChance:    mergeField(p.ReplyChance, global.ReplyChance),
+			RequireMention: mergeField(p.RequireMention, global.RequireMention),
 		}
-		if p.RequireMention != nil {
-			merged.RequireMention = p.RequireMention
-		} else {
-			merged.RequireMention = global.RequireMention
-		}
-		return merged
 	}
 	return global.Clone()
 }
 
 // mergeField 单字段回退：群显式配置优先，未配置回退全局。
-func mergeField(group, g *string) *string {
-	if group != nil {
-		return group
-	}
-	return g
-}
-
-// mergeFloatField 单字段回退（float 版：群级接话概率）。
-func mergeFloatField(group, g *float64) *float64 {
+//
+// 群策略里每个可覆盖字段都是 *T（nil = 未配置），回退规则完全一致，因此只留
+// 这一份泛型实现；此前按字段类型各抄一遍（*string 与 *float64 各一套），
+// 新增字段时要记得再去加一个同义函数，很容易漏。
+func mergeField[T any](group, g *T) *T {
 	if group != nil {
 		return group
 	}

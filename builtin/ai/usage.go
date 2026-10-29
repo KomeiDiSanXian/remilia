@@ -1,4 +1,4 @@
-// Package ai usage.go — 管理员按权限查询指定用户的使用状态。
+// usage.go — 管理员按权限查询指定用户的使用状态。
 //
 // /ai status、/ai stats 原本只能读取调用者自己的会话（会话按
 // "{platform}:{chatID}:{userID}" 严格隔离），管理员无法了解某个用户的用量。
@@ -15,6 +15,7 @@
 //
 // 隐私边界：只输出会话级计数与时间（消息数/调用次数/时长/记忆条数），
 // 全程不读取对话正文，也不返回工具调用追踪。
+
 package ai
 
 import (
@@ -223,7 +224,7 @@ func (a *adminState) usageSessionID(platformName string, chat platform.ChatInfo,
 }
 
 // formatUsageTime 按本地时区格式化时间戳（零值显示为 "-"）。
-func (a *adminState) formatUsageTime(t time.Time) string {
+func formatUsageTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
@@ -272,8 +273,8 @@ func (p *Plugin) usageSummaryText(ctx *eventctx.Context, targetID, targetName st
 		fmt.Fprintf(&b, "  - LLM 调用次数：`%d`\n", callCount)
 		fmt.Fprintf(&b, "  - 工具调用次数：`%d`\n", toolCount)
 		fmt.Fprintf(&b, "  - 会话创建：`%s`，最后活跃：`%s`（距今 `%s`）\n",
-			p.formatUsageTime(createdAt), p.formatUsageTime(updatedAt),
-			p.formatDuration(time.Since(updatedAt)))
+			formatUsageTime(createdAt), formatUsageTime(updatedAt),
+			formatDuration(time.Since(updatedAt)))
 	}
 
 	if p.memory != nil {

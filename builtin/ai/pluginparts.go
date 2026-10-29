@@ -19,6 +19,7 @@
 // 嵌入而非命名持有，是为了让 p.reg / p.sm 这类既有访问继续可用——方法签名与
 // 调用点无需改动，本文件只改变字段的物理归属。字段名在各组之间不得重复，
 // 否则提升会二义（由 pluginparts_test.go 守卫）。
+
 package ai
 
 import (
@@ -148,8 +149,10 @@ type runtimeState struct {
 	taskUsage map[string]*taskUsage
 	// taskUsageMu 保护 taskUsage。
 	taskUsageMu sync.Mutex
-	// triggerCmd 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离。
-	triggerCmd string
+	// registeredTrigger 实际注册了触发命令 matcher 的前缀（空 = 未注册）。
+	// 只用于"正文是否会被命令 matcher 派发"这类路由判定：展示侧读的是
+	// triggerPrefix()，它会为空值兜底，不能用来判断 matcher 是否存在。
+	registeredTrigger string
 	// defOnce / def 缓存触发命令定义（buildAIDefinition 构建全部子命令）。
 	// 注册触发命令 matcher 与判定"正文是否已由该 matcher 接管"（triggerParses）
 	// 必须使用同一份定义，且该定义逐消息重建不划算。

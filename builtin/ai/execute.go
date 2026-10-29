@@ -1,4 +1,4 @@
-// Package ai execute.go — 工具与技能（Skill）的执行逻辑。
+// execute.go — 工具与技能（Skill）的执行逻辑。
 //
 // 本文件包含工具调用的执行链路：
 //   - executeToolResult: 工具调度总入口，先检查 Skill 再检查真实命令，最后回退到 Execute 回调
@@ -6,6 +6,7 @@
 //   - executeSkill: Skill 内部工具调用循环（非流式）
 //   - buildSkillTools: 构建 Skill 可见的工具列表（自有工具 + 其他 Skill）
 //   - executeSkillTool: 执行 Skill 内部的工具调用
+
 package ai
 
 import (
@@ -24,27 +25,18 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 )
 
-// executeToolResult 执行一个工具调用，返回结果文本与失败语义。
+// executionTarget 一次工具调用的"执行三件套"：时间预算、输出捕获、调用期能力。
 //
-// toolCtx 是调用方传入的超时 context，用于限制工具执行的最长时间。
-// cs 用于捕获 real command 执行过程中产生的消息附件。
-// sender 非空时注入工具调用 context（含审批门控的 SendTo 能力）。
-//
-// 本函数负责"解析来源 + 施加策略闸门"，执行本身交给对应调用器
-// （runtime.FuncInvoker / runtime.CommandInvoker / runtime.SkillInvoker）：
-// 优先通过 vevent 触发真实命令并捕获其回复；若工具无对应命令，
-// 回退到工具自身的 Execute 回调。
-//
-// 来源判定是显式的：只有快照中登记了命令模式的动作才走命令通道，
-// 命中后结果完全由命令通道负责，不再以"文本为空"回退到占位 Execute——命令
-// 跑通但没输出会如实回填"未返回文本"，而不是冒充成功。
-//
-// Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调/命令/Skill 返回错误。
-// 工具正常返回、正文恰好以"错误:"开头，不算失败。
-// executeToolResult 是无可会话的便捷入口（测试/兼容路径）：不注入计划端口。
-// 生产路径由 process.go 直接构造 Invocation 并传入会话的计划端口。
-func (p *Plugin) executeToolResult(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context, cs *execution.CaptureSender, sender toolkit.ToolSender) runtime.ActionResult {
-	return p.executeToolResultWithSnapshot(ctx, tc, toolCtx, cs, p.newToolInvocation(ctx, sender, nil), p.executionToolSnapshot(tc.Name))
+// 三者总是一起构造、一起传递，且类型各异（context / *CaptureSender /
+// *Invocation）——作为相邻位置参数时，顺序写错编译器不会报错。收成结构体后，
+// 调用点只表达"这一次执行的是什么"。
+type executionTarget struct {
+	// Ctx 工具调用的时间预算（从回合上下文派生，受 tool_timeout / skill_timeout 约束）。
+	Ctx context.Context
+	// CS 命令通道的输出捕获器（工具以真实命令执行时，其回复落在这里）。
+	CS *execution.CaptureSender
+	// Inv 调用期能力：调用者、授权器、发送/解析能力、能力端口。
+	Inv *toolkit.Invocation
 }
 
 // newToolInvocation 构造一次工具调用的显式上下文。
@@ -86,8 +78,26 @@ func (p *Plugin) newToolInvocation(ctx *eventctx.Context, sender toolkit.ToolSen
 	return inv
 }
 
-func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall, toolCtx context.Context,
-	cs *execution.CaptureSender, inv *toolkit.Invocation, snapshot toolExecutionSnapshot) runtime.ActionResult {
+// executeToolResultWithSnapshot 执行一个工具调用，返回结果文本与失败语义。
+//
+// target 携带本次调用的执行三件套；snapshot 是调用前取得的工具定义快照，
+// 必须与 decideToolInvocationWithSnapshot 收到的同一份——不一致会导致按旧定义
+// 审批、按新定义执行。
+//
+// 本函数负责"解析来源 + 施加策略闸门"，执行本身交给对应调用器
+// （runtime.FuncInvoker / runtime.CommandInvoker / runtime.SkillInvoker）：
+// 优先通过 vevent 触发真实命令并捕获其回复；若工具无对应命令，
+// 回退到工具自身的 Execute 回调。
+//
+// 来源判定是显式的：只有快照中登记了命令模式的动作才走命令通道，
+// 命中后结果完全由命令通道负责，不再以"文本为空"回退到占位 Execute——命令
+// 跑通但没输出会如实回填"未返回文本"，而不是冒充成功。
+//
+// Err 只在"调用本身失败"时非空：工具不存在、权限不足、回调/命令/Skill 返回错误。
+// 工具正常返回、正文恰好以"错误:"开头，不算失败。
+func (p *Plugin) executeToolResultWithSnapshot(ctx *eventctx.Context, tc protocol.ToolCall,
+	target executionTarget, snapshot toolExecutionSnapshot) runtime.ActionResult {
+	toolCtx, cs, inv := target.Ctx, target.CS, target.Inv
 	// 执行路径的能力端口在同一装配点构造：调用器只依赖端口，不依赖插件实例。
 	// 这两个端口刻意不进入 capabilitySet——工具回调不应获得"跑命令 / 跑技能"的能力。
 	skills := pluginSkillRunner{p: p}

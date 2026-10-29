@@ -1,4 +1,5 @@
 // storage.go — 会话持久化的两个实现：GORM 存储与空实现。
+
 package session
 
 import (

@@ -1,4 +1,4 @@
-// Package ai handler.go — AI 消息路由入口与对话流程控制。
+// handler.go — AI 消息路由入口与对话流程控制。
 //
 // 本文件处理用户消息的三种触发路径：
 //   - /ai 命令路径：通过 GetParsedCommand 解析子命令
@@ -12,6 +12,7 @@
 //
 // 消息清洗、会话 ID、命令样式识别、附件类型判定等纯形状工具已归位到
 // builtin/ai/runtime（见 runtime/inbound.go）。
+
 package ai
 
 import (
@@ -60,7 +61,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		if len(parsed.CommandPath) > 1 {
 			return p.execSubCommand(ctx, parsed.CommandPath[1])
 		}
-		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
+		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 		if content == "" && len(atts) == 0 {
 			// 裸 /ai（无正文、无附件）：沉默会让用户以为插件失灵，
 			// 回一句用法提示（与其他子命令路径的提示一致）。
@@ -97,7 +98,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	// 前缀开头”本身就意味着用户显式点名 AI。不能依赖 mentionedBot：QQ
 	// GROUP_AT_MESSAGE_CREATE 报文不带 mentions 数组，mentionedBot 恒为
 	// false，@机器人+触发前缀 的 matcher 路径会漏判。
-	explicit = explicit || runtime.HasTriggerPrefix(content, p.triggerCmd)
+	explicit = explicit || runtime.HasTriggerPrefix(content, p.triggerPrefix())
 
 	// per-group @ 触发要求（/ai group set mention on）：群策略显式要求必须 @ 时，
 	// 未 @ 机器人的群消息（全局 GroupAutonomous 模式下会进入此路径）直接跳过。
@@ -119,7 +120,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	content = runtime.CleanMessage(content, p.triggerCmd)
+	content = runtime.CleanMessage(content, p.triggerPrefix())
 	if content == "" && len(atts) == 0 {
 		return nil
 	}
@@ -149,16 +150,15 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 }
 
 // handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息（含附件）、调用 LLM。
+//
+// 准入是**有序链**（见 admitMessage）：每一步都可能提前收尾，顺序本身即语义。
+// 本函数只负责回合级编排：会话与回合锁 → 准入 → 落库 → 生成 → 收尾副作用。
 func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 	sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-	if sess == nil {
-		ctx.ReplyError("创建会话失败")
-		return nil
-	}
 
 	// 用户抢占：若上一回合仍在执行（长任务/慢工具），请求中断让其尽快收尾，
 	// 避免新消息被长时间阻塞（用户侧永远优先）。
@@ -192,47 +192,10 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	userMsg := p.buildUserMessage(ctx, content, sess)
 	userMsg.Timestamp = time.Now()
 
-	// 合并窗口：消费未消费图片并入本条（引用/回复消息优先级更高，跳过合并，
-	// 避免双图语义混乱）。消费即清除 pending，防止跨回合误合并。
-	if pendingRefs, pendingExtra := sess.ConsumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingRefs) > 0 || pendingExtra > 0 {
-		// 窗口被热重载关闭（<=0）时同样消费 pending，但不合并。
-		if p.cfg.ImageMergeWindow > 0 && platform.GetReplyToID(ctx.GetPlatformEvent()) == "" {
-			if total := len(pendingRefs) + pendingExtra + runtime.CountImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
-				logger.Warnf("[AI] Rejected merged message with %d images (max_images_per_message=%d)",
-					total, p.cfg.MaxImagesPerMessage)
-				ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
-				return nil
-			}
-			// 引用 → 多模态 ContentPart（messagelog 存储优先，URL 兜底）；
-			// 解析失败（存储未启用/URL 过期）的图片跳过，不影响本条文字。
-			if parts := p.hydratePendingImageRefs(ctx, sess, pendingRefs); len(parts) > 0 {
-				userMsg = runtime.MergePendingImageParts(userMsg, parts)
-			} else if pendingExtra+len(pendingRefs) > 0 && userMsg.Content != "" {
-				// 合并目标图片全部解析失败：给用户可见提示，避免发了字却
-				// 看不到图、无从知道为什么。
-				ctx.ReplyText(fmt.Sprintf("（此前发出的 %d 张图片已无法加载，本次仅处理文字）", pendingExtra+len(pendingRefs)))
-			}
-		}
-	}
-
-	// 单条消息图片数上限：超限拒绝本次请求，不调用 LLM（合并累加后同样生效）。
-	if imgCount := runtime.CountImageParts(userMsg.ContentParts); imgCount > p.cfg.MaxImagesPerMessage {
-		logger.Warnf("[AI] Rejected message with %d images (max_images_per_message=%d)",
-			imgCount, p.cfg.MaxImagesPerMessage)
-		ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
-		return nil
-	}
-
-	// 无文本且附件全部下载失败（SSRF/超限/超时/格式不支持）：无可处理内容。
-	// 用户确实发了消息（原始事件带附件）时给可见反馈，避免"发了语音/图片
-	// 没反应"；原始事件本无附件且无文本的场景（群兜底误触发等）保持静默。
-	if userMsg.Content == "" && len(userMsg.ContentParts) == 0 {
-		if evtAtts := platform.Attachments(ctx.GetPlatformEvent()); len(evtAtts) > 0 ||
-			platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
-			logger.Debugf("[AI] Message had %d attachment(s) but none processed", len(evtAtts))
-			ctx.ReplyText("这条消息没有我能处理的内容（仅支持文本、图片和语音）；请检查附件是否下载失败或格式不受支持")
-		}
-		return nil
+	// 准入：任一检查不通过即收尾（已给出用户可见反馈），不进入落库与 LLM。
+	admitted, err := p.admitMessage(ctx, sess, &userMsg)
+	if !admitted {
+		return err
 	}
 
 	p.sm.AppendMessage(sess, userMsg)
@@ -241,31 +204,122 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	// 平台不支持（如 QQ 群聊）时 TrySendTyping 静默 no-op。
 	_ = ctx.TrySendTyping()
 
+	return p.runAdmittedTurn(ctx, sess)
+}
+
+// admitMessage 执行对话前的准入检查，返回是否可以继续落库并调用 LLM。
+//
+// 顺序即语义（admission_order_test.go 逐条固定）：
+//
+//  1. 合并窗口：把"先发图再发字"的未消费图片并入本条。引用/回复消息优先级
+//     更高，跳过合并以免双图语义混乱；窗口关闭时仍要消费 pending，否则这些
+//     引用会一直留到下一条消息，变成跨回合的幽灵图片。
+//  2. 总图片上限：必须在合并之后判定——合并与引用注入都会增加图片数。
+//  3. 空消息：文本与附件都没有产出时收尾。必须在图片检查之后，
+//     否则"附件处理失败"会被误报成"空消息"。
+//
+// 三步都只读会话与事件，不写历史；userMsg 通过指针就地修改。
+func (p *Plugin) admitMessage(ctx *eventctx.Context, sess *session.Session, userMsg *protocol.Message) (bool, error) {
+	// 合并必须先于预算检查，且必须把"未能合并的待处理图片"计入本轮计数：
+	// 那些图没有进入 ContentParts，但它们本会随本条消息发送，用户看到的是
+	// "我发了两张图"。只按 ContentParts 判定会漏掉它们。
+	unmerged := p.mergePendingImages(ctx, sess, userMsg)
+
+	if !p.imageBudgetAllows(userMsg.ContentParts, unmerged) {
+		logger.Warnf("[AI] Rejected message with %d images (max_images_per_message=%d)",
+			runtime.CountImageParts(userMsg.ContentParts)+unmerged, p.cfg.MaxImagesPerMessage)
+		ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
+		return false, nil
+	}
+
+	return p.rejectEmptyMessage(ctx, userMsg)
+}
+
+// mergePendingImages 把未消费的待合并图片并入本条消息。
+//
+// 返回**未能并入**的图片数。调用方必须把这个数计入本轮图片预算：这些图虽然没
+// 进 ContentParts，但它们本会随本条消息发送（用户看到的是"我发了两张图"），
+// 只按 ContentParts 判定会漏掉它们。
+//
+// 顺序依赖（见 admission_order_test.go）：本函数必须在 imageBudgetAllows 之前
+// 调用，且返回值必须交给它。
+func (p *Plugin) mergePendingImages(ctx *eventctx.Context, sess *session.Session, userMsg *protocol.Message) int {
+	pendingRefs, pendingExtra := sess.ConsumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp)
+	if len(pendingRefs) == 0 && pendingExtra == 0 {
+		return 0
+	}
+	// 窗口关闭（热重载为 <=0）或本条是引用/回复：消费了但不合并，
+	// 也不计入本轮待处理图片。
+	if p.cfg.ImageMergeWindow <= 0 || platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
+		return 0
+	}
+
+	pendingCount := len(pendingRefs) + pendingExtra
+	// 合并后若超过总上限：不合并，把数量交回去让预算检查统一拒绝，
+	// 保证"超限"只有一条提示文案与一处判定。
+	if runtime.CountImageParts(userMsg.ContentParts)+pendingCount > p.cfg.MaxImagesPerMessage {
+		return pendingCount
+	}
+
+	// 引用 → 多模态 ContentPart（messagelog 存储优先，URL 兜底）；
+	// 解析失败的图片跳过，不影响本条文字。
+	if parts := p.hydratePendingImageRefs(ctx, sess, pendingRefs); len(parts) > 0 {
+		*userMsg = runtime.MergePendingImageParts(*userMsg, parts)
+		return pendingExtra // 纯计数部分（无引用）仍只以数量形式存在
+	}
+	if pendingCount > 0 && userMsg.Content != "" {
+		// 合并目标图片全部解析失败：给用户可见提示，避免发了字却看不到图、
+		// 无从知道为什么。
+		ctx.ReplyText(fmt.Sprintf("（此前发出的 %d 张图片已无法加载，本次仅处理文字）", pendingCount))
+	}
+	return pendingExtra
+}
+
+// imageBudgetAllows 判断本条消息的图片数是否在 max_images_per_message 之内。
+//
+// 视觉禁用时附件不会进入请求，因此不参与上限判定：否则关掉 vision 之后
+// 发多图会被一条与视觉无关的规则拦住。
+func (p *Plugin) imageBudgetAllows(parts []protocol.ContentPart, extra int) bool {
+	if !p.cfg.VisionEnabled {
+		return true
+	}
+	return runtime.CountImageParts(parts)+extra <= p.cfg.MaxImagesPerMessage
+}
+
+// rejectEmptyMessage 收尾"没有任何可送入模型的内容"的消息。
+//
+// 无文本且无附件片段时不能继续（否则是一条空 user 消息）。若原始事件确实
+// 带了附件或引用了消息，说明附件处理全失败（SSRF/超限/超时/格式不支持），
+// 必须给用户可见反馈，避免"发了语音/图片没反应"；原始事件本无附件且无文本
+// 的场景（群兜底误触发等）保持静默。
+func (p *Plugin) rejectEmptyMessage(ctx *eventctx.Context, userMsg *protocol.Message) (bool, error) {
+	if userMsg.Content != "" || len(userMsg.ContentParts) > 0 {
+		return true, nil
+	}
+	evtAtts := platform.Attachments(ctx.GetPlatformEvent())
+	if len(evtAtts) > 0 || platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
+		logger.Debugf("[AI] Message had %d attachment(s) but none processed", len(evtAtts))
+		ctx.ReplyText("这条消息没有我能处理的内容（仅支持文本、图片和语音）；请检查附件是否下载失败或格式不受支持")
+	}
+	return false, nil
+}
+
+// runAdmittedTurn 执行已通过准入的回合：生成回复、发送、触发收尾副作用。
+func (p *Plugin) runAdmittedTurn(ctx *eventctx.Context, sess *session.Session) error {
 	// 生成回答并（开启 verify_enabled 时）经校验器校验，失败按反馈重新生成。
 	result, err := p.generateVerified(ctx, sess)
 	if err != nil {
 		// 多轮工具循环中可能已经捕获到可用回复文本（如超深提前收尾），
 		// 先把它发出去再附错误提示，避免一整轮 LLM/工具工作凭空蒸发。
 		if result != nil && result.Text != "" {
-			if p.cfg.Markdown {
-				p.replyAndRecord(ctx, platform.MarkdownMessage(result.Text))
-			} else {
-				p.replyAndRecord(ctx, platform.TextMessage(result.Text))
-			}
+			p.replyAndRecord(ctx, p.formatReplyMessage(result.Text))
 		}
 		ctx.ReplyError(runtime.FormatAIError(err))
 		return nil
 	}
 
 	if result.Text != "" || len(result.Attachments) > 0 {
-		msg := platform.OutboundMessage{}
-
-		if p.cfg.Markdown {
-			msg.Markdown = result.Text
-		} else {
-			msg.Text = result.Text
-		}
-
+		msg := p.formatReplyMessage(result.Text)
 		if len(result.Attachments) > 0 {
 			msg.Attachments = result.Attachments
 		}
@@ -398,9 +452,6 @@ func (p *Plugin) maybeRecordPendingImage(ctx *eventctx.Context, content string, 
 
 	sender := ctx.GetSenderInfo()
 	sess := p.sm.GetOrCreate(runtime.MakeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
-	if sess == nil {
-		return false
-	}
 	sess.LockTurn()
 	defer sess.UnlockTurn()
 
@@ -434,37 +485,65 @@ func (p *Plugin) hydratePendingImageRefs(ctx *eventctx.Context, sess *session.Se
 }
 
 // resolvePendingImageRef 解析单个图片引用。
-//   - 存储路径：PlatformMsgID → messagelog event → 附件行（URL 匹配优先）→ Fetch；
-//   - 未命中回退 URL 直链下载（合并窗口内直链通常仍有效）。
+//
+// 三层回退，**顺序即语义**：
+//
+//  1. 本机附件存储：PlatformMsgID → event_id → 附件行，URL 完全一致的那张优先，
+//     否则退而取该消息的第一张图；
+//  2. 原始 URL 直连下载：存储未启用/未落库/已清理时的兜底（合并窗口很短，
+//     直链通常仍有效）；
+//  3. 放弃：返回 nil，由调用方降级为"本次仅处理文字"。
+//
+// 三层写成"成功即返回、失败即下沉"的三个函数，而不是嵌套 if：嵌套会让
+// "第二层到底在什么条件下执行"需要逐层反推，而这正是本函数此前的状态。
 func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, sess *session.Session, ref session.PendingImageRef) *protocol.ContentPart {
-	if p.history != nil && ref.PlatformMsgID != "" {
-		if entry, ok := p.history.QueryByEventID(ref.ChatID, ref.PlatformMsgID); ok && entry.EventID != "" {
-			if rows, err := p.history.AttachmentsByEventID(entry.EventID); err == nil {
-				var fallback *messagelog.AttachmentMeta
-				for i := range rows {
-					if !runtime.IsImageAttachmentMeta(&rows[i]) {
-						continue
-					}
-					if ref.URL != "" && rows[i].URL == ref.URL {
-						if cp := p.fetchStoredAttachment(ctx.Context(), &rows[i], sess); cp != nil {
-							return cp
-						}
-					} else if fallback == nil {
-						fallback = &rows[i]
-					}
-				}
-				if fallback != nil {
-					if cp := p.fetchStoredAttachment(ctx.Context(), fallback, sess); cp != nil {
-						return cp
-					}
-				}
+	if cp := p.pendingImageFromStore(ctx.Context(), sess, ref); cp != nil {
+		return cp
+	}
+	if ref.URL == "" {
+		return nil
+	}
+	return p.downloadAttachment(platform.Attachment{URL: ref.URL, MimeType: ref.MimeType}, sess)
+}
+
+// pendingImageFromStore 从本机附件存储取回该引用对应的图片（第 1 层）。
+//
+// 返回 nil 表示存储路径不可用或不命中，调用方应继续尝试 URL 直连。
+func (p *Plugin) pendingImageFromStore(ctx context.Context, sess *session.Session,
+	ref session.PendingImageRef) *protocol.ContentPart {
+	if p.history == nil || ref.PlatformMsgID == "" {
+		return nil
+	}
+	entry, ok := p.history.QueryByEventID(ref.ChatID, ref.PlatformMsgID)
+	if !ok || entry.EventID == "" {
+		return nil
+	}
+	rows, err := p.history.AttachmentsByEventID(entry.EventID)
+	if err != nil {
+		return nil
+	}
+
+	// 同一条消息可能带多张图：URL 完全一致的那张最可能是用户所指；
+	// 其余只作为兜底（用户连着发多图时，URL 与引用记录的未必一致）。
+	var fallback *messagelog.AttachmentMeta
+	for i := range rows {
+		if !runtime.IsImageAttachmentMeta(&rows[i]) {
+			continue
+		}
+		if ref.URL != "" && rows[i].URL == ref.URL {
+			if cp := p.fetchStoredAttachment(ctx, &rows[i], sess); cp != nil {
+				return cp
 			}
+			continue
+		}
+		if fallback == nil {
+			fallback = &rows[i]
 		}
 	}
-	if ref.URL != "" {
-		return p.downloadAttachment(platform.Attachment{URL: ref.URL, MimeType: ref.MimeType}, sess)
+	if fallback == nil {
+		return nil
 	}
-	return nil
+	return p.fetchStoredAttachment(ctx, fallback, sess)
 }
 
 // quotedImagePart 提取引用消息中的被引用图片并下载；不可用时返回 nil。
@@ -488,7 +567,7 @@ func (p *Plugin) quotedImagePart(ctx *eventctx.Context, sess *session.Session) *
 		}
 	}
 	// 兜底：从 reply 段 Extra 提取被引用图片 URL（存储未启用/未落库时）。
-	url, mime := runtime.QuotedImageFromSegments(evt.Segments())
+	url, mime := platform.QuotedImage(evt.Segments())
 	if url == "" {
 		return nil
 	}
@@ -698,7 +777,7 @@ func (p *Plugin) downloadAttachmentBytes(url, mimeHint string) ([]byte, string, 
 // imageCacheBudget 返回单会话附件内存缓存的字节预算。
 // 配置以 MB 为单位（image_cache_max_mb），0/负数回退到 session.MaxContentCacheBytes。
 func (p *Plugin) imageCacheBudget() int64 {
-	if p == nil || p.cfg == nil || p.cfg.ImageCacheMaxMB <= 0 {
+	if p.cfg == nil || p.cfg.ImageCacheMaxMB <= 0 {
 		return session.MaxContentCacheBytes
 	}
 	return int64(p.cfg.ImageCacheMaxMB) << 20
@@ -710,7 +789,7 @@ func (p *Plugin) imageCacheBudget() int64 {
 // runtime.PrepareRequestMessages），更早的二进制留在会话内存里毫无用处。
 // 回合结束时调用一次：只处理带时间戳且早于窗口的消息，当前轮的附件不受影响。
 func (p *Plugin) releaseStaleAttachmentBytes(sess *session.Session) {
-	if p == nil || p.cfg == nil || sess == nil {
+	if p.cfg == nil || sess == nil {
 		return
 	}
 	window := p.cfg.ImageContextWindow

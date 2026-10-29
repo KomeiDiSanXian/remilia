@@ -1,4 +1,5 @@
 // attachment.go — 附件二进制内存缓存，以及"先发图再发字"的图片合并窗口。
+
 package session
 
 import (

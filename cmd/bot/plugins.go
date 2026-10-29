@@ -8,7 +8,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/about"
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
-	mcpplugin "github.com/KomeiDiSanXian/remilia/builtin/ai/mcp"
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/autoresponder"
@@ -23,6 +22,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
 	"github.com/KomeiDiSanXian/remilia/builtin/knowledgebase"
 	"github.com/KomeiDiSanXian/remilia/builtin/logviewer"
+	"github.com/KomeiDiSanXian/remilia/builtin/mcp"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/moderation"
 	"github.com/KomeiDiSanXian/remilia/builtin/ping"
@@ -156,7 +156,7 @@ func (a *app) setupPlugins() {
 
 		// AI 与内容工具
 		ai.New(eng, ai.WithMediaOriginSource(a.reg)),
-		mcpplugin.New(),
+		mcp.New(),
 		knowledgebase.New(),
 		weather.New(),
 		websearch.New(),

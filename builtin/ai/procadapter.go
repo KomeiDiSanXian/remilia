@@ -1,4 +1,5 @@
 // procadapter.go — 受控进程执行器到 catalog.ProcessRunner 端口的适配。
+
 package ai
 
 import (

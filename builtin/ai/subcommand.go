@@ -1,4 +1,4 @@
-// Package ai subcommand.go — AI 插件子命令处理。
+// subcommand.go — AI 插件子命令处理。
 //
 // 本文件处理所有子命令的逻辑实现，包括：
 //   - /ai reset: 清空对话历史
@@ -13,6 +13,7 @@
 //
 // handleSubCommand 作为 @bot/私聊路径的子命令入口，
 // 将自然语言命令映射到 execSubCommand 的具体实现。
+
 package ai
 
 import (
@@ -23,11 +24,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -38,14 +41,80 @@ import (
 // 原生 type=14 清空会话共用，见 qqaction.go 的 handleClearAction）。
 const sessionClearedText = "✅ 对话历史已清空，开始全新的对话吧！"
 
-// aiUsageHint 裸 /ai（无正文、无附件）的用法提示。
-func (p *Plugin) aiUsageHint() string {
-	cmd := p.triggerCmd
-	if cmd == "" {
-		cmd = "/ai"
+// defaultTriggerCmd 触发命令缺省值。配置允许显式设空（禁用命令触发），
+// 因此所有"面向用户的用法提示"都必须经过 [triggerCommand] 兜底，
+// 不能直接读 cfg.TriggerCmd 拼文案——否则关闭命令触发后帮助会渲染成 “ ` memory` “。
+const defaultTriggerCmd = "/ai"
+
+// triggerCommand 返回用于展示的触发命令前缀（空值回落到默认）。
+func triggerCommand(cfg *config.Config) string {
+	if cfg == nil || cfg.TriggerCmd == "" {
+		return defaultTriggerCmd
 	}
+	return cfg.TriggerCmd
+}
+
+// triggerPrefix 返回实际用于剥离消息前缀的触发命令（空值表示未配置命令触发）。
+//
+// 与 [triggerCommand] 的区别：这里**不**兜底。trigger_cmd 配成空串的语义是
+// "不注册命令触发"，剥离时也不能按默认前缀裁正文——否则用户发的 "/ai xx"
+// 会被当成"普通正文"再裁掉 "/ai"，然后才交给模型。
+func (p *Plugin) triggerPrefix() string {
+	if p.cfg == nil {
+		return ""
+	}
+	return p.cfg.TriggerCmd
+}
+
+// aiUsageHint 裸 /ai（无正文、无附件）的用法提示。
+//
+// 提示内容从命令定义派生，避免与 buildAIDefinition 各自维护一份子命令清单
+// （此前这里写过不存在的 `todos`，用户照着发只会被当成普通提问）。
+func (p *Plugin) aiUsageHint() string {
+	cmd := triggerCommand(p.cfg)
+	sub := func(name string) string { return "`" + cmd + " " + name + "`" }
 	return "💬 直接把问题发给我就能对话；也可试试：" +
-		"`" + cmd + " summary`（总结对话）、`" + cmd + " retry`（重新生成）、`" + cmd + " todos`（待办清单）、`" + cmd + " stop`（停止生成）、`" + cmd + " reset`（清空历史）"
+		sub("summary") + "（总结对话）、" + sub("retry") + "（重新生成）、" +
+		sub("todo") + "（待办清单）、" + sub("stop") + "（停止生成）、" +
+		sub("reset") + "（清空历史）"
+}
+
+// renderSubCommandList 把命令定义渲染成"子命令一览"文本。
+//
+// 与 buildAIDefinition 同源：新增/删除子命令时帮助自动跟随，不再出现
+// "帮助里漏项 / 写了不存在的命令"这类漂移。带参数的子命令补上参数占位，
+// 有子级（如 group/skill/memory）的只在名称后标注，细节交给各自的帮助。
+func renderSubCommandList(def *command.Definition, triggerCmd string) string {
+	if def == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, sub := range def.SubCommands {
+		if sub.Hidden {
+			continue
+		}
+		fmt.Fprintf(&b, "\n  `%s %s%s` — %s", triggerCmd, sub.Name, argPlaceholder(sub), sub.Description)
+	}
+	return b.String()
+}
+
+// argPlaceholder 把子命令的必填/可选参数拼成 ` <a> [b]` 形式。
+func argPlaceholder(def *command.Definition) string {
+	if len(def.Arguments) == 0 && len(def.SubCommands) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, a := range def.Arguments {
+		if a == nil || a.Name == "" {
+			continue
+		}
+		if a.Required {
+			b.WriteString(" <" + a.Name + ">")
+			continue
+		}
+		b.WriteString(" [" + a.Name + "]")
+	}
+	return b.String()
 }
 
 // execSubCommand 根据子命令名称执行对应的操作。
@@ -65,10 +134,6 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "undo":
 		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if sess == nil {
-			ctx.ReplyText("没有可以撤销的对话")
-			return nil
-		}
 		sess.LockTurn()
 		defer sess.UnlockTurn()
 		sess.Lock()
@@ -111,10 +176,6 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "summary":
 		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if sess == nil {
-			ctx.ReplyText("还没有任何对话内容可以总结")
-			return nil
-		}
 		msgsSnapshot := sess.SnapshotMessages()
 		if len(msgsSnapshot) <= 1 {
 			ctx.ReplyText("还没有任何对话内容可以总结")
@@ -155,10 +216,6 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			return nil
 		}
 		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if sess == nil {
-			ctx.ReplyText("当前没有活跃的对话")
-			return nil
-		}
 		sess.Lock()
 		defer sess.Unlock()
 		if len(sess.Messages) <= 1 {
@@ -178,7 +235,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "  - 提供商：`%s`\n", p.cfg.Provider)
 		fmt.Fprintf(&b, "  - 模型：`%s`\n", p.cfg.Model)
 		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
-		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", p.formatDuration(duration))
+		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", formatDuration(duration))
 		fmt.Fprintf(&b, "  - 会话 ID：`%s`\n", sessionID)
 		p.replyFormatted(ctx, b.String())
 		return nil
@@ -189,10 +246,6 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			return nil
 		}
 		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if sess == nil {
-			ctx.ReplyText("当前没有活跃的对话")
-			return nil
-		}
 		sess.Lock()
 		if len(sess.Messages) <= 1 {
 			sess.Unlock()
@@ -211,10 +264,6 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "trace":
 		sess := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if sess == nil {
-			ctx.ReplyText("当前没有活跃的对话")
-			return nil
-		}
 		entries := sess.ToolTrace()
 		if len(entries) == 0 {
 			ctx.ReplyText("当前会话还没有工具调用记录。")
@@ -227,7 +276,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			if e.Err != "" {
 				mark = "❌"
 			}
-			fmt.Fprintf(&b, "%s `%s` 耗时 %s\n", mark, e.ToolName, p.formatDuration(e.Duration))
+			fmt.Fprintf(&b, "%s `%s` 耗时 %s\n", mark, e.ToolName, formatDuration(e.Duration))
 			if e.Args != "" {
 				fmt.Fprintf(&b, "    参数：`%s`\n", e.Args)
 			}
@@ -259,21 +308,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		}
 		b.WriteString("\n在对话中直接告诉我你想使用哪个工具即可。\n")
 		b.WriteString("\n**子命令：**")
-		fmt.Fprintf(&b, "\n  `%s reset` — 清空对话历史", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s summary` — 总结当前对话", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s status` — 查看会话状态（管理员可加 @用户/ID 查询他人）", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计（管理员可加 @用户/ID 查询他人）", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s memory` — 查看/清空长期记忆", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s todo` — 管理会话待办清单", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s plan` — 查看/取消任务计划", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s task` — 查看持久化的任务记录（list / cancel）", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s remind` — 设置定时提醒（如 `%s remind 5分钟 去喝水`）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s approve <ID>` — 批准工具执行（`%s deny <ID>` 拒绝）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s group` — 管理本群 AI 策略（提示词/工具白名单/审批/@触发）", p.cfg.TriggerCmd)
-		fmt.Fprintf(&b, "\n  `%s skill` — 管理自定义技能", p.cfg.TriggerCmd)
+		b.WriteString(renderSubCommandList(p.aiDefinition(), triggerCommand(p.cfg)))
 		p.replyFormatted(ctx, b.String())
 		return nil
 
@@ -294,7 +329,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "remind", "提醒":
 		// 从消息内容中提取 "remind" 之后的参数（时长 + 内容）
-		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
+		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 		for _, prefix := range []string{"remind", "提醒"} {
 			content = strings.TrimPrefix(content, prefix)
@@ -335,54 +370,9 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		}
 	}
 
-	switch cmd {
-	case "reset", "重置":
-		err = p.execSubCommand(ctx, "reset")
-	case "undo":
-		err = p.execSubCommand(ctx, "undo")
-	case "retry", "重试":
-		err = p.execSubCommand(ctx, "retry")
-	case "stop", "停止":
-		err = p.execSubCommand(ctx, "stop")
-	case "summary", "总结":
-		err = p.execSubCommand(ctx, "summary")
-	case "status":
-		err = p.execSubCommand(ctx, "status")
-	case "stats":
-		err = p.execSubCommand(ctx, "stats")
-	case "tools", "工具", "help", "帮助":
-		err = p.execSubCommand(ctx, "tools")
-	case "remind", "提醒":
-		// 支持 "@机器人 提醒 5分钟 去喝水" 自然语言路径
-		content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
-		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
-		for _, prefix := range []string{"remind", "提醒"} {
-			content = strings.TrimPrefix(content, prefix)
-		}
-		content = strings.TrimSpace(content)
-		err = p.handleRemindCommand(ctx, content)
-	case "approve", "允许", "批准", "同意":
-		// 支持 "@机器人 批准 A1" 自然语言路径
-		err = p.handleApprovalCommand(ctx, true)
-	case "deny", "拒绝", "驳回", "不同意":
-		err = p.handleApprovalCommand(ctx, false)
-	case "group", "群配置":
-		err = p.handleGroupCommand(ctx)
-	case "memory", "记忆":
-		err = p.handleMemoryCommand(ctx, p.subCommandRest(ctx, "memory", "记忆"))
-	case "todo", "待办":
-		err = p.handleTodoCommand(ctx, p.subCommandRest(ctx, "todo", "待办"))
-	case "plan", "计划":
-		err = p.handlePlanCommand(ctx, p.subCommandRest(ctx, "plan", "计划"))
-	case "task", "任务":
-		err = p.handleTaskCommand(ctx, p.subCommandRest(ctx, "task", "任务"))
-	default:
-		return false
-	}
-	if err != nil {
-		logger.Errorf("exec subcommand %q: %v", cmd, err)
-	}
-	return true
+	// 其余子命令统一查表（见 subcommands.go）：canonical 名与别名都在表里，
+	// 带参数的子命令由各自 handler 从 rest 继续解析。
+	return p.dispatchNatural(ctx, cmd)
 }
 
 // handleStopCommand 处理 /ai stop（停止）：中断当前正在进行的生成，并一并
@@ -458,10 +448,6 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 		return nil
 	}
 	sess := p.sm.GetOrCreate(sessionID, senderID, chatID)
-	if sess == nil {
-		ctx.ReplyText("没有可以重试的对话")
-		return nil
-	}
 	if waitTurn {
 		sess.LockTurn()
 	} else if !sess.TryLockTurn() {
@@ -512,12 +498,7 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 		return nil
 	}
 	if result.Text != "" || len(result.Attachments) > 0 {
-		msg := platform.OutboundMessage{}
-		if p.cfg.Markdown {
-			msg.Markdown = result.Text
-		} else {
-			msg.Text = result.Text
-		}
+		msg := p.formatReplyMessage(result.Text)
 		if len(result.Attachments) > 0 {
 			msg.Attachments = result.Attachments
 		}
@@ -527,7 +508,7 @@ func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chat
 }
 
 // formatDuration 将 time.Duration 格式化为人类可读的字符串。
-func (a *adminState) formatDuration(d time.Duration) string {
+func formatDuration(d time.Duration) string {
 	d = d.Round(time.Minute)
 	h := d / time.Hour
 	d -= h * time.Hour
@@ -600,7 +581,7 @@ func (p *Plugin) doSummary(ctx *eventctx.Context, sess *session.Session, msgs []
 // handleSkillCommand 处理 /ai skill 子命令的入口。
 // 从消息内容中解析子子命令（add/list/remove/enable/disable/promote/info）并分发。
 func (p *Plugin) handleSkillCommand(ctx *eventctx.Context) error {
-	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	content = strings.TrimPrefix(content, "skill")
 	content = strings.TrimPrefix(content, "技能")
@@ -634,12 +615,12 @@ func (p *Plugin) handleSkillCommand(ctx *eventctx.Context) error {
 	default:
 		p.replyFormatted(ctx,
 			"📋 **Skill 管理命令**\n\n"+
-				fmt.Sprintf("  `%s skill add <名称>` — 注册新技能（发送 Markdown 内容或附件）\n", p.cfg.TriggerCmd)+
-				fmt.Sprintf("  `%s skill list` — 列出我的技能\n", p.cfg.TriggerCmd)+
-				fmt.Sprintf("  `%s skill remove <名称>` — 删除技能\n", p.cfg.TriggerCmd)+
-				fmt.Sprintf("  `%s skill enable/disable <名称>` — 启用/禁用技能\n", p.cfg.TriggerCmd)+
-				fmt.Sprintf("  `%s skill info <名称>` — 查看技能详情\n", p.cfg.TriggerCmd)+
-				fmt.Sprintf("  `%s skill promote <名称>` — 提升为系统技能\n", p.cfg.TriggerCmd),
+				fmt.Sprintf("  `%s skill add <名称>` — 注册新技能（发送 Markdown 内容或附件）\n", triggerCommand(p.cfg))+
+				fmt.Sprintf("  `%s skill list` — 列出我的技能\n", triggerCommand(p.cfg))+
+				fmt.Sprintf("  `%s skill remove <名称>` — 删除技能\n", triggerCommand(p.cfg))+
+				fmt.Sprintf("  `%s skill enable/disable <名称>` — 启用/禁用技能\n", triggerCommand(p.cfg))+
+				fmt.Sprintf("  `%s skill info <名称>` — 查看技能详情\n", triggerCommand(p.cfg))+
+				fmt.Sprintf("  `%s skill promote <名称>` — 提升为系统技能\n", triggerCommand(p.cfg)),
 		)
 		return nil
 	}
@@ -657,10 +638,10 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 	// 支持换行分隔场景如 "/ai skill add my_skill\nmarkdown 正文"
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
-		p.replyFormatted(ctx, "❌ 请指定技能名称。用法：`"+p.cfg.TriggerCmd+" skill add <名称> <Markdown 内容>`\n"+
+		p.replyFormatted(ctx, "❌ 请指定技能名称。用法：`"+triggerCommand(p.cfg)+" skill add <名称> <Markdown 内容>`\n"+
 			"支持两种方式：\n"+
-			"  1. `"+p.cfg.TriggerCmd+` skill add my_skill 你是...`+"` — 一次性内联注册\n"+
-			"  2. `"+p.cfg.TriggerCmd+" skill add my_skill` — 仅指定名称，然后发送 Markdown 内容或 .md 附件")
+			"  1. `"+triggerCommand(p.cfg)+` skill add my_skill 你是...`+"` — 一次性内联注册\n"+
+			"  2. `"+triggerCommand(p.cfg)+" skill add my_skill` — 仅指定名称，然后发送 Markdown 内容或 .md 附件")
 		return nil
 	}
 	name := fields[0]
@@ -732,7 +713,7 @@ func (p *Plugin) registerSkillAndReply(ctx *eventctx.Context, name, prompt, owne
 func (p *Plugin) handleSkillList(ctx *eventctx.Context, ownerID string) error {
 	skills := p.skillReg.ListByOwner(ownerID)
 	if len(skills) == 0 {
-		p.replyFormatted(ctx, "📭 你还没有注册任何自定义技能。\n使用 `"+p.cfg.TriggerCmd+" skill add <名称> <Markdown 内容>` 开始创建。")
+		p.replyFormatted(ctx, "📭 你还没有注册任何自定义技能。\n使用 `"+triggerCommand(p.cfg)+" skill add <名称> <Markdown 内容>` 开始创建。")
 		return nil
 	}
 

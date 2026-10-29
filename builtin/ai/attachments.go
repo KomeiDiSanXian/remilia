@@ -6,6 +6,7 @@
 //
 // 补齐的时机是"每回合构建请求副本时"，只作用于副本：不会写回会话，工具轮复用
 // 同一份副本，回合结束副本释放。这样"历史里有几张图"与常驻内存彻底解耦。
+
 package ai
 
 import (
@@ -37,7 +38,7 @@ const (
 // 3 个来源都失败时把该片段降级为文本占位，避免"模型看不到图也不知道有图"。
 // ctx 应为回合上下文（受 /ai stop 与超时约束）。
 func (p *Plugin) hydrateAttachmentParts(ctx context.Context, msgs []protocol.Message, sess *session.Session) (filled, unavailable int) {
-	if p == nil || sess == nil {
+	if sess == nil {
 		return 0, 0
 	}
 	for i := range msgs {

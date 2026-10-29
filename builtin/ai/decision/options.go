@@ -2,6 +2,7 @@
 //
 // 本包不依赖插件配置包（builtin/ai/config）：装配侧把配置里与本层相关的开关
 // 显式映射成 [SelectionOptions]，签名因此直接暴露本层真正用到的参数。
+
 package decision
 
 import "time"
@@ -58,11 +59,11 @@ func (o SelectionOptions) stickyMax() int {
 	return o.StickyMax
 }
 
-// stickyTTL 返回生效的补充工具空闲存活时长（<=0 表示不衰减）。
+// stickyTTL 返回补充工具的空闲存活时长（<=0 表示不衰减）。
+//
+// 不再做"负值归一为 0"的换算：唯一的消费者（[StabilizeToolSet] 的衰减段）
+// 本就只在 >0 时启用，归一化只是多一个不可观测的分支。
 // 生产默认值来自 config.DefaultConfig（20 分钟）；配置负值（如 -1s）可关闭衰减。
 func (o SelectionOptions) stickyTTL() time.Duration {
-	if o.StickyTTL <= 0 {
-		return 0
-	}
 	return o.StickyTTL
 }

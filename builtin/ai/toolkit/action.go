@@ -14,6 +14,7 @@
 //
 // 两者都由 Tool 保真派生（见 ActionSpecOf / ActionPolicyOf），派生是对外行为的
 // 唯一事实来源：改动这里的映射就等于改动行为，因此必须有测试守护。
+
 package toolkit
 
 import (

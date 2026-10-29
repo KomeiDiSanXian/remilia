@@ -30,7 +30,7 @@ func TestParseRemindArgs(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.in, func(t *testing.T) {
-			d, msg, ok := (&adminState{}).parseRemindArgs(tc.in)
+			d, msg, ok := parseRemindArgs(tc.in)
 			if !tc.ok {
 				assert.False(t, ok, "expected failure for %q", tc.in)
 				return

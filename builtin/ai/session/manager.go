@@ -1,4 +1,5 @@
 // manager.go — 会话管理器：LRU 缓存、TTL 过期、消息窗口裁剪与可选持久化。
+
 package session
 
 import (

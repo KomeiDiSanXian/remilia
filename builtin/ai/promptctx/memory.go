@@ -3,6 +3,7 @@
 // 记忆的存储、去重合并与打分排序属于记忆存储自身（builtin/ai 的 memoryStore），
 // 本包只声明注入所需的最小端口 [MemoryReader]，由装配侧注入。
 // 作用域的存储键格式由装配侧决定，因此以参数传入。
+
 package promptctx
 
 import (

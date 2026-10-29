@@ -5,6 +5,7 @@
 //   - todo_list：列出待办（可过滤 pending/done）
 //   - todo_done：标记完成
 //   - todo_remove：删除一条
+
 package catalog
 
 import (
@@ -108,61 +109,41 @@ func BuildTodoTools() []toolkit.Tool {
 				return toolkit.TextResult(strings.TrimRight(b.String(), "\n")), nil
 			},
 		},
-		{
+		sessionIDAction{
 			Name:        TodoDoneToolName,
-			Categories:  []string{toolkit.CategoryGeneral},
 			Description: "把一条待办标记为已完成（id 来自 todo_list）",
-			Parameters: protocol.ToolParamSchema{
-				Type: "object",
-				Properties: map[string]protocol.ToolParamSchema{
-					"id": {Type: "string", Description: "待办 ID（如 T1，见 todo_list）"},
-				},
-				Required: []string{"id"},
+			IDHint:      "todo_list",
+			IDExample:   "T1",
+			Unavailable: "待办功能不可用",
+			MissingID:   "请指定待办 ID（见 todo_list）",
+			Available: func(inv *toolkit.Invocation) bool {
+				caps, ok := CapabilitiesFrom(inv)
+				return ok && caps.Todos != nil
 			},
-			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
-				src, ok := toolkit.ToolSourceFromInvocation(inv)
-				caps, capsOK := CapabilitiesFrom(inv)
-				if !ok || !capsOK || caps.Todos == nil {
-					return toolkit.ToolResult{}, errors.New("待办功能不可用")
-				}
-				id, _ := args["id"].(string)
-				id = strings.TrimSpace(id)
-				if id == "" {
-					return toolkit.ToolResult{}, errors.New("请指定待办 ID（见 todo_list）")
-				}
-				if caps.Todos.SetDone(src.ChatID, id, true) {
-					return toolkit.TextResult(fmt.Sprintf("待办 %s 已完成", id)), nil
-				}
-				return toolkit.TextResult(fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id)), nil
+			Apply: func(inv *toolkit.Invocation, src toolkit.ToolSource, id string) bool {
+				caps, _ := CapabilitiesFrom(inv)
+				return caps.Todos.SetDone(src.ChatID, id, true)
 			},
-		},
-		{
+			Done:     func(id string) string { return fmt.Sprintf("待办 %s 已完成", id) },
+			NotFound: func(id string) string { return fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id) },
+		}.build(),
+		sessionIDAction{
 			Name:        TodoRemoveToolName,
-			Categories:  []string{toolkit.CategoryGeneral},
 			Description: "删除一条待办（id 来自 todo_list）。用户要求\"划掉/删掉\"某项时调用",
-			Parameters: protocol.ToolParamSchema{
-				Type: "object",
-				Properties: map[string]protocol.ToolParamSchema{
-					"id": {Type: "string", Description: "待办 ID（如 T1，见 todo_list）"},
-				},
-				Required: []string{"id"},
+			IDHint:      "todo_list",
+			IDExample:   "T1",
+			Unavailable: "待办功能不可用",
+			MissingID:   "请指定待办 ID（见 todo_list）",
+			Available: func(inv *toolkit.Invocation) bool {
+				caps, ok := CapabilitiesFrom(inv)
+				return ok && caps.Todos != nil
 			},
-			Execute: func(ctx context.Context, inv *toolkit.Invocation, args map[string]any) (toolkit.ToolResult, error) {
-				src, ok := toolkit.ToolSourceFromInvocation(inv)
-				caps, capsOK := CapabilitiesFrom(inv)
-				if !ok || !capsOK || caps.Todos == nil {
-					return toolkit.ToolResult{}, errors.New("待办功能不可用")
-				}
-				id, _ := args["id"].(string)
-				id = strings.TrimSpace(id)
-				if id == "" {
-					return toolkit.ToolResult{}, errors.New("请指定待办 ID（见 todo_list）")
-				}
-				if caps.Todos.Remove(src.ChatID, id) {
-					return toolkit.TextResult(fmt.Sprintf("已删除待办 %s", id)), nil
-				}
-				return toolkit.TextResult(fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id)), nil
+			Apply: func(inv *toolkit.Invocation, src toolkit.ToolSource, id string) bool {
+				caps, _ := CapabilitiesFrom(inv)
+				return caps.Todos.Remove(src.ChatID, id)
 			},
-		},
+			Done:     func(id string) string { return fmt.Sprintf("已删除待办 %s", id) },
+			NotFound: func(id string) string { return fmt.Sprintf("未找到待办 %s（ID 见 todo_list）", id) },
+		}.build(),
 	}
 }

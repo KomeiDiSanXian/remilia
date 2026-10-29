@@ -12,6 +12,7 @@
 //
 // 节流（memory_min_interval）与异步调度依赖插件生命周期，留在装配侧；
 // 本包只负责"跑一轮抽取并写入"。
+
 package runtime
 
 import (

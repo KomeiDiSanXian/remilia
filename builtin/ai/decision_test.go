@@ -215,16 +215,15 @@ func TestActionCandidatesIncludesUserSkills(t *testing.T) {
 
 // TestNeedsApproval 冻结审批模式与"工具是否标记审批"的组合语义。
 func TestNeedsApproval(t *testing.T) {
-	p := &Plugin{}
 	safe := toolkit.ActionOf(toolkit.Tool{Name: "safe"})
 	sensitive := toolkit.ActionOf(toolkit.Tool{Name: "sensitive", RequiresApproval: true})
 
-	assert.False(t, p.needsApproval(safe, "off"))
-	assert.False(t, p.needsApproval(sensitive, "off"))
-	assert.False(t, p.needsApproval(safe, "restricted"))
-	assert.True(t, p.needsApproval(sensitive, "restricted"))
-	assert.True(t, p.needsApproval(safe, "always"))
-	assert.True(t, p.needsApproval(sensitive, "always"))
+	assert.False(t, needsApproval(safe, "off"))
+	assert.False(t, needsApproval(sensitive, "off"))
+	assert.False(t, needsApproval(safe, "restricted"))
+	assert.True(t, needsApproval(sensitive, "restricted"))
+	assert.True(t, needsApproval(safe, "always"))
+	assert.True(t, needsApproval(sensitive, "always"))
 }
 
 // TestApprovalModeFor 冻结生效审批模式的来源与优先级（群策略 > 全局 > 默认 off），

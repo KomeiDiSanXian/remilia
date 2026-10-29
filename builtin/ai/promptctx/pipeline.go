@@ -15,6 +15,7 @@
 // context_group_messages > 0 控制（关闭时两条路径都不纳入）。
 //
 // 各节的正文由调用方（装配侧）提供函数，因此本包不读取任何插件状态。
+
 package promptctx
 
 import (

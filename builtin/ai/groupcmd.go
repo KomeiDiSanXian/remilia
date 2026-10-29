@@ -1,4 +1,4 @@
-// Package ai groupcmd.go — /ai group 管理命令实现。
+// groupcmd.go — /ai group 管理命令实现。
 //
 // 管理当前群/全局的 AI 策略（per-group 工具策略与提示词）：
 //
@@ -12,6 +12,7 @@
 //
 // 权限：群级配置要求群管理员（平台群主/管理员 或 RBAC admin/superadmin）；
 // 全局配置要求 superadmin 角色。
+
 package ai
 
 import (
@@ -28,7 +29,7 @@ import (
 
 // handleGroupCommand 处理 /ai group 子命令。
 func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
-	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 	// 剥掉 "group"/"群配置" 前缀
 	for _, prefix := range []string{"group", "群配置"} {
@@ -48,7 +49,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 
 	parts := strings.Fields(content)
 	if len(parts) == 0 {
-		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(triggerCommand(p.cfg)))
 		return nil
 	}
 
@@ -60,7 +61,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 	case "reset", "重置", "clear":
 		return p.handleGroupReset(ctx, parts[1:])
 	default:
-		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(triggerCommand(p.cfg)))
 		return nil
 	}
 }
@@ -82,7 +83,7 @@ func (p *Plugin) handleGroupStatus(ctx *eventctx.Context) error {
 	if prompt == "" {
 		prompt = "（使用全局/默认提示词）"
 	}
-	fmt.Fprintf(&b, "  - **提示词**: %s\n", p.ellipsize(prompt, 60))
+	fmt.Fprintf(&b, "  - **提示词**: %s\n", ellipsize(prompt, 60))
 
 	toolPolicy := "all"
 	if gp.ToolPolicy != nil {
@@ -146,7 +147,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	if len(args) < 2 {
-		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(triggerCommand(p.cfg)))
 		return nil
 	}
 
@@ -231,7 +232,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		policy.ReplyPolicy = mode
 		policy.ReplyChance = chance
 	default:
-		p.replyFormatted(ctx, p.groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(triggerCommand(p.cfg)))
 		return nil
 	}
 
@@ -283,7 +284,7 @@ func (p *Plugin) handleGroupReset(ctx *eventctx.Context, args []string) error {
 
 // handleGroupGlobal 处理 /ai group global <status|reset>（需 superadmin）。
 func (p *Plugin) handleGroupGlobal(ctx *eventctx.Context, rest string) error {
-	if !p.isSuperAdmin(ctx) {
+	if !isSuperAdmin(ctx) {
 		ctx.ReplyText("❌ 全局策略管理需要 superadmin 角色")
 		return nil
 	}
@@ -302,7 +303,7 @@ func (p *Plugin) handleGroupGlobal(ctx *eventctx.Context, rest string) error {
 		var b strings.Builder
 		b.WriteString("📋 **全局 AI 策略**\n\n")
 		if prompt := gp.EffectiveSystemPrompt(); prompt != "" {
-			fmt.Fprintf(&b, "  - **提示词**: %s\n", p.ellipsize(prompt, 60))
+			fmt.Fprintf(&b, "  - **提示词**: %s\n", ellipsize(prompt, 60))
 		}
 		if gp.ToolPolicy != nil {
 			fmt.Fprintf(&b, "  - **工具白名单**: `%s`\n", *gp.ToolPolicy)
@@ -322,7 +323,7 @@ func (p *Plugin) handleGroupGlobal(ctx *eventctx.Context, rest string) error {
 		p.groupPolicies.ResetGroup(globalGroupID)
 		ctx.ReplyText("✅ 已重置全局 AI 策略")
 	default:
-		p.replyFormatted(ctx, "❌ 用法：`"+p.cfg.TriggerCmd+" group global status|reset`")
+		p.replyFormatted(ctx, "❌ 用法：`"+triggerCommand(p.cfg)+" group global status|reset`")
 	}
 	return nil
 }
@@ -362,7 +363,7 @@ func parseGroupReplyArgs(args []string) (*string, *float64, error) {
 var errInvalidReplyArgs = errors.New("❌ reply 取值：all / smart / judge，可带 0~1 概率（如 `reply smart 0.5`）")
 
 // isSuperAdmin 判断调用者是否为 superadmin 角色。
-func (p *Plugin) isSuperAdmin(ctx *eventctx.Context) bool {
+func isSuperAdmin(ctx *eventctx.Context) bool {
 	pm := ctx.GetPermissionManager()
 	if pm == nil {
 		return false
@@ -371,7 +372,7 @@ func (p *Plugin) isSuperAdmin(ctx *eventctx.Context) bool {
 }
 
 // groupCommandHelp 返回 /ai group 帮助文本。
-func (a *adminState) groupCommandHelp(triggerCmd string) string {
+func groupCommandHelp(triggerCmd string) string {
 	if triggerCmd == "" {
 		triggerCmd = "/ai"
 	}
@@ -390,7 +391,7 @@ func (a *adminState) groupCommandHelp(triggerCmd string) string {
 }
 
 // ellipsize 截断长文本用于展示。
-func (a *adminState) ellipsize(s string, max int) string {
+func ellipsize(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
 		return s

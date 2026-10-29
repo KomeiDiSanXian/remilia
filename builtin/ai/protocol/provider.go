@@ -7,6 +7,7 @@
 //   - StreamEvent / StreamEventType：流式事件类型定义
 //
 // 提供商实例的选择与指标包装在装配侧（builtin/ai 的 newProvider）。
+
 package protocol
 
 import (

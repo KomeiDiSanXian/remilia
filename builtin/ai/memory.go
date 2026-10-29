@@ -1,4 +1,4 @@
-// Package ai memory.go — 长期事实记忆（自动抽取，LevelDB 持久化）。
+// memory.go — 长期事实记忆（自动抽取，LevelDB 持久化）。
 //
 // 本文件实现 AI 的跨会话长期记忆：
 //   - memoryFact：单条事实（文本 + 更新时间 + 出现次数）
@@ -11,6 +11,7 @@
 //     打分骨架），作为动态上下文的一节注入，供模型在后续对话中使用
 //
 // 抽取与注入开关见 memory_enabled（默认关闭，隐私考虑）。
+
 package ai
 
 import (
@@ -69,6 +70,15 @@ type memoryStore struct {
 	// 为 nil 或嵌入失败时维持纯关键词打分。
 	emb *retrieval.TextVectorCache
 
+	// unreadable 记录"库里有数据、但读不出来"的 scope。
+	//
+	// 这类 scope 的内存视图是空的，但不能因此把它当成"没有记忆"写回磁盘：
+	// Add 会把整条记录覆盖，把库里那份读不出来的旧数据抹成一条新事实。
+	// session 包对同一问题用 loadFailed 墓碑 + 恢复重试解决（见
+	// session.Session.MarkLoadFailed）；记忆这里成本更低——直接拒绝写入，
+	// 让降级表现为"这次没记住"，而不是"旧记忆被清空"。
+	unreadable map[string]bool
+
 	extractMu   sync.Mutex
 	lastExtract map[string]time.Time // scope → 上次抽取时间（节流）
 	minInterval time.Duration
@@ -86,6 +96,7 @@ func openMemoryStore(dataDir string, maxFacts int, minInterval time.Duration) (*
 		store:       db,
 		path:        dir,
 		scopes:      make(map[string][]memoryFact),
+		unreadable:  make(map[string]bool),
 		maxFacts:    maxFacts,
 		lastExtract: make(map[string]time.Time),
 		minInterval: minInterval,
@@ -178,6 +189,10 @@ func (m *memoryStore) Remove(scope, text string) bool {
 	}
 	m.mu.Lock()
 	facts := m.loadLocked(scope)
+	if !m.writableLocked(scope) {
+		m.mu.Unlock()
+		return false
+	}
 	removed := false
 	for i := range facts {
 		if facts[i].Text == text {
@@ -207,6 +222,10 @@ func (m *memoryStore) Clear(scope string) int {
 	}
 	m.mu.Lock()
 	facts := m.loadLocked(scope)
+	if !m.writableLocked(scope) {
+		m.mu.Unlock()
+		return 0
+	}
 	n := len(facts)
 	m.scopes[scope] = nil
 	m.factGaugeLocked()
@@ -225,6 +244,10 @@ func (m *memoryStore) RemoveWhere(scope string, match func(memoryFact) bool) int
 	}
 	m.mu.Lock()
 	facts := m.loadLocked(scope)
+	if !m.writableLocked(scope) {
+		m.mu.Unlock()
+		return 0
+	}
 	kept := facts[:0]
 	removed := 0
 	for _, f := range facts {
@@ -305,6 +328,11 @@ func (m *memoryStore) Add(scope, text string) {
 
 	m.mu.Lock()
 	facts := m.loadLocked(scope)
+	// 读不出来的 scope 拒绝写入：内存视图是空的，整记录覆盖会抹掉库里的旧数据。
+	if !m.writableLocked(scope) {
+		m.mu.Unlock()
+		return
+	}
 
 	merged := false
 	for i := range facts {
@@ -342,12 +370,29 @@ func (m *memoryStore) loadLocked(scope string) []memoryFact {
 	}
 	var facts []memoryFact
 	if m.store != nil {
-		if bytes, err := m.store.Get([]byte(scope)); err == nil {
-			_ = json.Unmarshal(bytes, &facts)
+		if b, err := m.store.Get([]byte(scope)); err == nil {
+			if uerr := json.Unmarshal(b, &facts); uerr != nil {
+				logger.WithError(uerr).Warn("[AI] memory scope unreadable, writes disabled for it: " + scope)
+				m.markUnreadableLocked(scope)
+				return nil
+			}
 		}
 	}
 	m.scopes[scope] = facts
 	return facts
+}
+
+// markUnreadableLocked 标记 scope 不可写（调用方须持有写锁）。
+func (m *memoryStore) markUnreadableLocked(scope string) {
+	if m.unreadable == nil {
+		m.unreadable = make(map[string]bool)
+	}
+	m.unreadable[scope] = true
+}
+
+// writableLocked 报告该 scope 是否允许写回磁盘（调用方须持有写锁）。
+func (m *memoryStore) writableLocked(scope string) bool {
+	return !m.unreadable[scope]
 }
 
 // evictLocked 淘汰 n 条事实：优先次数少、更新时间旧的。

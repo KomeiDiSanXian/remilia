@@ -11,6 +11,7 @@
 //
 // 调用器对插件的依赖被反转为能力端口：[CommandCatalog] 与 [SkillRunner] 各自
 // 只有一个最小方法，插件实例只出现在装配点的适配器里。
+
 package runtime
 
 import (
@@ -173,20 +174,22 @@ func (i CommandInvoker) Invoke(context.Context) ActionResult {
 //
 // 取消/超时归为"执行超时"，与既有文案逐字一致；其余保留原始错误说明。
 func ToolFailureText(name string, err error) string {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Sprintf("错误: 工具 %q 执行超时", name)
-	}
-	return fmt.Sprintf("错误: 工具 %q 执行失败: %v", name, err)
+	return failureText("工具", name, err)
 }
 
 // CommandFailureText 把命令通道的失败格式化为模型可见的失败文本。
 //
 // 与 [ToolFailureText] 同构，只把主体从"工具"换成"命令"，便于区分失败来源。
 func CommandFailureText(name string, err error) string {
+	return failureText("命令", name, err)
+}
+
+// failureText 是两种失败文案的唯一实现：调用方只提供主体名词。
+func failureText(subject, name string, err error) string {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Sprintf("错误: 命令 %q 执行超时", name)
+		return fmt.Sprintf("错误: %s %q 执行超时", subject, name)
 	}
-	return fmt.Sprintf("错误: 命令 %q 执行失败: %v", name, err)
+	return fmt.Sprintf("错误: %s %q 执行失败: %v", subject, name, err)
 }
 
 // 三种执行语义共用一个契约：调用方可以统一编排、观测与失败处理。

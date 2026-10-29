@@ -49,7 +49,7 @@ func BenchmarkSelectToolsForTurn(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					benchmarkSelectedToolsSink = SelectToolsForTurn(opts, nil, nil, sess, query, actions, nil)
+					benchmarkSelectedToolsSink = SelectToolsForTurn(opts, SelectInput{Session: sess, Query: query, Actions: actions}, nil, nil)
 				}
 			})
 			continue
@@ -64,7 +64,7 @@ func BenchmarkSelectToolsForTurn(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				current.CatalogGeneration = generation
-				benchmarkSelectedToolsSink = SelectToolsForTurn(current, nil, nil, sess, query, actions, nil)
+				benchmarkSelectedToolsSink = SelectToolsForTurn(current, SelectInput{Session: sess, Query: query, Actions: actions}, nil, nil)
 				generation++
 			}
 		})
@@ -73,11 +73,11 @@ func BenchmarkSelectToolsForTurn(b *testing.B) {
 			sess := benchmarkDecisionSession(20)
 			current := opts
 			current.CatalogGeneration = 1
-			benchmarkSelectedToolsSink = SelectToolsForTurn(current, nil, nil, sess, query, actions, nil)
+			benchmarkSelectedToolsSink = SelectToolsForTurn(current, SelectInput{Session: sess, Query: query, Actions: actions}, nil, nil)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				benchmarkSelectedToolsSink = SelectToolsForTurn(current, nil, nil, sess, query, actions, nil)
+				benchmarkSelectedToolsSink = SelectToolsForTurn(current, SelectInput{Session: sess, Query: query, Actions: actions}, nil, nil)
 			}
 		})
 	}

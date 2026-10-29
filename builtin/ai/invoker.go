@@ -1,10 +1,11 @@
-// Package ai invoker.go — 调用器与插件装配之间的适配器。
+// invoker.go — 调用器与插件装配之间的适配器。
 //
 // 动作调用器本身（FuncInvoker / SkillInvoker / CommandInvoker）、结果类型
 // [runtime.ActionResult] 与两个消费方端口（[runtime.CommandCatalog] /
 // [runtime.SkillRunner]）见 builtin/ai/runtime。本文件只保留把插件侧能力适配为
 // 端口的适配器：命令目录与平台事件处理器留在插件侧，执行入口将解析出的命令
 // 模式绑定到本次调用；Skill 适配器交出子代理循环。
+
 package ai
 
 import (

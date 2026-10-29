@@ -1,4 +1,5 @@
 // record.go — 会话的持久化记录（GORM schema）与双向转换。
+
 package session
 
 import (

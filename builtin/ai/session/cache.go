@@ -6,6 +6,7 @@
 // 本文件只保存槽位数据与访问器；缓存的复用策略（TTL / 相似度门槛）属于
 // 消费方领域，定义在 builtin/ai/retrieval（见 CacheReuseTTL / CacheReuseJaccard），
 // 会话层不反向依赖动作/工具类型。
+
 package session
 
 import (

@@ -1,4 +1,5 @@
 // fileaccess.go — 工作区管理器到 catalog.FileAccess 端口的适配。
+
 package ai
 
 import (

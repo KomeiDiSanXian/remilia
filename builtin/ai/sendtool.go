@@ -1,4 +1,4 @@
-// Package ai sendtool.go — 消息发送动作的发送器（ToolSender 实现）。
+// sendtool.go — 消息发送动作的发送器（ToolSender 实现）。
 //
 // send_message / send_to 两个动作本身在 builtin/ai/catalog（动作目录层），
 // 本文件只实现它们依赖的 ToolSender：把动作的发送请求路由到事件上下文
@@ -17,6 +17,7 @@
 //     嵌套 Skill 调用继承同一 context，无法绕过审批
 //   - 每次对话处理（一轮运行）内发送次数受 sendBudget 约束
 //     （原子计数，并行执行安全）
+
 package ai
 
 import (
@@ -27,6 +28,7 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -163,27 +165,12 @@ func resolveTarget(ctx context.Context, s *loopToolSender, raw string, isGroupHi
 
 	// 4. 原始 ID 兜底：仅接受 ASCII 标识符（数字/字母/_-），
 	// 避免把中文昵称等未命中目标静默当作 ID 使用。
-	if isPlainID(raw) {
+	if textutil.IsPlainID(raw) {
 		return toolkit.ChatTarget{ID: raw, IsGroup: isGroupHint}, raw, nil
 	}
 
 	return toolkit.ChatTarget{}, "", fmt.Errorf(
 		"无法解析目标 %q：可用目标为本群/我/对方、本会话内近期发言者的昵称、已加入群的群名，或用户/群原始 ID", raw)
-}
-
-// isPlainID 判断字符串是否可作为原始目标 ID（ASCII 标识符，不含空白）。
-func isPlainID(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	for _, r := range raw {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // specialTarget 处理内置别名（本群/我/对方）。

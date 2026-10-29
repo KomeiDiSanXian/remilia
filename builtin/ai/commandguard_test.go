@@ -28,10 +28,9 @@ func newGuardTestPlugin(t *testing.T, trigger string) (*Plugin, *atomic.Int32) {
 			TriggerCmd: trigger, MaxDepth: 2, APITimeout: 5 * time.Second,
 			ToolTimeout: 3 * time.Second, MaxHistory: 20,
 		},
-		sm:         session.NewSessionManager(100, 20, time.Hour, nil),
-		reg:        toolkit.NewToolRegistry(),
-		skillReg:   toolkit.NewSkillRegistry(),
-		triggerCmd: trigger,
+		sm:       session.NewSessionManager(100, 20, time.Hour, nil),
+		reg:      toolkit.NewToolRegistry(),
+		skillReg: toolkit.NewSkillRegistry(),
 		prov: &mockProvider{chatStreamFn: func(context.Context, *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
 			calls.Add(1)
 			ch := make(chan protocol.StreamEvent, 2)
@@ -149,8 +148,8 @@ func TestHasTriggerPrefix(t *testing.T) {
 		{"帮助", "帮助 我一下", true},
 		{"帮助", "需要帮助 吗", false},
 	} {
-		p := &Plugin{triggerCmd: tt.trigger}
-		if got := runtime.HasTriggerPrefix(tt.content, p.triggerCmd); got != tt.want {
+		p := &Plugin{cfg: &config.Config{TriggerCmd: tt.trigger}}
+		if got := runtime.HasTriggerPrefix(tt.content, p.triggerPrefix()); got != tt.want {
 			t.Errorf("hasTriggerPrefix(%q) 触发词=%q = %v, 期望 %v",
 				tt.content, tt.trigger, got, tt.want)
 		}

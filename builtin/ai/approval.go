@@ -6,6 +6,7 @@
 // 以及按钮回调与 /ai approve|deny 文本命令两个入口。
 //
 // 审批模式与交互双通道的完整说明见 execution/approval.go。
+
 package ai
 
 import (
@@ -69,10 +70,7 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Con
 	p.approvals.Register(req)
 	id := req.ID
 
-	triggerCmd := p.cfg.TriggerCmd
-	if triggerCmd == "" {
-		triggerCmd = "/ai"
-	}
+	triggerCmd := triggerCommand(p.cfg)
 	// 发送审批请求消息（含按钮，尽力而为；发送失败不影响文本兜底）
 	msg := platform.OutboundMessage{
 		Text: fmt.Sprintf("🔐 **工具执行审批**\n\nAI 请求执行工具 `%s`%s\n\n回复 `%s approve %s` 允许，或 `%s deny %s` 拒绝（%s 内有效）",
@@ -125,7 +123,7 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, interruptCtx context.Con
 // 从消息内容中提取审批 ID（命令路径：子命令名后的第一个词；
 // 自然语言路径：如 "批准 A1"）。校验响应者是发起者后写入审批结果。
 func (p *Plugin) handleApprovalCommand(ctx *eventctx.Context, approve bool) error {
-	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerCmd)
+	content := runtime.CleanMessage(ctx.GetMessageContent(), p.triggerPrefix())
 	content = strings.TrimSpace(strings.TrimLeft(content, "@"))
 
 	// 提取审批 ID：优先匹配 "approve <ID>"/"批准 <ID>" 模式，
@@ -142,7 +140,7 @@ func (p *Plugin) handleApprovalCommand(ctx *eventctx.Context, approve bool) erro
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		p.replyFormatted(ctx, "❌ 请指定审批 ID，用法：`"+p.cfg.TriggerCmd+" approve <ID>` 或 `"+p.cfg.TriggerCmd+" deny <ID>`（ID 见审批请求消息）")
+		p.replyFormatted(ctx, "❌ 请指定审批 ID，用法：`"+triggerCommand(p.cfg)+" approve <ID>` 或 `"+triggerCommand(p.cfg)+" deny <ID>`（ID 见审批请求消息）")
 		return nil
 	}
 

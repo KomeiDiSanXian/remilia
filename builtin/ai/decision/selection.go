@@ -78,13 +78,29 @@ type scoredTool struct {
 }
 
 // SelectPathObserver 观测工具选择路径（bypass=未超阈值或无查询，retrieval=本地检索）。
-// 由装配侧注入，decision 不依赖指标库。
-var SelectPathObserver func(path string)
+//
+// 与 ToolSetObserver 一样由装配侧注入，decision 不引入可观测性依赖；为 nil 时
+// 只做选择、不上报。挂在 [SelectionOptions] 上而不是包级变量：后者需要包级
+// 可变状态与 init 接线，会让"谁注册了观察者"无法靠 grep 定位，也让测试互相污染。
+type SelectPathObserver func(path string)
 
-func observeSelectPath(path string) {
-	if SelectPathObserver != nil {
-		SelectPathObserver(path)
-	}
+// SelectInput 一次工具选择调用期的输入（策略参数见 [SelectionOptions]）。
+//
+// 这四项是同一件事的四个侧面：谁在问（sess 提供已用工具与选择缓存）、
+// 问的是什么（query）、从哪些候选里挑（actions）、以及 embedding 要不要参与
+// （emb）。把它们收成一个结构体，是因为"传四个位置相邻、类型各异、顺序还得记"
+// 正是长签名的来源——尤其 Actions 与 Query 顺序写反时编译器不会报错。
+type SelectInput struct {
+	// Context 事件上下文（仅用于取标准 context 做 embedding 请求）。
+	Context *eventctx.Context
+	// Session 会话（提供已用工具、选择缓存与稳定集合状态）。
+	Session *session.Session
+	// Query 本轮检索用的用户消息文本（历史检索与记忆检索复用同一份）。
+	Query string
+	// Actions 候选动作（群策略与 RBAC 已在装配侧过滤）。
+	Actions []toolkit.Action
+	// Embedder 文本向量缓存；nil 或未启用时退化为纯关键词打分。
+	Embedder *retrieval.TextVectorCache
 }
 
 // SelectToolsForTurn 从可用工具中选择本轮发送给 LLM 的子集。
@@ -99,11 +115,18 @@ func observeSelectPath(path string) {
 //  6. 会话级稳定策略：在候选之上叠加滞回与单调并集，抑制工具集抖动
 //     （见 stabilize.go；tool_set_sticky=false 时跳过）。
 //
-// query 为本轮检索用的用户消息文本，由调用方给定（历史检索与记忆检索复用同一份查询）。
-// observe 为工具集观测端口，可为 nil（观测依赖由装配侧注入）。
-func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, ctx *eventctx.Context,
-	sess *session.Session, query string, actions []toolkit.Action, observe ToolSetObserver) []toolkit.Action {
+// 两个观测端口都可为 nil（观测依赖由装配侧注入）：
+//   - observePath 观测选择路径（bypass / retrieval）；
+//   - observe 观测工具集决策结果（见 [ToolSetObserver]）。
+func SelectToolsForTurn(opts SelectionOptions, in SelectInput,
+	observePath SelectPathObserver, observe ToolSetObserver) []toolkit.Action {
+	emb, ctx, sess, query, actions := in.Embedder, in.Context, in.Session, in.Query, in.Actions
 	max := opts.maxTools()
+	reportPath := func(path string) {
+		if observePath != nil {
+			observePath(path)
+		}
+	}
 	// 短路口径（有意为之，不是遗漏稳定策略）：
 	//   - 工具数 ≤ 上限且未启用 embedding：全部发送即"最稳定"的集合，
 	//     没有可裁剪项，稳定策略无事可做，也无需写会话状态；
@@ -111,15 +134,15 @@ func SelectToolsForTurn(opts SelectionOptions, emb *retrieval.TextVectorCache, c
 	// 两条短路口径都不经过 StabilizeToolSet，因此不会触发工具集观测回调；
 	// 需要观测数据的部署应保证工具数超过上限或启用 embedding。
 	if len(actions) <= max && (emb == nil || !emb.Enabled()) {
-		observeSelectPath("bypass")
+		reportPath("bypass")
 		return actions
 	}
 
 	if query == "" {
-		observeSelectPath("bypass")
+		reportPath("bypass")
 		return actions
 	}
-	observeSelectPath("retrieval")
+	reportPath("retrieval")
 	queryTokens := retrieval.TokenizeText(query)
 
 	// 复用条件：目录内容版本一致且可见动作数一致（每轮过滤结果未变）。

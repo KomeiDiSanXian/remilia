@@ -1,8 +1,9 @@
-// Package ai todo.go — 会话级待办管理器。
+// todo.go — 会话级待办管理器。
 //
 // 按会话（群/私聊）隔离，进程内存储（与定时提醒一致，重启后失效）。
 // 动作侧（todo_* 工具与 /ai todo 子命令）经 catalog.TodoAccess 端口使用它，
 // 适配见 capability.go；因此本文件只有状态与并发控制，不含动作参数解析。
+
 package ai
 
 import (

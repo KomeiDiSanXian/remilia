@@ -1,4 +1,4 @@
-// Package ai evidence.go — 进程执行证据与计划完成闸门。
+// evidence.go — 进程执行证据与计划完成闸门。
 //
 // 文档要求"任务完成不能仅依赖模型自行宣称成功"。可执行的确定性证据由
 // process_run 提供：命令、退出码与时间。本文件记录每个会话最近一次进程执行
@@ -8,11 +8,11 @@
 //
 // 证据是会话级、进程内状态：重启后重置（重启恢复本身会把任务置为 interrupted，
 // 不会绕过闸门），也不随会话记录落库。
+
 package ai
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
@@ -32,7 +32,7 @@ type execEvidence struct {
 
 // recordExecEvidence 记录会话最近一次进程执行结果。
 func (p *Plugin) recordExecEvidence(ctx *eventctx.Context, result catalog.ExecResult) {
-	if p == nil || ctx == nil {
+	if ctx == nil {
 		return
 	}
 	sessionID := runtime.MakeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)
@@ -42,7 +42,7 @@ func (p *Plugin) recordExecEvidence(ctx *eventctx.Context, result catalog.ExecRe
 		p.execEvidence = make(map[string]execEvidence)
 	}
 	p.execEvidence[sessionID] = execEvidence{
-		Command:  evidenceCommandLine(result.Command, result.Args),
+		Command:  runtime.CommandLine(result.Command, result.Args),
 		ExitCode: result.ExitCode,
 		At:       time.Now(),
 	}
@@ -50,9 +50,6 @@ func (p *Plugin) recordExecEvidence(ctx *eventctx.Context, result catalog.ExecRe
 
 // lastExecEvidence 返回会话最近一次进程执行证据。
 func (p *Plugin) lastExecEvidence(sessionID string) (execEvidence, bool) {
-	if p == nil {
-		return execEvidence{}, false
-	}
 	p.evidenceMu.Lock()
 	defer p.evidenceMu.Unlock()
 	evidence, ok := p.execEvidence[sessionID]
@@ -62,9 +59,6 @@ func (p *Plugin) lastExecEvidence(sessionID string) (execEvidence, bool) {
 // clearExecEvidence 清除会话的执行证据（新计划开始时调用，避免旧任务的失败
 // 结果阻塞新任务完成）。
 func (p *Plugin) clearExecEvidence(sessionID string) {
-	if p == nil {
-		return
-	}
 	p.evidenceMu.Lock()
 	defer p.evidenceMu.Unlock()
 	delete(p.execEvidence, sessionID)
@@ -89,16 +83,8 @@ func (r evidenceRunner) Run(ctx context.Context, req catalog.ExecRequest) (catal
 
 // evidenceRecordingRunner 在进程执行端口外层加证据记录；inner 为空时返回 nil。
 func (p *Plugin) evidenceRecordingRunner(ctx *eventctx.Context, inner catalog.ProcessRunner) catalog.ProcessRunner {
-	if p == nil || inner == nil || ctx == nil {
+	if inner == nil || ctx == nil {
 		return nil
 	}
 	return evidenceRunner{p: p, ctx: ctx, inner: inner}
-}
-
-// evidenceCommandLine 拼接命令展示行（只用于证据与拒绝文案）。
-func evidenceCommandLine(command string, args []string) string {
-	if len(args) == 0 {
-		return command
-	}
-	return command + " " + strings.Join(args, " ")
 }

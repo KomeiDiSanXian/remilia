@@ -1,8 +1,9 @@
-// Package ai verify.go — 答案校验（LLM-as-judge）的装配门面。
+// verify.go — 答案校验（LLM-as-judge）的装配门面。
 //
 // 评审提示词、鲁棒解析、重试上限与单次评审调用见 builtin/ai/runtime；
 // 本文件只交出插件持有的配置、提供商与会话写入，并保留回合编排：
 // 生成失败/中断时的降级、重试计数与"追加修正指令后重新生成"的循环。
+
 package ai
 
 import (
@@ -42,14 +43,14 @@ func (p *Plugin) effectiveVerifyTimeout() time.Duration {
 //   - 校验通过 → 返回；不通过且未达 verify_max_retries → 追加"修正指令"
 //     用户消息后重新生成；达到上限仍不通过 → 返回最后一份回答（不无限重试）
 //   - 校验器自身报错时不重试、直接返回原回答
-func (p *Plugin) generateVerified(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
+func (p *Plugin) generateVerified(ctx *eventctx.Context, sess *session.Session) (*chatResult, error) {
 	start := time.Now()
-	callsBefore, toolsBefore := session.Counts()
+	callsBefore, toolsBefore := sess.Counts()
 
-	result, err := p.generateVerifiedInner(ctx, session)
+	result, err := p.generateVerifiedInner(ctx, sess)
 
-	calls, tools := session.Counts()
-	recordTurn(turnResult(result, err, session.Interrupted()), time.Since(start), calls-callsBefore, tools-toolsBefore)
+	calls, tools := sess.Counts()
+	recordTurn(turnResult(result, err, sess.Interrupted()), time.Since(start), calls-callsBefore, tools-toolsBefore)
 	return result, err
 }
 
@@ -69,18 +70,18 @@ func turnResult(result *chatResult, err error, interrupted bool) string {
 }
 
 // generateVerifiedInner 是 generateVerified 的主体（不含回合指标）。
-func (p *Plugin) generateVerifiedInner(ctx *eventctx.Context, session *session.Session) (*chatResult, error) {
-	originalQuery := runtime.LastUserMessage(session)
+func (p *Plugin) generateVerifiedInner(ctx *eventctx.Context, sess *session.Session) (*chatResult, error) {
+	originalQuery := runtime.LastUserMessage(sess)
 	verifier := p.verifier()
 
 	for attempt := 0; ; attempt++ {
-		result, err := p.processWithTools(ctx, session)
+		result, err := p.processWithTools(ctx, sess)
 		if err != nil {
 			return result, err
 		}
 		// 主动停止/抢占：生成被 /ai stop 或用户新消息打断，直接返回已到手
 		// 的部分结果，不再送入校验器（避免额外 LLM 调用与二次生成）。
-		if session.Interrupted() {
+		if sess.Interrupted() {
 			return result, nil
 		}
 		if !p.cfg.VerifyEnabled || result == nil || result.Text == "" {
@@ -113,7 +114,7 @@ func (p *Plugin) generateVerifiedInner(ctx *eventctx.Context, session *session.S
 		// 修正指令与反思/重规划指令同回合处理：NoPersist 追加，
 		// 由 processWithTools 的 defer SaveSession 统一落库。每条各写一次库
 		// 是写放大，且会让指令永久占据历史窗口。
-		p.sm.AppendMessageNoPersist(session, protocol.Message{
+		p.sm.AppendMessageNoPersist(sess, protocol.Message{
 			Role:     protocol.RoleUser,
 			Internal: true,
 			Content:  runtime.BuildVerifyRetryMessage(v.Reason),

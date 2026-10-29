@@ -1,4 +1,4 @@
-// Package ai provider_openai.go — OpenAI 兼容 API 的 Provider 实现。
+// provider_openai.go — OpenAI 兼容 API 的 Provider 实现。
 //
 // 本文件实现 Provider 接口，兼容 /v1/chat/completions 格式的所有 API：
 //   - OpenAI 官方 API（GPT-4o, GPT-4o-mini 等）
@@ -9,22 +9,20 @@
 //
 // 支持流式（SSE）和非流式两种调用方式。
 // 流式实现处理 OpenAI 格式的工具调用 delta 分片合并（mergeOrAppendToolCall）。
+
 package protocol
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -67,16 +65,7 @@ func NewOpenAIProvider(opts ProviderOptions) (Provider, error) {
 		apiTimeout:   opts.APITimeout,
 		maxRetries:   opts.MaxRetries,
 		includeUsage: opts.IncludeUsage,
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				MaxIdleConns:          100,
-				MaxIdleConnsPerHost:   10,
-				IdleConnTimeout:       90 * time.Second,
-			},
-		},
+		httpClient:   newHTTPClient(),
 	}, nil
 }
 
@@ -158,14 +147,6 @@ func (c *openaiMessageContent) String() string {
 		}
 	}
 	return b.String()
-}
-
-func newOpenAITextContent(text string) *openaiMessageContent {
-	return &openaiMessageContent{text: text}
-}
-
-func newOpenAIMultiContent(parts []openaiContentPart) *openaiMessageContent {
-	return &openaiMessageContent{parts: parts}
 }
 
 type openaiChatMessage struct {
@@ -256,9 +237,9 @@ func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 			Role: string(m.Role),
 		}
 		if len(m.ContentParts) > 0 {
-			ocm.Content = newOpenAIMultiContent(buildOpenAIContentParts(m.ContentParts))
+			ocm.Content = &openaiMessageContent{parts: buildOpenAIContentParts(m.ContentParts)}
 		} else if m.Content != "" {
-			ocm.Content = newOpenAITextContent(m.Content)
+			ocm.Content = &openaiMessageContent{text: m.Content}
 		}
 		if m.Role == RoleTool {
 			if m.ToolCallID == "" {
@@ -508,180 +489,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		return nil, err
 	}
 
-	go func() {
-		defer resp.Body.Close()
-		defer close(ch)
-
-		sendEvent := func(ev StreamEvent) bool {
-			select {
-			case ch <- ev:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-			sendEvent(StreamEvent{Type: StreamEventError, Err: &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}})
-			return
-		}
-
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
-
-		var pendingToolCalls []OpenAIToolCall
-		var usage *TokenUsage
-		var finishReason string
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			// SSE 规范允许 "data: payload"（带空格）与 "data:payload"（冒号
-			// 后无空格）两种写法；只认前者会整流丢弃个别自建网关的输出。
-			data, ok := strings.CutPrefix(line, "data: ")
-			if !ok {
-				rest, noSpaceOK := strings.CutPrefix(line, "data:")
-				if !noSpaceOK {
-					continue
-				}
-				data = rest
-			}
-			data = strings.TrimSpace(data)
-			if data == "" {
-				continue
-			}
-			if data == "[DONE]" {
-				if len(pendingToolCalls) > 0 {
-					tcs, err := ParseOpenAIToolCalls(pendingToolCalls)
-					if err != nil {
-						sendEvent(StreamEvent{Type: StreamEventError, Err: err})
-						return
-					}
-					for _, tc := range tcs {
-						tcCopy := tc
-						if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}) {
-							return
-						}
-					}
-				}
-				sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage, FinishReason: finishReason})
-				return
-			}
-
-			var streamResp struct {
-				Choices []struct {
-					Delta struct {
-						Role    string               `json:"role"`
-						Content openaiMessageContent `json:"content"`
-						// ReasoningContent 思考型模型（DeepSeek 等）的推理内容
-						// 片段，与 content 分通道流式输出：max_tokens 被推理
-						// 耗尽时只有它非空、content 始终为空。编排层只做计数
-						// 与日志，不把推理内容写进回复正文。
-						ReasoningContent string `json:"reasoning_content"`
-						// Images 部分兼容网关（如 OpenRouter）在 delta.images
-						// 字段携带模型输出的图片（content 数组之外的补充通道）。
-						Images    []openaiContentPart `json:"images"`
-						ToolCalls []OpenAIToolCall    `json:"tool_calls"`
-					} `json:"delta"`
-					FinishReason string `json:"finish_reason"`
-				} `json:"choices"`
-				Usage *openaiUsageBody `json:"usage"`
-				// Error 兼容网关（含 OpenAI 官方）在流内以错误对象收尾的场景：
-				// 这类响应 HTTP 状态仍是 200，若不显式识别会被忽略成一次
-				// "正常但没有正文"的空回复。
-				Error *struct {
-					Message string `json:"message"`
-					Type    string `json:"type"`
-					Code    any    `json:"code"`
-				} `json:"error"`
-			}
-
-			if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
-				// 静默 continue 会把"兼容网关吐出的非 JSON 片段"（如错误页
-				// 片段混入流）变成不可查的黑洞，至少留下一行日志。
-				logger.Debugf("[AI] skip non-JSON stream line: %v", err)
-				continue
-			}
-
-			if streamResp.Error != nil {
-				msg := streamResp.Error.Message
-				if msg == "" {
-					msg = streamResp.Error.Type
-				}
-				sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: api stream error: %s", msg)})
-				return
-			}
-
-			// usage 块（include_usage 开启时在 [DONE] 前到达，choices 为空）
-			if streamResp.Usage != nil {
-				usage = &TokenUsage{
-					PromptTokens:     streamResp.Usage.PromptTokens,
-					CompletionTokens: streamResp.Usage.CompletionTokens,
-					CachedTokens:     streamResp.Usage.cachedPromptTokens(),
-					ReasoningTokens:  streamResp.Usage.reasoningTokens(),
-				}
-			}
-
-			if len(streamResp.Choices) == 0 {
-				continue
-			}
-
-			delta := streamResp.Choices[0].Delta
-			if fr := streamResp.Choices[0].FinishReason; fr != "" {
-				finishReason = fr
-			}
-
-			if rc := delta.ReasoningContent; rc != "" {
-				if !sendEvent(StreamEvent{Type: StreamEventReasoning, Content: rc}) {
-					return
-				}
-			}
-
-			if txt := delta.Content.String(); txt != "" {
-				if !sendEvent(StreamEvent{Type: StreamEventText, Content: txt}) {
-					return
-				}
-			}
-
-			// 模型直接输出的图片（原生图像输出/多模态响应）作为附件事件发出，
-			// 由编排层收集后随最终回复发送给用户。
-			for _, att := range openaiOutputImageAttachments(&delta.Content, delta.Images) {
-				if !sendEvent(StreamEvent{Type: StreamEventAttachment, Attachment: &att}) {
-					return
-				}
-			}
-
-			for _, tc := range delta.ToolCalls {
-				if tc.Function.Name == "" && tc.ID == "" && tc.Function.Arguments == "" {
-					continue
-				}
-				mergeOrAppendToolCall(&pendingToolCalls, tc)
-			}
-
-			if streamResp.Choices[0].FinishReason == "tool_calls" {
-				tcs, err := ParseOpenAIToolCalls(pendingToolCalls)
-				if err != nil {
-					sendEvent(StreamEvent{Type: StreamEventError, Err: err})
-					return
-				}
-				for _, tc := range tcs {
-					tcCopy := tc
-					if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}) {
-						return
-					}
-				}
-				pendingToolCalls = nil
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: stream read: %w", err)})
-			return
-		}
-
-		sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage, FinishReason: finishReason})
-	}()
+	go pumpSSE(ctx, resp, ch, newOpenAIStreamDecoder())
 
 	return ch, nil
 }

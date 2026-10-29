@@ -1,4 +1,4 @@
-// Package ai message.go — 出站回复面。
+// message.go — 出站回复面。
 //
 // 本文件只保留与插件上下文耦合的出站回复：
 //   - replyAndRecord：确保出站消息被 messagelog 的出站观察者记录，
@@ -7,6 +7,7 @@
 //
 // 入站消息归一化（合并转发识别/触发/图片提取、附件判定、命令样式识别）已归位
 // 到 builtin/ai/runtime；回复上下文与群聊消息窗口的构建在 builtin/ai/promptctx。
+
 package ai
 
 import (

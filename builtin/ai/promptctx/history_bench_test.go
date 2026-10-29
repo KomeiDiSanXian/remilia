@@ -38,7 +38,7 @@ func BenchmarkFormatRAGHits(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				benchmarkRAGContextSink = formatRAGHits(nil, nil, ContextOptions{}, nil, entries, query, 8)
+				benchmarkRAGContextSink = formatRAGHits(RAGEnv{}, entries, query, 8)
 			}
 		})
 	}

@@ -4,6 +4,7 @@
 //   - storage 插件可用时使用 GORM 存储，任务随进程重启保留；
 //   - storage 不可用时退回内存存储，任务仍可在本进程内查询；
 //   - DryRun 装配使用空实现，不触碰任何存储。
+
 package task
 
 import (

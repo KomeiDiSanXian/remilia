@@ -1,4 +1,4 @@
-// Package ai capability.go — 内置动作能力的组合根。
+// capability.go — 内置动作能力的组合根。
 //
 // 动作侧（builtin/ai/catalog）声明它需要的最小能力端口，插件内部的具体管理器
 // 在这里、也只在装配点被适配成端口：未启用的能力保持为 nil 端口
@@ -6,6 +6,7 @@
 // 动作据此走原有降级分支。
 //
 // 适配器只转发到同一份底层管理器，端口不复制状态、不含策略。
+
 package ai
 
 import (
@@ -22,9 +23,6 @@ import (
 // 而不是拿到一个无法推送的端口。
 func (p *Plugin) toolCapabilities(sender platform.Sender) catalog.Capabilities {
 	var caps catalog.Capabilities
-	if p == nil {
-		return caps
-	}
 	if p.memory != nil {
 		caps.Memory = memoryAccessor{m: p.memory}
 	}

@@ -1,4 +1,4 @@
-// Package ai provider_anthropic.go — Anthropic Messages API 的 Provider 实现。
+// provider_anthropic.go — Anthropic Messages API 的 Provider 实现。
 //
 // 本文件实现 Provider 接口，兼容 Anthropic Messages API：
 //   - Claude Sonnet 4 (claude-sonnet-4-20250514)
@@ -12,22 +12,20 @@
 //   - 工具调用通过 tool_use content block 表示
 //   - 流式事件类型不同（content_block_start / content_block_delta / content_block_stop）
 //   - tool_result 通过 content block 回填（非独立 tool 角色消息）
+
 package protocol
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -65,16 +63,7 @@ func NewAnthropicProvider(opts ProviderOptions) (Provider, error) {
 		maxTokens:  opts.MaxTokens,
 		apiTimeout: opts.APITimeout,
 		maxRetries: opts.MaxRetries,
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				MaxIdleConns:          100,
-				MaxIdleConnsPerHost:   10,
-				IdleConnTimeout:       90 * time.Second,
-			},
-		},
+		httpClient: newHTTPClient(),
 	}, nil
 }
 
@@ -419,207 +408,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		return nil, err
 	}
 
-	go func() {
-		defer resp.Body.Close()
-		defer close(ch)
-
-		sendEvent := func(ev StreamEvent) bool {
-			select {
-			case ch <- ev:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-			sendEvent(StreamEvent{Type: StreamEventError, Err: &APIError{StatusCode: resp.StatusCode, Body: string(errBody)}})
-			return
-		}
-
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
-
-		// anthropicStreamToolUse 累积单个 tool_use content block 的流式数据。
-		// Anthropic 支持并行工具调用：每个 tool_use block 有自己的 index，
-		// 因此按 index 独立累积，互不覆盖。
-		type anthropicStreamToolUse struct {
-			id    string
-			name  string
-			input string
-		}
-		pendingTools := make(map[int]*anthropicStreamToolUse)
-
-		var promptTokens, completionTokens, cacheReadTokens int
-		var stopReason string
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			if strings.HasPrefix(line, "event: ") {
-				continue
-			}
-			// SSE 规范允许冒号后无空格的写法；只认 "data: " 会丢弃个别
-			// 自建网关的输出（与 OpenAI 适配器同一约定）。
-			data, ok := strings.CutPrefix(line, "data: ")
-			if !ok {
-				rest, noSpaceOK := strings.CutPrefix(line, "data:")
-				if !noSpaceOK {
-					continue
-				}
-				data = rest
-			}
-			data = strings.TrimSpace(data)
-			if data == "" {
-				continue
-			}
-
-			var streamEvent struct {
-				Type  string `json:"type"`
-				Index int    `json:"index"`
-				Delta *struct {
-					Type        string `json:"type"`
-					Text        string `json:"text"`
-					PartialJSON string `json:"partial_json"`
-					StopReason  string `json:"stop_reason"`
-					// Thinking 思考型模型的思考内容流片段（thinking_delta）。
-					// 与 OpenAI 侧对 DeepSeek reasoning_content 的处理对偶：
-					// 只发推理事件供计数与日志，不进入回复正文。
-					Thinking string `json:"thinking"`
-				} `json:"delta,omitempty"`
-				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
-				Usage        *anthropicUsageBody `json:"usage,omitempty"`
-				ContentBlock *struct {
-					Type   string           `json:"type"`
-					ID     string           `json:"id"`
-					Name   string           `json:"name"`
-					Input  any              `json:"input"`
-					Source *anthropicImgSrc `json:"source,omitempty"` // type=image 时的图片数据
-				} `json:"content_block,omitempty"`
-				Message *struct {
-					StopReason string `json:"stop_reason"`
-					// message_start 携带输入 token 用量
-					Usage *anthropicUsageBody `json:"usage,omitempty"`
-				} `json:"message,omitempty"`
-				Error *struct {
-					Type    string `json:"type"`
-					Message string `json:"message"`
-				} `json:"error,omitempty"`
-			}
-
-			if err := json.Unmarshal([]byte(data), &streamEvent); err != nil {
-				logger.Debugf("[AI] skip non-JSON anthropic stream line: %v", err)
-				continue
-			}
-
-			switch streamEvent.Type {
-			case "message_start":
-				// 输入 token 用量在 message_start 的 message.usage 中
-				if streamEvent.Message != nil && streamEvent.Message.Usage != nil {
-					promptTokens = streamEvent.Message.Usage.totalInputTokens()
-					cacheReadTokens = streamEvent.Message.Usage.CacheReadInputTokens
-				}
-
-			case "content_block_start":
-				if streamEvent.ContentBlock == nil {
-					continue
-				}
-				switch streamEvent.ContentBlock.Type {
-				case "tool_use":
-					pendingTools[streamEvent.Index] = &anthropicStreamToolUse{
-						id:   streamEvent.ContentBlock.ID,
-						name: streamEvent.ContentBlock.Name,
-					}
-				case "image":
-					// 原生图像输出：image block 在 content_block_start 一次性携带
-					// 完整 base64 数据，转为附件事件交给编排层收集。
-					if att, ok := attachmentFromAnthropicImage(streamEvent.ContentBlock.Source); ok {
-						if !sendEvent(StreamEvent{Type: StreamEventAttachment, Attachment: &att}) {
-							return
-						}
-					}
-				}
-
-			case "content_block_delta":
-				if streamEvent.Delta != nil {
-					switch streamEvent.Delta.Type {
-					case "text_delta":
-						if streamEvent.Delta.Text != "" {
-							if !sendEvent(StreamEvent{Type: StreamEventText, Content: streamEvent.Delta.Text}) {
-								return
-							}
-						}
-					case "input_json_delta":
-						if tool, ok := pendingTools[streamEvent.Index]; ok {
-							tool.input += streamEvent.Delta.PartialJSON
-						}
-					case "thinking_delta":
-						// 思考内容只走事件通道：编排层据此识别"推理耗尽预算、
-						// 正文为空"的截断，避免空回复只能报泛化错误。
-						if streamEvent.Delta.Thinking != "" {
-							if !sendEvent(StreamEvent{Type: StreamEventReasoning, Content: streamEvent.Delta.Thinking}) {
-								return
-							}
-						}
-					}
-				}
-
-			case "content_block_stop":
-				if tool, ok := pendingTools[streamEvent.Index]; ok {
-					args := make(map[string]any)
-					if tool.input != "" {
-						json.Unmarshal([]byte(tool.input), &args)
-					}
-					if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
-						ID:        tool.id,
-						Name:      tool.name,
-						Arguments: args,
-					}}) {
-						return
-					}
-					delete(pendingTools, streamEvent.Index)
-				}
-
-			case "message_delta":
-				// 输出 token 用量在 message_delta 顶层 usage（累计值）
-				if streamEvent.Usage != nil {
-					completionTokens = streamEvent.Usage.OutputTokens
-				}
-				if streamEvent.Delta != nil && streamEvent.Delta.StopReason != "" {
-					stopReason = streamEvent.Delta.StopReason
-				}
-
-			case "message_stop":
-				sendEvent(StreamEvent{Type: StreamEventDone, FinishReason: stopReason, Usage: &TokenUsage{
-					PromptTokens:     promptTokens,
-					CompletionTokens: completionTokens,
-					CachedTokens:     cacheReadTokens,
-				}})
-				return
-
-			case "error":
-				errMsg := "unknown anthropic error"
-				if streamEvent.Error != nil {
-					switch {
-					case streamEvent.Error.Message != "":
-						errMsg = streamEvent.Error.Message
-					case streamEvent.Error.Type != "":
-						errMsg = streamEvent.Error.Type
-					}
-				}
-				sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream error: %s", errMsg)})
-				return
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream read: %w", err)})
-			return
-		}
-
-		sendEvent(StreamEvent{Type: StreamEventDone, FinishReason: stopReason})
-	}()
+	go pumpSSE(ctx, resp, ch, newAnthropicStreamDecoder())
 
 	return ch, nil
 }
@@ -642,9 +431,15 @@ func (c *anthropicClient) doStreamRequest(ctx context.Context, url string, paylo
 	}, c.httpClient)
 }
 
-// setHeaders 设置 Anthropic API 请求头。
+// AnthropicAPIVersion 是 Anthropic Messages API 的版本头取值。
+//
+// 导出的原因是装配侧的健康探针也要发同一个头：版本号在协议实现与探针两处
+// 各写一份时，升级协议很容易只改一处，探针就会以过期版本被端点拒绝。
+const AnthropicAPIVersion = "2023-06-01"
+
+// setHeaders 设置 Anthropic API 请求头（含 API 版本）。
 func (c *anthropicClient) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", AnthropicAPIVersion)
 }

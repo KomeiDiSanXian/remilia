@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 修复
+
+**`builtin/ai` 四个用户可见缺陷**
+
+- **健康探针此前恒为"健康"**：探针只发了请求、没校验响应码，Key 填错或模型名写错也报正常。现在按供应商发送正确的鉴权头（Anthropic 用 `x-api-key` + `anthropic-version`，其余用 `Authorization: Bearer`），且只把 2xx 与 429 判为"凭据有效、服务可达"——401/403 是最常见的故障（Key 失效），404 通常意味着模型名或 `base_url` 写错。
+- **`@机器人 trace` 不可达**：`trace` 与 `stop` 在子命令注册表里存在，但帮助文案写成 `todos`（应为 `todo`），且两者都没进帮助列表。自然路径（`@机器人 <子命令>`）与 `/ai <子命令>` 现在从**同一张注册表**派生，不再各写一份清单。
+- **长期记忆可能被"清空后重写"**：写入路径（`Add` / `Remove` / `Clear` / `RemoveWhere`）读取 scope 时忽略了反序列化错误，存的是坏数据时会得到"空记忆"视图；随后 `Add` 追加一条事实、整条记录 upsert 回盘，**把原有内容覆盖掉**。现在读不出来的 scope 被标记为不可写并拒绝落盘——降级表现是"这条事实没记住"，而不是"以前的记忆被删除"。读路径原本就有告警，这正是此前容易漏掉的原因。
+- **图片数量上限可被绕过**：`max_images_per_message` 只统计消息自带的 `ContentParts`。待合并窗口里的图片一旦因为会超限而没有被合并，就完全不计入预算，因此"自带 1 张 + 窗口 3 张"能超过上限通过。现在合并函数返回未能合并的张数并计入预算。
+
+### ♻️ 重构
+
+**`builtin/ai` 结构与可读性（无行为变更）**
+
+- **配置读取按域拆分**：`config/load.go` 的 `Load` 从单个巨型函数改为 15 个按域的函数（provider / tuning / session / triggers / 群回复 / 技能 / 多模态 / exec / workspace / 审批 / 工具选择 / 上下文 / 记忆 / 计划 / 校验）；零值语义统一由 `present()` 表达（`session_retention: 0s`、`trigger_cmd: ""` 这类"零值本身有含义"的键因此可被正确区分）。
+- **工具循环拆分**：`processWithTools` 的收尾策略拆成具名步骤，回合级状态收敛为 `turnRun`；`recordToolResults`、`closeOnInterrupt`、`closeWithoutDone`、`escalateOnTruncation`、`finishWithoutToolCalls` 从"6~7 个位置参数"变为该结构体的方法。同类的长签名一并收拢：`SelectToolsForTurn`（8 → 4 参，`SelectInput`）、`executeToolResultWithSnapshot`（6 → 4，`executionTarget`）、`logLLMCall`（9 → 6，`tokenBreakdown`）、`BuildRAGContext`（7 → 3，`RAGEnv`）。
+- **SSE 骨架共用**：OpenAI 与 Anthropic 两个 provider 的流式解析此前各写一遍骨架，现共用 `protocol` 里的同一份，差异只剩事件字段映射。
+- **子命令单一注册表**：自然路径与 `/ai <子命令>` 两条入口、以及帮助文案，全部从 `subcommands.go` 的同一张表派生。
+- **`builtin/ai/mcp` → `builtin/mcp`**：MCP 是独立插件，此前挂在 AI 包树里，导致"用 MCP 就必须依赖 AI"。移出后它只依赖 `toolkit` 工具端口。
+- **观测接线去掉 `init()`**：观察者改为 `New` 里显式注入，`grep` 可查"谁注册了观察者"。
+- 其余清理：单一 `doc.go` 包注释、按关注点拆分的 metrics 文件、无状态助手从方法降为函数、不可达的 nil 守卫、`textutil` 里合并重复的"原始 ID"判据与发言人名称回落等。
+
+### ⚠️ 破坏性变更（库使用者）
+
+- **`builtin/ai/mcp` 包路径变更**：`builtin/ai/mcp` → **`builtin/mcp`**（导入路径 `github.com/KomeiDiSanXian/remilia/builtin/mcp`）。只改 `import` 与构造点，类型与字段不变；插件注册名仍是 `mcp`。
+- **`ai/decision.SelectPathObserver` 由包级变量改为类型**：
+  - 之前：`var SelectPathObserver func(path string)`，赋值即接线；
+  - 现在：`type SelectPathObserver func(path string)`，作为参数传入 `decision.SelectToolsForTurn`。
+  - 原因：包级可变状态让"谁注册了观察者"无法 grep，测试之间也会互相污染。选择路径的观测现在与工具集观测（`ToolSetObserver`）走同一套注入方式。
+- **`decision.SelectToolsForTurn` 签名变更**：`(opts, emb, ctx, sess, query, actions, observePath, observe)` → `(opts, SelectInput{Context, Session, Query, Actions, Embedder}, observePath, observe)`。四个"谁在问/问什么/从哪挑/要不要用 embedding"收进结构体，`Actions` 与 `Query` 相邻且类型不同却被写反时不报错的隐患随之消失。
+- **`promptctx.BuildRAGContext` 签名变更**：`(history, emb, opts, ctx, sess, query, max)` → `(RAGEnv{History, Embedder, Opts, Ctx, Session}, query, max)`。
+- **`runtime` 两个别名函数移除**：`runtime.QuotedImageFromSegments` → 直接用 `platform.QuotedImage`；`runtime.StripBinaryParts` → 直接用 `session.StripBinaryParts`。两者都是零逻辑转发。
+- 本次为 `1.x` 的 minor 版本，按 §破坏性变更 惯例在 minor 内调整导出接口，不涉及 Go 模块路径迁移。
+
 ## v1.79.0 (2026-10-25)
 
 ### ✨ 新特性

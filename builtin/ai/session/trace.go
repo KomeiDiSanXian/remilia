@@ -1,4 +1,5 @@
 // trace.go — 会话级工具调用追踪与连续失败计数。
+
 package session
 
 import (

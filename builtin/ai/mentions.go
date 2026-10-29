@@ -10,6 +10,7 @@
 //     @ 提及与 send_to 的 target 因此共用同一套规则；
 //   - @ 提及的准入语义（ID 直通、昵称解析、歧义拒绝、群目标拒绝）在
 //     catalog.resolveMentions。
+
 package ai
 
 import (

@@ -9,6 +9,7 @@
 //   - 默认在任何审批模式下都强制人工审批（宿主进程执行不可逆）；
 //   - 不接受 Shell 字符串，命令与参数分开传入；具体允许哪些命令由
 //     执行器白名单决定。
+
 package catalog
 
 import (
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 )
 
@@ -120,7 +122,7 @@ func executeProcessRun(ctx context.Context, inv *toolkit.Invocation, args map[st
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "命令 `%s`（工作目录 %s）\n", formatCommandLine(result.Command, result.Args), displayDir(result.Dir))
+	fmt.Fprintf(&b, "命令 `%s`（工作目录 %s）\n", runtime.CommandLine(result.Command, result.Args), displayDir(result.Dir))
 	switch {
 	case result.TimedOut:
 		fmt.Fprintf(&b, "结果: 执行超时被终止（耗时 %s）\n", result.Duration.Round(time.Millisecond))
@@ -153,14 +155,6 @@ func processRunnerFromInvocation(inv *toolkit.Invocation) ProcessRunner {
 		return nil
 	}
 	return caps.Process
-}
-
-// formatCommandLine 拼接命令展示行（仅用于回填文本，不参与执行）。
-func formatCommandLine(command string, args []string) string {
-	if len(args) == 0 {
-		return command
-	}
-	return command + " " + strings.Join(args, " ")
 }
 
 // displayDir 展示工作目录（空表示根目录）。

@@ -1,4 +1,4 @@
-// Package ai discovery.go — 工具与技能（Skill）的自动发现与注册。
+// discovery.go — 工具与技能（Skill）的自动发现与注册。
 //
 // 本文件实现两种自动发现机制：
 //  1. 工具发现（discoverTools）：在 Setup 阶段扫描所有已注册的**无权限**命令，
@@ -7,6 +7,7 @@
 //     实现 SkillProvider 接口的插件自动注册其 Skill。
 //
 // 同样适用于 ToolProvider 接口的显式注册模式。
+
 package ai
 
 import (
@@ -56,7 +57,7 @@ func (s pluginCatalogSink) Has(name string) bool {
 
 // Add 登记自动发现的命令动作，并记下它对应的命令模式。
 func (s pluginCatalogSink) Add(tool toolkit.Tool, commandPattern string) {
-	s.p.registerCommandCatalogTool(tool, commandPattern)
+	s.p.registerBaseCatalogTool(tool, commandPattern)
 }
 
 // toolProviderBinding 跟踪一个来源当前提供的工具定义。
@@ -123,7 +124,10 @@ func (c *catalogState) syncToolProvider(tp toolkit.ToolProvider, b *toolProvider
 		if t.Name == "" {
 			continue
 		}
-		t = normalizeCatalogTool(t)
+		// 名称规范化走 toolkit.NormalizeToolName，与命令发现、注册表共用同一套
+		// 字符约束与告警文案；CloneTool 隔离 Provider 返回的可变字段，避免它
+		// 事后改写同一个对象时连带改变目录定义。
+		t = toolkit.CloneTool(toolkit.NormalizeToolName(t))
 		next[t.Name] = t
 	}
 
@@ -145,17 +149,6 @@ func (c *catalogState) syncToolProvider(tp toolkit.ToolProvider, b *toolProvider
 		c.applyCatalogWinnerLocked(name)
 	}
 	c.catalogGen.mu.Unlock()
-}
-
-// normalizeCatalogTool 净化模型可见名称并复制可变字段，避免 Provider 后续修改
-// 返回对象时改变目录定义。
-func normalizeCatalogTool(t toolkit.Tool) toolkit.Tool {
-	if !toolkit.ValidToolName(t.Name) {
-		original := t.Name
-		t.Name = toolkit.SanitizeToolName(t.Name)
-		logger.Warnf("[AI] Tool name %q is invalid (must match ^[a-zA-Z0-9_-]+$), sanitized to %q", original, t.Name)
-	}
-	return toolkit.CloneTool(t)
 }
 
 // DiscoverToolProviders 扫描插件管理器中所有已注册的插件服务，
@@ -188,15 +181,13 @@ func (c *catalogState) ensureCatalogMapsLocked() {
 	}
 }
 
-func (c *catalogState) registerCommandCatalogTool(t toolkit.Tool, commandPattern string) {
-	c.registerBaseCatalogTool(t, commandPattern)
-}
-
 func (c *catalogState) registerBaseCatalogTool(t toolkit.Tool, commandPattern string) {
 	if t.Name == "" {
 		return
 	}
-	t = normalizeCatalogTool(t)
+	// 基础工具（真实命令包装）与 Provider 来源走完全相同的净化：同一套名称
+	// 约束、同一段告警文案、同样隔离调用方后续对切片的改写。
+	t = toolkit.CloneTool(toolkit.NormalizeToolName(t))
 	c.catalogGen.mu.Lock()
 	c.ensureCatalogMapsLocked()
 	if _, exists := c.catalogGen.baseTools[t.Name]; exists {

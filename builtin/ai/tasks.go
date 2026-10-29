@@ -1,4 +1,4 @@
-// Package ai tasks.go — 任务记录的生命周期装配。
+// tasks.go — 任务记录的生命周期装配。
 //
 // 计划（session.Plan）是模型可修改的执行提案，任务（task.Task）是持久化的目标
 // 记录。两者在计划动作的调用点同步（见 [taskPlanAccess]），本文件是这一同步的
@@ -11,6 +11,7 @@
 //   - /ai task → 查询任务；任务独立于会话缓存与会话记录，重启后仍可查询。
 //
 // 任务存储未装配（测试直接构造 Plugin）时所有操作退化为空实现，不影响对话路径。
+
 package ai
 
 import (
@@ -162,7 +163,7 @@ func (p *Plugin) syncActiveTask(ctx *eventctx.Context, sess *session.Session, pl
 
 // cancelActiveTask 取消会话当前的活动任务，返回是否确实发生取消。
 func (p *Plugin) cancelActiveTask(sess *session.Session) bool {
-	if p == nil || sess == nil {
+	if sess == nil {
 		return false
 	}
 	return p.cancelActiveTaskBySession(sess.ID)
@@ -174,7 +175,7 @@ func (p *Plugin) cancelActiveTask(sess *session.Session) bool {
 // ai_tasks 表里，删会话不会级联，残留的活动任务会让 /ai task status 继续
 // 显示进行中，并可能被预算/自动推进逻辑按 sessionID 重新捡起来。
 func (p *Plugin) cancelActiveTaskBySession(sessionID string) bool {
-	if p == nil || sessionID == "" {
+	if sessionID == "" {
 		return false
 	}
 	store := p.taskStore()
@@ -264,12 +265,12 @@ func (p *Plugin) handleTaskCommand(ctx *eventctx.Context, rest string) error {
 			p.replyFormatted(ctx, "❌ 任务查询失败，请稍后再试")
 			return nil
 		}
-		p.replyFormatted(ctx, formatTaskList(list, p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, formatTaskList(list, triggerCommand(p.cfg)))
 		return nil
 	case "cancel", "取消":
 		return p.cancelTaskCommand(ctx, sessionID)
 	default:
-		p.replyFormatted(ctx, p.taskHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, p.taskHelpText(triggerCommand(p.cfg)))
 		return nil
 	}
 }
@@ -277,10 +278,6 @@ func (p *Plugin) handleTaskCommand(ctx *eventctx.Context, rest string) error {
 // cancelTaskCommand 取消当前活动任务，并同步取消会话中的计划。
 func (p *Plugin) cancelTaskCommand(ctx *eventctx.Context, sessionID string) error {
 	sess := p.sm.GetOrCreate(sessionID, ctx.GetSenderInfo().ID, ctx.GetChatInfo().ID)
-	if sess == nil {
-		p.replyFormatted(ctx, "📭 当前没有进行中的任务可取消")
-		return nil
-	}
 	planCancelled := sess.CancelPlan()
 	if planCancelled {
 		p.sm.SaveSession(sess)

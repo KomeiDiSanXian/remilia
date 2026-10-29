@@ -2,12 +2,14 @@
 //
 // 两者都只产出"本次请求"的消息副本，不写回会话历史——这是提示词前缀缓存
 // 的基本前提：稳定前缀（System + 历史）逐轮字节一致，逐轮变化的内容排在最后。
+
 package runtime
 
 import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 )
 
 // Retention 历史图片保留策略参数（来自 Config）。
@@ -139,7 +141,7 @@ func PrepareRequestMessages(msgs []protocol.Message, retention Retention) ([]pro
 		} else {
 			staleDropped += CountImageParts(m.ContentParts)
 		}
-		out[i] = StripBinaryParts(m)
+		out[i] = session.StripBinaryParts(m)
 	}
 	return out, budgetDropped, staleDropped
 }

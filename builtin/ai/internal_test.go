@@ -132,7 +132,6 @@ func TestMakeSessionID(t *testing.T) {
 }
 
 func TestFormatDuration(t *testing.T) {
-	admin := &adminState{}
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -143,7 +142,7 @@ func TestFormatDuration(t *testing.T) {
 		{0, "0m"},
 	}
 	for _, tt := range tests {
-		got := admin.formatDuration(tt.d)
+		got := formatDuration(tt.d)
 		if got != tt.want {
 			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
 		}
@@ -270,14 +269,58 @@ func TestBuildHealthProbeURL(t *testing.T) {
 		cfg  config.Config
 		want string
 	}{
-		{config.Config{Provider: "openai", BaseURL: "https://api.openai.com/v1"}, "https://api.openai.com/v1/models"},
-		{config.Config{Provider: "anthropic", BaseURL: "https://api.anthropic.com"}, "https://api.anthropic.com/v1/messages"},
-		{config.Config{Provider: "anthropic", BaseURL: "https://api.anthropic.com/v1"}, "https://api.anthropic.com/v1/messages"},
+		{config.Config{Provider: config.ProviderOpenAI, BaseURL: "https://api.openai.com/v1"}, "https://api.openai.com/v1/models"},
+		{config.Config{Provider: config.ProviderAnthropic, BaseURL: "https://api.anthropic.com"}, "https://api.anthropic.com/v1/messages"},
+		{config.Config{Provider: config.ProviderAnthropic, BaseURL: "https://api.anthropic.com/v1"}, "https://api.anthropic.com/v1/messages"},
 	}
 	for _, tt := range tests {
 		got := buildHealthProbeURL(&tt.cfg)
 		if got != tt.want {
 			t.Errorf("buildHealthProbeURL(%+v) = %q, want %q", tt.cfg, got, tt.want)
+		}
+	}
+}
+
+// TestHealthProbeAuthPerProvider 守卫探针的认证协议：Anthropic 只认 x-api-key +
+// anthropic-version，OpenAI 兼容端点用 Authorization: Bearer。用错 scheme 时探针
+// 会恒定 401——而探针若又接受 4xx，就等于永远报健康。
+func TestHealthProbeAuthPerProvider(t *testing.T) {
+	cases := []struct {
+		provider string
+		want     map[string]string
+	}{
+		{config.ProviderAnthropic, map[string]string{"x-api-key": "k", "anthropic-version": protocol.AnthropicAPIVersion}},
+		{config.ProviderOpenAI, map[string]string{"Authorization": "Bearer k"}},
+	}
+	for _, c := range cases {
+		got := healthProbeHeaders(&config.Config{Provider: c.provider, APIKey: "k"})
+		if len(got) != len(c.want) {
+			t.Errorf("provider %q: headers = %v, want %v", c.provider, got, c.want)
+			continue
+		}
+		for name, want := range c.want {
+			if got[name] != want {
+				t.Errorf("provider %q: header %q = %q, want %q", c.provider, name, got[name], want)
+			}
+		}
+	}
+	// Anthropic 必须不发 Bearer：那不是它的鉴权方式。
+	if _, ok := healthProbeHeaders(&config.Config{Provider: config.ProviderAnthropic})["Authorization"]; ok {
+		t.Error("anthropic probe must not send Authorization: Bearer")
+	}
+}
+
+// TestHealthProbeRejectsClientErrors 守卫状态码接受范围：401/403 是"Key 失效"，
+// 必须判不健康；429 表示鉴权通过但被限流，仍算健康。
+func TestHealthProbeRejectsClientErrors(t *testing.T) {
+	got := map[int]bool{}
+	for _, code := range []int{200, 201, 204, 400, 401, 403, 404, 429, 500} {
+		got[code] = healthAcceptsStatus(code)
+	}
+	want := map[int]bool{200: true, 201: true, 204: true, 400: false, 401: false, 403: false, 404: false, 429: true, 500: false}
+	for code, w := range want {
+		if got[code] != w {
+			t.Errorf("accept status %d = %v, want %v", code, got[code], w)
 		}
 	}
 }

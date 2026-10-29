@@ -15,6 +15,7 @@
 //     目标无效时模型可在批准前获知并调整
 //   - 每次对话处理（一轮运行）内发送次数由装配侧的预算约束（原子计数，
 //     并行执行安全）
+
 package catalog
 
 import (
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -215,7 +217,7 @@ func resolveMentions(ctx context.Context, inv *toolkit.Invocation, args map[stri
 		}
 		// 原始 ID 直接使用，不做解析：ID 一定比昵称更明确，解析反而会把
 		// "看起来像 ID 的昵称"误判（见 ai.resolveTarget 的兜底顺序）。
-		if isPlainMentionID(item) {
+		if textutil.IsPlainID(item) {
 			out = append(out, item)
 			continue
 		}
@@ -229,22 +231,6 @@ func resolveMentions(ctx context.Context, inv *toolkit.Invocation, args map[stri
 		out = append(out, target.ID)
 	}
 	return out, nil
-}
-
-// isPlainMentionID 判断字符串是否可直接当作平台用户 ID 使用
-// （ASCII 标识符，与 send_to 的原始 ID 兜底同一判据）。
-func isPlainMentionID(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	for _, r := range raw {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // BuildOutboundMessage 将 LLM 参数组装为平台消息（文本/Markdown/图片/@提及）。

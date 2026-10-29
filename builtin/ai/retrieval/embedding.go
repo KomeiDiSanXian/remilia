@@ -9,6 +9,7 @@
 //
 // 未配置 embedding_base_url 或请求失败时，调用方自动降级为纯关键词打分，
 // 不影响对话主流程。
+
 package retrieval
 
 import (
