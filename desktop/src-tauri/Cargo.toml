@@ -20,9 +20,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "~2.12", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "~2.5"
 # 自动更新：updater 负责检查/下载/校验签名，process 提供安装完成后的 relaunch
-# 注意：Cargo.lock 把 zip 固定为 4.6.1（Windows 下 updater 依赖 zip ^4）。
-# zip 2.x/4.x 已被上游全部 yank，新解析会失败，请不要 `cargo update zip`
-# 或删除锁文件；等 updater 支持 zip 5+ 后再解除。
+# Windows 版 updater 用 zip 解压更新包。2.14.1 起它依赖 zip ^9（此前是 ^4），
+# 而 zip < 9.0.5 存在解压相关漏洞（CVE-2026-115905 等），因此不要降到 2.14.0。
+# 升级后 Cargo.lock 中的 zip 为 9.x，`cargo update zip` 可以正常使用。
 tauri-plugin-updater = "~2.14"
 tauri-plugin-process = "~2.4"
 serde = { version = "1", features = ["derive"] }
