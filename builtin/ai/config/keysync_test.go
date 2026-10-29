@@ -38,7 +38,6 @@ func TestYAMLTagsMatchReadKeys(t *testing.T) {
 func TestEveryFieldHasYAMLTags(t *testing.T) {
 	typ := reflect.TypeFor[Config]()
 	for f := range typ.Fields() {
-		f := f
 		if f.Tag.Get("yaml") == "" {
 			t.Errorf("Config field %s has no yaml tag", f.Name)
 		}
