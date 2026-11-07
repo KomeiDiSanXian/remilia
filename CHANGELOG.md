@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## v1.81.0 (2026-11-07)
 
-### 🐛 修复
+### 🛠 修复
 
-**`plugin` 插件系统生命周期与资源清理缺陷**
+**`plugin` 插件系统生命周期与资源清理**
 
 - **`Descriptor.Cost` 对命令类 Matcher 完全失效**：`applyDeclaredCost` 只在 `afterRegister` 里调用，而 `RegisterCommand` 绕过了它。业务插件几乎全部通过 `ctx.OnCommand`/`OnCommandDefWith` 注册，因此声明的 `CostIO` 从未生效，准入控制只能靠实测 p50 兜底（冷启动的 I/O 请求全部按 local 放行）。现在命令与别名 Matcher 也会继承插件声明的成本类别，且不覆盖插件已单独 `SetCost` 的路由。
 - **蓝绿重载后的幽灵 Matcher**：重载时创建的临时实例在切换后没有从 `SetupContext` 上摘除，`liveRegistryWriter.instanceActive()` 一直读那个永远 `Loaded` 的临时实例——卸载后插件后台 goroutine 的迟到注册不再被拦截，留下继续派发事件的 Matcher。`exportAs` 的归属记录同样因为临时实例没有 Manager 而丢失，卸载时可能误删后来者的同名服务。切换时现在把上下文与写入器一并绑回长期实例。
@@ -27,16 +27,11 @@
 - `ListFunctionNames` 只列 `funcs`，纯 `RegisterWithCaller` 注册的宿主函数对 `__host_functions` 探测不可见。
 - `ToDescriptor` 中 `ctx.DryRun` 分支是死代码（该描述符未声明 `DryRunSafe`），一并移除。
 
-### 🐛 修复（`core` 内核：engine / context / fsm / permission）
+**`core` 内核（engine / context / fsm / permission）**
 
-**并发安全**
-
-- **`Matcher.SetGroup` / `Engine.SetMatcherGroup` 与事件派发数据竞争**：`middleware.go` 与 `process.go` 无锁读取 `m.group`，而这两个写方法持 `rt.mu` 改写（插件重载是运行期常态）。读侧改走加锁访问器 `GetGroup()`，`-race` 下已无告警。
+- **`Matcher.SetGroup` / `Engine.SetMatcherGroup` 与事件派发数据竞争**：`middleware.go` 与 `process.go` 无锁读取 `m.group`，而这两个写方法持 `rt.mu` 改写（插件重载是运行期常态）。读侧改走加锁访问器 `GetGroup()`。
 - **`GetTempMatcherCleanInterval` 无锁读**：写侧在 `writeMu` 下改写，读侧裸读；改为同锁读取。
 - **`OutboundDispatcher.Submit` / `ExecPool.TrySubmit` 与 Drain 的竞态**：`stopped` 检查与 `wg.Add` 之间可被 Drain 插队，导致 Drain 返回后任务才执行；`sync.WaitGroup` 归零后再 Add 还会命中 "reused before previous Wait has returned"。两者改用 `drainTracker`（可重复等待的计数器）并把「复查关闭 + 登记在途」纳入关闭栅栏：`Close`/`Drain` 取写锁屏障后再等待。
-
-**状态与生命周期**
-
 - **`Snapshot`/`Restore` 不失效已编译中间件链**：链缓存在 `Matcher` 上、不属于快照，回滚后仍执行回滚前的中间件。`Restore` 现在会失效全部 matcher（含临时的）的链缓存。
 - **快照的 `commandInfoCache` 被后续注册污染**：`withAddedMatcher` 直接在旧 state 的 map 上写（其余 `with*` 都做了克隆），导致历史快照能看到之后注册的命令；`Restore` 后再注册一次就会把"幽灵命令"重新展开进 `GetAllCommands`。改为首次写入前克隆。
 - **`RemoveGroup` / `DeleteMatchers` / `DeleteAllMatchers` 漏掉临时 matcher**：临时 matcher 不在 `state.matchers` 里，插件卸载后其临时会话 matcher 仍会继续路由。三者现在都覆盖 `TempManager`（新增 `RemoveGroup`/`Clear`），并把被移除的 matcher 统一标记 `deleted`（此前 `IsDeleted()` 恒为 false）。
@@ -44,9 +39,6 @@
 - **`DisableGroup`/`EnableGroup` 不作用于临时 matcher**：同样补充 `TempManager` 遍历。
 - **引擎级别名 matcher 逃出 `groupIndex`**：基础别名注册用的是 `Matcher.SetGroup`（只改字段），`RemoveGroup` 永久漏掉别名路由。改用 `Engine.SetMatcherGroup`。
 - **`BindCommand`/`SetDefinition` 改名不重建命令索引**：旧命令名仍留在 `commandIndex` 并继续触发。改名时走全量索引重建。
-
-**执行画像与命令路由**
-
 - **`ExecProfile` 降级后无法回升**：`demoted` 是粘滞标志，只有单次 >100ms 才会清除——"曾经快、后来稳定 60ms"的 handler 会永久留在同步分类，阻塞派发 goroutine。新增连续慢样本回滞（2 次即可重新提升）。
 - **`Named` 中间件工厂每事件重建**：`mw(next)` 原先写在返回的 handler 内部。改到工厂层，只建链时执行一次。
 - **`TempManager.Add` 对同一 matcher 不幂等**：重复 Add 会让计数虚高（水位线/`HasAny` 失真）。补充 `byID` 查重。
@@ -54,18 +46,12 @@
 - **水位线清理 goroutine 风暴**：计数越过高水位后每次 `Add` 都会起一个清理 goroutine。新增 `cleaning` 原子闸门。
 - **`RegisterCommand(nil)` panic**：与 `RegisterCommandDef` 的容错语义不一致，改为返回 noop matcher。
 - **`AssignRoleChecked` 的 TOCTOU**：等级检查在 `RLock` 下、写入在释放锁后，两次调用之间可被并发修改（提权窗口）。检查与写入合并到同一写锁（新增 `assignRoleLocked`）。
-
-**`core/context`**
-
 - **只读扩展 API 为从未写过的 Context 惰性分配存储**：`Get`/`GetString`/`GetRetryAttempt`/`CandidateMeta`/`SetCandidateMeta(nil)` 等都会先 `Ext()` 建房。新增 nil 安全的 `extRead()` 读入口。
 - **`Reply` 缺 dispatcher 时报成缺 sender**：新增 `ErrNoDispatcher`，两者的修复动作完全不同。
 - **`AddOutboundObserver` 并发追加丢观察者**：读-改-写未加锁，新增 `obsMu` 串行化。
 - **`SetUserID` 在平台事件路径下静默无效**：文档化并加 debug 日志（身份来自事件本身，不应被覆盖）。
-
-**`core/fsm`**
-
-- **终态迁移返回旧状态**：`TryTransition` 在结束会话时返回迁移前的 `Current`，与文档「迁移后的状态」不符；改为返回 `""`。
-- **`sessionLock` 每次调用都分配一把 Mutex**：`&sync.Mutex{}` 在查找前就已求值，稳态下每次迁移仍分配；改为先 `Load` 再 `LoadOrStore`。
+- **`fsm.TryTransition` 终态迁移返回旧状态**：结束会话时返回迁移前的 `Current`，与文档「迁移后的状态」不符；改为返回 `""`。
+- **`fsm.sessionLock` 每次调用都分配一把 Mutex**：`&sync.Mutex{}` 在查找前就已求值，稳态下每次迁移仍分配；改为先 `Load` 再 `LoadOrStore`。
 
 ### ⚡ 性能
 
@@ -74,7 +60,6 @@
 - **regex matcher 首次绑定 Handler 触发全量索引重建**：逐条注册 N 个 regex matcher 是 O(N²)。新增 `withRebuiltRegexBucket`，只补进该事件类型的正则桶（通过未导出的能力接口探测，不扩大 `MatcherCoordinator`）。
 - **`Rule` 超时用 `time.After`**：规则提前返回时定时器无法立即释放，改为 `time.NewTimer` + `Stop()`。
 - **`GetAllCommands` 返回顺序不稳定**：`rebuildCommandListCache` 未排序，顺序随 map 迭代/GC 变化。改为按命令名 + 事件类型排序。
-- **`fsm.sessionLock` 稳态零分配**（见上）。
 - **环形缓冲 `pop` 不清引用**：已出队的 `queuedTask` 闭包被缓冲槽继续持有，补 `buf[head] = queuedTask{}`。
 - **`DispatcherHooks.OnQueued` 在 `q.mu` 内调用**：慢钩子会阻塞同 chat 的其它入队者，移到临界区外。
 - **`ExecPool.maxConcurrency`/`queueSize` 为死字段**：创建后无人读取，移除。
@@ -86,31 +71,17 @@
 
 ### 🧪 测试
 
-- 本次修复全部补了回归测试，每个文件一个主题、文件头注明回归背景：
-  `state_snapshot_test.go`、`matcher_group_ops_test.go`、`temp_matcher_lifecycle_test.go`、
-  `race_free_mutation_test.go`、`exec_profile_test.go`、`command_index_rebind_test.go`、
-  `command_index_semantics_test.go`、`temp_manager_index_test.go`、`temp_manager_snapshot_test.go`、
-  `temp_matcher_expiry_test.go`、`matcher_delete_pending_test.go`、`middleware_named_factory_test.go`、
-  `middleware_chain_invalidation_test.go`、`middleware_chain_propagation_test.go`、
-  `regex_first_handle_test.go`、`state_command_cache_test.go`、`exec_pool_sharing_test.go`、
-  `merge_iter_max_priority_test.go`、`rule_effect_cooldown_test.go`、`extract_command_test.go`、
-  `clone_deadline_test.go`、`ext_lazy_init_test.go`、`user_identity_test.go`、
-  `reply_dispatcher_test.go`、`transition_result_test.go`、`session_lock_allocation_test.go`、
-  `session_orphan_cleanup_test.go`、`session_sliding_ttl_test.go`、`session_snapshot_copy_test.go`、
-  `assign_role_checked_test.go`、`permission_target_wildcard_test.go`、`grant_permission_test.go`。
-- 全仓测试文件改按**被测行为**命名，替换掉"第几批修复/评审/覆盖率冲刺"这类与内容无关的批次名，
-  便于按主题检索（24 个文件重命名，`git mv` 保留历史，行为与断言未变）。例如：
-  `coverage_90_test.go` → `degradation_and_edges_test.go`、
-  `coverage_boost_test.go` → `resilience_paths_test.go`、
-  `optimization_test.go` → `command_info_cache_test.go`、
-  `state_optimization_test.go` → `state_cow_test.go`、
-  `fixes_validation_test.go` → `concurrency_validation_test.go`、
-  `new_features_test.go` → `gradient_shadow_canvas_test.go`。
-- 原本按"批次"打包的大文件拆成主题文件，避免一个文件混装十几个不相关主题。
-- `plugin/` 下的批次命名（`*_p2_fixes_test.go`、`register_phase*_test.go` 等）由
-  `plugin/TESTING.md` 约定，本次未改动。
-- `go fix ./...` 在三个 module（根、`cmd/bot`、`examples/httpclient-demo`）均无改动；
-  `go test ./... -race -shuffle=on` 与 `golangci-lint run ./...` 均通过。
+- 本次修复全部补了回归测试：每个文件一个主题、文件头注明回归背景，便于按行为定位。
+- 测试文件改按**被测行为**命名，替换掉"第几批修复/评审/覆盖率冲刺"这类与内容无关的批次名；原本按批次打包的大文件拆成主题文件（重命名用 `git mv` 保留历史，行为与断言未变）。
+- `plugin/` 下的批次命名由 `plugin/TESTING.md` 约定，本次未改动。
+
+### ⚠️ 行为变更（库使用者）
+
+以下都是把"原本错误或静默的行为"改成正确语义，但依赖旧行为的代码需要留意：
+
+- **`Context.Reply` 缺少 dispatcher 时返回 `ErrNoDispatcher`**（此前报 `ErrNoPlatformSender`）。用 `errors.Is(err, context.ErrNoPlatformSender)` 判断"没注入 sender"的调用方需改判——两者现在分别对应"没绑平台事件"和"没经引擎处理"。
+- **`fsm.TryTransition` 结束时返回 `""`**：终态迁移现在返回迁移后的状态（空状态），此前返回迁移前的旧状态。
+- **`RemoveGroup` / `DeleteMatchers` / `DeleteAllMatchers` 会摘除临时 matcher 并标记 `deleted`**：此前对临时 matcher 完全无效、也不置 `deleted`；依赖"删除后 `IsDeleted()` 仍为 false"或"临时 matcher 只能等超时消失"的代码会看到变化。
 
 ## v1.80.0 (2026-10-29)
 
