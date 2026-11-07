@@ -388,7 +388,8 @@ func (d *OutboundDispatcher) worker(q *chatQueue) {
 func (d *OutboundDispatcher) Close() {
 	d.stopped.Store(true)
 	d.gate.Lock()
-	d.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
+	//lint:ignore SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
+	d.gate.Unlock() //nolint:staticcheck // 见上：空临界区是刻意的关闭栅栏
 }
 
 // Drain 等待所有 Worker 完成已有任务。
@@ -413,6 +414,7 @@ func (d *OutboundDispatcher) Shutdown(ctx context.Context) error {
 func (d *OutboundDispatcher) ForceClose() {
 	d.stopped.Store(true)
 	d.gate.Lock()
-	d.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
+	//lint:ignore SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
+	d.gate.Unlock() //nolint:staticcheck // 见上：空临界区是刻意的关闭栅栏
 	d.cancel()
 }

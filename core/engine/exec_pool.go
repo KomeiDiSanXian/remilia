@@ -225,7 +225,8 @@ func (p *ExecPool) Drain(ctx context.Context) error {
 	// 写锁屏障：等待所有已通过 stopped 检查的 TrySubmit 完成登记与入队，
 	// 保证后续 inflight.Wait 能看到它们（否则任务可能在 Drain 返回后才跑）。
 	p.gate.Lock()
-	p.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 TrySubmit 已全部登记
+	//lint:ignore SA2001 intentional drain barrier — 确保在途 TrySubmit 已全部登记
+	p.gate.Unlock() //nolint:staticcheck // 见上：空临界区是刻意的关闭栅栏
 
 	// 先消费队列中可能残留的任务（当没有活跃 goroutine 来 drain 时）
 	if !p.drainQueueUntil(ctx) {
