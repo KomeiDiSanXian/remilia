@@ -22,6 +22,12 @@ var ErrNilContext = errors.New("context is nil")
 // ErrNoPlatformSender 表示 Context 未绑定 platform.Sender（需通过 PlatformAdapter 注入）
 var ErrNoPlatformSender = errors.New("no platform sender available: context was not created from a platform event")
 
+// ErrNoDispatcher 表示 Context 未注入出站调度器（Engine 在 ProcessEvent 时注入）。
+//
+// 与 [ErrNoPlatformSender] 区分开：两者的修复动作完全不同（补 sender 注入 /
+// 检查是否绕过了 Engine 直接处理事件），混用会让排查方向完全跑偏。
+var ErrNoDispatcher = errors.New("no outbound dispatcher available: context was not processed by an engine")
+
 // isReservedUserStateKey reports whether key is reserved for framework internal use.
 //
 // 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。
@@ -78,7 +84,11 @@ func (ctx *Context) Delete(key string) {
 		logger.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
 		return
 	}
-	s, ok := ctx.Ext().GetTyped[*extensionState]()
+	ext := ctx.extRead()
+	if ext == nil {
+		return
+	}
+	s, ok := ext.GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return
 	}
@@ -92,7 +102,11 @@ func (ctx *Context) Get(key string) (any, bool) {
 	if ctx == nil {
 		return nil, false
 	}
-	s, ok := ctx.Ext().GetTyped[*extensionState]()
+	ext := ctx.extRead()
+	if ext == nil {
+		return nil, false
+	}
+	s, ok := ext.GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return nil, false
 	}
@@ -107,7 +121,11 @@ func (ctx *Context) All() map[string]any {
 	if ctx == nil {
 		return nil
 	}
-	s, ok := ctx.Ext().GetTyped[*extensionState]()
+	ext := ctx.extRead()
+	if ext == nil {
+		return map[string]any{}
+	}
+	s, ok := ext.GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return map[string]any{}
 	}
@@ -193,7 +211,8 @@ func (ctx *Context) GetFloat64(key string) float64 {
 // GetUserID 获取用户 ID。
 //
 // 优先从当前绑定的 platform.Event（平台路径）中读取发送者 ID，
-// 若不存在则 fallback 到字符串状态 store（兼容 ctx.SetUserID() 手动设置的场景）。
+// 若不存在则 fallback 到字符串状态 store（兼容非平台 Context 上手动
+// ctx.SetUserID() 的场景）。
 func (ctx *Context) GetUserID() string {
 	if ctx == nil {
 		return ""
@@ -208,7 +227,18 @@ func (ctx *Context) GetUserID() string {
 	return ctx.GetString("user_id")
 }
 
-// SetUserID 设置用户 ID
+// SetUserID 设置用户 ID。
+//
+// 注意：平台事件路径下 GetUserID 优先返回事件里的发送者 ID，这里的覆盖
+// 不会生效（设置"伪造身份"也不该影响平台事件）；它只对没有绑定
+// platform.Event 的 Context 有意义。
 func (ctx *Context) SetUserID(userID string) {
+	if ctx == nil {
+		return
+	}
+	if ctx.platformEvent != nil && ctx.platformEvent.Sender().ID != "" {
+		logger.WithField("user_id", userID).
+			Debug("[Context] SetUserID ignored: platform event sender takes precedence")
+	}
 	ctx.Set("user_id", userID)
 }

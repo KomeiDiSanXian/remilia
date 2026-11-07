@@ -379,6 +379,12 @@ func WithTimeout(rule Rule, timeout time.Duration) Rule {
 			resultChan <- rule(ruleCtx)
 		}()
 
+		// 用可 Stop 的 Timer 而不是 time.After：规则提前返回（绝大多数情况）
+		// 时立即释放定时器，避免每个事件都让一个 100ms 量级的 timer 挂在
+		// runtime 定时器堆上直到触发。
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+
 		select {
 		case result := <-resultChan:
 			// 规则已在超时前结束（channel 缓冲 1，发送即最后一步）：
@@ -387,7 +393,7 @@ func WithTimeout(rule Rule, timeout time.Duration) Rule {
 				ctx.adoptRuleEffects(ruleCtx)
 			}
 			return result
-		case <-time.After(timeout):
+		case <-timer.C:
 			logger.WithFields(logger.Fields{
 				"timeout": timeout,
 			}).Warn("[Rule] Rule timeout exceeded")

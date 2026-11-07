@@ -1,4 +1,4 @@
-// hardening_test.go — websearch 加固项的回归测试：
+// fetch_and_safety_test.go — websearch 加固项的回归测试：
 // 外部数据边界标记、参数收敛、严格/受信出站策略边界、重定向拦截、
 // 非 HTML 内容处理、GBK 编码解码、抓取缓存与并发/配额上限。
 package websearch

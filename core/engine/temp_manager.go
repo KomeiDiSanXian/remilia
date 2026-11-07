@@ -108,6 +108,11 @@ type tempMatcherManager struct {
 	snapshot atomic.Pointer[TempSnapshot] // RCU 只读快照
 	snapMu   sync.Mutex                   // 保护 rebuildSnapshot
 
+	// cleaning 保证任意时刻最多一个水位线清理 goroutine 在跑：
+	// 计数越过高水位后每次 Add 都会触发，无闸门时高负载下会瞬间起大量
+	// goroutine 反复做全量重建（清理风暴）。
+	cleaning atomic.Bool
+
 	cleanupWg sync.WaitGroup // 追踪水位线清理 goroutine，供 Shutdown 等待
 }
 
@@ -153,6 +158,14 @@ func hashPtr(ptr uintptr) uintptr {
 func (m *tempMatcherManager) Add(matcher *Matcher) {
 	shard := m.getShard(matcher)
 	shard.mu.Lock()
+
+	// 幂等：重复 Add 同一 matcher 不得再插入一次。
+	// 此前只 append 不查重，同一实例出现两次时 count 虚高（水位线/日志），
+	// 迁移路径（UpdateTempMatcherPriority = Remove + Add）也可能叠加重复条目。
+	if _, exists := shard.byID[matcher]; exists {
+		shard.mu.Unlock()
+		return
+	}
 
 	// Add to index with Insertion Sort
 	list := shard.matcherIndex[matcher.EventType]
@@ -203,8 +216,11 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	// 水位线清理：计数超过高水位时触发过期清理。
 	// rebuildSnapshot 在 Add 的 snapMu 段内执行，不与 shard 锁交叉，
 	// 避免 lock ordering deadlock。
-	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh {
+	// cleaning 闸门保证高负载下不会每次 Add 都起一个清理 goroutine。
+	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh &&
+		m.cleaning.CompareAndSwap(false, true) {
 		m.cleanupWg.Go(func() {
+			defer m.cleaning.Store(false)
 			m.cleanToWatermark()
 			m.snapMu.Lock()
 			m.rebuildSnapshot()
@@ -218,19 +234,27 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 // 由 Matcher.SetTempWithTimeout 通过 Engine（tempExpirationSetter）调用：
 //   - 两个字段的读取方（CleanExpired、过期堆比较、cleanToWatermark）都在 shard 锁内，
 //     写入走同一把锁即可消除数据竞争；
-//   - matcher 已由本管理器持有时（byID 命中，如 OnTemp 之后再设超时）同时补登过期堆，
-//     修复"已是 temp 再设超时 → 永不入堆、永不过期"的泄漏。
+//   - matcher 已由本管理器持有时（byID 命中，如 OnTemp 之后再设超时）会重建该
+//     shard 的过期堆，修复"已是 temp 再设超时 → 永不入堆、永不过期"的泄漏。
 //
-// 重复调用（延长超时）会为同一 matcher 产生多个堆条目：CleanExpired 弹出时
-// 以 matcher 的实时 expiresAt 为准做判定，旧条目不会导致提前删除，
-// 只会让其后条目的清理时机被推迟到新的过期时间。
+// 重建而非追加：堆序比较的是 matcher 的实时 expiresAt（可变字段），
+// 已入堆的条目被改写后堆不变式即失效——既可能让已过期项沉在深处不被发现
+// （CleanExpired 见到未过期就 break），也可能残留同一 matcher 的重复条目。
+// SetExpiration 是冷路径（会话建立时一次），O(N) 重建可接受。
 func (m *tempMatcherManager) SetExpiration(matcher *Matcher, createdAt, expiresAt time.Time) {
 	shard := m.getShard(matcher)
 	shard.mu.Lock()
 	matcher.rt.createdAt = createdAt
 	matcher.rt.expiresAt = expiresAt
-	if _, ok := shard.byID[matcher]; ok && !expiresAt.IsZero() {
-		heap.Push(shard.expiration, matcher)
+	if _, ok := shard.byID[matcher]; ok {
+		rebuilt := make(matcherHeap, 0, len(shard.byID))
+		for owned := range shard.byID {
+			if !owned.rt.expiresAt.IsZero() {
+				rebuilt = append(rebuilt, owned)
+			}
+		}
+		heap.Init(&rebuilt)
+		*shard.expiration = rebuilt
 	}
 	shard.mu.Unlock()
 }
@@ -312,6 +336,76 @@ func (m *tempMatcherManager) Remove(matcher *Matcher) {
 	} else {
 		shard.mu.Unlock()
 	}
+}
+
+// Clear 从 TempManager 中摘除所有临时 matcher，返回被摘除的集合。
+//
+// 被摘除的 matcher 统一标记 deleted。供 Engine.DeleteAllMatchers 使用。
+func (m *tempMatcherManager) Clear() []*Matcher {
+	var all []*Matcher
+	for i := range tempMatcherShardCount {
+		shard := m.shards[i]
+		shard.mu.Lock()
+		for matcher := range shard.byID {
+			all = append(all, matcher)
+		}
+		shard.matcherIndex = make(map[EventType][]*Matcher)
+		shard.byID = make(map[*Matcher]struct{})
+		*shard.expiration = matcherHeap{}
+		shard.mu.Unlock()
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	m.count.Store(0)
+	m.snapMu.Lock()
+	m.rebuildSnapshot()
+	m.snapMu.Unlock()
+	for _, matcher := range all {
+		matcher.rt.deleted.Store(true)
+	}
+	return all
+}
+
+// RemoveGroup 从 TempManager 中摘除属于指定分组的所有临时 matcher，并返回它们。
+//
+// 供 Engine.RemoveGroup 覆盖临时 matcher：它们不在 COW state 的 groupIndex 里，
+// 此前插件卸载后其临时会话 matcher 仍会继续路由。
+//
+// 被摘除的 matcher 统一标记 deleted。收集阶段只持 shard 读锁并只读取
+// byID（不调用 matcher 的访问器，避免 rt.mu 与 shard 锁形成锁序反转），
+// 分组过滤在锁外进行。
+func (m *tempMatcherManager) RemoveGroup(groupName string) []*Matcher {
+	if groupName == "" {
+		return nil
+	}
+	var candidates []*Matcher
+	for i := range tempMatcherShardCount {
+		shard := m.shards[i]
+		shard.mu.RLock()
+		for matcher := range shard.byID {
+			candidates = append(candidates, matcher)
+		}
+		shard.mu.RUnlock()
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	removed := make([]*Matcher, 0, len(candidates))
+	for _, matcher := range candidates {
+		if matcher.GetGroup() != groupName {
+			continue
+		}
+		matcher.rt.deleted.Store(true)
+		// Remove 内部以 byID 为准，并发移除时是幂等的空操作。
+		before := m.Count()
+		m.Remove(matcher)
+		if m.Count() != before {
+			removed = append(removed, matcher)
+		}
+	}
+	return removed
 }
 
 // snapshotInsert 把 matcher 按优先级 COW 插入快照中对应 eventType 的列表。

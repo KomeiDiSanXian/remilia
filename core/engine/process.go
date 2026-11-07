@@ -260,7 +260,8 @@ func (e *Engine) middlewareGensFor(m *Matcher) (globalGen, groupGen uint64) {
 	if mwState == nil {
 		return 0, 0
 	}
-	if snap := mwState.groupMiddlewares[m.group]; snap != nil {
+	// m.group 在运行期可被 SetGroup/SetMatcherGroup 改写，必须走加锁访问器。
+	if snap := mwState.groupMiddlewares[m.GetGroup()]; snap != nil {
 		groupGen = snap.gen
 	}
 	return mwState.global.gen, groupGen
@@ -382,7 +383,12 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 
 // GetTempMatcherCleanInterval 获取当前的临时 Matcher 清理间隔
 func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
-	return e.internals.tempMatcherCleanerInterval
+	// 写侧（SetTempMatcherCleanInterval / 组件 stop）在 writeMu 下改写，
+	// 裸读会构成数据竞争。
+	e.writeMu.Lock()
+	interval := e.internals.tempMatcherCleanerInterval
+	e.writeMu.Unlock()
+	return interval
 }
 
 // StartTempMatcherCleaner 启动临时 Matcher 清理器。

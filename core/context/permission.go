@@ -20,7 +20,7 @@ func (ctx *Context) GetPermissionManager() *permission.Manager {
 	if ctx == nil {
 		return nil
 	}
-	if ext, ok := ctx.Ext().GetTyped[PermissionManagerExt](); ok {
+	if ext, ok := ctx.extRead().GetTyped[PermissionManagerExt](); ok {
 		return ext.PM
 	}
 	return nil

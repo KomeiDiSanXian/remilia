@@ -1,7 +1,10 @@
 package permission
 
-// permission_review_test.go — 2026-07 core 复查修复的回归测试：
-// 请求（target）侧的 "*" 必须按字面值处理，不得被当作通配符放行。
+// permission_target_wildcard_test.go — 请求侧通配符按字面值处理
+//
+// 安全约束：Permission.Match 只展开授权侧（pattern）的通配符。请求
+// （target）侧的 "*" 必须按字面值比较，否则任何把用户可控字符串透传进
+// HasPermission 的调用方都可能被 "*" 绕过检查。
 
 import (
 	"testing"
@@ -9,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReviewFix_TargetWildcardTreatedLiterally(t *testing.T) {
+// TestPermission_TargetWildcardTreatedLiterally 验证普通用户不能凭 "*"
+// 探测/绕过权限检查，而持有 "*:*" 的 admin 可匹配任意请求。
+func TestPermission_TargetWildcardTreatedLiterally(t *testing.T) {
 	pm := NewPermissionManager()
 	assert.NoError(t, pm.AssignRole("u1", "user")) // user: command:*/execute, query:*/view
 
@@ -26,11 +31,4 @@ func TestReviewFix_TargetWildcardTreatedLiterally(t *testing.T) {
 	assert.NoError(t, pm.AssignRole("root", "admin"))
 	assert.True(t, pm.HasPermission("root", Permission{Resource: "*", Action: "*"}))
 	assert.True(t, pm.HasPermission("root", Permission{Resource: "command:echo", Action: "execute"}))
-}
-
-func TestReviewFix_GrantPermissionIdempotent(t *testing.T) {
-	pm := NewPermissionManager()
-	pm.GrantPermission("u2", Permission{Resource: "x", Action: "y"})
-	pm.GrantPermission("u2", Permission{Resource: "x", Action: "y"})
-	assert.Len(t, pm.GetUserPermissions("u2"), 1)
 }

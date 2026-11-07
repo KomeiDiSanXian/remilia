@@ -12,7 +12,7 @@
   - `enhanced_system_test.go` - 增强系统测试（下文详述）
   - `fuzz_test.go` - 模糊测试（下文详述）
   - `benchmark_test.go` - 性能基准测试（下文详述）
-  - `registry_test.go` / `registry_trie_optimization_test.go` - 命令注册表与 Trie 优化
+  - `registry_test.go` / `registry_trie_test.go` - 命令注册表与 Trie 查询
   - `trie_test.go` - Trie 前缀树（补全）测试
   - `custom_prefix_test.go` - 自定义命令前缀解析
 

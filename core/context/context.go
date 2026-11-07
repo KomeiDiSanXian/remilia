@@ -56,6 +56,10 @@ type Context struct {
 	// dispatcher 是出站任务调度器（Engine 注入），用于异步发送消息
 	dispatcher Dispatcher
 
+	// obsMu 串行化 AddOutboundObserver 的「读-改-写」，
+	// 避免并发追加时互相覆盖观察者。
+	obsMu sync.Mutex
+
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
 	extensions     *Extensions
@@ -328,6 +332,19 @@ func (ctx *Context) Ext() *Extensions {
 	if !ctx.extInitialized.Load() {
 		ctx.extensions = newExtensions()
 		ctx.extInitialized.Store(true)
+	}
+	return ctx.extensions
+}
+
+// extRead 返回只读路径使用的扩展存储：未初始化时返回 nil，不触发惰性分配。
+//
+// 纯读 API（Get / GetString / GetRetryAttempt / CandidateMeta / RegexResult …）
+// 此前一律先调 Ext()，即使从未写过扩展也会为每次事件分配 Extensions + map，
+// 再在里面查一个键。用 nil 安全的读取入口可以把「只回复、不存状态」这类
+// handler 的这笔分配省掉（Extensions 的读方法都已是 nil 安全）。
+func (ctx *Context) extRead() *Extensions {
+	if ctx == nil || !ctx.extInitialized.Load() {
+		return nil
 	}
 	return ctx.extensions
 }

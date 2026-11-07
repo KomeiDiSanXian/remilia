@@ -416,23 +416,31 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	// 自增版本号，使 getOrBuildIterChain 在下次使用时重建已编译的处理链。
 	m.compiledVersion.Add(1)
 	coord := m.coordinator
+	def := m.definition // 持锁读取：SetDefinition 可能并发改写
 	m.rt.mu.Unlock()
 
 	if coord != nil {
 		coord.RebuildMatcherChain(m)
 		// 首次绑定 Handler：触发运行时索引重建，将此前被过滤的匹配器纳入。
 		if !hadHandler {
-			if m.commandIndexed.Load() {
+			switch {
+			case m.commandIndexed.Load():
 				// 命令 matcher 跳过：commandIndex 桶不过滤 hasHandler
 				//（执行循环兜底检查），优先级变更走 SetPriority →
 				// UpdateMatcherIndex 专属路径，首次绑定的重排是恒等操作
 				// 却要全量复制 commandIndex（顺序注册写放大主因之一）。
-			} else if m.regexIndexed.Load() {
-				// 正则桶写路径按 Handler != nil 过滤：首次绑定需全量重建纳入
-				coord.UpdateMatcherIndex(nil)
-			} else {
+			case m.regexIndexed.Load():
+				// 正则桶写路径按 Handler != nil 过滤：首次绑定需要把本 matcher
+				// 纳入。只重建该事件类型的正则桶，避免逐条注册 N 个 regex
+				// matcher 时的 O(N²) 全量索引重建。
+				if rb, ok := coord.(regexBucketRebuilder); ok {
+					rb.RebuildRegexBucket(m.EventType)
+				} else {
+					coord.UpdateMatcherIndex(nil)
+				}
+			default:
 				coord.InvalidateSortedCache(m.EventType)
-				if def := m.definition; def != nil && def.Name != "" {
+				if def != nil && def.Name != "" {
 					coord.UpdateMatcherIndex(m)
 				}
 			}
@@ -443,7 +451,7 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	// 取出后立即置 nil，保证只触发一次，即使 Handle() 被多次调用也不会重入。
 	m.rt.mu.Lock()
 	registrar := m.aliasRegistrar
-	def := m.definition
+	def = m.definition
 	m.aliasRegistrar = nil
 	m.rt.mu.Unlock()
 	if registrar != nil && def != nil && len(def.Aliases) > 0 {
@@ -611,6 +619,15 @@ func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
 // 避免扩大 MatcherCoordinator 公共接口、破坏外部 mock。
 type tempExpirationSetter interface {
 	setTempMatcherExpiration(m *Matcher, createdAt, expiresAt time.Time)
+}
+
+// regexBucketRebuilder 由 *Engine 实现：只重建指定事件类型的正则索引桶。
+//
+// Regex() matcher 的首次 Handler 绑定需要把它纳入正则桶（桶按 handler 过滤），
+// 逐条注册时若走全量索引重建就是 O(N²)。用带未导出方法的接口做能力探测，
+// 不扩大 MatcherCoordinator 公共接口（外部 mock 无需实现）。
+type regexBucketRebuilder interface {
+	RebuildRegexBucket(eventType EventType)
 }
 
 func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
@@ -948,16 +965,39 @@ func (m *Matcher) SetDefinition(def *command.Definition) *Matcher {
 		return m
 	}
 	m.rt.mu.Lock()
+	oldCmd := m.currentCommandLocked()
 	m.definition = def
+	newCmd := m.currentCommandLocked()
 	coord := m.coordinator
 	m.rt.mu.Unlock()
 
+	if coord == nil {
+		return m
+	}
+
 	// 触发命令缓存更新
-	if coord != nil {
-		coord.UpdateCommandCache(m)
+	coord.UpdateCommandCache(m)
+
+	// 命令名变化时命令索引必须重建：commandIndex 以命令词为键，
+	// 只刷新元数据缓存会留下旧键路由（改名后旧命令仍可触发）。
+	if oldCmd != newCmd {
+		coord.UpdateMatcherCommand(m)
 	}
 
 	return m
+}
+
+// currentCommandLocked 在已持有 m.rt.mu 时返回当前命令词（含前缀）。
+func (m *Matcher) currentCommandLocked() string {
+	def := m.definition
+	if def == nil || def.Name == "" {
+		return ""
+	}
+	prefix := m.triggerPrefix
+	if prefix == "" {
+		prefix = "/"
+	}
+	return prefix + def.Name
 }
 
 // SetAliasRegistrar 设置别名自动注册回调。

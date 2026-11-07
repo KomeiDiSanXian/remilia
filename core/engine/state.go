@@ -2,6 +2,7 @@ package engine
 
 import (
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -239,6 +240,14 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 		maxMatchers:      s.maxMatchers,
 	}
 
+	// 命令元数据缓存必须在首次写入前复制。
+	// rebuildCommandInfoCache 是就地写，直接共享旧 state 的 map 会破坏 COW：
+	// 已发布的历史快照（Snapshot/Restore）会看到之后才注册的命令，Restore 之后
+	// 一次增量注册就能把"幽灵命令"重新展开进 commandListCache。
+	if cmd != "" {
+		dst.commandInfoCache = maps.Clone(s.commandInfoCache)
+	}
+
 	if cmd != "" && m.commandIndexed.Load() {
 		dst.sortedCache = s.sortedCache
 		dst.matcherIndex = s.matcherIndex
@@ -265,8 +274,12 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 			dst.rebuildCommandInfoCache(m, cmd)
 		}
 	} else {
-		dst.sortedCache = copySortedCacheForInvalidation(s.sortedCache)
-		dst.matcherIndex = copyMatcherIndex(s.matcherIndex)
+		// 只复制外层 map，未触及的 eventType 与其他切片共享（只读）：
+		// append 使用 cap=len 的切片保证不会就地写入旧 state 的底层数组。
+		// 此前整表复制 matcherIndex + sortedCache，顺序注册 N 个 matcher 是
+		// O(N²) 次 map 分配（启动期可用 RegisterBatch，但运行期 On() 走这里）。
+		dst.sortedCache = maps.Clone(s.sortedCache)
+		dst.matcherIndex = maps.Clone(s.matcherIndex)
 		dst.matcherIndex[et] = append(dst.matcherIndex[et][:len(dst.matcherIndex[et]):len(dst.matcherIndex[et])], m)
 		dst.commandIndex = s.commandIndex
 		dst.regexIndex = s.regexIndex
@@ -293,21 +306,21 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 	return dst
 }
 
-// copyCommandIndexWithEntry 复制 commandIndex 并添加一个新条目
+// copyCommandIndexWithEntry 复制 commandIndex 并添加一个新条目。
+//
+// 只复制外层 map 与目标命令的内层 map：其余命令的内层 map 与子切片作为
+// 只读数据共享（COW）。此前实现会把每个命令的内层 map 都重建一遍，
+// 顺序注册 N 个命令时是 O(N²) 次 map 分配。
 func (s *state) copyCommandIndexWithEntry(cmd string, et EventType, m *Matcher) map[string]map[EventType][]*Matcher {
-	dst := make(map[string]map[EventType][]*Matcher, len(s.commandIndex))
-	for c, eventMap := range s.commandIndex {
-		newEventMap := make(map[EventType][]*Matcher, len(eventMap))
-		for e, matchers := range eventMap {
-			newEventMap[e] = matchers[:len(matchers):len(matchers)]
-		}
-		dst[c] = newEventMap
-	}
-	if _, ok := dst[cmd]; !ok {
-		dst[cmd] = make(map[EventType][]*Matcher)
-	}
-	dst[cmd][et] = append(dst[cmd][et][:len(dst[cmd][et]):len(dst[cmd][et])], m)
-	sortMatchersByPriority(dst[cmd][et])
+	dst := make(map[string]map[EventType][]*Matcher, len(s.commandIndex)+1)
+	maps.Copy(dst, s.commandIndex)
+
+	src := s.commandIndex[cmd]
+	eventMap := make(map[EventType][]*Matcher, len(src)+1)
+	maps.Copy(eventMap, src)
+	eventMap[et] = append(eventMap[et][:len(eventMap[et]):len(eventMap[et])], m)
+	sortMatchersByPriority(eventMap[et])
+	dst[cmd] = eventMap
 	return dst
 }
 
@@ -551,6 +564,57 @@ func copySortedCacheForInvalidation(src map[EventType][]*Matcher) map[EventType]
 	return dst
 }
 
+// withRebuiltRegexBucket 把首次绑定 Handler 的正则 matcher 纳入其事件类型的桶。
+//
+// 正则桶按 matcher.handlerLocked() != nil 过滤（见 withAddedMatcher），
+// 注册时还没有 Handler 的 regex matcher 会被过滤掉，首次 Handle 必须补进来。
+//
+// 只操作该 eventType 的桶：逐条注册 N 个 regex matcher 时若走全量
+// UpdateMatcherIndex(nil)，每次绑定都会重建整张索引（O(N²)）。
+func (s *state) withRebuiltRegexBucket(eventType EventType) *state {
+	cur := s.regexIndex[eventType]
+
+	// 收集「本事件类型、regexIndexed、已有 Handler、尚不在桶里」的 matcher。
+	// 正常路径下最多一个（就是刚绑定的那个），扫描只发生在候选桶之外的新条目上。
+	var add []*Matcher
+	for _, m := range s.matchers {
+		if m == nil || m.EventType != eventType || !m.regexIndexed.Load() {
+			continue
+		}
+		if m.rt.deleted.Load() || m.handlerLocked() == nil {
+			continue
+		}
+		if slices.Contains(cur, m) || slices.Contains(add, m) {
+			continue
+		}
+		add = append(add, m)
+	}
+	if len(add) == 0 {
+		return s
+	}
+
+	bucket := make([]*Matcher, 0, len(cur)+len(add))
+	bucket = append(bucket, cur...)
+	bucket = append(bucket, add...)
+	sortMatchersByPriority(bucket)
+
+	dst := &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		sortedCache:      s.sortedCache,
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+		regexIndex:       maps.Clone(s.regexIndex),
+	}
+	dst.regexIndex[eventType] = bucket
+	return dst
+}
+
 // withUpdatedMatcherIndex 仅更新 affected matcher 的索引
 func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 	if m == nil {
@@ -580,18 +644,21 @@ func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 		// 直接就地排序会改写已发布旧 state 中正被无锁读取的数组（数据竞争）。
 		if em, ok := s.commandIndex[cmd]; ok {
 			if lst, ok := em[et]; ok {
-				dst.commandIndex = copyCommandIndex(s.commandIndex)
 				sorted := append([]*Matcher(nil), lst...)
 				sortMatchersByPriority(sorted)
-				dst.commandIndex[cmd][et] = sorted
+				// 只复制外层与目标命令的内层 map，其余命令共享（只读）。
+				dst.commandIndex = maps.Clone(s.commandIndex)
+				eventMap := maps.Clone(em)
+				eventMap[et] = sorted
+				dst.commandIndex[cmd] = eventMap
 			}
 		}
 	} else if m.regexIndexed.Load() {
 		// 正则桶重排同样需要逐元素完整拷贝（COW 共享底层数组，见上）
 		if lst, ok := s.regexIndex[et]; ok {
-			dst.regexIndex = copyRegexIndex(s.regexIndex)
 			sorted := append([]*Matcher(nil), lst...)
 			sortMatchersByPriority(sorted)
+			dst.regexIndex = maps.Clone(s.regexIndex)
 			dst.regexIndex[et] = sorted
 		}
 	} else {
@@ -790,11 +857,20 @@ func (s *state) rebuildCommandInfoCache(m *Matcher, cmd string) {
 
 // rebuildCommandListCache 将 commandInfoCache 展开为有序切片并缓存。
 // 每次 commandInfoCache 变动后调用，保证 GetAllCommands 可 O(1) 复制返回。
+//
+// 输出按命令名排序：map 迭代顺序不稳定，不排序会让 GetAllCommands 的返回
+// 顺序随注册/GC 变化，调用方（如 /help、管理 API 快照）无法稳定 diff。
 func (s *state) rebuildCommandListCache() {
 	list := make([]CommandInfo, 0, len(s.commandInfoCache))
 	for _, info := range s.commandInfoCache {
 		list = append(list, *info)
 	}
+	slices.SortFunc(list, func(a, b CommandInfo) int {
+		if c := strings.Compare(a.Command, b.Command); c != 0 {
+			return c
+		}
+		return strings.Compare(a.EventType, b.EventType)
+	})
 	s.commandListCache = list
 	s.commandListVer++
 }

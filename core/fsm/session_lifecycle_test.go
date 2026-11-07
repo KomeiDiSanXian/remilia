@@ -1,6 +1,6 @@
 package fsm
 
-// session_lifecycle_hardening_test.go — 会话生命周期边界的回归测试
+// session_lifecycle_test.go — 会话生命周期边界的回归测试
 //
 // 回归背景：
 //   - Engine.EndSession 不取会话锁：与并发 TryTransition 的读-改-写交错时，

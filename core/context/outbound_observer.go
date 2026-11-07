@@ -75,10 +75,16 @@ func (o OutboundObservers) OnOutbound(chatID string, req platform.SendRequest, r
 //
 // 与直接 SetTyped 的区别：不会覆盖其他子系统已注入的观察者。首次注入时
 // 行为与 SetTyped 相同；此后每次追加都会合并进 OutboundObservers。
+//
+// 并发安全：扩展存储本身只保证单次读写原子的，而这里是「读-改-写」，
+// 并发追加会丢观察者（lost update）。用 obsMu 串行化整个追加过程。
 func (ctx *Context) AddOutboundObserver(obs OutboundObserver) {
 	if ctx == nil || obs == nil {
 		return
 	}
+	ctx.obsMu.Lock()
+	defer ctx.obsMu.Unlock()
+
 	ext, ok := ctx.Ext().GetTyped[OutboundObserverExt]()
 	if !ok || ext.Observer == nil {
 		ctx.Ext().SetTyped(OutboundObserverExt{Observer: obs})
@@ -98,11 +104,15 @@ func outboundObserverFrom(ctx *Context) OutboundObserver {
 	if ctx == nil {
 		return nil
 	}
-	ext, ok := ctx.Ext().GetTyped[OutboundObserverExt]()
+	ext := ctx.extRead()
+	if ext == nil {
+		return nil
+	}
+	o, ok := ext.GetTyped[OutboundObserverExt]()
 	if !ok {
 		return nil
 	}
-	return ext.Observer
+	return o.Observer
 }
 
 // submitReply 在 dispatcher 任务内执行发送并通知观察者。

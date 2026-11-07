@@ -165,7 +165,7 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) *future.Future[platform.
 	obs := outboundObserverFrom(ctx)
 
 	if ctx.dispatcher == nil {
-		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		f.Resolve(platform.SendResult{}, ErrNoDispatcher)
 		return f
 	}
 	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
@@ -207,7 +207,7 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	obs := outboundObserverFrom(ctx)
 
 	if ctx.dispatcher == nil {
-		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		f.Resolve(platform.SendResult{}, ErrNoDispatcher)
 		return f
 	}
 	// 调用方 context 已结束：不再入队，直接以取消原因结束 Future

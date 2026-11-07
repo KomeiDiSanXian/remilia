@@ -36,15 +36,16 @@ func newNoopMatcher(e *Engine) *Matcher {
 
 // ---- 删除操作 ----------------------------------------------------------------
 
-// DeleteAllMatchers 删除引擎中的所有匹配器（COW 写操作）
+// DeleteAllMatchers 删除引擎中的所有匹配器（COW 写操作）。
+//
+// 同时清空 TempManager：「所有匹配器」包含临时 matcher，否则重置/测试场景
+// 下它们会继续路由（临时 matcher 不在 state.matchers 里）。
 func (e *Engine) DeleteAllMatchers() {
 	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-
 	oldState := e.state.Load()
 	oldMatchers := append([]*Matcher(nil), oldState.matchers...)
-
 	e.state.Store(oldState.withClearedMatchers())
+	e.writeMu.Unlock()
 
 	for _, m := range oldMatchers {
 		if m == nil {
@@ -52,6 +53,8 @@ func (e *Engine) DeleteAllMatchers() {
 		}
 		m.rt.deleted.Store(true)
 	}
+	// Clear 内部已把每个临时 matcher 标记 deleted。
+	e.internals.tempManager.Clear()
 }
 
 // DeleteMatcher 删除指定的匹配器。
@@ -72,6 +75,14 @@ func (e *Engine) DeleteMatcher(m *Matcher) {
 	}
 	// 先置 deleted：无论走哪条路径，matcher 都立即停止匹配
 	m.rt.deleted.Store(true)
+
+	// 临时 matcher 不在 state.matchers 里，COW 删除对它无效：
+	// 直接交给 TempManager 摘除，否则只能等超时清理（OnTemp + Delete
+	// 会表现为"删了还在路由"）。
+	if m.isTempMatcher() {
+		e.internals.tempManager.Remove(m)
+		return
+	}
 
 	if e.internals.pendingDeleteActive.Load() {
 		select {
@@ -102,13 +113,37 @@ func (e *Engine) FlushPendingDeletes() {
 	}
 }
 
-// DeleteMatchers 批量删除匹配器（COW 写操作）
+// DeleteMatchers 批量删除匹配器（COW 写操作）。
+//
+// 临时 matcher 走 TempManager 摘除（它们不在 state.matchers 里）；
+// 其余条目从 COW state 移除并统一标记 deleted——否则外部持有者
+// （如插件实例的 matcher 列表）仍会看到"未删除"的实例。
 func (e *Engine) DeleteMatchers(matchers []*Matcher) {
+	if len(matchers) == 0 {
+		return
+	}
+
+	persistent := make([]*Matcher, 0, len(matchers))
+	for _, m := range matchers {
+		if m == nil {
+			continue
+		}
+		m.rt.deleted.Store(true)
+		if m.isTempMatcher() {
+			e.internals.tempManager.Remove(m)
+			continue
+		}
+		persistent = append(persistent, m)
+	}
+	if len(persistent) == 0 {
+		return
+	}
+
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
 	state := e.state.Load()
-	e.state.Store(state.withDeletedMatchers(matchers))
+	e.state.Store(state.withDeletedMatchers(persistent))
 }
 
 // ---- 注册操作 ----------------------------------------------------------------
@@ -300,19 +335,37 @@ func (e *Engine) EnableGlobalMatchers(enable bool) {
 
 // ---- 分组操作 ----------------------------------------------------------------
 
-// RemoveGroup 根据分组名称删除所有匹配器（COW 写操作）
+// RemoveGroup 根据分组名称删除所有匹配器（COW 写操作）。
+//
+// 覆盖两处索引：COW state 的 groupIndex 与 TempManager 中的临时 matcher
+// （后者不在 state.matchers 里，此前会被整体漏掉——插件卸载后其临时会话
+// matcher 仍在继续路由）。被移除的 matcher 统一标记 deleted，避免外部持有者
+// 把"已删除"的实例当作仍存活。
 func (e *Engine) RemoveGroup(groupName string) {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-
-	state := e.state.Load()
-	if _, ok := state.groupIndex[groupName]; !ok {
+	if groupName == "" {
 		return
 	}
 
-	e.state.Store(state.withRemovedGroup(groupName))
+	e.writeMu.Lock()
+	state := e.state.Load()
+	stateMatchers, inState := state.groupIndex[groupName]
+	if inState {
+		e.state.Store(state.withRemovedGroup(groupName))
+	}
+	e.writeMu.Unlock()
 
-	logger.Debugf("[engine] Removed matcher group: %s", groupName)
+	for _, m := range stateMatchers {
+		if m != nil {
+			m.rt.deleted.Store(true)
+		}
+	}
+	tempRemoved := e.internals.tempManager.RemoveGroup(groupName)
+
+	if !inState && len(tempRemoved) == 0 {
+		return
+	}
+	logger.Debugf("[engine] Removed matcher group: %s (%d persistent, %d temp)",
+		groupName, len(stateMatchers), len(tempRemoved))
 }
 
 // DisableGroup 暂停指定分组的所有 Matcher 响应。
@@ -320,6 +373,8 @@ func (e *Engine) RemoveGroup(groupName string) {
 // 与 RemoveGroup 的区别：
 //   - RemoveGroup：永久删除，无法恢复
 //   - DisableGroup：仅标记为禁用，可通过 EnableGroup 恢复
+//
+// 临时 matcher（TempManager）同样生效：它们不在 state.groupIndex 里。
 func (e *Engine) DisableGroup(groupName string) {
 	if groupName == "" {
 		return
@@ -327,12 +382,19 @@ func (e *Engine) DisableGroup(groupName string) {
 	state := e.state.Load()
 	matchers, ok := state.groupIndex[groupName]
 	if !ok {
-		return
+		matchers = nil
 	}
 	for _, m := range matchers {
 		m.disable()
 	}
-	logger.Debugf("[engine] Disabled matcher group: %s (%d matchers)", groupName, len(matchers))
+	tempN := 0
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		if m.GetGroup() == groupName {
+			m.disable()
+			tempN++
+		}
+	})
+	logger.Debugf("[engine] Disabled matcher group: %s (%d matchers, %d temp)", groupName, len(matchers), tempN)
 }
 
 // EnableGroup 恢复指定分组的所有 Matcher 响应。
@@ -343,12 +405,19 @@ func (e *Engine) EnableGroup(groupName string) {
 	state := e.state.Load()
 	matchers, ok := state.groupIndex[groupName]
 	if !ok {
-		return
+		matchers = nil
 	}
 	for _, m := range matchers {
 		m.enable()
 	}
-	logger.Debugf("[engine] Enabled matcher group: %s (%d matchers)", groupName, len(matchers))
+	tempN := 0
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		if m.GetGroup() == groupName {
+			m.enable()
+			tempN++
+		}
+	})
+	logger.Debugf("[engine] Enabled matcher group: %s (%d matchers, %d temp)", groupName, len(matchers), tempN)
 }
 
 // WithMatcherGroupBatch 在单次 COW 写操作中提交多个 group 更新。
@@ -377,24 +446,27 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 		return
 	}
 
-	oldGroup := ""
+	newGroup := strings.TrimSpace(group)
+	var oldGroup string
+	var sourceChanged bool
+
 	m.rt.mu.Lock()
 	oldGroup = m.group
-	m.group = strings.TrimSpace(group)
-	sourceChanged := source != "" && m.Source != source
+	m.group = newGroup
+	sourceChanged = source != "" && m.Source != source
 	if source != "" {
 		m.Source = source
 	}
 	m.invalidateCombinedChain()
 	m.rt.mu.Unlock()
 
-	if oldGroup != m.group {
+	// 用锁内取到的快照比较：锁外再读 m.group 会与并发的 SetGroup 竞争。
+	if oldGroup != newGroup {
 		e.writeMu.Lock()
-		newGroupName := strings.TrimSpace(group)
 		if b := e.registerBatch; b != nil && b.contains(m) {
 			// 批处理会话：group 字段已更新，Flush 的 withBatchMatchers 会重建 groupIndex
 		} else {
-			e.state.Store(e.state.Load().withSetMatcherGroup(m, oldGroup, newGroupName))
+			e.state.Store(e.state.Load().withSetMatcherGroup(m, oldGroup, newGroup))
 		}
 		e.writeMu.Unlock()
 	}
@@ -445,9 +517,13 @@ func (e *Engine) MigrateMatcherFromTemp(m *Matcher) {
 // ---- 索引维护 ----------------------------------------------------------------
 
 // UpdateMatcherCommand 重新索引指定的 matcher（COW 写操作）
-// 当 matcher 的 command 属性变化时调用
+// 当 matcher 的 command 属性变化时调用。
+//
+// 必须全量重建：命令名可能已经变了，增量重排只会更新新键对应的桶，
+// 旧键（原命令名）会留下一条指向同一 matcher 的幽灵路由——实测
+// BindCommand("/new") 之后 "/old" 仍会触发 handler。
 func (e *Engine) UpdateMatcherCommand(m *Matcher) {
-	e.UpdateMatcherIndex(m)
+	e.UpdateMatcherIndex(nil)
 }
 
 // UpdateMatcherIndex 强制更新匹配器的索引（COW 写操作）。
@@ -465,6 +541,23 @@ func (e *Engine) UpdateMatcherIndex(m *Matcher) {
 	}
 
 	e.state.Store(e.state.Load().withUpdatedMatcherIndex(m))
+}
+
+// RebuildRegexBucket 只重建指定事件类型的正则索引桶（实现 regexBucketRebuilder）。
+//
+// 供 Regex() matcher 的首次 Handler 绑定使用：正则桶按 handler 过滤，
+// 绑定时必须把自身纳入。走全量 UpdateMatcherIndex(nil) 会让"逐条注册
+// N 个 regex matcher"退化为 O(N²)（每次绑定都重建整张索引）。
+func (e *Engine) RebuildRegexBucket(eventType EventType) {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	if b := e.registerBatch; b != nil {
+		// 批处理会话：Flush 的 withBatchMatchers 会统一收纳
+		return
+	}
+
+	e.state.Store(e.state.Load().withRebuiltRegexBucket(eventType))
 }
 
 // UpdateCommandCache 更新指定 matcher 的命令缓存（COW 写操作）

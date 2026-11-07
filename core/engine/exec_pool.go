@@ -22,13 +22,16 @@ import (
 // （缓存亲和、负载均衡）在此场景下不显著。有界令牌池 + 有界队列
 // 已足够。
 type ExecPool struct {
-	maxConcurrency int
-	queueSize      int
-
 	sem     chan struct{} // 并发令牌，容量 = maxConcurrency
 	queue   chan func()   // 有界等待队列，容量 = queueSize
 	stopped atomic.Bool
-	wg      sync.WaitGroup
+	// inflight 统计「已成功提交、尚未执行完」的任务。
+	// 用 drainTracker 而不是 sync.WaitGroup：TrySubmit 与 Drain 天然并发，
+	// WaitGroup 归零后再 Add 会触发 "reused before previous Wait has returned"。
+	inflight drainTracker
+
+	// gate 把「复查 stopped + 登记在途」与 Drain 串行化（见 TrySubmit 说明）。
+	gate sync.RWMutex
 
 	// exitMu 串行化「worker 归还令牌前的最终空队列检查」与「入队后确保存在消费者」
 	// 两个动作，消除任务在两者间隙入队后无人消费的滞留窗口。
@@ -65,10 +68,8 @@ func NewExecPool(cfg ExecPoolConfig) *ExecPool {
 		cfg.QueueSize = 128
 	}
 	return &ExecPool{
-		maxConcurrency: cfg.MaxConcurrency,
-		queueSize:      cfg.QueueSize,
-		sem:            make(chan struct{}, cfg.MaxConcurrency),
-		queue:          make(chan func(), cfg.QueueSize),
+		sem:   make(chan struct{}, cfg.MaxConcurrency),
+		queue: make(chan func(), cfg.QueueSize),
 	}
 }
 
@@ -76,7 +77,7 @@ func NewExecPool(cfg ExecPoolConfig) *ExecPool {
 //
 // 仅在测试中需要确保异步 handler 完成时使用。
 func (p *ExecPool) Wait() {
-	p.wg.Wait()
+	_ = p.inflight.Wait(context.Background())
 }
 
 // TrySubmit 尝试提交任务到池中执行。
@@ -90,8 +91,14 @@ func (p *ExecPool) Wait() {
 //	worker 在归还令牌前的最终空队列检查与 TrySubmit 的入队动作由 exitMu
 //	串行化：入队成功后要么仍有 worker 持有令牌（其退出检查必然看到该任务），
 //	要么能立刻抢到令牌并启动一个 drain worker——任务不会滞留到下一次提交。
+//
+// 关闭栅栏：gate 读锁覆盖「复查 stopped + 登记在途 + 入队/起 worker」，
+// Drain 置 stopped 后取写锁，因此 Drain 不会在一个已通过检查、尚未登记
+// 的任务之前返回（否则任务会在 Drain 返回后才执行）。
 func (p *ExecPool) TrySubmit(task func()) bool {
+	p.gate.RLock()
 	if p.stopped.Load() {
+		p.gate.RUnlock()
 		return false
 	}
 
@@ -99,7 +106,8 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 	select {
 	case p.sem <- struct{}{}:
 		// 获取到令牌，启动 goroutine
-		p.wg.Add(1)
+		p.inflight.Add(1)
+		p.gate.RUnlock()
 		go p.runWorker(task)
 		return true
 	default:
@@ -116,15 +124,18 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 		select {
 		case p.sem <- struct{}{}:
 			p.exitMu.Unlock()
-			p.wg.Add(1)
+			p.inflight.Add(1)
+			p.gate.RUnlock()
 			go p.runWorker(nil)
 		default:
 			// 仍有 worker 持有令牌：其退出前的最终检查（exitMu 内）会消费该任务
 			p.exitMu.Unlock()
+			p.gate.RUnlock()
 		}
 		return true
 	default:
 		p.exitMu.Unlock()
+		p.gate.RUnlock()
 		return false
 	}
 }
@@ -132,7 +143,7 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 // runWorker 是池 worker 的主循环：执行首个任务（可为 nil），随后持续
 // drain 队列，直到在 exitMu 保护下确认队列为空才归还令牌退出。
 func (p *ExecPool) runWorker(first func()) {
-	defer p.wg.Done()
+	defer p.inflight.Done()
 
 	if first != nil {
 		runPoolTask(first)
@@ -211,24 +222,17 @@ func runPoolTask(task func()) {
 // 让 Shutdown 超过调用方给定超时）。
 func (p *ExecPool) Drain(ctx context.Context) error {
 	p.stopped.Store(true)
+	// 写锁屏障：等待所有已通过 stopped 检查的 TrySubmit 完成登记与入队，
+	// 保证后续 inflight.Wait 能看到它们（否则任务可能在 Drain 返回后才跑）。
+	p.gate.Lock()
+	p.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 TrySubmit 已全部登记
 
 	// 先消费队列中可能残留的任务（当没有活跃 goroutine 来 drain 时）
 	if !p.drainQueueUntil(ctx) {
 		return ctx.Err()
 	}
 
-	done := make(chan struct{})
-	go func() {
-		p.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return p.inflight.Wait(ctx)
 }
 
 // Stop 停止接受新任务并等待所有正在运行的任务完成（默认 30 秒超时）。

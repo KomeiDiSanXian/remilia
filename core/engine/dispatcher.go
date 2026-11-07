@@ -93,6 +93,9 @@ func (r *ringBuffer) pop() (queuedTask, bool) {
 		return queuedTask{}, false
 	}
 	t := r.buf[r.head]
+	// 清掉槽位里的引用：队列任务闭包通常捕获 Handler/上下文，
+	// 不清会让环形缓冲（容量 = QueueSize）在空闲期继续持有它们。
+	r.buf[r.head] = queuedTask{}
 	r.head = (r.head + 1) % r.cap
 	r.len--
 	return t, true
@@ -149,8 +152,20 @@ type OutboundDispatcher struct {
 	config  DispatcherConfig
 	sem     chan struct{} // 全局并发令牌
 	queues  sync.Map      // map[string]*chatQueue
+
 	stopped atomic.Bool
-	wg      sync.WaitGroup
+
+	// gate 把「入队 + 计数」与「关闭」串行化：
+	// Submit 在读锁内复查 stopped 并登记在途任务，Close 先置 stopped
+	// 再取写锁（等于等待所有在途 Submit 走完），因此 Drain 不会在
+	// 一个刚通过 stopped 检查、尚未入队的任务之前就返回。
+	gate sync.RWMutex
+
+	// wg 统计在途 worker/失败补偿 goroutine。
+	// 用 drainTracker 而不是 sync.WaitGroup：Submit 与 Drain 天然并发，
+	// WaitGroup 在归零后 Add 会触发 "reused before previous Wait has returned"，
+	// 且 Drain 可能在上一次 Wait 返回前被再次调用。
+	wg drainTracker
 }
 
 // NewOutboundDispatcher 创建 OutboundDispatcher。
@@ -181,7 +196,12 @@ func NewOutboundDispatcher(ctx context.Context, config DispatcherConfig) *Outbou
 // 同一 ChatID 的任务严格 FIFO 顺序执行，不同 ChatID 之间并发执行。
 // 当队列满时返回 ErrQueueFull；当 Dispatcher 已关闭时返回 ErrDispatcherClosed。
 func (d *OutboundDispatcher) Submit(chatID string, task func(context.Context) error) error {
+	// 读锁覆盖「复查 stopped + 入队 + 登记在途」全过程：
+	// Close 会先置 stopped 再取写锁，因此 Close→Drain 之后不可能再有
+	// 通过检查的任务被登记（否则 Drain 可能先返回、任务随后才执行）。
+	d.gate.RLock()
 	if d.stopped.Load() {
+		d.gate.RUnlock()
 		d.reject(chatID, ErrDispatcherClosed)
 		return ErrDispatcherClosed
 	}
@@ -212,19 +232,29 @@ func (d *OutboundDispatcher) Submit(chatID string, task func(context.Context) er
 
 		if !q.q.push(queuedTask{enqueueAt: time.Now(), run: task}) {
 			q.mu.Unlock()
+			d.gate.RUnlock()
 			d.reject(chatID, ErrQueueFull)
 			return ErrQueueFull
 		}
-		if h := d.config.Hooks.OnQueued; h != nil {
-			h(chatID, q.q.len)
-		}
-		if !q.running {
+		queueLen := q.q.len
+		startWorker := !q.running
+		if startWorker {
 			q.running = true
-			q.mu.Unlock()
+			// 起 worker 前先登记在途计数：worker 可能在登记完成前就跑完
+			// （空队列立即返回），先起 goroutine 再 Add 会让 Drain 看到瞬时 0。
+			// 必须在 gate 读锁内登记，见函数开头说明。
 			d.wg.Add(1)
+		}
+		q.mu.Unlock()
+		d.gate.RUnlock()
+
+		if startWorker {
 			go d.worker(q)
-		} else {
-			q.mu.Unlock()
+		}
+		// 钩子在锁外调用：慢钩子（写日志/打点）不应阻塞同一 chat 的其它
+		// 入队者，也不应拖住 Close 的写锁屏障。
+		if h := d.config.Hooks.OnQueued; h != nil {
+			h(chatID, queueLen)
 		}
 		return nil
 	}
@@ -249,7 +279,9 @@ func (d *OutboundDispatcher) failDroppedTasks(chatID string, tasks []queuedTask)
 	if len(tasks) == 0 {
 		return
 	}
-	d.wg.Go(func() {
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
 		ctx, cancel := context.WithCancel(d.baseCtx)
 		cancel() // 立即取消：任务只应快速失败，不应真正发送
 		for _, t := range tasks {
@@ -261,7 +293,7 @@ func (d *OutboundDispatcher) failDroppedTasks(chatID string, tasks []queuedTask)
 				h(DispatchInfo{ChatID: chatID, Err: err})
 			}
 		}
-	})
+	}()
 }
 
 // worker 是单个 Chat 的消息流处理 goroutine。
@@ -350,25 +382,20 @@ func (d *OutboundDispatcher) worker(q *chatQueue) {
 // ── 生命周期管理 ──────────────────────────────────────────────────────────
 
 // Close 拒绝新任务，已有任务继续执行。
+//
+// 置 stopped 后取写锁（= 等待所有在途 Submit 完成入队与登记），
+// 使随后的 Drain 一定能看到这些任务。
 func (d *OutboundDispatcher) Close() {
 	d.stopped.Store(true)
+	d.gate.Lock()
+	d.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
 }
 
 // Drain 等待所有 Worker 完成已有任务。
 //
 // 如果 ctx 在完成前被取消，返回 ctx.Err()。
 func (d *OutboundDispatcher) Drain(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return d.wg.Wait(ctx)
 }
 
 // Shutdown 拒绝新任务并等待所有 Worker 完成。
@@ -385,5 +412,7 @@ func (d *OutboundDispatcher) Shutdown(ctx context.Context) error {
 // 通常仅在进程强制退出时使用，生产环境应优先使用 Shutdown。
 func (d *OutboundDispatcher) ForceClose() {
 	d.stopped.Store(true)
+	d.gate.Lock()
+	d.gate.Unlock() //nolint:staticcheck // SA2001 intentional drain barrier — 确保在途 Submit 已全部登记
 	d.cancel()
 }

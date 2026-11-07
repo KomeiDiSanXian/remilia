@@ -36,7 +36,10 @@ func (e *Engine) ensureMatcherChainWithState(m *Matcher, mwState *middlewareStat
 
 	// groupName must be explicitly set (e.g. by plugin manager / BasePlugin.AddMatcher).
 	// Source is for diagnostics/labeling only and must NOT drive group behavior.
-	groupName := m.group
+	//
+	// 必须走加锁访问器：SetGroup / Engine.SetMatcherGroup 会在运行期改写
+	// m.group（如插件重载），此处裸读会与写侧构成数据竞争。
+	groupName := m.GetGroup()
 
 	groupSnap := mwState.groupMiddlewares[groupName]
 	globalSnap := mwState.global
@@ -211,18 +214,25 @@ func (e *Engine) ResetGroupMiddleware(groupName string) *Engine {
 }
 
 // Named wraps a middleware with a name and triggers trace hook if configured.
+//
+// 包装在中间件工厂这一层（只执行一次），而不是放进 handler 里每事件重建：
+// 此前把 mw(next) 写在返回的 handler 内部，每个事件都会重新调用中间件工厂，
+// 既多一次分配，也让工厂内捕获的状态每事件重置。
 func (e *Engine) Named(name string, mw context.Middleware) context.Middleware {
 	name = strings.TrimSpace(name)
 	return func(next context.Handler) context.Handler {
+		inner := mw(next)
+		if name == "" {
+			return inner
+		}
 		return func(ctx *context.Context) error {
-			mwState := e.middleware.Load()
-			if mwState.traceHook != nil && name != "" {
+			if mwState := e.middleware.Load(); mwState != nil && mwState.traceHook != nil {
 				func() {
 					defer func() { _ = recover() }()
 					(*mwState.traceHook)(name, ctx)
 				}()
 			}
-			return mw(next)(ctx)
+			return inner(ctx)
 		}
 	}
 }

@@ -206,6 +206,8 @@ func (e *Engine) sessionLock(sessionID string) *sync.Mutex {
 	if v, ok := e.sessionLocks.Load(sessionID); ok {
 		return v.(*sync.Mutex)
 	}
+	// 先 Load 再按需 LoadOrStore：直接传 &sync.Mutex{} 会为每次调用都
+	// 分配一把锁（参数在查找前就已求值），迁移热路径上纯属浪费。
 	v, _ := e.sessionLocks.LoadOrStore(sessionID, &sync.Mutex{})
 	return v.(*sync.Mutex)
 }
@@ -495,9 +497,12 @@ func (e *Engine) TryTransition(ctx *corectx.Context, sessionID string) (State, b
 		}
 
 		if fsmCtx.ended || event.To == "" {
-			// ended=true（用户调了 EndSession）或 To 为空 → 终态，结束会话
+			// ended=true（用户调了 EndSession）或 To 为空 → 终态，结束会话。
+			// 返回值语义是"迁移尝试后的状态"：会话已结束，新状态为空。
+			// 此前返回 session.Current（迁移前的旧状态），与文档不符，
+			// 调用方据此判断"仍在某状态"会误判。
 			e.stores.Delete(sessionID)
-			return session.Current, true, nil
+			return "", true, nil
 		}
 
 		prev := session.Current

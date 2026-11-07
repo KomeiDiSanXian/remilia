@@ -34,7 +34,10 @@ func (ctx *Context) SetCandidateMeta(meta any) {
 		return
 	}
 	if meta == nil {
-		ctx.Ext().DeleteTyped[candidateMeta]()
+		// 未初始化扩展 = 从未注入过 Meta，无需为一次"清除"分配存储。
+		if ext := ctx.extRead(); ext != nil {
+			ext.DeleteTyped[candidateMeta]()
+		}
 		return
 	}
 	ctx.Ext().SetTyped(candidateMeta{Meta: meta})
@@ -45,7 +48,7 @@ func (ctx *Context) CandidateMeta() any {
 	if ctx == nil {
 		return nil
 	}
-	if cm, ok := ctx.Ext().GetTyped[candidateMeta](); ok {
+	if cm, ok := ctx.extRead().GetTyped[candidateMeta](); ok {
 		return cm.Meta
 	}
 	return nil

@@ -92,10 +92,10 @@ type GroupWriter interface {
 // PluginCoordinator 是插件系统对 Engine 的完整依赖接口。
 //
 // 组合 MatcherWriter（3 方法）+ GroupWriter（3 方法）+ Reader（8 方法），
-// 共 10 个方法。按职责拆分后，调用方可按需依赖更小的子接口：
+// 共 14 个方法。按职责拆分后，调用方可按需依赖更小的子接口：
 //   - liveRegistryWriter → MatcherWriter（3 方法）
 //   - Instance.unload    → GroupWriter（仅使用 RemoveGroup, 1 方法）
-//   - Manager            → GroupWriter（4 方法）或 PluginCoordinator（完整）
+//   - Manager            → GroupWriter（3 方法）或 PluginCoordinator（完整）
 //   - plugin_info.go     → Reader（8 方法，已通过 NewEngineReader 包装）
 //
 // *Engine 已同时实现上述所有接口，调用方零修改。

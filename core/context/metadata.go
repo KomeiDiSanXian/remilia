@@ -43,7 +43,7 @@ func (ctx *Context) GetRetryAttempt() (int, bool) {
 	if ctx == nil {
 		return 0, false
 	}
-	if ra, ok := ctx.Ext().GetTyped[retryMetadata](); ok {
+	if ra, ok := ctx.extRead().GetTyped[retryMetadata](); ok {
 		return ra.Attempt, true
 	}
 	return 0, false
@@ -64,7 +64,7 @@ func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 	if ctx == nil {
 		return nil, false
 	}
-	if mt, ok := ctx.Ext().GetTyped[middlewareTrace](); ok {
+	if mt, ok := ctx.extRead().GetTyped[middlewareTrace](); ok {
 		cp := make([]string, len(mt.Trace))
 		copy(cp, mt.Trace)
 		return cp, true
@@ -77,7 +77,7 @@ func (ctx *Context) GetParsedCommand() *command.Parsed {
 	if ctx == nil {
 		return nil
 	}
-	if pc, ok := ctx.Ext().GetTyped[parsedCommand](); ok {
+	if pc, ok := ctx.extRead().GetTyped[parsedCommand](); ok {
 		return pc.Cmd
 	}
 	return nil

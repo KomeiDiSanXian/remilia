@@ -39,6 +39,14 @@ type CommandInfo struct {
 //
 // cmdPattern 应包含前缀，如 "/help" 或 "!help"。
 // 第一个字符被视为触发前缀，剩余部分为命令名。
+//
+// # 匹配粒度
+//
+// 命令索引按消息的**首个空白分隔 token** 精确匹配（O(1) 的前提）。
+// 这与 [context.OnCommand] 规则的前缀语义不同：注册 "/help" 时
+// "/helper" 不会命中它。需要前缀/关键词/正则语义时，请改用
+// Engine.On(context.OnPrefix(...)) / OnKeyword / Regex 这类常规索引规则
+// （注册互为前缀的两个命令时会输出告警）。
 func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ...context.Rule) *Matcher {
 	finalRules := make([]context.Rule, 0, len(extraRules)+1)
 	finalRules = append(finalRules, context.OnCommand(cmdPattern))
@@ -71,6 +79,9 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 			// 键，若仍标记 commandIndexed，Rules[0] 会被跳过而候选来源
 			// 又随索引重建在"全不匹配"与"匹配一切"之间摇摆。
 			m.commandIndexed.Store(true)
+			// 命令索引是「首个空白词精确匹配」，与 context.OnCommand 的
+			// 前缀语义不同；互为前缀的两个命令是常见误用，注册时就提醒。
+			e.warnCommandPrefixConflict(prefix + cmdName)
 		}
 	}
 
@@ -85,6 +96,29 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	e.injectBaseAliasRegistrar(registered, eventType, extraRules)
 
 	return registered
+}
+
+// warnCommandPrefixConflict 在注册命令时检查其是否为已存在命令的前缀
+// （或反之），并给出告警。
+//
+// 命令索引按「首个空白词」精确匹配，与 context.OnCommand 的前缀语义不同。
+// 例如先注册 /he 再注册 /hello 时，"/hello" 只会命中 /hello，而单独输入
+// "/he" 只命中 /he——与"规则前缀匹配"的直觉不一致，属于常见误用。
+func (e *Engine) warnCommandPrefixConflict(cmd string) {
+	if cmd == "" {
+		return
+	}
+	state := e.state.Load()
+	for existing := range state.commandIndex {
+		if existing == cmd {
+			continue
+		}
+		if strings.HasPrefix(existing, cmd) || strings.HasPrefix(cmd, existing) {
+			logger.Warnf("[engine] command %q and %q are prefixes of each other; command routing matches the whole command word, so the shorter one will NOT trigger on the longer input",
+				cmd, existing)
+			return
+		}
+	}
 }
 
 // injectBaseAliasRegistrar 为 Matcher 注入引擎级别的基础别名注册回调。
@@ -103,11 +137,12 @@ func (e *Engine) injectBaseAliasRegistrar(primary *Matcher, eventType EventType,
 		if len(extraRules) > 0 {
 			return
 		}
-		prefix := primary.triggerPrefix
-		if prefix == "" {
-			prefix = "/"
-		}
+		// Read prefix through the locked accessor: the primary matcher can be
+		// re-bound (BindCommand) while a background goroutine registers aliases.
+		prefix := primary.GetPrefix()
 		primaryCmd := prefix + def.Name
+		group := primary.GetGroup()
+		source := primary.GetSource()
 		for _, alias := range def.Aliases {
 			aliasPattern := prefix + alias
 			// 跳过已在 commandIndex 中存在的别名（避免覆盖已有注册）
@@ -118,8 +153,14 @@ func (e *Engine) injectBaseAliasRegistrar(primary *Matcher, eventType EventType,
 				continue
 			}
 			aliasMatcher := e.OnCommand(eventType, aliasPattern)
-			aliasMatcher.SetGroup(primary.GetGroup())
-			aliasMatcher.SetSource(primary.GetSource())
+			// 必须走 SetMatcherGroup：只调 matcher.SetGroup 只改字段、不更新
+			// engine 的 groupIndex，RemoveGroup/DisableGroup 会漏掉别名 matcher
+			// （插件卸载后残留不可见的别名路由）。
+			if group != "" {
+				e.SetMatcherGroup(aliasMatcher, group, source)
+			} else {
+				aliasMatcher.SetSource(source)
+			}
 			aliasMatcher.SetDefinition(&command.Definition{Name: alias, Hidden: true})
 			aliasMatcher.Handle(h)
 			logger.Debugf("[engine] auto-registered alias route %s -> %s", aliasPattern, primaryCmd)
@@ -134,6 +175,15 @@ func (e *Engine) RegisterCommand(cmd *command.Definition, rules ...context.Rule)
 
 // RegisterCommandWithPrefix 带自定义前缀的 RegisterCommand
 func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definition, rs ...context.Rule) *Matcher {
+	// 与 RegisterCommandDefWithPrefix 保持一致：nil definition 返回 noop matcher
+	// 而不是解引用 panic（两个同族 API 的容错语义应当一致）。
+	if cmd == nil {
+		logger.Warn("[engine] RegisterCommandWithPrefix: definition is nil")
+		return newNoopMatcher(e)
+	}
+	if prefix == "" {
+		prefix = "/"
+	}
 	trigger := prefix + cmd.Name
 	finalRules := append([]context.Rule{context.OnParseCommand(cmd)}, rs...)
 	m := e.OnCommand("", trigger, finalRules...)

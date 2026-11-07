@@ -27,6 +27,91 @@
 - `ListFunctionNames` 只列 `funcs`，纯 `RegisterWithCaller` 注册的宿主函数对 `__host_functions` 探测不可见。
 - `ToDescriptor` 中 `ctx.DryRun` 分支是死代码（该描述符未声明 `DryRunSafe`），一并移除。
 
+### 🐛 修复（`core` 内核：engine / context / fsm / permission）
+
+**并发安全**
+
+- **`Matcher.SetGroup` / `Engine.SetMatcherGroup` 与事件派发数据竞争**：`middleware.go` 与 `process.go` 无锁读取 `m.group`，而这两个写方法持 `rt.mu` 改写（插件重载是运行期常态）。读侧改走加锁访问器 `GetGroup()`，`-race` 下已无告警。
+- **`GetTempMatcherCleanInterval` 无锁读**：写侧在 `writeMu` 下改写，读侧裸读；改为同锁读取。
+- **`OutboundDispatcher.Submit` / `ExecPool.TrySubmit` 与 Drain 的竞态**：`stopped` 检查与 `wg.Add` 之间可被 Drain 插队，导致 Drain 返回后任务才执行；`sync.WaitGroup` 归零后再 Add 还会命中 "reused before previous Wait has returned"。两者改用 `drainTracker`（可重复等待的计数器）并把「复查关闭 + 登记在途」纳入关闭栅栏：`Close`/`Drain` 取写锁屏障后再等待。
+
+**状态与生命周期**
+
+- **`Snapshot`/`Restore` 不失效已编译中间件链**：链缓存在 `Matcher` 上、不属于快照，回滚后仍执行回滚前的中间件。`Restore` 现在会失效全部 matcher（含临时的）的链缓存。
+- **快照的 `commandInfoCache` 被后续注册污染**：`withAddedMatcher` 直接在旧 state 的 map 上写（其余 `with*` 都做了克隆），导致历史快照能看到之后注册的命令；`Restore` 后再注册一次就会把"幽灵命令"重新展开进 `GetAllCommands`。改为首次写入前克隆。
+- **`RemoveGroup` / `DeleteMatchers` / `DeleteAllMatchers` 漏掉临时 matcher**：临时 matcher 不在 `state.matchers` 里，插件卸载后其临时会话 matcher 仍会继续路由。三者现在都覆盖 `TempManager`（新增 `RemoveGroup`/`Clear`），并把被移除的 matcher 统一标记 `deleted`（此前 `IsDeleted()` 恒为 false）。
+- **`Matcher.Delete()` 对临时 matcher 无效**：只标记 deleted，仍在 TempManager 里路由直到超时。现在直接摘除（`sauce` 的"手动取消立即移除"才真正成立）。
+- **`DisableGroup`/`EnableGroup` 不作用于临时 matcher**：同样补充 `TempManager` 遍历。
+- **引擎级别名 matcher 逃出 `groupIndex`**：基础别名注册用的是 `Matcher.SetGroup`（只改字段），`RemoveGroup` 永久漏掉别名路由。改用 `Engine.SetMatcherGroup`。
+- **`BindCommand`/`SetDefinition` 改名不重建命令索引**：旧命令名仍留在 `commandIndex` 并继续触发。改名时走全量索引重建。
+
+**执行画像与命令路由**
+
+- **`ExecProfile` 降级后无法回升**：`demoted` 是粘滞标志，只有单次 >100ms 才会清除——"曾经快、后来稳定 60ms"的 handler 会永久留在同步分类，阻塞派发 goroutine。新增连续慢样本回滞（2 次即可重新提升）。
+- **`Named` 中间件工厂每事件重建**：`mw(next)` 原先写在返回的 handler 内部。改到工厂层，只建链时执行一次。
+- **`TempManager.Add` 对同一 matcher 不幂等**：重复 Add 会让计数虚高（水位线/`HasAny` 失真）。补充 `byID` 查重。
+- **`SetExpiration` 破坏过期堆不变式**：堆比较的是可变字段 `expiresAt`，就地改写会让已过期项沉在堆深处（`CleanExpired` 见到未过期即 break）。改为重建该 shard 的堆。
+- **水位线清理 goroutine 风暴**：计数越过高水位后每次 `Add` 都会起一个清理 goroutine。新增 `cleaning` 原子闸门。
+- **`RegisterCommand(nil)` panic**：与 `RegisterCommandDef` 的容错语义不一致，改为返回 noop matcher。
+- **`AssignRoleChecked` 的 TOCTOU**：等级检查在 `RLock` 下、写入在释放锁后，两次调用之间可被并发修改（提权窗口）。检查与写入合并到同一写锁（新增 `assignRoleLocked`）。
+
+**`core/context`**
+
+- **只读扩展 API 为从未写过的 Context 惰性分配存储**：`Get`/`GetString`/`GetRetryAttempt`/`CandidateMeta`/`SetCandidateMeta(nil)` 等都会先 `Ext()` 建房。新增 nil 安全的 `extRead()` 读入口。
+- **`Reply` 缺 dispatcher 时报成缺 sender**：新增 `ErrNoDispatcher`，两者的修复动作完全不同。
+- **`AddOutboundObserver` 并发追加丢观察者**：读-改-写未加锁，新增 `obsMu` 串行化。
+- **`SetUserID` 在平台事件路径下静默无效**：文档化并加 debug 日志（身份来自事件本身，不应被覆盖）。
+
+**`core/fsm`**
+
+- **终态迁移返回旧状态**：`TryTransition` 在结束会话时返回迁移前的 `Current`，与文档「迁移后的状态」不符；改为返回 `""`。
+- **`sessionLock` 每次调用都分配一把 Mutex**：`&sync.Mutex{}` 在查找前就已求值，稳态下每次迁移仍分配；改为先 `Load` 再 `LoadOrStore`。
+
+### ⚡ 性能
+
+- **`ExecProfile.P50()` 每事件排序 32 元素窗口**：`Record` 每次都置 dirty，而 `matcherCost` 每次命中都要读。改为按样本数节流重算（窗口填满后每 8 个样本一次；未填满时仍逐次，避免给出误导的中位数）。
+- **单条注册的 COW 写放大**：`withAddedMatcher` 原先整表复制 `matcherIndex` + `sortedCache`、`copyCommandIndexWithEntry` 还逐条重建每个命令的内层 map，顺序注册 N 个命令是 O(N²) 次 map 分配。现在只复制外层 map（子切片照旧 cap=len，COW 语义不变）。
+- **regex matcher 首次绑定 Handler 触发全量索引重建**：逐条注册 N 个 regex matcher 是 O(N²)。新增 `withRebuiltRegexBucket`，只补进该事件类型的正则桶（通过未导出的能力接口探测，不扩大 `MatcherCoordinator`）。
+- **`Rule` 超时用 `time.After`**：规则提前返回时定时器无法立即释放，改为 `time.NewTimer` + `Stop()`。
+- **`GetAllCommands` 返回顺序不稳定**：`rebuildCommandListCache` 未排序，顺序随 map 迭代/GC 变化。改为按命令名 + 事件类型排序。
+- **`fsm.sessionLock` 稳态零分配**（见上）。
+- **环形缓冲 `pop` 不清引用**：已出队的 `queuedTask` 闭包被缓冲槽继续持有，补 `buf[head] = queuedTask{}`。
+- **`DispatcherHooks.OnQueued` 在 `q.mu` 内调用**：慢钩子会阻塞同 chat 的其它入队者，移到临界区外。
+- **`ExecPool.maxConcurrency`/`queueSize` 为死字段**：创建后无人读取，移除。
+
+### 📝 文档
+
+- `Engine.OnCommand` 明确匹配粒度：按「首个空白 token」精确匹配（O(1) 的前提），与 `context.OnCommand` 的前缀语义不同；注册互为前缀的命令时输出告警，需要前缀语义请用 `On(context.OnPrefix(...))`。
+- 修正 `PluginCoordinator` 方法数注释（3 + 3 + 8 = 14）。
+
+### 🧪 测试
+
+- 本次修复全部补了回归测试，每个文件一个主题、文件头注明回归背景：
+  `state_snapshot_test.go`、`matcher_group_ops_test.go`、`temp_matcher_lifecycle_test.go`、
+  `race_free_mutation_test.go`、`exec_profile_test.go`、`command_index_rebind_test.go`、
+  `command_index_semantics_test.go`、`temp_manager_index_test.go`、`temp_manager_snapshot_test.go`、
+  `temp_matcher_expiry_test.go`、`matcher_delete_pending_test.go`、`middleware_named_factory_test.go`、
+  `middleware_chain_invalidation_test.go`、`middleware_chain_propagation_test.go`、
+  `regex_first_handle_test.go`、`state_command_cache_test.go`、`exec_pool_sharing_test.go`、
+  `merge_iter_max_priority_test.go`、`rule_effect_cooldown_test.go`、`extract_command_test.go`、
+  `clone_deadline_test.go`、`ext_lazy_init_test.go`、`user_identity_test.go`、
+  `reply_dispatcher_test.go`、`transition_result_test.go`、`session_lock_allocation_test.go`、
+  `session_orphan_cleanup_test.go`、`session_sliding_ttl_test.go`、`session_snapshot_copy_test.go`、
+  `assign_role_checked_test.go`、`permission_target_wildcard_test.go`、`grant_permission_test.go`。
+- 全仓测试文件改按**被测行为**命名，替换掉"第几批修复/评审/覆盖率冲刺"这类与内容无关的批次名，
+  便于按主题检索（24 个文件重命名，`git mv` 保留历史，行为与断言未变）。例如：
+  `coverage_90_test.go` → `degradation_and_edges_test.go`、
+  `coverage_boost_test.go` → `resilience_paths_test.go`、
+  `optimization_test.go` → `command_info_cache_test.go`、
+  `state_optimization_test.go` → `state_cow_test.go`、
+  `fixes_validation_test.go` → `concurrency_validation_test.go`、
+  `new_features_test.go` → `gradient_shadow_canvas_test.go`。
+- 原本按"批次"打包的大文件拆成主题文件，避免一个文件混装十几个不相关主题。
+- `plugin/` 下的批次命名（`*_p2_fixes_test.go`、`register_phase*_test.go` 等）由
+  `plugin/TESTING.md` 约定，本次未改动。
+- `go fix ./...` 在三个 module（根、`cmd/bot`、`examples/httpclient-demo`）均无改动；
+  `go test ./... -race -shuffle=on` 与 `golangci-lint run ./...` 均通过。
+
 ## v1.80.0 (2026-10-29)
 
 ### ✨ 新特性

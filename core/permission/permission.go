@@ -334,7 +334,12 @@ func (pm *Manager) AssignRoleChecked(actorID, targetID, roleName string) error {
 	if roleName == "" {
 		return errors.New("role name is required")
 	}
-	pm.mu.RLock()
+	// 检查与写入必须在同一把写锁内完成：此前在 RLock 下读等级、释放后再
+	// AssignRole，两次调用之间角色等级/归属可能被并发修改（TOCTOU），
+	// 提权防护存在窗口期。
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
 	role, ok := pm.roles[roleName]
 	actorLevel := 0
 	for _, rn := range pm.userRoles[actorID] {
@@ -348,7 +353,6 @@ func (pm *Manager) AssignRoleChecked(actorID, targetID, roleName string) error {
 			targetLevel = r.Level
 		}
 	}
-	pm.mu.RUnlock()
 
 	if !ok {
 		return errors.New("role not found: " + roleName)
@@ -362,14 +366,12 @@ func (pm *Manager) AssignRoleChecked(actorID, targetID, roleName string) error {
 	if targetLevel > role.Level {
 		return fmt.Errorf("cannot downgrade user %q (level %d) with role %q (level %d)", targetID, targetLevel, roleName, role.Level)
 	}
-	return pm.AssignRole(targetID, roleName)
+	// assignRoleLocked：调用方已持有写锁，不能走会再次加锁的 AssignRole。
+	return pm.assignRoleLocked(targetID, roleName)
 }
 
-// AssignRole grants roleName to userID.
-// Returns an error if the role is not registered.
-func (pm *Manager) AssignRole(userID, roleName string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+// assignRoleLocked 在已持有 pm.mu 写锁的前提下授予角色。
+func (pm *Manager) assignRoleLocked(userID, roleName string) error {
 	if _, ok := pm.roles[roleName]; !ok {
 		return errors.New("role not found: " + roleName)
 	}
@@ -378,6 +380,14 @@ func (pm *Manager) AssignRole(userID, roleName string) error {
 	}
 	pm.userRoles[userID] = append(pm.userRoles[userID], roleName)
 	return nil
+}
+
+// AssignRole grants roleName to userID.
+// Returns an error if the role is not registered.
+func (pm *Manager) AssignRole(userID, roleName string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.assignRoleLocked(userID, roleName)
 }
 
 // RevokeRole removes roleName from userID.

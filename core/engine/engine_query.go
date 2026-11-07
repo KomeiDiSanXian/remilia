@@ -135,4 +135,16 @@ func (e *Engine) Restore(s Snapshot) {
 	defer e.writeMu.Unlock()
 	e.state.Store(s.data.state)
 	e.middleware.Store(s.data.middleware)
+
+	// 已编译的中间件链缓存在 Matcher 上（compiledHandlers/compiledVersion），
+	// 不属于快照：不失效的话，回滚后仍会继续执行回滚前的中间件链
+	// （与 Use/ResetMiddlewares 的失效语义不一致）。
+	for _, m := range s.data.state.matchers {
+		if m != nil {
+			m.invalidateCombinedChain()
+		}
+	}
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		m.invalidateCombinedChain()
+	})
 }
