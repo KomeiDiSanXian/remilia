@@ -92,6 +92,10 @@ func (lc *lifecycleController) StartAll(ctx context.Context) error {
 			continue
 		}
 		if err := loadWithRegisterBatch(lc.pm.coordinator, func() error { return inst.load(ctx) }); err != nil {
+			// Setup 期间被强制注销：实例已不属于管理器，收尾与告警都无意义。
+			if errors.Is(err, errInstanceDiscarded) {
+				continue
+			}
 			logger.WithError(err).Errorf("[PluginManager] StartAll: plugin %s failed to start", name)
 			// 失败收尾：回收 Scope 订阅/OnDispose 钩子、goroutine、引擎分组。
 			// 实例保留在表中（状态 Error）供 Retry 使用，因此不清容器 key 之外的

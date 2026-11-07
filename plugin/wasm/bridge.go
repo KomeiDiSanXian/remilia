@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -51,25 +52,9 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 
 	mod := b.module
 	matcher.Handle(func(ctx *corectx.Context) error {
-		// 平台事件可能缺失（合成事件、无事件绑定的 Context）：ID 为空字符串
-		// 而不是 nil 解引用。
-		eventID := ""
-		if ev := ctx.GetPlatformEvent(); ev != nil {
-			eventID = ev.ID()
-		}
+		eventTLV := buildEventTLV(ctx).Bytes()
 
-		// 使用 TLV 编码事件
-		eventTLV := NewTLVBuilder().
-			WriteString("c", ctx.GetMessageContent()).
-			WriteString("s", ctx.GetSenderID()).
-			WriteString("p", ctx.GetEventPlatform()).
-			WriteString("i", ctx.GetChatInfo().ID).
-			WriteString("t", chatTypeString(ctx.GetChatInfo().IsGroup)).
-			WriteString("e", eventID).
-			Bytes()
-
-		to := mod.callTimeout()
-		callCtx, cancel := context.WithTimeout(context.Background(), to)
+		callCtx, cancel := callContext(ctx, mod.callTimeout())
 		defer cancel()
 
 		respTLV, err := mod.CallHandle(callCtx, eventTLV)
@@ -107,4 +92,35 @@ func chatTypeString(isGroup bool) string {
 		return "group"
 	}
 	return "private"
+}
+
+// buildEventTLV 把核心 Context 编码成 WASM ABI 的事件 TLV。
+//
+// 平台事件可能缺失（合成事件、无事件绑定的 Context）：event_id 取空字符串，
+// 而不是 nil 解引用（ToDescriptor 路径此前直接调用 GetPlatformEvent().ID()）。
+func buildEventTLV(ctx *corectx.Context) *TLVBuilder {
+	eventID := ""
+	if ev := ctx.GetPlatformEvent(); ev != nil {
+		eventID = ev.ID()
+	}
+	chat := ctx.GetChatInfo()
+	return NewTLVBuilder().
+		WriteString("c", ctx.GetMessageContent()).
+		WriteString("s", ctx.GetSenderID()).
+		WriteString("p", ctx.GetEventPlatform()).
+		WriteString("i", chat.ID).
+		WriteString("t", chatTypeString(chat.IsGroup)).
+		WriteString("e", eventID)
+}
+
+// callContext 由事件上下文派生出 WASM 调用的上下文：继承平台侧的取消/
+// deadline/trace，并叠加单次调用的超时预算。
+func callContext(ctx *corectx.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil {
+		if sc := ctx.Context(); sc != nil {
+			base = sc
+		}
+	}
+	return context.WithTimeout(base, timeout)
 }

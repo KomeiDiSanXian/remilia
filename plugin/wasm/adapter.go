@@ -40,18 +40,17 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 		Version: wdesc.Version,
 		Deps:    wdesc.Deps,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			if ctx.DryRun {
-				return nil, nil
-			}
-
 			// 先构建沙箱，把内存页限制传给独占运行时，使 ResourceLimit.MemoryPages 真正生效
 			sandbox := NewSandbox(wdesc.EffectiveResourceLimit())
-			rt, err := NewRuntime(context.Background(), hostRegistry, sandbox.memoryPages)
+			// SetupContext 不携带 std context，这里用 Background；
+			// 运行期 handler 调用则继承事件 ctx（见 callContext）。
+			setupBase := context.Background()
+			rt, err := NewRuntime(setupBase, hostRegistry, sandbox.memoryPages)
 			if err != nil {
 				return nil, fmt.Errorf("wasm(%q): runtime init: %w", wdesc.Name, err)
 			}
 
-			mod, err := rt.InstantiateModule(context.Background(), wdesc.Name, wasmBytes, sandbox)
+			mod, err := rt.InstantiateModule(setupBase, wdesc.Name, wasmBytes, sandbox)
 			if err != nil {
 				rt.Close(context.Background())
 				return nil, fmt.Errorf("wasm(%q): instantiate: %w", wdesc.Name, err)
@@ -71,20 +70,17 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 				// engine 的 groupIndex，会导致卸载时 RemoveGroup(插件名) 一个都删
 				// 不掉——已 Close 的模块留下幽灵命令持续报错（历史 bug）。
 				matcher := ctx.Reg.RegisterCommand(cmd.EventType, cmd.Command)
+				if matcher == nil {
+					continue
+				}
 
 				modRef := mod
 				matcher.Handle(func(ectx *corectx.Context) error {
-					eventTLV := NewTLVBuilder().
-						WriteString("c", ectx.GetMessageContent()).
-						WriteString("s", ectx.GetSenderID()).
-						WriteString("p", ectx.GetEventPlatform()).
-						WriteString("i", ectx.GetChatInfo().ID).
-						WriteString("t", chatTypeString(ectx.GetChatInfo().IsGroup)).
-						WriteString("e", ectx.GetPlatformEvent().ID()).
-						Bytes()
+					eventTLV := buildEventTLV(ectx).Bytes()
 
-					to := modRef.callTimeout()
-					callCtx, cancel := context.WithTimeout(context.Background(), to)
+					// 继承事件 ctx（取消/deadline/trace），再叠加 WASM 调用的预算：
+					// 此前用 Background，平台侧的取消对 guest 调用完全不可见。
+					callCtx, cancel := callContext(ectx, modRef.callTimeout())
 					defer cancel()
 
 					respTLV, err := modRef.CallHandle(callCtx, eventTLV)
@@ -101,7 +97,7 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 				})
 			}
 
-			if err := mod.CallInit(context.Background()); err != nil {
+			if err := mod.CallInit(setupBase); err != nil {
 				mod.Close(context.Background())
 				rt.Close(context.Background())
 				return nil, fmt.Errorf("wasm(%q): init: %w", wdesc.Name, err)

@@ -134,12 +134,23 @@ func (r *HostFuncRegistry) callHostFunc(ctx context.Context, mod api.Module, nam
 	return EncodeResult(allocPtr, uint32(len(result)))
 }
 
-// ListFunctionNames 返回已注册的所有宿主函数名。
+// ListFunctionNames 返回已注册的所有宿主函数名（含仅按调用方注册的函数）。
 func (r *HostFuncRegistry) ListFunctionNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.funcs))
+	seen := make(map[string]struct{}, len(r.funcs)+len(r.callerFuncs))
+	names := make([]string, 0, len(r.funcs)+len(r.callerFuncs))
 	for n := range r.funcs {
+		seen[n] = struct{}{}
+		names = append(names, n)
+	}
+	// callerFuncs 也必须列出：它们同样是可用的宿主函数。
+	// 只列 funcs 会让纯 caller-only 注册（如 Runtime 注入的 get_config）
+	// 对 __host_functions 探测不可见，guest 无法感知宿主能力。
+	for n := range r.callerFuncs {
+		if _, ok := seen[n]; ok {
+			continue
+		}
 		names = append(names, n)
 	}
 	return names

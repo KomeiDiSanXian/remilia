@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -169,7 +170,11 @@ func (ctx *SetupContext) exportAs(name string, api any) {
 	}
 	ctx.container.Register(name, api)
 	ctx.exportMu.Lock()
-	ctx.exportedNames = append(ctx.exportedNames, name)
+	// 去重：同一个 SetupContext 会跨 StopAll/StartAll 复用，重复追加同名 key
+	// 会让 exportedNames 随重启轮次增长（且让注销时的清理循环白跑）。
+	if !slices.Contains(ctx.exportedNames, name) {
+		ctx.exportedNames = append(ctx.exportedNames, name)
+	}
 	ctx.exportMu.Unlock()
 }
 
@@ -598,6 +603,32 @@ func (ctx *SetupContext) rootScopeOrNil() *Scope {
 		return nil
 	}
 	return ctx.rootScope.Load()
+}
+
+// resetRootScope 丢弃当前根 Scope，使下一次 Scope() 惰性创建全新的根。
+//
+// 卸载路径在 Dispose 之后必须调用：SetupContext 会跨 StopAll/StartAll
+// 与重试复用，若不重置，下一轮 Setup 的 Subscribe/OnDispose 会作用在已
+// disposed 的 Scope 上——订阅被静默拒绝、清理钩子不再执行。
+func (ctx *SetupContext) resetRootScope() {
+	if ctx == nil {
+		return
+	}
+	ctx.rootScope.Store(nil)
+}
+
+// resetExportedNames 清空导出 key 记录。
+//
+// 只在"插件确定不会再被卸载路径使用"时调用（如 ForceUnregister 已完成容器
+// 清理之后）；普通卸载必须保留它——Unregister 随后要靠这份记录把
+// ExportIface 导出的 key 从容器移除。
+func (ctx *SetupContext) resetExportedNames() {
+	if ctx == nil {
+		return
+	}
+	ctx.exportMu.Lock()
+	ctx.exportedNames = nil
+	ctx.exportMu.Unlock()
 }
 
 // setRootScope 注入已有根 Scope（InPlace 重载继承旧实例的 Scope）。

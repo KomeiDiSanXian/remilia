@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -36,9 +37,32 @@ type Instance struct {
 	lifecycleMu sync.Mutex
 	manager     *Manager // 所属插件管理器（用于蓝绿重载 draining 跟踪）
 
+	// discarded 标记实例已被强制注销（ForceUnregister）：Setup 收尾不得再
+	// 发布任何结果（状态、API 导出、容器 key、loadOrder、通知）。
+	// 没有它时，一个慢 Setup 在强制卸载后仍会把自己"注册回来"
+	//（plugins 表里没有、容器里有、loadOrder 残留、matcher 仍在响应）。
+	discarded bool
+
 	// depsModified 标记 Register 是否通过 COW 合并了未声明依赖。
 	// 供 RegisterMultiple 在事后修复 loadOrder 时快速跳过无需修正的插件。
 	depsModified bool
+}
+
+// errInstanceDiscarded 表示实例在 Setup 期间被强制注销，收尾结果必须丢弃。
+var errInstanceDiscarded = errors.New("plugin instance was discarded during setup")
+
+// markDiscarded 标记实例已失效（ForceUnregister 调用）。
+func (pi *Instance) markDiscarded() {
+	pi.mu.Lock()
+	pi.discarded = true
+	pi.mu.Unlock()
+}
+
+// isDiscarded 返回实例是否已被强制注销。
+func (pi *Instance) isDiscarded() bool {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.discarded
 }
 
 // managerRef 返回所属 Manager（包内使用，供 reload/teardown 反向引用）。
@@ -195,6 +219,20 @@ func (pi *Instance) load(ctx context.Context) (err error) {
 		return res.err
 	}
 
+	// Setup 期间实例被强制注销（ForceUnregister）：结果必须整体丢弃。
+	// 否则这里会把 API 写回容器、把状态改成 Loaded、并把命令留在引擎里，
+	// 而 plugins 表里早已没有该条目——一个"已卸载但仍在响应"的幽灵插件。
+	if pi.isDiscarded() {
+		pi.cleanupFailedLoad(pi.coordinatorOrNil(), gm)
+		pi.mu.Lock()
+		pi.state = Unloaded
+		pi.goroutineMgr = nil
+		pi.mu.Unlock()
+		logger.WithField("plugin", pi.desc.Name).
+			Warn("[Instance] Setup finished after the instance was force-unregistered; result discarded")
+		return errInstanceDiscarded
+	}
+
 	if res.api != nil {
 		pi.mu.Lock()
 		pi.exportedAPI = res.api
@@ -252,7 +290,15 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	if setupCtx != nil {
 		if sc := setupCtx.rootScopeOrNil(); sc != nil {
 			if err := sc.Dispose(ctx); err != nil {
+				// ctx 提前到期：保留根 Scope，让后续清理/重试还能续做。
 				logger.WithField("plugin", pi.desc.Name).WithError(err).Warn("[Instance] Scope dispose failed during unload")
+			} else {
+				// 卸载完成后清空根 Scope：StopAll → StartAll 会复用同一个
+				// SetupContext，若不重置，下一轮 Setup 拿到的仍是已 disposed
+				// 的 Scope（订阅被拒绝 → 插件静默失聪，OnDispose 钩子也不再执行）。
+				// 注意不要在这里清 exportedNames：Unregister 随后要靠它把
+				// ExportIface 导出的 key 从容器移除。
+				setupCtx.resetRootScope()
 			}
 		}
 	}
@@ -345,6 +391,10 @@ func (pi *Instance) cleanupFailedLoad(coordinator engine.GroupWriter, gm *gorout
 			if err := sc.Dispose(context.Background()); err != nil {
 				logger.WithField("plugin", name).WithError(err).
 					Warn("[Instance] Scope dispose failed after failed load")
+			} else {
+				// 与 unload 一致：重置根 Scope，使后续重试/重启拿到全新资源容器
+				//（否则重试的 Setup 会把订阅注册进已 disposed 的 Scope 而全部失败）。
+				setupCtx.resetRootScope()
 			}
 		}
 	}
@@ -359,6 +409,13 @@ func (pi *Instance) cleanupFailedLoad(coordinator engine.GroupWriter, gm *gorout
 	if coordinator != nil {
 		coordinator.RemoveGroup(name)
 	}
+}
+
+// setupContextOrNil 返回实例的 SetupContext（无则 nil），供生命周期清理使用。
+func (pi *Instance) setupContextOrNil() *SetupContext {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.setupContext
 }
 
 // coordinatorOrNil 返回实例所属 Manager 的引擎协调器（无 Manager 时返回 nil）。
@@ -390,8 +447,11 @@ func (pi *Instance) waitForSettledState(ctx context.Context) error {
 	}
 }
 
-// dependencies 返回依赖列表（实现 pluginInternal）
-func (pi *Instance) dependencies() []string { return pi.desc.Deps }
+// dependencies 返回依赖列表（实现 pluginInternal）。
+//
+// 走 descriptor() 而不是裸读 pi.desc：finalizeRegistration 会在 pm.mu 之外
+// 通过 COW 替换 desc，裸读与 *Instance 的公开读方法并发时构成数据竞争。
+func (pi *Instance) dependencies() []string { return pi.descriptor().Deps }
 
 // descriptor 返回当前描述符指针。
 // finalizeRegistration 会在合并未声明依赖时 COW 替换 desc（持 inst.mu），
@@ -423,8 +483,11 @@ func (pi *Instance) exportedKeys() []string {
 
 // --- 公开 API ---
 
-// Name 返回插件名称
-func (pi *Instance) Name() string { return pi.desc.Name }
+// Name 返回插件名称。
+//
+// 名称在注册时确定且不再变化，但仍然通过 descriptor() 读取：desc 会被
+// finalizeRegistration 以 COW 方式替换，裸读与替换并发即数据竞争。
+func (pi *Instance) Name() string { return pi.descriptor().Name }
 
 // Metadata 返回插件元数据。
 //

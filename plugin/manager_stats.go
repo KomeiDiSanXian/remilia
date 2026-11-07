@@ -37,6 +37,9 @@ func newStatsController(pm *Manager) *statsController {
 
 // Snapshot 返回插件管理器的运行时统计快照（用于监控/调试）。
 func (sc *statsController) Snapshot() ManagerStats {
+	// 只在锁内收集快照，锁外计算：GoroutineSummary() 内部会再次获取
+	// pm.mu.RLock，而 Go 的 RWMutex 不可重入——写者排队时嵌套 RLock 会
+	// 永久阻塞（Stats 是管理端点，不能因此挂死）。
 	sc.pm.mu.RLock()
 	stateCount := make(map[string]int)
 	for _, inst := range sc.pm.plugins {
@@ -47,11 +50,23 @@ func (sc *statsController) Snapshot() ManagerStats {
 	copy(loadOrder, sc.pm.loadOrder)
 	strictDeps := sc.pm.config.strictDeps
 	ebStats := sc.pm.eventBus.GetStats()
-	sc.mu.RLock()
-	drainingCount := len(sc.drainingInstances)
-	sc.mu.RUnlock()
 	totalPlugins := len(sc.pm.plugins)
+	instances := make([]*Instance, 0, totalPlugins)
+	for _, inst := range sc.pm.plugins {
+		instances = append(instances, inst)
+	}
 	sc.pm.mu.RUnlock()
+
+	sc.mu.RLock()
+	// DrainingCount 只统计"仍在清理"的实例：已完成（含失败）的条目保留供
+	// ListDrainingInstances 排障，但不计入该指标，否则它会退化成历史重载次数。
+	drainingCount := 0
+	for _, e := range sc.drainingInstances {
+		if !e.done {
+			drainingCount++
+		}
+	}
+	sc.mu.RUnlock()
 
 	containerSvcCount := 0
 	if c := sc.pm.container; c != nil {
@@ -65,7 +80,7 @@ func (sc *statsController) Snapshot() ManagerStats {
 		PluginsTotal:      totalPlugins,
 		PluginsByState:    stateCount,
 		LoadOrder:         loadOrder,
-		GoroutineSummary:  sc.GoroutineSummary(),
+		GoroutineSummary:  goroutineSummaryOf(instances, time.Now()),
 		EventBusStats:     ebStats,
 		DrainingCount:     drainingCount,
 		ContainerFrozen:   sc.pm.container != nil && sc.pm.container.frozen.Load(),
@@ -77,8 +92,6 @@ func (sc *statsController) Snapshot() ManagerStats {
 
 // ListGoroutines 返回所有插件的受管后台 goroutine 全局聚合视图。
 func (sc *statsController) ListGoroutines() []GoroutineInfo {
-	now := time.Now()
-
 	sc.pm.mu.RLock()
 	instances := make([]*Instance, 0, len(sc.pm.plugins))
 	for _, inst := range sc.pm.plugins {
@@ -86,6 +99,11 @@ func (sc *statsController) ListGoroutines() []GoroutineInfo {
 	}
 	sc.pm.mu.RUnlock()
 
+	return goroutinesOf(instances, time.Now())
+}
+
+// goroutinesOf 汇总给定实例的受管 goroutine（不持有 pm.mu）。
+func goroutinesOf(instances []*Instance, now time.Time) []GoroutineInfo {
 	result := make([]GoroutineInfo, 0)
 	for _, inst := range instances {
 		inst.mu.RLock()
@@ -102,9 +120,9 @@ func (sc *statsController) ListGoroutines() []GoroutineInfo {
 	return result
 }
 
-// GoroutineSummary 返回所有插件 goroutine 的聚合统计。
-func (sc *statsController) GoroutineSummary() GoroutineSummary {
-	all := sc.ListGoroutines()
+// goroutineSummaryOf 汇总给定实例的 goroutine 统计。
+func goroutineSummaryOf(instances []*Instance, now time.Time) GoroutineSummary {
+	all := goroutinesOf(instances, now)
 	summary := GoroutineSummary{
 		Total:    len(all),
 		ByPlugin: make(map[string]int),
@@ -113,6 +131,22 @@ func (sc *statsController) GoroutineSummary() GoroutineSummary {
 		summary.ByPlugin[g.Plugin]++
 	}
 	return summary
+}
+
+// GoroutineSummary 返回所有插件 goroutine 的聚合统计。
+func (sc *statsController) GoroutineSummary() GoroutineSummary {
+	return goroutineSummaryOf(sc.snapshotInstances(), time.Now())
+}
+
+// snapshotInstances 在锁内收集实例快照（调用方不得持有 pm.mu）。
+func (sc *statsController) snapshotInstances() []*Instance {
+	sc.pm.mu.RLock()
+	instances := make([]*Instance, 0, len(sc.pm.plugins))
+	for _, inst := range sc.pm.plugins {
+		instances = append(instances, inst)
+	}
+	sc.pm.mu.RUnlock()
+	return instances
 }
 
 // --- Draining 追踪 ---
@@ -135,12 +169,47 @@ func (sc *statsController) trackDraining(name string) uint64 {
 }
 
 // markDrainingDone 标记某一次 draining 清理完成（或失败）。
+//
+// 保留每个插件最新的一条记录供 ListDrainingInstances 排障，并删除它更早的
+// 记录：条目只增不减会让 DrainingCount 变成"历史蓝绿重载次数"，且长期运行
+// 的进程里 map 会随重载次数无界增长。
 func (sc *statsController) markDrainingDone(token uint64, err error) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	if e, ok := sc.drainingInstances[token]; ok {
-		e.done = true
-		e.err = err
+	e, ok := sc.drainingInstances[token]
+	if !ok {
+		return
+	}
+	e.done = true
+	e.err = err
+	sc.pruneDrainingLocked(e.name)
+}
+
+// pruneDrainingLocked 把同一插件的 draining 记录收敛为"最新一条 + 所有未完成项"
+// （调用方须持有 sc.mu）。
+//
+// 未完成的条目一条都不能删——StopAll 仍要等待它们。
+func (sc *statsController) pruneDrainingLocked(name string) {
+	var (
+		latestDone      *drainingEntry
+		latestDoneToken uint64
+	)
+	for tok, e := range sc.drainingInstances {
+		if e.name != name || !e.done {
+			continue
+		}
+		if latestDone == nil || e.startedAt.After(latestDone.startedAt) {
+			latestDone = e
+			latestDoneToken = tok
+		}
+	}
+	if latestDone == nil {
+		return
+	}
+	for tok, e := range sc.drainingInstances {
+		if e.name == name && e.done && tok != latestDoneToken {
+			delete(sc.drainingInstances, tok)
+		}
 	}
 }
 

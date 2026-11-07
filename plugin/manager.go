@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -181,6 +182,10 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 		return fmt.Errorf("plugin %s is reloading, retry after reload completes", name)
 	}
 	inst.SetState(Unloading)
+	// 同时标记退役：卸载完成后状态回到 Unloaded，而 Unloaded 仍是"可注册"
+	//（测试脚手架允许先注册后 StartAll），仅靠状态无法阻止卸载后的迟到注册。
+	// 退役标记让 instanceActive 在正式卸载后也能拒绝注册，避免幽灵 matcher。
+	inst.markDiscarded()
 	pm.mu.Unlock()
 
 	// 锁外执行 unload：Teardown/Scope 钩子/后台 goroutine 可安全访问 Manager API
@@ -303,6 +308,10 @@ func (pm *Manager) ForceUnregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
+	// 标记实例作废：若 Setup 仍在飞（Loading），它的收尾不得再发布任何结果
+	//（状态、API 导出、容器 key、loadOrder）——否则强制卸载后插件会"复活"。
+	inst.markDiscarded()
+
 	// 先释放锁再清理 engine/Scope 资源，避免在持有 Manager 锁的情况下操作
 	// engine（RemoveGroup 会触发引擎 COW 写）或执行插件钩子。
 	delete(pm.plugins, name)
@@ -313,6 +322,10 @@ func (pm *Manager) ForceUnregister(name string) error {
 
 	// 容器清理在锁外（Remove 会同步触发 Watch 回调）
 	pm.removeExportedKeys(inst, name)
+	// 实例已彻底移除（Retry 会新建 Instance），导出记录不再有用。
+	if sc := inst.setupContextOrNil(); sc != nil {
+		sc.resetExportedNames()
+	}
 
 	logger.Warnf("[PluginManager] Plugin %s force unregistered (Teardown skipped, scope/goroutines/engine group cleaned)", name)
 	pm.notifyUnloaded(name)
@@ -552,6 +565,17 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	return pm.registerWithOptions(context.Background(), []*Descriptor{desc}, registerOptions{})
 }
 
+// RegisterContext 注册单个插件，并用 ctx 约束 Setup 的超时/取消。
+//
+// Register 使用 context.Background()，Setup 若挂起会一直阻塞调用方；
+// 需要在有停机预算的路径上注册时使用本方法。
+func (pm *Manager) RegisterContext(ctx context.Context, desc *Descriptor) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return pm.registerWithOptions(ctx, []*Descriptor{desc}, registerOptions{})
+}
+
 // RegisterBatch 批量注册多个插件，自动处理依赖顺序。
 //
 // ctx 用于控制 Setup 的超时。
@@ -681,15 +705,26 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 			// delete/RemoveGroup 会误删已注册的同名插件（历史 bug）。
 			// 引擎与容器清理在锁外进行（Watch 回调不能在持 Manager 锁时触发）。
 			if instance != nil {
+				// 分组清理源在删除前确定：只有实例仍登记在案时才允许 RemoveGroup，
+				// 否则可能连带删掉同名新实例的 Matcher。
+				groupWriter := pm.cleanupGroupFor(desc.Name, instance)
 				pm.mu.Lock()
-				delete(pm.plugins, desc.Name)
+				// 只删仍属于本实例的条目：Setup 期间可能已被 ForceUnregister
+				// 移除，并发重新注册的同名插件不得被这次的失败清理误删。
+				if cur, ok := pm.plugins[desc.Name]; ok && cur == instance {
+					delete(pm.plugins, desc.Name)
+				}
 				pm.mu.Unlock()
-				instance.cleanupFailedLoad(pm.coordinator, nil)
+				instance.cleanupFailedLoad(groupWriter, nil)
 				pm.removeExportedKeys(instance, desc.Name)
 			}
 
 			// Setup 内通过 Service/mustGet 访问过依赖（mustGet 在 panic 前
 			// 已记录 deps）→ 疑似依赖缺失，跳过本插件继续注册后续插件。
+			// 被强制注销的实例不参与重试：它的所有权已不属于本次注册。
+			if errors.Is(loadErr, errInstanceDiscarded) {
+				continue
+			}
 			if len(tdeps) > 0 || len(topts) > 0 {
 				pending = append(pending, pendingRetry{desc: desc, loadErr: loadErr})
 				continue
@@ -738,7 +773,9 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 			if loadErr != nil {
 				if instance != nil {
 					pm.mu.Lock()
-					delete(pm.plugins, p.desc.Name)
+					if cur, ok := pm.plugins[p.desc.Name]; ok && cur == instance {
+						delete(pm.plugins, p.desc.Name)
+					}
 					pm.mu.Unlock()
 					// 与首次尝试同一套清理：Scope（订阅/OnDispose 钩子）、
 					// goroutine、引擎分组。缺少它意味着每次重试都会叠加一层
@@ -790,7 +827,14 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	pm.mu.Lock()
 	var succeeded []string
 	var strictFailed []regResult
+	var discarded []regResult
 	for _, r := range results {
+		// Setup 期间被 ForceUnregister（或已被同名插件顶替）：本次收尾整体作废，
+		// 不得写回 loadOrder / 容器 / 通知链。
+		if cur, ok := pm.plugins[r.desc.Name]; !ok || cur != r.instance {
+			discarded = append(discarded, r)
+			continue
+		}
 		if pm.finalizeRegistration(r.desc, r.trackedDeps, r.trackedOptional) {
 			// 严格模式违规：不进 loadOrder，锁外统一回滚（与单插件路径行为一致）
 			strictFailed = append(strictFailed, r)
@@ -800,6 +844,14 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	}
 	pm.mu.Unlock()
 
+	// 作废的实例：回收其资源（Scope/goroutine/容器 key），不进入任何后续列表
+	for _, r := range discarded {
+		logger.WithField("plugin", r.desc.Name).
+			Warn("[PluginManager] Plugin was force unregistered during setup; registration discarded")
+		r.instance.cleanupFailedLoad(pm.cleanupGroupFor(r.desc.Name, r.instance), nil)
+		pm.removeExportedKeys(r.instance, r.desc.Name)
+	}
+
 	// 容器注册与通知在锁外进行（Register 触发 Watch 回调，notifyLoaded 获取 RLock）
 	for _, name := range succeeded {
 		pm.registerInstanceInContainer(name)
@@ -808,8 +860,9 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 		pm.notifyLoaded(name)
 	}
 
-	// 严格模式违规插件：锁外 unload（内部会 RemoveGroup）并移除
-	var strictErr error
+	// 严格模式违规插件：锁外 unload（内部会 RemoveGroup）并移除。
+	// 每个违规都单独报告：只保留最后一个会让前几个违规插件从错误信息里消失。
+	var strictErrs []error
 	for _, r := range strictFailed {
 		name := r.desc.Name
 		logger.Warnf("[PluginManager] Plugin %s uses undeclared dependencies, rolling back (strict mode)", name)
@@ -822,8 +875,8 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 		delete(pm.plugins, name)
 		pm.mu.Unlock()
 		pm.removeExportedKeys(r.instance, name)
-		strictErr = fmt.Errorf("plugin %q uses undeclared dependencies; "+
-			"add them to Deps or disable strict mode via manager.SetStrictDeps(false)", name)
+		strictErrs = append(strictErrs, fmt.Errorf("plugin %q uses undeclared dependencies; "+
+			"add them to Deps or disable strict mode via manager.SetStrictDeps(false)", name))
 	}
 
 	// 修正 loadOrder
@@ -838,8 +891,8 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	if batchErr != nil {
 		return batchErr
 	}
-	if strictErr != nil {
-		return strictErr
+	if len(strictErrs) > 0 {
+		return errors.Join(strictErrs...)
 	}
 	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(succeeded))
 	return nil
@@ -965,20 +1018,45 @@ func (pm *Manager) registerPostSetupSingle(inst *Instance, desc *Descriptor, loa
 	name := desc.Name
 
 	if loadErr != nil {
-		// 失败收尾：先回收 Scope/goroutine（幂等），再摘除实例与容器引用
-		inst.cleanupFailedLoad(pm.coordinator, nil)
+		// 失败收尾：先回收 Scope/goroutine（幂等），再摘除实例与容器引用。
+		// 只摘除仍属于本实例的条目：Setup 期间可能已被 ForceUnregister 移除，
+		// 或已被同名插件重新注册——无条件 delete 会误删后来者。
+		inst.markDiscarded()
+		// 分组清理源在删除前确定：只有实例仍登记在案时才允许 RemoveGroup，
+		// 否则可能连带删掉同名新实例的 Matcher。
+		groupWriter := pm.cleanupGroupFor(name, inst)
+		inst.cleanupFailedLoad(groupWriter, nil)
 
 		pm.mu.Lock()
-		delete(pm.plugins, name)
-		pm.removeLoadOrderLocked(name)
+		if cur, ok := pm.plugins[name]; ok && cur == inst {
+			delete(pm.plugins, name)
+			pm.removeLoadOrderLocked(name)
+		}
 		pm.mu.Unlock()
 		pm.removeExportedKeys(inst, name)
+		// 实例在 Setup 期间已被强制注销：这不是加载失败，只是结果作废，
+		// 不当作错误上报给监听器（管理端已经收到 unloaded 通知）。
+		if errors.Is(loadErr, errInstanceDiscarded) {
+			logger.WithField("plugin", name).
+				Warn("[PluginManager] Plugin was force unregistered during setup; registration discarded")
+			return loadErr
+		}
 		logger.WithError(loadErr).Errorf("[PluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", loadErr)
 		return loadErr
 	}
 
 	pm.mu.Lock()
+	// Setup 期间被 ForceUnregister（或已被同名插件顶替）：本次收尾整体作废。
+	// 否则会把一个"管理上已不存在"的插件写回 loadOrder / 容器 / 通知链。
+	if cur, ok := pm.plugins[name]; !ok || cur != inst {
+		pm.mu.Unlock()
+		inst.cleanupFailedLoad(nil, nil)
+		pm.removeExportedKeys(inst, name)
+		logger.WithField("plugin", name).
+			Warn("[PluginManager] Plugin was force unregistered during setup; registration discarded")
+		return errInstanceDiscarded
+	}
 	strictViolation := pm.finalizeRegistration(desc, trackedDeps, trackedOptional)
 	pm.mu.Unlock()
 
@@ -999,6 +1077,19 @@ func (pm *Manager) registerPostSetupSingle(inst *Instance, desc *Descriptor, loa
 
 	pm.registerInstanceInContainer(name)
 	pm.notifyLoaded(name)
+	return nil
+}
+
+// cleanupGroupFor 在实例仍登记在案时返回协调器（用于 RemoveGroup），
+// 否则返回 nil：Setup 期间被强制注销/被同名插件顶替时，分组名可能已归属
+// 新实例，此时 RemoveGroup 会连带删掉后来者的 Matcher。
+func (pm *Manager) cleanupGroupFor(name string, inst *Instance) engine.GroupWriter {
+	pm.mu.RLock()
+	cur, ok := pm.plugins[name]
+	pm.mu.RUnlock()
+	if ok && cur == inst {
+		return pm.coordinator
+	}
 	return nil
 }
 

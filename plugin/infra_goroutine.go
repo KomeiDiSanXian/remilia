@@ -37,7 +37,7 @@ type goroutineManager struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	mu         sync.Mutex
-	goroutines []GoroutineInfo
+	goroutines []*GoroutineInfo // 指针条目：压实（丢弃已退出项）不会让在飞 goroutine 的收尾指针失效
 	pluginName string
 }
 
@@ -59,18 +59,28 @@ func (gm *goroutineManager) go_(fn func(ctx context.Context)) {
 	gm.goNamed_("", fn)
 }
 
+// goroutineListCompactThreshold 是受管 goroutine 条目表的压实阈值。
+//
+// 已退出的条目只把 IsAlive 置 false、不删除：`ctx.After` 这类一次性任务会让
+// 条目数随调用次数单调增长。超过阈值时在写路径上压实一次（O(n)，均摊到每次
+// 追加为 O(1)）。
+const goroutineListCompactThreshold = 256
+
 // goNamed_ 启动一个命名的生命周期绑定 goroutine。
 // goroutine 退出时自动将对应条目的 IsAlive 置为 false，
-// 防止历史已退出条目在 listGoroutines 中长期积累（内存泄漏）。
+// 防止历史已退出条目在 listGoroutines 中长期积累。
 func (gm *goroutineManager) goNamed_(name string, fn func(ctx context.Context)) {
-	gm.mu.Lock()
-	idx := len(gm.goroutines)
-	gm.goroutines = append(gm.goroutines, GoroutineInfo{
+	entry := &GoroutineInfo{
 		Name:      name,
 		Plugin:    gm.pluginName,
 		StartTime: time.Now(),
 		IsAlive:   true,
-	})
+	}
+	gm.mu.Lock()
+	gm.goroutines = append(gm.goroutines, entry)
+	if len(gm.goroutines) > goroutineListCompactThreshold {
+		gm.compactLocked()
+	}
 	gm.mu.Unlock()
 
 	gm.wg.Go(func() {
@@ -80,13 +90,30 @@ func (gm *goroutineManager) goNamed_(name string, fn func(ctx context.Context)) 
 					Errorf("[goroutineManager] Spawn goroutine panicked: %v", r)
 			}
 		}()
+		// 指针条目：压实后条目可能已被移出切片，但收尾只标记这一个对象，
+		// 不会因为下标漂移而改错别人的状态。
 		defer func() {
 			gm.mu.Lock()
-			gm.goroutines[idx].IsAlive = false
+			entry.IsAlive = false
 			gm.mu.Unlock()
 		}()
 		fn(gm.ctx)
 	})
+}
+
+// compactLocked 移除已退出条目（调用方须持有 gm.mu）。
+func (gm *goroutineManager) compactLocked() {
+	live := gm.goroutines[:0]
+	for _, g := range gm.goroutines {
+		if g.IsAlive {
+			live = append(live, g)
+		}
+	}
+	// 清空尾部，避免已退出条目的指针被底层数组继续持有。
+	for i := len(live); i < len(gm.goroutines); i++ {
+		gm.goroutines[i] = nil
+	}
+	gm.goroutines = live
 }
 
 // listGoroutines 返回当前所有仍在运行的受管 goroutine 快照（线程安全）。
@@ -94,14 +121,16 @@ func (gm *goroutineManager) goNamed_(name string, fn func(ctx context.Context)) 
 func (gm *goroutineManager) listGoroutines() []GoroutineInfo {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
-	var result []GoroutineInfo
+	// 读路径也压实一次：长时间没有新 Spawn 的插件，其已退出条目不会再被
+	// 写路径的阈值触发清理，会一直占着内存。
+	if len(gm.goroutines) > goroutineListCompactThreshold {
+		gm.compactLocked()
+	}
+	result := make([]GoroutineInfo, 0, len(gm.goroutines))
 	for _, g := range gm.goroutines {
 		if g.IsAlive {
-			result = append(result, g)
+			result = append(result, *g)
 		}
-	}
-	if result == nil {
-		result = []GoroutineInfo{}
 	}
 	return result
 }

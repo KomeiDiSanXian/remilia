@@ -24,6 +24,10 @@ type Scope struct {
 
 	mu       sync.Mutex
 	disposed bool
+	// disposing 在 Dispose 开始时置位：此后不再接受新的订阅/钩子/子 Scope。
+	// 与 disposed（全部清理完成）分开，因为 Dispose 可能被取消后重试——
+	// 期间产生的资源若不拒绝，会错过已拍摄的快照而永久泄漏。
+	disposing bool
 
 	// Dispose 的断点续做状态：ctx 取消时保存尚未处理的项，下次调用继续。
 	// disposed 只在全部清理完成后置位，避免"已取消 → 永久不再清理"。
@@ -41,12 +45,21 @@ func (s *Scope) Name() string { return s.name }
 // Scope 被 Dispose 时自动 Unsubscribe；对已 Dispose 的 Scope 订阅会立即
 // 取消并返回错误（避免卸载并发窗口内产生无人管理的订阅泄漏）。
 func (s *Scope) Subscribe(topic string, handler EventHandler) (Subscription, error) {
+	// 先判关闭态再订阅：反过来的话，Dispose 快照拍摄之后登记进来的订阅
+	// 永远不会被退订（父 Scope 的 Dispose 只处理快照内的条目）。
+	s.mu.Lock()
+	closed := s.disposing || s.disposed
+	s.mu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("scope %q already disposed", s.name)
+	}
+
 	sub, err := s.ctx.EventBus.Subscribe(topic, handler)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
-	if s.disposed {
+	if s.disposing || s.disposed {
 		s.mu.Unlock()
 		_ = sub.Unsubscribe()
 		return nil, fmt.Errorf("scope %q already disposed", s.name)
@@ -58,12 +71,19 @@ func (s *Scope) Subscribe(topic string, handler EventHandler) (Subscription, err
 
 // SubscribeAll 在 EventBus 上订阅所有事件，生命周期绑定到本 Scope。
 func (s *Scope) SubscribeAll(handler EventHandler) (Subscription, error) {
+	s.mu.Lock()
+	closed := s.disposing || s.disposed
+	s.mu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("scope %q already disposed", s.name)
+	}
+
 	sub, err := s.ctx.EventBus.SubscribeAll(handler)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
-	if s.disposed {
+	if s.disposing || s.disposed {
 		s.mu.Unlock()
 		_ = sub.Unsubscribe()
 		return nil, fmt.Errorf("scope %q already disposed", s.name)
@@ -74,15 +94,46 @@ func (s *Scope) SubscribeAll(handler EventHandler) (Subscription, error) {
 }
 
 // OnDispose 注册一个清理回调。Dispose 时按注册顺序逆序调用。
+//
+// 对已 Dispose 的 Scope 注册：回调不会再被任何后续 Dispose 看到，因此立即
+// 就地执行（并告警），而不是静默丢失——卸载窗口里创建的清理钩子仍能得到
+// 一次执行机会。
 func (s *Scope) OnDispose(fn func() error) {
+	if fn == nil {
+		return
+	}
 	s.mu.Lock()
+	if s.disposing || s.disposed {
+		s.mu.Unlock()
+		logger.WithField("scope", s.name).Warn("[Scope] OnDispose registered after dispose; running immediately")
+		runDisposeHook(s.name, fn)
+		return
+	}
 	s.disposeHooks = append(s.disposeHooks, fn)
 	s.mu.Unlock()
+}
+
+// runDisposeHook 执行单个清理回调，并把 panic 转成错误（清理链不应被插件 bug 中断）。
+func runDisposeHook(scopeName string, fn func() error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithFields(logger.Fields{
+				"scope": scopeName,
+				"panic": r,
+			}).Error("[Scope] Panic in dispose hook")
+		}
+	}()
+	if err := fn(); err != nil {
+		logger.WithField("scope", scopeName).WithError(err).Warn("[Scope] Dispose hook failed")
+	}
 }
 
 // Scope 创建子 Scope。子 Scope 的所有资源在父 Scope Dispose 时自动清理。
 //
 //	name 用于调试标识。返回的 *Scope 可作为子插件的资源容器。
+//
+// 父已 Dispose 时返回的子 Scope 同样处于"已 Dispose"状态：它不会挂到父的
+// children 上（父不会再遍历），若返回普通子 Scope，其订阅将永远无人清理。
 func (s *Scope) Scope(name string) *Scope {
 	child := &Scope{
 		name:   name,
@@ -90,6 +141,13 @@ func (s *Scope) Scope(name string) *Scope {
 		ctx:    s.ctx,
 	}
 	s.mu.Lock()
+	if s.disposing || s.disposed {
+		s.mu.Unlock()
+		logger.WithField("scope", name).
+			Warn("[Scope] child scope created after parent disposal; it starts disposed")
+		child.disposed = true
+		return child
+	}
 	s.children = append(s.children, child)
 	s.mu.Unlock()
 	return child
@@ -113,6 +171,10 @@ func (s *Scope) Dispose(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
+	// 从此刻起拒绝新的订阅/钩子/子 Scope：它们不会出现在下面拍摄的快照里。
+	// 只置 disposed 不够——disposed 要等全部清理完成才置位，中途（hook 内、
+	// 或 ctx 取消后重试的间隙）新登记的资源会永久泄漏。
+	s.disposing = true
 	children := s.remainingChildren
 	hooks := s.remainingHooks
 	if !s.disposeStarted {
@@ -162,9 +224,7 @@ func (s *Scope) Dispose(ctx context.Context) error {
 		hook := hooks[0]
 		hooks = hooks[1:]
 		s.saveRemainingDispose(nil, hooks)
-		if err := hook(); err != nil {
-			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
-		}
+		runDisposeHook(s.name, hook)
 	}
 
 	s.mu.Lock()

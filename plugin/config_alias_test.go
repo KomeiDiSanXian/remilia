@@ -1,11 +1,14 @@
 package plugin
 
-// config_alias_test.go — 插件配置与全局配置不得互为别名的回归测试
+// config_alias_test.go — 插件配置读取/写入边界的回归测试
 //
-// 回归背景：YAMLConfigProvider.Sub 直接返回 config.Config.Plugins 中的活 map，
-// pluginConfig.values 与 Override 的就地写入会反向改写全局配置（其它读者、
-// 持久化都受影响），且该写入不受 pluginConfig 的锁保护——与其它读配置的
-// goroutine 并发即并发 map 写。
+// 回归背景（别名）：
+//   - YAMLConfigProvider.Sub 直接返回 config.Config.Plugins 中的活 map，
+//     pluginConfig.values 与 Override 的就地写入会反向改写全局配置（其它读者、
+//     持久化都受影响），且该写入不受 pluginConfig 的锁保护——与其它读配置的
+//     goroutine 并发即并发 map 写。
+//   - GetStringSlice/GetStringMap 直接把内部切片与 map 交给调用方，GetAll 只做
+//     浅拷贝，调用方改写返回值会反向污染插件配置。
 
 import (
 	"sync"
@@ -91,4 +94,34 @@ func TestPluginConfig_OverrideIsRaceFreeWithGlobalReaders(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, "original", provider.Sub("demo")["k"])
+}
+
+// TestPluginConfig_GetDoesNotLeakInternalReferences 读取接口不得把内部引用交给
+// 调用方：旧实现的 GetStringSlice/GetStringMap 直接返回内部切片与 map，GetAll
+// 只做浅拷贝——调用方改写返回值会反向污染插件配置（甚至影响到 Reload 的差量比较）。
+func TestPluginConfig_GetDoesNotLeakInternalReferences(t *testing.T) {
+	pc := &pluginConfig{
+		values: map[string]any{
+			"list":   []string{"a"},
+			"mapped": map[string]any{"k": "v"},
+			"nested": map[string]any{"inner": map[string]any{"k": "v"}},
+		},
+		handlers: []func(string, any, any){},
+	}
+
+	list := pc.GetStringSlice("list", nil)
+	require.Len(t, list, 1)
+	list[0] = "mutated"
+	assert.Equal(t, []string{"a"}, pc.GetStringSlice("list", nil), "切片必须是副本")
+
+	mapped := pc.GetStringMap("mapped", nil)
+	mapped["k"] = "mutated"
+	assert.Equal(t, "v", pc.GetStringMap("mapped", nil)["k"], "map 必须是副本")
+
+	all := pc.GetAll()
+	require.Contains(t, all, "nested")
+	all["nested"].(map[string]any)["k"] = "mutated"
+	all["nested"].(map[string]any)["inner"].(map[string]any)["k"] = "mutated"
+	assert.Equal(t, "v", pc.GetStringMap("nested", nil)["inner"].(map[string]any)["k"],
+		"GetAll 必须是深拷贝")
 }

@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 修复
+
+**`plugin` 插件系统生命周期与资源清理缺陷**
+
+- **`Descriptor.Cost` 对命令类 Matcher 完全失效**：`applyDeclaredCost` 只在 `afterRegister` 里调用，而 `RegisterCommand` 绕过了它。业务插件几乎全部通过 `ctx.OnCommand`/`OnCommandDefWith` 注册，因此声明的 `CostIO` 从未生效，准入控制只能靠实测 p50 兜底（冷启动的 I/O 请求全部按 local 放行）。现在命令与别名 Matcher 也会继承插件声明的成本类别，且不覆盖插件已单独 `SetCost` 的路由。
+- **蓝绿重载后的幽灵 Matcher**：重载时创建的临时实例在切换后没有从 `SetupContext` 上摘除，`liveRegistryWriter.instanceActive()` 一直读那个永远 `Loaded` 的临时实例——卸载后插件后台 goroutine 的迟到注册不再被拦截，留下继续派发事件的 Matcher。`exportAs` 的归属记录同样因为临时实例没有 Manager 而丢失，卸载时可能误删后来者的同名服务。切换时现在把上下文与写入器一并绑回长期实例。
+- **强制卸载后插件"复活"**：`ForceUnregister` 撞上在飞的 Setup 时，慢 Setup 的收尾仍会把 API 写回容器、把名字写回 `loadOrder`、把状态改成 `Loaded`，管理端看到的是"已卸载但命令还在响应"。现在实例带退役标记，`load()` 与登记收尾都会丢弃作废结果，`instanceActive` 也据此拒绝卸载后的迟到注册。
+- **`Scope` 关闭后仍接受资源**：`OnDispose`/`Scope()` 没有检查关闭态，而 `disposed` 要等全部清理完成才置位——dispose hook 里创建的订阅与子 Scope 因此永久泄漏。现在 `Dispose` 开始即进入拒绝态（`disposing`），关闭后注册的钩子立即执行并告警，子 Scope 直接以已关闭状态返回。
+- **`StopAll` → `StartAll` 后插件失聪**：`SetupContext` 跨轮复用，但根 Scope 在上一轮已 Dispose，重启后的 `Subscribe`/`OnDispose` 全部作用在死 Scope 上（订阅被静默拒绝）。卸载与加载失败清理成功后现在会重建根 Scope（`exportedNames` 保留到容器清理完成，并做去重防累积）。
+- **`Instance.Name()`/`dependencies()` 数据竞争**：`finalizeRegistration` 会 COW 替换 `desc`，这两个公开读方法裸读指针，`-race` 可稳定复现。改为统一走加锁的 `descriptor()`。
+- **配置读取泄漏内部引用**：`GetStringSlice`/`GetStringMap` 直接返回内部切片与 map，`GetAll` 只做浅拷贝，调用方改写会反向污染插件配置。现在分别做拷贝与深拷贝。
+- **draining 记录只增不减**：`markDrainingDone` 只置完成标记不删除，`DrainingCount` 实际是"历史蓝绿重载次数"，且条目随重载次数无限累积。现在同插件收敛为最新一条，`DrainingCount` 只统计仍在清理的实例。
+- **受管 goroutine 条目表无界增长**：`goNamed_` 每次追加、退出只置 `IsAlive=false`，`ctx.After` 这类一次性任务会让条目数单调增长。条目改为指针并在写/读路径按阈值压实。
+- **严格模式违规只报告最后一个插件**：批量注册回滚时 `strictErr` 被循环覆盖，改用 `errors.Join` 汇总全部违规。
+- **`Stats()` 嵌套读锁**：`Snapshot()` 持 `pm.mu.RLock` 时调用 `GoroutineSummary()`（再次 `RLock`），写者排队时会永久阻塞。改为锁内只收集快照、锁外计算。
+- 新增 `Manager.RegisterContext(ctx, desc)`：`Register` 使用 `Background`，Setup 挂起时会无限阻塞调用方。
+
+**`plugin/wasm` WASM 运行时缺陷**
+
+- `ToDescriptor` 的 handler 直接调用 `GetPlatformEvent().ID()`，合成事件或无事件绑定的 Context 会 nil 解引用 panic（`Bridge` 早已修过同类问题）。事件编码与调用上下文抽取为共用实现。
+- `Module.Close` 不持 `callMu`，与在飞 `CallHandle` 并发时会把 `instance` 置 nil 造成 nil 解引用；`CallHandle`/`CallInit` 也是先读实例再取锁。现在关闭与调用互斥，关闭后的调用返回明确错误。
+- `freeGuestBuffer` 用 `context.Background()` 调 guest 的 `free`，绕过 `WithCloseOnContextDone` 的超时控制；handler 侧 `WithTimeout(context.Background(), …)` 也让平台取消对 guest 不可见。现在复用调用方 ctx。
+- `ListFunctionNames` 只列 `funcs`，纯 `RegisterWithCaller` 注册的宿主函数对 `__host_functions` 探测不可见。
+- `ToDescriptor` 中 `ctx.DryRun` 分支是死代码（该描述符未声明 `DryRunSafe`），一并移除。
+
 ## v1.80.0 (2026-10-29)
 
 ### ✨ 新特性

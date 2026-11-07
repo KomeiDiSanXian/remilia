@@ -37,6 +37,8 @@ type Module struct {
 	// 重复调用返回同一结果（Manager 的失败路径与卸载路径都可能调用）。
 	closeOnce sync.Once
 	closeErr  error
+	// closed 是 Closed() 的原子视图（instance 本身受 callMu 保护）。
+	closed atomic.Bool
 
 	runtime *Runtime
 }
@@ -80,13 +82,18 @@ func (m *Module) responseSizeMax() uint32 {
 
 // ── CallInit 带超时 ──────────────────────────────────────────────────────────
 
+// CallInit 带超时。
 func (m *Module) CallInit(ctx context.Context) error {
-	initFn := m.instance.ExportedFunction(ExportInit)
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+	inst := m.instance
+	if inst == nil {
+		return fmt.Errorf("wasm: module %q is closed", m.name)
+	}
+	initFn := inst.ExportedFunction(ExportInit)
 	if initFn == nil {
 		return fmt.Errorf("wasm: module %q missing export %q", m.name, ExportInit)
 	}
-	m.callMu.Lock()
-	defer m.callMu.Unlock()
 	callCtx, cancel := context.WithTimeout(ctx, m.initTimeout())
 	defer cancel()
 	results, err := initFn.Call(callCtx)
@@ -108,25 +115,31 @@ func (m *Module) CallHandle(ctx context.Context, eventTLV []byte) ([]byte, error
 
 	m.callCount.Add(1)
 
-	handleFn := m.instance.ExportedFunction(ExportHandle)
+	// 串行化整个 分配→写入→调用→读取 序列（模块实例非并发安全）。
+	// 必须在取锁之后再读实例：Close 在同一把锁下置 nil，先读后锁会与它竞争。
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
+	inst := m.instance
+	if inst == nil {
+		return nil, fmt.Errorf("wasm: module %q is closed", m.name)
+	}
+
+	handleFn := inst.ExportedFunction(ExportHandle)
 	if handleFn == nil {
 		return nil, fmt.Errorf("wasm: module %q missing export %q", m.name, ExportHandle)
 	}
 
-	// 串行化整个 分配→写入→调用→读取 序列（模块实例非并发安全）
-	m.callMu.Lock()
-	defer m.callMu.Unlock()
-
-	ptr, err := m.allocOrCommArea(ctx, uint32(len(eventTLV)))
+	ptr, err := m.allocOrCommArea(ctx, inst, uint32(len(eventTLV)))
 	if err != nil {
 		return nil, err
 	}
 	// 请求缓冲由宿主 malloc，调用结束后归还给 guest 的 free（若导出），
 	// 否则每次调用都会在 guest 堆里泄漏一块请求区。
 	// 响应缓冲归 guest 的分配器/GC 管理（TinyGo 下通常是 GC 对象），宿主不 free。
-	defer m.freeGuestBuffer(ptr)
+	defer m.freeGuestBuffer(ctx, inst, ptr)
 
-	mem := m.instance.Memory()
+	mem := inst.Memory()
 	if mem == nil {
 		return nil, fmt.Errorf("wasm: %q has no memory", m.name)
 	}
@@ -171,28 +184,36 @@ func (m *Module) CallHandle(ctx context.Context, eventTLV []byte) ([]byte, error
 
 // freeGuestBuffer 将宿主通过 malloc 分配的缓冲归还给 guest。
 // 仅当 ptr 来自 guest 的 malloc 导出（非通信区回退）且 guest 导出 free 时执行。
-func (m *Module) freeGuestBuffer(ptr uint32) {
-	if ptr == CommAreaOffset {
+//
+// 复用调用方的 ctx：guest 的 free 实现有 bug 时会一直运行，用 Background
+// 会绕过 WithCloseOnContextDone 的超时控制而永久挂住 handler。
+func (m *Module) freeGuestBuffer(ctx context.Context, inst api.Module, ptr uint32) {
+	if ptr == CommAreaOffset || inst == nil {
 		return
 	}
-	freeFn := m.instance.ExportedFunction(ExportFree)
+	freeFn := inst.ExportedFunction(ExportFree)
 	if freeFn == nil {
 		return
 	}
-	if _, err := freeFn.Call(context.Background(), uint64(ptr)); err != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, err := freeFn.Call(ctx, uint64(ptr)); err != nil {
 		logger.Debugf("[wasm] %q: free(%d) failed: %v", m.name, ptr, err)
 	}
 }
 
 // allocOrCommArea 内存分配（带大小检查）
-func (m *Module) allocOrCommArea(ctx context.Context, size uint32) (uint32, error) {
+func (m *Module) allocOrCommArea(ctx context.Context, inst api.Module, size uint32) (uint32, error) {
 	if size > CommAreaSize {
 		return 0, fmt.Errorf("wasm: allocation %d exceeds comm area %d", size, CommAreaSize)
 	}
-	if mallocFn := m.instance.ExportedFunction(ExportMalloc); mallocFn != nil {
-		results, err := mallocFn.Call(ctx, uint64(size))
-		if err == nil && len(results) > 0 && results[0] != 0 {
-			return uint32(results[0]), nil
+	if inst != nil {
+		if mallocFn := inst.ExportedFunction(ExportMalloc); mallocFn != nil {
+			results, err := mallocFn.Call(ctx, uint64(size))
+			if err == nil && len(results) > 0 && results[0] != 0 {
+				return uint32(results[0]), nil
+			}
 		}
 	}
 	return CommAreaOffset, nil
@@ -203,11 +224,17 @@ func (m *Module) allocOrCommArea(ctx context.Context, size uint32) (uint32, erro
 // 编译产物（wazero.CompiledModule）持有编译后的代码与类型信息，此前只关闭
 // 实例：每次卸载/重载一个 WASM 插件都会留下一份编译产物，直到整个运行时
 // 关闭才回收——长时间运行且频繁重载的场景会持续累积内存。
+//
+// 关闭持 callMu：与 CallHandle/CallInit 互斥，避免在飞调用期间把
+// m.instance 置 nil（旧实现让 handler 可能在已关闭的实例上继续读内存）。
 func (m *Module) Close(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
 	m.closeOnce.Do(func() {
+		m.closed.Store(true)
 		if m.instance != nil {
 			m.closeErr = m.instance.Close(ctx)
 			m.instance = nil
@@ -228,7 +255,7 @@ func (m *Module) Close(ctx context.Context) error {
 
 // Closed 报告模块是否已关闭。
 func (m *Module) Closed() bool {
-	return m == nil || m.instance == nil
+	return m == nil || m.closed.Load()
 }
 
 func (m *Module) Name() string           { return m.name }

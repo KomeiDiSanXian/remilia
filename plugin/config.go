@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -224,6 +225,8 @@ func (pc *pluginConfig) GetFloat64(key string, defaultVal float64) float64 {
 // 同时接受 []string 与 []any（yaml.v3 把 YAML 序列解码为 []any——
 // 旧实现只认 []string，导致 YAML 配置的列表被静默忽略）。
 // []any 中的非字符串元素按 fmt.Sprintf("%v") 转为字符串。
+//
+// 返回值是副本：调用方改写切片不会反向污染插件配置。
 func (pc *pluginConfig) GetStringSlice(key string, defaultVal []string) []string {
 	val := pc.Get(key)
 	if val == nil {
@@ -232,7 +235,7 @@ func (pc *pluginConfig) GetStringSlice(key string, defaultVal []string) []string
 
 	switch v := val.(type) {
 	case []string:
-		return v
+		return slices.Clone(v)
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, item := range v {
@@ -248,7 +251,9 @@ func (pc *pluginConfig) GetStringSlice(key string, defaultVal []string) []string
 	return defaultVal
 }
 
-// GetStringMap 获取字符串键 map 配置
+// GetStringMap 获取字符串键 map 配置。
+//
+// 返回值是浅拷贝：调用方增删 key 不会影响插件配置本身。
 func (pc *pluginConfig) GetStringMap(key string, defaultVal map[string]any) map[string]any {
 	val := pc.Get(key)
 	if val == nil {
@@ -256,7 +261,7 @@ func (pc *pluginConfig) GetStringMap(key string, defaultVal map[string]any) map[
 	}
 
 	if m, ok := val.(map[string]any); ok {
-		return m
+		return maps.Clone(m)
 	}
 
 	return defaultVal
@@ -340,12 +345,13 @@ func (pc *pluginConfig) OnChange(handler func(key string, oldVal, newVal any)) {
 	pc.handlers = append(pc.handlers, handler)
 }
 
-// GetAll 获取所有配置
+// GetAll 获取所有配置。
+//
+// 返回深拷贝：嵌套的 map/切片与内部存储不共享，调用方修改返回值不会
+// 反向污染插件配置（GetStringSlice/GetStringMap 只做一层拷贝）。
 func (pc *pluginConfig) GetAll() map[string]any {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 
-	result := make(map[string]any, len(pc.values))
-	maps.Copy(result, pc.values)
-	return result
+	return deepCopyConfigMap(pc.values)
 }

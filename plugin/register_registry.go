@@ -159,21 +159,24 @@ type liveRegistryWriter struct {
 	postRegister func(*engine.Matcher)
 }
 
-// gateRegistration 校验本次注册是否应被接受，并返回当前分组名与注册后回调。
+// gateRegistration 校验本次注册是否应被接受，并返回当前分组名。
 //
-// 失效实例（Unloading/Error，见 instanceActive）的注册被拒绝：卸载中或卸载
-// 失败的实例不得再往引擎里注册，否则 Matcher 会落进已被 RemoveGroup 的分组，
-// 此后无人管理。
-func (r *liveRegistryWriter) gateRegistration() (group string, hook func(*engine.Matcher), ok bool) {
+// 失效实例（Unloading/Error/已退役，见 instanceActive）的注册被拒绝：卸载中
+// 或已卸载的实例不得再往引擎里注册，否则 Matcher 会落进已被 RemoveGroup 的
+// 分组，此后无人管理。
+func (r *liveRegistryWriter) gateRegistration() (group string, ok bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	name, inst := r.name, r.instance
+	r.mu.RUnlock()
 
-	if !r.instanceActive() {
-		logger.WithField("plugin", r.name).
+	// 在 r.mu 之外判定活动性：instanceActive 会取 Instance 的锁，
+	// 在 r.mu 内嵌套会引入不必要的锁序约束（反向路径存在于 setInstance）。
+	if !instanceActive(inst) {
+		logger.WithField("plugin", name).
 			Warn("[plugin] registration refused: instance is no longer active")
-		return "", nil, false
+		return "", false
 	}
-	return r.name, r.postRegister, true
+	return name, true
 }
 
 // setName 切换分组名与注册后回调（蓝绿重载迁移时调用）。
@@ -182,6 +185,35 @@ func (r *liveRegistryWriter) setName(name string, hook func(*engine.Matcher)) {
 	r.name = name
 	r.postRegister = hook
 	r.mu.Unlock()
+}
+
+// setInstance 重新绑定实例（蓝绿重载切换后调用）。
+//
+// 蓝绿路径先以临时实例跑新 Setup（用于隔离状态），切换时把 pi 换入；
+// 若不同步更新 writer 绑定的实例，instanceActive 会一直读那个永远是 Loaded
+// 的临时实例——卸载后的迟到注册不再被拦截，成为无人管理的幽灵 matcher。
+func (r *liveRegistryWriter) setInstance(inst *Instance) {
+	r.mu.Lock()
+	r.instance = inst
+	r.mu.Unlock()
+}
+
+// boundInstance 返回当前绑定实例（锁内读取，供无锁调用方使用）。
+func (r *liveRegistryWriter) boundInstance() *Instance {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.instance
+}
+
+// trackMatcher 把 matcher 记入绑定实例，供 Disable/RemoveGroup 之外的生命周期
+// 查询（GetMatchers）使用。实例为 nil（测试脚手架）时为空操作。
+func (r *liveRegistryWriter) trackMatcher(m *engine.Matcher) {
+	if m == nil {
+		return
+	}
+	if inst := r.boundInstance(); inst != nil {
+		inst.addMatcher(m)
+	}
 }
 
 func newLiveRegistryWriter(eng registryBackend, name string, instance *Instance) RegistryWriter {
@@ -200,13 +232,22 @@ func (r *liveRegistryWriter) currentName() string {
 	return r.name
 }
 
-// instanceActive 报告绑定实例是否仍处于可注册状态。
+// instanceActive 报告实例是否仍处于可注册状态。
 //
 // 失效状态取 Unloading/Error：卸载中或卸载失败的实例不得再往引擎里注册。
 // Unloaded 视为可用（插件尚未 StartAll 时也可能先注册，测试脚手架即如此），
 // Disabled/Loading/Loaded/Reloading 均允许注册。
-func (r *liveRegistryWriter) instanceActive() bool {
-	switch r.instance.GetState() {
+// 已退役（Unregister/ForceUnregister 过）的实例一律拒绝：卸载成功后状态回到
+// Unloaded，仅看状态会让插件的迟到注册重新落进已清空的分组（幽灵 matcher）。
+// nil 实例（测试脚手架未绑定实例）视为可用，保持既有行为。
+func instanceActive(inst *Instance) bool {
+	if inst == nil {
+		return true
+	}
+	if inst.isDiscarded() {
+		return false
+	}
+	switch inst.GetState() {
 	case Unloading, Error:
 		return false
 	default:
@@ -214,11 +255,17 @@ func (r *liveRegistryWriter) instanceActive() bool {
 	}
 }
 
+// instanceActive 报告绑定实例是否仍处于可注册状态（见 instanceActive）。
+func (r *liveRegistryWriter) instanceActive() bool {
+	return instanceActive(r.boundInstance())
+}
+
 // afterRegister 完成一次注册的收尾：
 //   - 失效实例：撤销本次注册（DeleteMatcher）并告警——蓝绿重载会 RemoveGroup
 //     旧分组，旧实例后台 goroutine 的迟到注册若保留下来会成为无人管理的
 //     Matcher（继续处理事件、不被任何后续清理覆盖）；
-//   - 正常情况：触发 postRegister 回调（蓝绿重载依赖它立即禁用临时组）。
+//   - 正常情况：应用插件声明的成本类别，并触发 postRegister 回调
+//     （蓝绿重载依赖它立即禁用临时组）。
 func (r *liveRegistryWriter) afterRegister(m *engine.Matcher) {
 	if m == nil {
 		return
@@ -248,10 +295,11 @@ func (r *liveRegistryWriter) afterRegister(m *engine.Matcher) {
 // 登记、也不需要在 Setup 里逐个 matcher 设置；混合成本插件仍可用
 // Matcher.SetCost 覆盖单条路由。
 func (r *liveRegistryWriter) applyDeclaredCost(m *engine.Matcher) {
-	if r.instance == nil {
+	inst := r.boundInstance()
+	if inst == nil {
 		return
 	}
-	desc := r.instance.descriptor()
+	desc := inst.descriptor()
 	if desc == nil || desc.Cost == context.CostUnknown {
 		return
 	}
@@ -265,7 +313,7 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 	if r.eng == nil {
 		return nil
 	}
-	group, hook, ok := r.gateRegistration()
+	group, ok := r.gateRegistration()
 	if !ok {
 		return nil
 	}
@@ -274,9 +322,7 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
 		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
 		r.eng.SetMatcherGroup(matcher, group, "plugin:"+group)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		// 注入插件感知的别名自动注册回调。
 		// 回调在 Matcher.Handle() 首次被调用时触发，为 definition.Aliases 中的每个别名
 		// 自动注册独立的路由 Matcher（Hidden=true，不出现在命令列表）。
@@ -284,9 +330,10 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 		// 从而支持插件级别的 Disable/Enable 联动。
 		// 传入 extraRules 确保别名 Matcher 具有与主命令相同的额外规则（如权限检查）。
 		r.injectAliasRegistrar(matcher, eventType, extraRules)
-		if hook != nil {
-			hook(matcher)
-		}
+		// 与其它注册方法一致：套用插件声明的成本类别并触发 postRegister。
+		// 此前这里只调用 hook，Descriptor.Cost 对命令类 matcher 完全失效
+		// （业务插件全部通过 OnCommandDef/OnCommand 注册），准入控制只能靠实测兜底。
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -300,7 +347,7 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 		}
 		// 失效实例（卸载/重载迁移后）不再注册别名：落进已清空的分组会成为
 		// 无人管理的 Matcher
-		_, hook, ok := r.gateRegistration()
+		_, ok := r.gateRegistration()
 		if !ok {
 			return
 		}
@@ -328,13 +375,11 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 			// 与主命令共享同一 handler
 			aliasMatcher.Handle(handler)
 			// 注册到插件实例以便生命周期管理
-			if r.instance != nil {
-				r.instance.addMatcher(aliasMatcher)
-			}
-			// 别名 Matcher 同样触发注册后回调（蓝绿重载依赖它保持禁用态）
-			if hook != nil {
-				hook(aliasMatcher)
-			}
+			r.trackMatcher(aliasMatcher)
+			// 别名 Matcher 同样走注册后收尾：套用插件声明的成本类别
+			// （别名也是插件的 I/O 入口），并触发注册后回调
+			// （蓝绿重载依赖它保持禁用态）。
+			r.afterRegister(aliasMatcher)
 		}
 	})
 }
@@ -349,9 +394,7 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.
 		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
 		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher
@@ -385,9 +428,7 @@ func (r *liveRegistryWriter) RegisterPrefix(eventType string, prefixes []string,
 	name := r.currentName()
 	if matcher != nil && name != "" {
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher
@@ -417,9 +458,7 @@ func (r *liveRegistryWriter) RegisterRegex(eventType string, pattern string, ext
 	name := r.currentName()
 	if matcher != nil && name != "" {
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher
@@ -453,9 +492,7 @@ func (r *liveRegistryWriter) RegisterFullMatch(eventType string, texts []string,
 	name := r.currentName()
 	if matcher != nil && name != "" {
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher
@@ -489,9 +526,7 @@ func (r *liveRegistryWriter) RegisterSuffix(eventType string, suffixes []string,
 	name := r.currentName()
 	if matcher != nil && name != "" {
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher
@@ -523,9 +558,7 @@ func (r *liveRegistryWriter) RegisterKeyword(eventType string, keywords []string
 	name := r.currentName()
 	if matcher != nil && name != "" {
 		r.eng.SetMatcherGroup(matcher, name, "plugin:"+name)
-		if r.instance != nil {
-			r.instance.addMatcher(matcher)
-		}
+		r.trackMatcher(matcher)
 		r.afterRegister(matcher)
 	}
 	return matcher

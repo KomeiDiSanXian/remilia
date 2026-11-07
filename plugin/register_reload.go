@@ -260,6 +260,13 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.loadedVer = newInstance.loadedVer // 回拷新实例版本，保证下次重载 MigrateState 版本比较正确
 	newInstance.mu.RUnlock()
 
+	// 把上下文与注册写入器重新绑回长期存活的 pi：newInstance 只用于隔离
+	// 这次 Setup 的过程状态，切换后必须整体废弃。否则：
+	//   - liveRegistryWriter.instanceActive 读的是那个永远 Loaded 的临时实例，
+	//     卸载后插件后台 goroutine 的迟到注册不再被拦截（幽灵 matcher）；
+	//   - exportAs 的归属记录拿不到 Manager（临时实例 manager 为 nil），
+	//     重载后导出的 key 失去归属，卸载时可能误删后来者的同名服务。
+	newContext.instance = pi
 	pi.setupContext = newContext
 	pi.state = Loaded
 	pi.loadTime = time.Now()
@@ -267,9 +274,10 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.mu.Unlock()
 
 	// 更新换入的 Reg writer：插件保留的 ctx.Reg 引用仍指向 __bg 临时组，
-	// 此后运行期注册会落到临时组并被清理。更新 writer 的分组与回调，
+	// 此后运行期注册会落到临时组并被清理。更新 writer 的分组、回调与绑定实例，
 	// 使后续注册进入正式插件组并保持活跃。
 	if rw, ok := newContext.Reg.(*liveRegistryWriter); ok {
+		rw.setInstance(pi)
 		rw.setName(pluginName, nil)
 	}
 

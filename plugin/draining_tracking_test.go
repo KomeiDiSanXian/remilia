@@ -47,3 +47,33 @@ func TestDrainingTracking_TwoReloadsAreIndependent(t *testing.T) {
 	defer doneCancel()
 	pm.stats.drainDrainingInstances(doneCtx)
 }
+
+// TestDrainingTracking_DoneEntriesArePruned 回归：markDrainingDone 只置完成标记
+// 不删除条目，于是 drainingInstances 随蓝绿重载次数单调增长，DrainingCount 也
+// 退化成"历史重载次数"而不是"仍在清理的实例数"。
+func TestDrainingTracking_DoneEntriesArePruned(t *testing.T) {
+	pm := NewManager(nil)
+
+	var tokens []uint64
+	for range 20 {
+		tokens = append(tokens, pm.stats.trackDraining("bg"))
+	}
+	for _, tok := range tokens {
+		pm.stats.markDrainingDone(tok, nil)
+	}
+
+	pm.stats.mu.RLock()
+	entries := len(pm.stats.drainingInstances)
+	pm.stats.mu.RUnlock()
+	assert.LessOrEqual(t, entries, 1, "同一插件的已完成 draining 记录应收敛")
+	assert.Equal(t, 0, pm.Stats().DrainingCount, "DrainingCount 只统计仍在清理的实例")
+
+	// 失败记录保留（供排障），同样收敛且不计入 DrainingCount
+	failing := pm.stats.trackDraining("bg2")
+	pm.stats.markDrainingDone(failing, assert.AnError)
+	infos := pm.ListDrainingInstances()
+	require.Contains(t, infos, "bg2")
+	assert.True(t, infos["bg2"].Done)
+	assert.NotEmpty(t, infos["bg2"].Err)
+	assert.Equal(t, 0, pm.Stats().DrainingCount, "已完成（含失败）的记录不计入 DrainingCount")
+}
