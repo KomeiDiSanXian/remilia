@@ -369,12 +369,16 @@ func (m *Manager) sleep(d time.Duration) bool {
 }
 
 // setConnected 标记已连接并更新工具集合。
+//
+// 指标在锁内更新：外部观察者（工具调用、测试、面板）先看到 connected 翻转，
+// 再读指标。若先解锁再记账，就会留下"调用已经报不可用、server_up 仍是 1"
+// 的窗口——CI 上 TestManagerKeepsToolsWhenDisconnected 正是撞在这个窗口里。
 func (s *serverState) setConnected(cl *client, tools []mcpTool) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.client = cl
 	s.connected = true
 	s.tools = tools
-	s.mu.Unlock()
 	recordServerUp(s.cfg.Name, true)
 	recordServerTools(s.cfg.Name, len(tools))
 }
@@ -382,9 +386,9 @@ func (s *serverState) setConnected(cl *client, tools []mcpTool) {
 // setClient 只标记连接可用、保留现有工具集合（重连时先恢复调用能力）。
 func (s *serverState) setClient(cl *client) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.client = cl
 	s.connected = true
-	s.mu.Unlock()
 	recordServerUp(s.cfg.Name, true)
 }
 
@@ -403,11 +407,14 @@ func (s *serverState) hasTools() bool {
 }
 
 // setDisconnected 标记断开；保留上次已知工具（软不可用）。
+//
+// 与 setConnected 对称，指标在锁内更新：释放锁之后再记账会让"已断开"
+// 与 server_up=1 短暂共存。
 func (s *serverState) setDisconnected() {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.client = nil
 	s.connected = false
-	s.mu.Unlock()
 	recordServerUp(s.cfg.Name, false)
 }
 
