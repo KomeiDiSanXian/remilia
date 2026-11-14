@@ -144,8 +144,8 @@ func agentStateInventory() []agentStateItem {
 		},
 		{
 			Name: "attachment_cache", Class: agentStateSessionMemory,
-			Session: []string{"contentCache"},
-			Note:    "附件二进制内存缓存（按 URL key），仅本次会话有效",
+			Session: []string{"contentCache", "contentCacheSeq"},
+			Note:    "附件二进制内存缓存（按 URL key）与写入序号（确定性淘汰），仅本次会话有效",
 		},
 		{
 			Name: "todo", Class: agentStateProcessMemory,

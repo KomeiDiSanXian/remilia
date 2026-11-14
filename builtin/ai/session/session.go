@@ -32,6 +32,9 @@ type Session struct {
 	UpdatedAt    time.Time
 	signal       atomic.Pointer[turnSignal]
 	contentCache map[string]*CachedContent `json:"-"`
+	// contentCacheSeq 附件缓存的写入序号，供确定性淘汰使用
+	// （json:"-" 不持久化：缓存本身也只是进程内状态）。
+	contentCacheSeq uint64
 	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
 	selCache *SelectionCache `json:"-"`
 	// toolSet 会话级工具集稳定状态（json:"-" 不持久化，重启后重新收敛）。

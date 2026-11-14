@@ -12,6 +12,12 @@ type CachedContent struct {
 	MimeType    string
 	AudioFormat string
 	ExpireAt    time.Time
+	// seq 写入序号（单调递增），用于确定性的淘汰顺序。
+	//
+	// 不能只按 ExpireAt 比较：TTL 固定为 10 分钟，Windows 的时钟粒度足够粗，
+	// 连续写入的几条会拿到完全相同的 ExpireAt，此时"最早过期"退化成 map 的
+	// 随机遍历序——淘汰掉哪一条变成不确定行为。写入顺序是唯一稳定的依据。
+	seq uint64
 }
 
 // PendingImageRef 未消费纯图片消息的引用（不持有二进制）。
@@ -148,8 +154,11 @@ func (s *Session) SetCachedContent(url string, data []byte, mimeType, audioForma
 //
 // 线程安全，持有 session 写锁。双重上限：条目数（MaxContentCacheEntries）
 // 与字节预算（maxBytes，<= 0 时用 MaxContentCacheBytes）。写入前先清扫过期项，
-// 之后按"最早过期"淘汰其余条目，直到同时满足两个上限。刚写入的这一条不会被
+// 之后按"最早写入"淘汰其余条目，直到同时满足两个上限。刚写入的这一条不会被
 // 淘汰——单张图超过预算时宁可暂时超一点，也不该刚下载完就丢弃。
+//
+// 淘汰依据是写入序号而不是 ExpireAt：TTL 固定，同一次调用链里写入的几条会拿到
+// 相同的过期时间（Windows 时钟粒度更明显），按时间比较等于随机淘汰。
 func (s *Session) SetCachedContentWithBudget(url string, data []byte, mimeType, audioFormat string, maxBytes int64) {
 	if maxBytes <= 0 {
 		maxBytes = MaxContentCacheBytes
@@ -160,11 +169,13 @@ func (s *Session) SetCachedContentWithBudget(url string, data []byte, mimeType, 
 		s.contentCache = make(map[string]*CachedContent)
 	}
 	s.sweepContentCacheLocked()
+	s.contentCacheSeq++
 	s.contentCache[url] = &CachedContent{
 		Data:        data,
 		MimeType:    mimeType,
 		AudioFormat: audioFormat,
 		ExpireAt:    time.Now().Add(10 * time.Minute),
+		seq:         s.contentCacheSeq,
 	}
 	for len(s.contentCache) > MaxContentCacheEntries || s.contentCacheBytesLocked() > maxBytes {
 		if !s.evictOldestContentLocked(url) {
@@ -195,24 +206,37 @@ func (s *Session) contentCacheBytesLocked() int64 {
 	return total
 }
 
-// evictOldestContentLocked 淘汰一个最早过期的条目（须持会话写锁）。
+// evictOldestContentLocked 淘汰一条最早写入的条目（须持会话写锁）。
 // except 非空时不会淘汰该条目（刚写入的那一条）。
 // 没有可淘汰的条目时返回 false（防御空 map）。
 func (s *Session) evictOldestContentLocked(except string) bool {
 	var oldestURL string
-	var oldest time.Time
+	var oldestSeq uint64
 	found := false
 	for url, c := range s.contentCache {
 		if url == except {
 			continue
 		}
-		if !found || c.ExpireAt.Before(oldest) {
-			oldestURL, oldest, found = url, c.ExpireAt, true
+		if c.seq == 0 {
+			// 未带序号的条目（历史代码直接塞进 map 的测试夹具）按最旧处理：
+			// 它们在写入序号之前就已经存在。
+			return s.deleteContentLocked(url)
+		}
+		if !found || c.seq < oldestSeq {
+			oldestURL, oldestSeq, found = url, c.seq, true
 		}
 	}
 	if !found {
 		return false
 	}
-	delete(s.contentCache, oldestURL)
+	return s.deleteContentLocked(oldestURL)
+}
+
+// deleteContentLocked 删除一条缓存并返回是否真的删掉了（须持会话写锁）。
+func (s *Session) deleteContentLocked(url string) bool {
+	if _, ok := s.contentCache[url]; !ok {
+		return false
+	}
+	delete(s.contentCache, url)
 	return true
 }

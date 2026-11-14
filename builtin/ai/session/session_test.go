@@ -496,6 +496,59 @@ func TestContentCacheByteBudget(t *testing.T) {
 	assert.Nil(t, s.CachedContent("a"), "oldest entry should be gone")
 }
 
+// TestContentCacheEvictionIsDeterministic 淘汰顺序必须只取决于写入顺序。
+//
+// 之前按 ExpireAt 找"最早过期"，但 TTL 固定为 10 分钟：连续写入的几条会拿到
+// 完全相同的过期时间（Windows 时钟粒度下尤其明显），比较结果退化成 map 的随机
+// 遍历序，同一份输入可能淘汰任意一条。Windows CI 上 TestContentCacheByteBudget
+// 就是这样偶发失败的。
+func TestContentCacheEvictionIsDeterministic(t *testing.T) {
+	const budget = int64(10 << 20)
+	const chunk = 3 << 20
+
+	for range 50 {
+		s := &Session{}
+		for _, url := range []string{"a", "b", "c", "d"} {
+			s.SetCachedContentWithBudget(url, make([]byte, chunk), "image/png", "", budget)
+		}
+		// 把所有条目的过期时间压成同一个值，模拟时钟粒度造成的并列。
+		s.Lock()
+		same := time.Now()
+		for _, c := range s.contentCache {
+			c.ExpireAt = same
+		}
+		s.Unlock()
+
+		// 再写一条触发淘汰：必须仍然淘汰最早写入的那条。
+		s.SetCachedContentWithBudget("e", make([]byte, chunk), "image/png", "", budget)
+
+		if s.CachedContent("a") != nil {
+			t.Fatal("eviction must drop the oldest written entry, not a random one")
+		}
+		if s.CachedContent("e") == nil {
+			t.Fatal("the just-written entry must be kept")
+		}
+	}
+}
+
+// TestContentCacheEvictionIgnoresUntrackedEntries 未带写入序号的条目
+// （历史代码或测试夹具直接塞进 map 的）按最旧处理，不会让淘汰卡死。
+func TestContentCacheEvictionIgnoresUntrackedEntries(t *testing.T) {
+	const budget = int64(2 << 20)
+	s := &Session{contentCache: map[string]*CachedContent{
+		"legacy": {Data: make([]byte, 1<<20)},
+	}}
+
+	s.SetCachedContentWithBudget("fresh", make([]byte, 1<<20), "image/png", "", budget)
+	// legacy 没有序号，必须被优先淘汰，fresh 必须留下。
+	if _, ok := s.contentCache["legacy"]; ok {
+		t.Fatal("entry without a write sequence should be evicted first")
+	}
+	if s.CachedContent("fresh") == nil {
+		t.Fatal("the just-written entry must be kept")
+	}
+}
+
 // TestContentCacheKeepsOversizedEntry 单条超过预算时保留刚写入的那条：
 // 刚下载完就丢弃等于白下载，且下一次请求还会再下一遍。
 func TestContentCacheKeepsOversizedEntry(t *testing.T) {
