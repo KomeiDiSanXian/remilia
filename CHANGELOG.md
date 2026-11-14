@@ -26,6 +26,22 @@ Go 1.27 起 `encoding/json/v2` 已稳定，但仓库里仍有 149 个文件 impo
 - `nil` 切片/映射编码为 `[]`/`{}` 而非 `null`；`[N]byte` 编码为 Base64 字符串而非数字数组（仓库内没有 `[N]byte` 的 JSON 字段，暂无影响）。
 - 字符串不再转义 `<`、`>`、`&`（`MarshalIndent` 得到的脚本类输出更可读）。
 
+### 🛠 修复
+
+**`builtin/ai` 附件缓存淘汰顺序不确定（Windows CI 偶发失败）**
+
+- `TestContentCacheByteBudget` 在 Windows runner 上间歇性失败（`oldest entry should be gone`）。淘汰逻辑按"最早过期"选受害者，但 TTL 固定 10 分钟，连续写入的几条会拿到**完全相同**的 `ExpireAt`；比较结果此时退化成 Go map 的随机遍历序，淘汰哪一条变成不确定行为。Windows 的时钟粒度更粗，同一次调用链里的条目更容易撞上同一个时间戳，所以在 Linux 上稳定通过、在 Windows 上偶发失败。
+- 改为按**写入序号**淘汰：每条缓存带单调递增的 `seq`，最早写入的序号最小。没有序号的历史条目（测试夹具直接塞进 map 的）按最旧处理，淘汰不会卡死。
+- 新增 `TestContentCacheEvictionIsDeterministic`：把全部条目的 `ExpireAt` 强制改成同一值后，仍必须淘汰最早写入的那条；`TestContentCacheEvictionIgnoresUntrackedEntries` 覆盖无序号条目。
+
+### 📦 依赖
+
+**Desktop · `@tauri-apps/plugin-shell` / `tauri-plugin-shell` 升到 2.6（两侧配对）**
+
+- Dependabot 把同一个 Tauri 插件升级拆成了两个 PR：npm 侧（`@tauri-apps/plugin-shell` → `~2.6.0`）与 Rust 侧（`tauri-plugin-shell` → `~2.6`）。`tauri build` 要求两侧 major.minor 一致，因此**单独合并任一个都会让 arm64 APK 检查失败**（`tauri-plugin-shell (v2.5.0) : @tauri-apps/plugin-shell (v2.6.0)`，反之亦然）。
+- 本次按 `desktop/README.md` 的约定在同一提交里同时升级两侧并重新生成两个 lockfile；`npx tauri info` 确认 shell 2.6.0 两侧一致，updater 2.14.1、process 2.4.0 原本就配对。
+- 顺带纳入同批次的可选更新：`@types/node` → 26.6.6、`@vitejs/plugin-react` → 6.2.1、`vite` → 8.3.6（仅 `/dashboard`）。
+
 ## v1.81.0 (2026-11-07)
 
 ### 🛠 修复
