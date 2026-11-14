@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.82.0 (2026-11-14)
 
 ### ♻️ 重构
 
