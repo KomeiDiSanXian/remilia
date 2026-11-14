@@ -17,13 +17,13 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -174,7 +174,7 @@ func ParseExtractedFacts(text string) []ExtractedFact {
 		return nil
 	}
 	var facts []ExtractedFact
-	if err := json.Unmarshal([]byte(text[start:end+1]), &facts); err != nil {
+	if err := jsonx.Unmarshal([]byte(text[start:end+1]), &facts); err != nil {
 		logger.Debugf("[AI] Memory extract parse failed: %v", err)
 		return nil
 	}

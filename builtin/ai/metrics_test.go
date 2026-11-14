@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -44,7 +44,7 @@ func TestOpenAIUsageParsing(t *testing.T) {
 	// 非流式
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "hi"}, "finish_reason": "stop"},
 			},
@@ -104,7 +104,7 @@ func TestOpenAIUsageParsing(t *testing.T) {
 func TestMetricsProviderChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
 			},
@@ -277,7 +277,7 @@ func TestMetricsProviderStreamStats(t *testing.T) {
 
 	jsonSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
 			},

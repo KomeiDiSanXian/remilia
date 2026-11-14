@@ -1,9 +1,10 @@
 package protocol
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func TestToOpenAIMessages(t *testing.T) {
@@ -46,11 +47,11 @@ func TestToOpenAIMessagesWithContentParts(t *testing.T) {
 	if len(openaiMsgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(openaiMsgs))
 	}
-	data, err := json.Marshal(openaiMsgs[0].Content)
+	data, err := jsonx.Marshal(openaiMsgs[0].Content)
 	if err != nil {
 		t.Fatalf("Marshal failed: %v", err)
 	}
-	if !json.Valid(data) {
+	if !jsonx.Valid(data) {
 		t.Error("invalid JSON for Content with parts")
 	}
 }

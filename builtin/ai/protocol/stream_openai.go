@@ -2,9 +2,9 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -49,7 +49,7 @@ func newOpenAIStreamDecoder() streamDecoder {
 		}
 
 		var chunk openaiStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		if err := jsonx.Unmarshal([]byte(data), &chunk); err != nil {
 			// 默认 continue 会把"网关偶发非 JSON 片段"变成静默丢字：整段流不报错，
 			// 却缺了内容，排查时无从下手。留一条 Debug 日志即可定位。
 			logger.Debugf("[AI] skip non-JSON stream line: %v", err)

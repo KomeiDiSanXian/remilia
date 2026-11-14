@@ -22,7 +22,6 @@
 package ai
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -30,6 +29,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -284,7 +284,7 @@ func (m *groupPolicyManager) save() {
 		data[id] = p.Clone()
 	}
 	m.mu.RUnlock()
-	bytes, err := json.Marshal(data)
+	bytes, err := jsonx.Marshal(data)
 	if err != nil {
 		logger.WithError(err).Warn("[AI] Failed to marshal group policies")
 		return
@@ -304,7 +304,7 @@ func (m *groupPolicyManager) load() {
 		return
 	}
 	var data map[string]*groupPolicy
-	if err := json.Unmarshal(bytes, &data); err != nil {
+	if err := jsonx.Unmarshal(bytes, &data); err != nil {
 		logger.WithError(err).Warn("[AI] Failed to load group policies")
 		return
 	}

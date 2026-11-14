@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/config"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func TestOpenAIProvider_Chat(t *testing.T) {
@@ -24,7 +24,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 			t.Errorf("unexpected auth header: %q", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{
 					"index": 0,
@@ -65,7 +65,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 func TestOpenAIProvider_ChatWithTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{
 					"index": 0,
@@ -190,7 +190,7 @@ func TestOpenAIProvider_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
 				"message": "Invalid API key",
 				"type":    "authentication_error",
@@ -266,7 +266,7 @@ func TestOpenAIProvider_ChatStreamAPIErrorInStream(t *testing.T) {
 func TestAnthropicProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"id":          "msg_1",
 			"type":        "message",
 			"role":        "assistant",
@@ -350,7 +350,7 @@ func TestOpenAIProvider_RetryOn5xx(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "OK"}, "finish_reason": "stop"},
 			},
@@ -408,7 +408,7 @@ func TestOpenAIProvider_ChatUsesRequestModelAndMaxTokens(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
 			},
@@ -690,7 +690,7 @@ func TestOpenAIProvider_ReasoningEffort(t *testing.T) {
 			w.Write([]byte("data: [DONE]\n\n"))
 		} else {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			jsonx.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{
 					{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
 				},

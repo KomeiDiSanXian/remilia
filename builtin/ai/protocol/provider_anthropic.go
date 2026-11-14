@@ -19,13 +19,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -98,9 +98,9 @@ type anthropicChatRequest struct {
 	System      string                `json:"system,omitempty"`
 	Messages    []anthropicReqMessage `json:"messages"`
 	Tools       []AnthropicTool       `json:"tools,omitempty"`
-	Temperature float64               `json:"temperature,omitempty"`
-	TopP        float64               `json:"top_p,omitempty"`
-	Stream      bool                  `json:"stream,omitempty"`
+	Temperature float64               `json:"temperature,omitzero"`
+	TopP        float64               `json:"top_p,omitzero"`
+	Stream      bool                  `json:"stream,omitzero"`
 }
 
 type anthropicUsageBody struct {
@@ -305,7 +305,7 @@ func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		body.Tools = ToAnthropicTools(req.Tools)
 	}
 
-	payload, err := json.Marshal(body)
+	payload, err := jsonx.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("ai: anthropic marshal request: %w", err)
 	}
@@ -337,7 +337,7 @@ func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatRe
 	}
 
 	var anthropicResp anthropicChatResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&anthropicResp); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&anthropicResp); err != nil {
 		return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
 	}
 
@@ -398,7 +398,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		body.Tools = ToAnthropicTools(req.Tools)
 	}
 
-	payload, err := json.Marshal(body)
+	payload, err := jsonx.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("ai: anthropic marshal request: %w", err)
 	}

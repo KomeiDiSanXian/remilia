@@ -118,7 +118,7 @@ type Artifact struct {
 	// Name 产物名称（工作区相对路径）。
 	Name string `json:"name"`
 	// Size 产物大小（字节；未知为 0）。
-	Size int `json:"size,omitempty"`
+	Size int `json:"size,omitzero"`
 	// At 登记时间。
 	At time.Time `json:"at"`
 }

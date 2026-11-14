@@ -2,7 +2,6 @@ package retrieval
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -14,6 +13,8 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func TestCosineSimilarity(t *testing.T) {
@@ -41,7 +42,7 @@ func TestOpenAIEmbedder(t *testing.T) {
 			t.Errorf("missing authorization header")
 		}
 		var req embedRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := jsonx.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
 		gotModel = req.Model
@@ -51,7 +52,7 @@ func TestOpenAIEmbedder(t *testing.T) {
 		for i := range req.Input {
 			data[i] = map[string]any{"object": "embedding", "index": i, "embedding": []float32{0.1, 0.2}}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
+		jsonx.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
 	}))
 	defer srv.Close()
 
@@ -178,7 +179,7 @@ func TestOpenAIEmbedderInvalidJSON(t *testing.T) {
 func TestOpenAIEmbedderEmptyVector(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
 			"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": []float32{}}},
 		})
@@ -193,7 +194,7 @@ func TestOpenAIEmbedderEmptyVector(t *testing.T) {
 func TestOpenAIEmbedderInconsistentBatch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
 			"data": []map[string]any{
 				{"object": "embedding", "index": 0, "embedding": []float32{0.1, 0.2}},
@@ -220,7 +221,7 @@ func TestOpenAIEmbedderDimensionChanged(t *testing.T) {
 		for i := range vec {
 			vec[i] = 0.1
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
 			"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": vec}},
 		})
@@ -268,7 +269,7 @@ func TestOpenAIEmbedderRecovery(t *testing.T) {
 		calls.Add(1)
 		if healthy.Load() {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			jsonx.NewEncoder(w).Encode(map[string]any{
 				"object": "list",
 				"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": []float32{0.1, 0.2}}},
 			})

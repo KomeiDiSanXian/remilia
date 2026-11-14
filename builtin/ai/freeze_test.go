@@ -6,7 +6,6 @@
 package ai
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -202,7 +202,7 @@ func TestSessionPersistenceSchemaSnapshot(t *testing.T) {
 // toolsRequestBytes 返回工具列表在请求中的序列化字节（协议层视角）。
 func toolsRequestBytes(t *testing.T, actions []toolkit.Action) string {
 	t.Helper()
-	b, err := json.Marshal(toOpenAITools(actions))
+	b, err := jsonx.Marshal(toOpenAITools(actions))
 	require.NoError(t, err)
 	return string(b)
 }

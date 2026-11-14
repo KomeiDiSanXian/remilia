@@ -1,10 +1,11 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 var (
@@ -128,7 +129,7 @@ func BenchmarkProviderRequestPreparation(b *testing.B) {
 				if len(request.Tools) > 0 {
 					body.Tools = ToOpenAITools(request.Tools)
 				}
-				payload, err := json.Marshal(body)
+				payload, err := jsonx.Marshal(body)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -151,7 +152,7 @@ func BenchmarkProviderRequestPreparation(b *testing.B) {
 				if len(request.Tools) > 0 {
 					body.Tools = ToAnthropicTools(request.Tools)
 				}
-				payload, err := json.Marshal(body)
+				payload, err := jsonx.Marshal(body)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -187,7 +188,7 @@ func BenchmarkMultimodalRequestPreparation64KiB(b *testing.B) {
 				Messages:  toOpenAIMessages(request.Messages),
 				MaxTokens: request.MaxTokens,
 			}
-			payload, err := json.Marshal(body)
+			payload, err := jsonx.Marshal(body)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -205,7 +206,7 @@ func BenchmarkMultimodalRequestPreparation64KiB(b *testing.B) {
 				System:    extractAnthropicSystem(request.Messages),
 				Messages:  toAnthropicMessages(request.Messages),
 			}
-			payload, err := json.Marshal(body)
+			payload, err := jsonx.Marshal(body)
 			if err != nil {
 				b.Fatal(err)
 			}

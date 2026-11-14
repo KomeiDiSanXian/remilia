@@ -16,9 +16,9 @@
 package config
 
 import (
-	"encoding/json"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -466,7 +466,7 @@ func floatOption(ctx *plugin.SetupContext, key string) (float64, bool) {
 		return float64(v), true
 	case int64:
 		return float64(v), true
-	case json.Number:
+	case jsonx.Number:
 		f, err := v.Float64()
 		return f, err == nil
 	default:
@@ -482,7 +482,7 @@ func intOption(ctx *plugin.SetupContext, key string) (int, bool) {
 		return int(v), true
 	case float64:
 		return int(v), true
-	case json.Number:
+	case jsonx.Number:
 		n, err := v.Int64()
 		return int(n), err == nil
 	default:

@@ -11,7 +11,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // executionTarget 一次工具调用的"执行三件套"：时间预算、输出捕获、调用期能力。
@@ -178,7 +178,7 @@ func (p *Plugin) executeSkill(ctx context.Context, inv *toolkit.Invocation, skil
 	// 记账归属：以技能自身的 owner + name 为键，嵌套调用同样按被执行的技能计数。
 	p.skillReg.IncrementUsage(skill.OwnerID, skill.Name)
 
-	argsJSON, _ := json.MarshalIndent(args, "", "  ")
+	argsJSON, _ := jsonx.MarshalIndent(args, "", "  ")
 	msgs := []protocol.Message{
 		{Role: protocol.RoleSystem, Content: skill.Prompt},
 		{Role: protocol.RoleUser, Content: string(argsJSON)},

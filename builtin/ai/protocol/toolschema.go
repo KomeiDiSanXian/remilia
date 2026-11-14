@@ -7,8 +7,9 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ToolParamSchema JSON Schema 格式的工具参数描述。
@@ -126,7 +127,7 @@ func ParseOpenAIToolCalls(raw []OpenAIToolCall) ([]ToolCall, error) {
 		}
 		args := make(map[string]any)
 		if tc.Function.Arguments != "" {
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+			if err := jsonx.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 				return nil, fmt.Errorf("ai: parse tool call args: %w", err)
 			}
 		}
@@ -163,8 +164,8 @@ func ParseAnthropicToolCalls(blocks []AnthropicContentBlock) []ToolCall {
 			case map[string]any:
 				args = v
 			default:
-				b, _ := json.Marshal(v)
-				json.Unmarshal(b, &args)
+				b, _ := jsonx.Marshal(v)
+				jsonx.Unmarshal(b, &args)
 			}
 		}
 		calls = append(calls, ToolCall{

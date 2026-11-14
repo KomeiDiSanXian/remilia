@@ -17,7 +17,6 @@ package execnode
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // API 路径（服务端与客户端共用，避免两侧漂移）。
@@ -73,15 +73,15 @@ type ExecResponse struct {
 	ExitCode   int      `json:"exit_code"`
 	Stdout     string   `json:"stdout,omitempty"`
 	Stderr     string   `json:"stderr,omitempty"`
-	TimedOut   bool     `json:"timed_out,omitempty"`
-	Truncated  bool     `json:"truncated,omitempty"`
+	TimedOut   bool     `json:"timed_out,omitzero"`
+	Truncated  bool     `json:"truncated,omitzero"`
 	DurationMS int64    `json:"duration_ms"`
 }
 
 // FileReadRequest 文件读取请求。
 type FileReadRequest struct {
 	Path     string `json:"path"`
-	MaxBytes int    `json:"max_bytes,omitempty"`
+	MaxBytes int    `json:"max_bytes,omitzero"`
 }
 
 // FileReadResponse 文件读取结果。
@@ -89,27 +89,27 @@ type FileReadResponse struct {
 	Path      string `json:"path"`
 	Text      string `json:"text"`
 	Size      int64  `json:"size"`
-	Truncated bool   `json:"truncated,omitempty"`
+	Truncated bool   `json:"truncated,omitzero"`
 }
 
 // FileListRequest 目录列举请求。
 type FileListRequest struct {
 	Path       string `json:"path,omitempty"`
-	MaxEntries int    `json:"max_entries,omitempty"`
+	MaxEntries int    `json:"max_entries,omitzero"`
 }
 
 // FileListEntry 目录条目。
 type FileListEntry struct {
 	Name  string `json:"name"`
-	IsDir bool   `json:"is_dir,omitempty"`
-	Size  int64  `json:"size,omitempty"`
+	IsDir bool   `json:"is_dir,omitzero"`
+	Size  int64  `json:"size,omitzero"`
 }
 
 // FileListResponse 目录列举结果。
 type FileListResponse struct {
 	Entries   []FileListEntry `json:"entries"`
 	Total     int             `json:"total"`
-	Truncated bool            `json:"truncated,omitempty"`
+	Truncated bool            `json:"truncated,omitzero"`
 }
 
 // FileWriteRequest 文件写入请求。
@@ -122,8 +122,8 @@ type FileWriteRequest struct {
 type FileWriteResponse struct {
 	Path          string `json:"path"`
 	Bytes         int    `json:"bytes"`
-	PreviousBytes int    `json:"previous_bytes,omitempty"`
-	Created       bool   `json:"created,omitempty"`
+	PreviousBytes int    `json:"previous_bytes,omitzero"`
+	Created       bool   `json:"created,omitzero"`
 }
 
 // FileEditRequest 精确替换请求。
@@ -274,7 +274,7 @@ func (c *Client) Run(ctx context.Context, req catalog.ExecRequest) (catalog.Exec
 func (c *Client) do(ctx context.Context, method, path string, reqBody any, out any) error {
 	var body io.Reader
 	if reqBody != nil {
-		data, err := json.Marshal(reqBody)
+		data, err := jsonx.Marshal(reqBody)
 		if err != nil {
 			return fmt.Errorf("execnode: marshal request: %w", err)
 		}
@@ -298,7 +298,7 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody any, out a
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var apiErr ErrorResponse
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-		_ = json.Unmarshal(data, &apiErr)
+		_ = jsonx.Unmarshal(data, &apiErr)
 		message := strings.TrimSpace(apiErr.Error)
 		if message == "" {
 			message = strings.TrimSpace(string(data))
@@ -311,7 +311,7 @@ func (c *Client) do(ctx context.Context, method, path string, reqBody any, out a
 	if out == nil {
 		return nil
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxRequestBody)).Decode(out); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, maxRequestBody)).Decode(out); err != nil {
 		return fmt.Errorf("execnode: decode response from %s: %w", path, err)
 	}
 	return nil

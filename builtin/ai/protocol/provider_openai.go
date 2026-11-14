@@ -16,13 +16,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -101,12 +101,12 @@ type openaiMessageContent struct {
 
 func (c *openaiMessageContent) MarshalJSON() ([]byte, error) {
 	if c == nil {
-		return json.Marshal(nil)
+		return jsonx.Marshal(nil)
 	}
 	if len(c.parts) > 0 {
-		return json.Marshal(c.parts)
+		return jsonx.Marshal(c.parts)
 	}
-	return json.Marshal(c.text)
+	return jsonx.Marshal(c.text)
 }
 
 func (c *openaiMessageContent) UnmarshalJSON(data []byte) error {
@@ -114,21 +114,21 @@ func (c *openaiMessageContent) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
+	if err := jsonx.Unmarshal(data, &s); err == nil {
 		c.text = s
 		c.parts = nil
 		return nil
 	}
-	if err := json.Unmarshal(data, &c.parts); err == nil {
+	if err := jsonx.Unmarshal(data, &c.parts); err == nil {
 		return nil
 	}
 	// 容错：部分兼容网关会以单个对象（而非数组）返回多模态 content。
 	var one openaiContentPart
-	if err := json.Unmarshal(data, &one); err == nil {
+	if err := jsonx.Unmarshal(data, &one); err == nil {
 		c.parts = []openaiContentPart{one}
 		return nil
 	}
-	return json.Unmarshal(data, &c.parts)
+	return jsonx.Unmarshal(data, &c.parts)
 }
 
 // String 返回纯文本内容：plain string 格式直接返回 text；
@@ -160,13 +160,13 @@ type openaiChatRequest struct {
 	Model       string              `json:"model"`
 	Messages    []openaiChatMessage `json:"messages"`
 	Tools       []OpenAITool        `json:"tools,omitempty"`
-	Temperature float64             `json:"temperature,omitempty"`
-	TopP        float64             `json:"top_p,omitempty"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Temperature float64             `json:"temperature,omitzero"`
+	TopP        float64             `json:"top_p,omitzero"`
+	MaxTokens   int                 `json:"max_tokens,omitzero"`
 	// ReasoningEffort 思考程度（reasoning_effort）。omitempty 保证未配置时
 	// 完全不出现该字段，兼容不认识它的网关。
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
-	Stream          bool   `json:"stream,omitempty"`
+	Stream          bool   `json:"stream,omitzero"`
 	StreamOptions   *struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
@@ -256,7 +256,7 @@ func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 				if tcID == "" {
 					tcID = fmt.Sprintf("call_%s_%d", tc.Name, i)
 				}
-				argsJSON, _ := json.Marshal(tc.Arguments)
+				argsJSON, _ := jsonx.Marshal(tc.Arguments)
 				ocm.ToolCalls = append(ocm.ToolCalls, OpenAIToolCall{
 					ID:   tcID,
 					Type: "function",
@@ -387,7 +387,7 @@ func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatRespons
 		body.Tools = ToOpenAITools(req.Tools)
 	}
 
-	payload, err := json.Marshal(body)
+	payload, err := jsonx.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("ai: marshal request: %w", err)
 	}
@@ -420,7 +420,7 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 	}
 
 	var openaiResp openaiChatResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&openaiResp); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&openaiResp); err != nil {
 		return nil, fmt.Errorf("ai: decode response: %w", err)
 	}
 
@@ -479,7 +479,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		body.Tools = ToOpenAITools(req.Tools)
 	}
 
-	payload, err := json.Marshal(body)
+	payload, err := jsonx.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("ai: marshal request: %w", err)
 	}

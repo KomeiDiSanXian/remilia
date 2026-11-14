@@ -8,7 +8,6 @@
 package task
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 	"gorm.io/gorm/clause"
@@ -83,7 +83,7 @@ func (Record) TableName() string { return "ai_tasks" }
 func (t *Task) ToRecord() *Record {
 	var stepsJSON string
 	if len(t.Steps) > 0 {
-		if data, err := json.Marshal(t.Steps); err == nil {
+		if data, err := jsonx.Marshal(t.Steps); err == nil {
 			stepsJSON = string(data)
 		} else {
 			logger.Errorf("[AI] Failed to marshal task steps for %s: %v", t.ID, err)
@@ -91,7 +91,7 @@ func (t *Task) ToRecord() *Record {
 	}
 	var artifactsJSON string
 	if len(t.Artifacts) > 0 {
-		if data, err := json.Marshal(t.Artifacts); err == nil {
+		if data, err := jsonx.Marshal(t.Artifacts); err == nil {
 			artifactsJSON = string(data)
 		} else {
 			logger.Errorf("[AI] Failed to marshal task artifacts for %s: %v", t.ID, err)
@@ -133,12 +133,12 @@ func (r *Record) ToTask() (*Task, error) {
 		UpdatedAt:   r.UpdatedAt,
 	}
 	if r.Steps != "" {
-		if err := json.Unmarshal([]byte(r.Steps), &t.Steps); err != nil {
+		if err := jsonx.Unmarshal([]byte(r.Steps), &t.Steps); err != nil {
 			return nil, fmt.Errorf("task: unmarshal steps for %s: %w", r.ID, err)
 		}
 	}
 	if r.Artifacts != "" {
-		if err := json.Unmarshal([]byte(r.Artifacts), &t.Artifacts); err != nil {
+		if err := jsonx.Unmarshal([]byte(r.Artifacts), &t.Artifacts); err != nil {
 			return nil, fmt.Errorf("task: unmarshal artifacts for %s: %w", r.ID, err)
 		}
 	}

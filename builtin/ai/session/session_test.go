@@ -5,13 +5,13 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -538,9 +538,9 @@ func TestStripBinaryPartsOlderThan(t *testing.T) {
 
 func TestSessionRecordJSONRoundTrip(t *testing.T) {
 	msg := protocol.Message{Role: protocol.RoleUser, Content: "test"}
-	data, _ := json.Marshal(msg)
+	data, _ := jsonx.Marshal(msg)
 	var restored protocol.Message
-	json.Unmarshal(data, &restored)
+	jsonx.Unmarshal(data, &restored)
 	if restored.Role != protocol.RoleUser {
 		t.Errorf("expected RoleUser, got %v", restored.Role)
 	}

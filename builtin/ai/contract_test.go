@@ -8,7 +8,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"sort"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/promptctx"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // retrievalFixture 检索契约数据集（testdata/retrieval_cases.json）。
@@ -49,7 +49,7 @@ func loadRetrievalFixture(t *testing.T) *retrievalFixture {
 		t.Fatalf("load retrieval fixture: %v", err)
 	}
 	var fx retrievalFixture
-	if err := json.Unmarshal(raw, &fx); err != nil {
+	if err := jsonx.Unmarshal(raw, &fx); err != nil {
 		t.Fatalf("parse retrieval fixture: %v", err)
 	}
 	return &fx

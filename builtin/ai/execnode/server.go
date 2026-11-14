@@ -8,7 +8,6 @@ package execnode
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/workspace"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ServerConfig 服务端配置。
@@ -207,7 +207,7 @@ func (s *Server) handleFileEdit(w http.ResponseWriter, r *http.Request) {
 // decodeRequest 读取并解码请求体（带大小上限）。
 func decodeRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(dst); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return false
 	}
@@ -245,7 +245,7 @@ func statusForError(err error) int {
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	_ = jsonx.NewEncoder(w).Encode(body)
 }
 
 // writeError 写入错误响应。

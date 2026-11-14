@@ -6,12 +6,12 @@
 package ai
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +36,7 @@ func TestDynamicContextChangeKeepsPrefix(t *testing.T) {
 	// stablePrefix 取"除最后一条用户消息之外的全部消息"作为稳定前缀。
 	stablePrefix := func(dynamic string) string {
 		msgs := build(dynamic)
-		payload, err := json.Marshal(msgs[:len(msgs)-1])
+		payload, err := jsonx.Marshal(msgs[:len(msgs)-1])
 		require.NoError(t, err)
 		return string(payload)
 	}
@@ -59,7 +59,7 @@ func TestDynamicContextChangeKeepsPrefix(t *testing.T) {
 // 两个不同 ToolSet 构建的请求前缀字节必须不同；同一 ToolSet 必须稳定。
 func TestToolSetChangeCreatesDistinctPrefix(t *testing.T) {
 	prefix := func(actions []toolkit.Action) string {
-		payload, err := json.Marshal(struct {
+		payload, err := jsonx.Marshal(struct {
 			Messages []protocol.Message
 			Tools    string
 		}{

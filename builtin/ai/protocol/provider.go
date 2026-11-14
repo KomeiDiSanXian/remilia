@@ -71,7 +71,7 @@ type ContentPart struct {
 	// >0 时表示可以脱离原始 URL 重新取回二进制（重启后、内存缓存过期后都靠它）；
 	// 0 表示只能依赖 SourceURL 重新下载（平台直链通常很快过期）。
 	// 与 SourceURL 一样属于会话侧元数据，不进入请求线格式（provider 适配器忽略）。
-	AttachmentID int64 `json:"attachment_id,omitempty"`
+	AttachmentID int64 `json:"attachment_id,omitzero"`
 
 	// 下载后的二进制数据（json:"-" 不持久化到 session）
 	Data []byte `json:"-"`
@@ -101,7 +101,7 @@ type Message struct {
 	// user 角色进入消息序列（各提供商对 user/assistant 交替有硬性约束），
 	// 但不是用户真实发言。检索/记忆抽取选取"最后一条用户消息"时须跳过，
 	// 否则查询词会变成内部指令。
-	Internal bool `json:"internal,omitempty"`
+	Internal bool `json:"internal,omitzero"`
 }
 
 // ChatRequest 发送给 LLM 的聊天请求。

@@ -16,7 +16,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/textutil"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -149,7 +149,7 @@ func (m *memoryStore) load(scope string) []memoryFact {
 	var loaded []memoryFact
 	if m.store != nil {
 		if bytes, err := m.store.Get([]byte(scope)); err == nil {
-			if err := json.Unmarshal(bytes, &loaded); err != nil {
+			if err := jsonx.Unmarshal(bytes, &loaded); err != nil {
 				logger.WithError(err).Warn("[AI] Failed to unmarshal memory scope " + scope)
 				loaded = nil
 			}
@@ -371,7 +371,7 @@ func (m *memoryStore) loadLocked(scope string) []memoryFact {
 	var facts []memoryFact
 	if m.store != nil {
 		if b, err := m.store.Get([]byte(scope)); err == nil {
-			if uerr := json.Unmarshal(b, &facts); uerr != nil {
+			if uerr := jsonx.Unmarshal(b, &facts); uerr != nil {
 				logger.WithError(uerr).Warn("[AI] memory scope unreadable, writes disabled for it: " + scope)
 				m.markUnreadableLocked(scope)
 				return nil
@@ -428,7 +428,7 @@ func (m *memoryStore) save(scope string, facts []memoryFact) {
 	if m.store == nil {
 		return
 	}
-	bytes, err := json.Marshal(facts)
+	bytes, err := jsonx.Marshal(facts)
 	if err != nil {
 		logger.WithError(err).Warn("[AI] Failed to marshal memory scope " + scope)
 		return

@@ -12,12 +12,13 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // maxSchemaDepth 嵌套校验的最大深度。
@@ -152,7 +153,7 @@ func sliceValues(value any) ([]any, bool) {
 // isNumber 报告值是否为数字；integer 为真时要求没有小数部分
 // （JSON 数字统一解码为 float64，整数值的 3.0 视为合法整数）。
 func isNumber(value any, integer bool) bool {
-	if n, ok := value.(json.Number); ok {
+	if n, ok := value.(jsonx.Number); ok {
 		if integer {
 			_, err := n.Int64()
 			return err == nil

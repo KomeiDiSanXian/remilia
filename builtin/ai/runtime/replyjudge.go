@@ -7,10 +7,11 @@
 package runtime
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ReplyJudgeSystemPrompt 插话决策器的系统提示词。
@@ -67,7 +68,7 @@ func ParseReplyVerdict(text string) (ReplyVerdict, bool) {
 				Verdict string `json:"verdict"`
 				Reason  string `json:"reason"`
 			}
-			if err := json.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
+			if err := jsonx.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
 				switch strings.ToLower(strings.TrimSpace(parsed.Verdict)) {
 				case "reply", "respond", "yes", "回复", "回应":
 					return ReplyVerdict{Reply: true, Reason: strings.TrimSpace(parsed.Reason)}, true

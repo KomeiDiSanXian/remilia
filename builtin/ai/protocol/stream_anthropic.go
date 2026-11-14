@@ -2,9 +2,9 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -107,7 +107,7 @@ func finishContentBlock(event anthropicStreamEvent, pending map[int]*anthropicSt
 	}
 	args := make(map[string]any)
 	if tool.input != "" {
-		json.Unmarshal([]byte(tool.input), &args)
+		jsonx.Unmarshal([]byte(tool.input), &args)
 	}
 	send(StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
 		ID:        tool.id,
@@ -125,7 +125,7 @@ func newAnthropicStreamDecoder() streamDecoder {
 
 	return func(data string, state *streamState, send func(StreamEvent) bool) (bool, error) {
 		var event anthropicStreamEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+		if err := jsonx.Unmarshal([]byte(data), &event); err != nil {
 			logger.Debugf("[AI] skip non-JSON anthropic stream line: %v", err)
 			return false, nil
 		}

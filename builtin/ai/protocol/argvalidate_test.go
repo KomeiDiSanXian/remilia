@@ -1,9 +1,10 @@
 package protocol
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func TestValidateArgumentsEmptySchemaPasses(t *testing.T) {
@@ -70,12 +71,12 @@ func TestValidateArgumentsNumberSources(t *testing.T) {
 	schema := ToolParamSchema{Type: "object", Properties: map[string]ToolParamSchema{
 		"value": {Type: "number"},
 	}}
-	for _, value := range []any{int(1), int64(1), uint8(1), float32(1.5), float64(1.5), json.Number("2.5")} {
+	for _, value := range []any{int(1), int64(1), uint8(1), float32(1.5), float64(1.5), jsonx.Number("2.5")} {
 		if err := ValidateArguments(schema, map[string]any{"value": value}); err != nil {
 			t.Fatalf("value %T(%v) should be a valid number: %v", value, value, err)
 		}
 	}
-	if err := ValidateArguments(schema, map[string]any{"value": json.Number("not-a-number")}); err == nil {
+	if err := ValidateArguments(schema, map[string]any{"value": jsonx.Number("not-a-number")}); err == nil {
 		t.Fatal("invalid json.Number should be rejected")
 	}
 }

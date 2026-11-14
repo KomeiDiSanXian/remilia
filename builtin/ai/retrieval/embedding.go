@@ -15,7 +15,6 @@ package retrieval
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -177,7 +177,7 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	if !e.breaker.Allow() {
 		return nil, errEmbeddingCooldown
 	}
-	body, err := json.Marshal(embedRequest{Model: e.model, Input: texts})
+	body, err := jsonx.Marshal(embedRequest{Model: e.model, Input: texts})
 	if err != nil {
 		return nil, fmt.Errorf("embed: marshal request: %w", err)
 	}
@@ -211,7 +211,7 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	}
 
 	var parsed embedResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := jsonx.Unmarshal(raw, &parsed); err != nil {
 		e.breaker.RecordFailure()
 		return nil, fmt.Errorf("embed: parse response: %w", err)
 	}

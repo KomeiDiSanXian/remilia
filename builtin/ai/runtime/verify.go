@@ -14,12 +14,12 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // VerifyPrompt 回答评审的系统提示词。
@@ -104,7 +104,7 @@ func ParseVerdict(text string) VerifyResult {
 				Verdict string `json:"verdict"`
 				Reason  string `json:"reason"`
 			}
-			if err := json.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
+			if err := jsonx.Unmarshal([]byte(text[start:end+1]), &parsed); err == nil {
 				switch strings.ToLower(strings.TrimSpace(parsed.Verdict)) {
 				case "pass":
 					return VerifyResult{Pass: true}

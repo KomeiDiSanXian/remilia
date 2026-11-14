@@ -1,7 +1,6 @@
 package ai
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/runtime"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
@@ -175,11 +175,11 @@ func TestGroupPolicyJSONRoundTrip(t *testing.T) {
 	prompt := "提示词"
 	on := true
 	p := &groupPolicy{SystemPrompt: &prompt, RequireMention: &on}
-	data, err := json.Marshal(p)
+	data, err := jsonx.Marshal(p)
 	require.NoError(t, err)
 
 	var back groupPolicy
-	require.NoError(t, json.Unmarshal(data, &back))
+	require.NoError(t, jsonx.Unmarshal(data, &back))
 	assert.Equal(t, "提示词", *back.SystemPrompt)
 	assert.Equal(t, true, *back.RequireMention)
 }

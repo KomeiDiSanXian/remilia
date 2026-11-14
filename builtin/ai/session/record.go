@@ -3,12 +3,12 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -61,13 +61,13 @@ func (Record) TableName() string { return SessionRecordTable }
 // 跳过本次写库，也不能用 "[]" 覆盖掉库里已有的对话——历史不可重建，
 // 一次失败的 marshal 不该变成一次静默的清空。
 func (s *Session) ToRecord() (*Record, error) {
-	data, err := json.Marshal(MessagesForPersistence(s.Messages))
+	data, err := jsonx.Marshal(MessagesForPersistence(s.Messages))
 	if err != nil {
 		return nil, fmt.Errorf("session: marshal messages for %s: %w", s.ID, err)
 	}
 	var planJSON string
 	if s.plan != nil {
-		pb, perr := json.Marshal(s.plan)
+		pb, perr := jsonx.Marshal(s.plan)
 		if perr != nil {
 			return nil, fmt.Errorf("session: marshal plan for %s: %w", s.ID, perr)
 		}
@@ -75,7 +75,7 @@ func (s *Session) ToRecord() (*Record, error) {
 	}
 	var pendingJSON string
 	if s.pendingImage != nil {
-		pb, perr := json.Marshal(s.pendingImage)
+		pb, perr := jsonx.Marshal(s.pendingImage)
 		if perr != nil {
 			return nil, fmt.Errorf("session: marshal pending images for %s: %w", s.ID, perr)
 		}
@@ -219,7 +219,7 @@ func (r *Record) ToSession() (*Session, error) {
 	// 空串等价于"没有消息"：历史版本或外部工具写入的裸行可能是空字符串，
 	// 不该被当成损坏。
 	if trimmed := strings.TrimSpace(r.Messages); trimmed != "" {
-		if err := json.Unmarshal([]byte(trimmed), &msgs); err != nil {
+		if err := jsonx.Unmarshal([]byte(trimmed), &msgs); err != nil {
 			return nil, fmt.Errorf("session: unmarshal messages for %s: %w", r.ID, err)
 		}
 	}
@@ -235,7 +235,7 @@ func (r *Record) ToSession() (*Session, error) {
 	}
 	if r.Plan != "" {
 		var plan Plan
-		if err := json.Unmarshal([]byte(r.Plan), &plan); err == nil {
+		if err := jsonx.Unmarshal([]byte(r.Plan), &plan); err == nil {
 			s.plan = &plan
 		} else {
 			logger.Warnf("[AI] Failed to unmarshal session plan (corrupted?): %v", err)
@@ -243,7 +243,7 @@ func (r *Record) ToSession() (*Session, error) {
 	}
 	if r.PendingImages != "" {
 		var pi PendingImageState
-		if err := json.Unmarshal([]byte(r.PendingImages), &pi); err == nil {
+		if err := jsonx.Unmarshal([]byte(r.PendingImages), &pi); err == nil {
 			s.pendingImage = &pi
 		} else {
 			logger.Warnf("[AI] Failed to unmarshal pending images (corrupted?): %v", err)
