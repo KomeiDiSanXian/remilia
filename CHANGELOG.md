@@ -34,6 +34,11 @@ Go 1.27 起 `encoding/json/v2` 已稳定，但仓库里仍有 149 个文件 impo
 - 改为按**写入序号**淘汰：每条缓存带单调递增的 `seq`，最早写入的序号最小。没有序号的历史条目（测试夹具直接塞进 map 的）按最旧处理，淘汰不会卡死。
 - 新增 `TestContentCacheEvictionIsDeterministic`：把全部条目的 `ExpireAt` 强制改成同一值后，仍必须淘汰最早写入的那条；`TestContentCacheEvictionIgnoresUntrackedEntries` 覆盖无序号条目。
 
+**`builtin/mcp` 的 `server_up` 与连接状态不在同一把锁内（CI 偶发失败）**
+
+- `TestManagerKeepsToolsWhenDisconnected` 在 Linux CI 上失败（`server_up = 1, want 0 after disconnect`）。这不是测试写错：用例先等到工具调用返回"不可用"类型化错误（说明 `currentClient()` 已是 nil），才去读 `mcp_server_up`。但 `setDisconnected` 是先解锁再 `recordServerUp(name, false)`，读方完全可能落在"状态已翻转、指标还没写"的窗口里。连接路径（`setConnected` / `setClient`）有对称的窗口。
+- 把指标更新移进临界区：调用方要看到 `client == nil` 必须先拿同一把锁，指标因此不会晚于它所描述的状态生效。`-race` 下连续 100 次运行稳定。
+
 ### 📦 依赖
 
 **Desktop · `@tauri-apps/plugin-shell` / `tauri-plugin-shell` 升到 2.6（两侧配对）**
