@@ -1,11 +1,12 @@
 package updater
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // stateFileName 状态文件（位于 data 目录）。
@@ -46,7 +47,7 @@ func (s *stateStore) loadLocked() *updaterState {
 		}
 		return st
 	}
-	if err := json.Unmarshal(data, st); err != nil {
+	if err := jsonx.Unmarshal(data, st); err != nil {
 		return &updaterState{AutoCheck: true}
 	}
 	return st
@@ -56,7 +57,7 @@ func (s *stateStore) saveLocked(st *updaterState) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(st, "", "  ")
+	data, err := jsonx.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}

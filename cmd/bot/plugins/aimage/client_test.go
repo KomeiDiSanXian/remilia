@@ -4,13 +4,14 @@ package aimage
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // jsonDecode 解析请求体为 JSON，供测试断言请求参数。
@@ -19,7 +20,7 @@ func jsonDecode(r *http.Request, v any) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(body, v)
+	return jsonx.Unmarshal(body, v)
 }
 
 // testPNG 一个最小合法 PNG 头（8 字节 magic），供 DetectContentType 识别。

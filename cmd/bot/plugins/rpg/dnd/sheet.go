@@ -1,11 +1,11 @@
 package dnd
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 )
 
@@ -105,7 +105,7 @@ func FormatSheet(c *Character) string {
 
 	if c.SkillProfsJSON != "" {
 		var profs map[string]bool
-		if err := json.Unmarshal([]byte(c.SkillProfsJSON), &profs); err == nil && len(profs) > 0 {
+		if err := jsonx.Unmarshal([]byte(c.SkillProfsJSON), &profs); err == nil && len(profs) > 0 {
 			b.WriteString("\n── 技能熟练 ──\n")
 			for skill, proficient := range profs {
 				if proficient {
@@ -120,7 +120,7 @@ func FormatSheet(c *Character) string {
 
 	if c.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(c.FeaturesJSON), &features); err == nil && len(features) > 0 {
+		if err := jsonx.Unmarshal([]byte(c.FeaturesJSON), &features); err == nil && len(features) > 0 {
 			b.WriteString("\n── 特性 ──\n")
 			b.WriteString("  " + strings.Join(features, ", "))
 			b.WriteString("\n")

@@ -2,12 +2,12 @@ package testbot
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
@@ -548,7 +548,7 @@ func (tb *QQBot) Inject(payload *dto.Payload) {
 }
 
 func (tb *QQBot) inject(eventType dto.EventType, event any) {
-	detail, _ := json.Marshal(event)
+	detail, _ := jsonx.Marshal(event)
 	tb.Inject(&dto.Payload{Operation: dto.Dispatch, Type: eventType, Detail: detail})
 }
 

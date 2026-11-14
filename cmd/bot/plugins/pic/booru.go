@@ -13,7 +13,6 @@ package pic
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +21,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // picUserAgent 模拟浏览器 UA，降低被目标站点拦截的概率。
@@ -370,14 +371,14 @@ func parseGelbooruPosts(body []byte) ([]gelbooruPost, error) {
 	if trimmed[0] == '[' {
 		// safebooru / api.rule34.xxx 直接返回扁平数组
 		var posts []gelbooruPost
-		if err := json.Unmarshal(body, &posts); err != nil {
+		if err := jsonx.Unmarshal(body, &posts); err != nil {
 			return nil, fmt.Errorf("解析响应失败: %w", err)
 		}
 		return posts, nil
 	}
 
 	var resp gelbooruResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := jsonx.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 	return resp.Posts, nil
@@ -450,7 +451,7 @@ func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, 
 	}
 
 	var raws []moebooruRawPost
-	if err := json.Unmarshal(body, &raws); err != nil {
+	if err := jsonx.Unmarshal(body, &raws); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 

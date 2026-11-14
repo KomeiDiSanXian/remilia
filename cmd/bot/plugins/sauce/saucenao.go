@@ -3,7 +3,6 @@ package sauce
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ── SauceNAO 客户端 ───────────────────────────────────────────────────
@@ -74,12 +75,12 @@ func (f *flexInt) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	var n int
-	if err := json.Unmarshal(b, &n); err == nil {
+	if err := jsonx.Unmarshal(b, &n); err == nil {
 		*f = flexInt(n)
 		return nil
 	}
 	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
+	if err := jsonx.Unmarshal(b, &s); err == nil {
 		if v, perr := strconv.Atoi(strings.TrimSpace(s)); perr == nil {
 			*f = flexInt(v)
 		}
@@ -88,22 +89,22 @@ func (f *flexInt) UnmarshalJSON(b []byte) error {
 }
 
 type saucenaoItemData struct {
-	ExtURLs           []string        `json:"ext_urls"`
-	Title             string          `json:"title"`
-	PixivID           flexInt         `json:"pixiv_id"`
-	MemberName        string          `json:"member_name"`
-	MemberID          flexInt         `json:"member_id"`
-	Source            string          `json:"source"`
-	AuthorName        string          `json:"author_name"`
-	AuthorURL         string          `json:"author_url"`
-	Creator           json.RawMessage `json:"creator"`
-	Material          string          `json:"material"`
-	Part              string          `json:"part"`
-	DanbooruID        flexInt         `json:"danbooru_id"`
-	GelbooruID        flexInt         `json:"gelbooru_id"`
-	SankakuID         flexInt         `json:"sankaku_id"`
-	TwitterUserHandle string          `json:"twitter_user_handle"`
-	TwitterUserID     flexInt         `json:"twitter_user_id"`
+	ExtURLs           []string         `json:"ext_urls"`
+	Title             string           `json:"title"`
+	PixivID           flexInt          `json:"pixiv_id"`
+	MemberName        string           `json:"member_name"`
+	MemberID          flexInt          `json:"member_id"`
+	Source            string           `json:"source"`
+	AuthorName        string           `json:"author_name"`
+	AuthorURL         string           `json:"author_url"`
+	Creator           jsonx.RawMessage `json:"creator"`
+	Material          string           `json:"material"`
+	Part              string           `json:"part"`
+	DanbooruID        flexInt          `json:"danbooru_id"`
+	GelbooruID        flexInt          `json:"gelbooru_id"`
+	SankakuID         flexInt          `json:"sankaku_id"`
+	TwitterUserHandle string           `json:"twitter_user_handle"`
+	TwitterUserID     flexInt          `json:"twitter_user_id"`
 }
 
 // Search 通过 SauceNAO 搜索图片来源。
@@ -163,7 +164,7 @@ func (c *saucenaoClient) Search(ctx context.Context, apiKey string, db int, in e
 
 	// 优先解析 JSON 响应体（SauceNAO 无 key/限流时也会返回带状态码的 JSON）
 	var data saucenaoResponse
-	if jsonErr := json.Unmarshal(body, &data); jsonErr == nil && data.Header.Status != 0 {
+	if jsonErr := jsonx.Unmarshal(body, &data); jsonErr == nil && data.Header.Status != 0 {
 		if data.Header.Message != "" {
 			return nil, fmt.Errorf("%s", data.Header.Message)
 		}
@@ -173,7 +174,7 @@ func (c *saucenaoClient) Search(ctx context.Context, apiKey string, db int, in e
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("SauceNAO 返回状态 %d", resp.StatusCode)
 	}
-	if jsonErr := json.Unmarshal(body, &data); jsonErr != nil {
+	if jsonErr := jsonx.Unmarshal(body, &data); jsonErr != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", jsonErr)
 	}
 
@@ -275,16 +276,16 @@ func lookupIndexName(id int, fallback string) string {
 }
 
 // extractString 从 json.RawMessage 中提取字符串，兼容字符串和数组类型。
-func extractString(raw json.RawMessage) string {
+func extractString(raw jsonx.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
 	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
+	if err := jsonx.Unmarshal(raw, &s); err == nil {
 		return s
 	}
 	var arr []string
-	if err := json.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
+	if err := jsonx.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
 		return arr[0]
 	}
 	return ""

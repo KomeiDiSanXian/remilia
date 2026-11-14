@@ -12,7 +12,6 @@ package songdle
 
 import (
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -25,6 +24,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 //go:embed songs/*.json
@@ -194,14 +195,14 @@ func fetchURL(rawURL string) ([]byte, error) {
 // 数据集返回 [ErrEmptyPool]。别名文件中不存在于曲目表的条目会被忽略。
 func buildPool(songsData, aliasData []byte) (*Pool, error) {
 	var raw map[string]rawTrack
-	if err := json.Unmarshal(songsData, &raw); err != nil {
+	if err := jsonx.Unmarshal(songsData, &raw); err != nil {
 		return nil, fmt.Errorf("解析曲目 JSON: %w", err)
 	}
 
 	aliases := make(map[string][]string)
 	if strings.TrimSpace(string(aliasData)) != "" {
 		var list []rawAlias
-		if err := json.Unmarshal(aliasData, &list); err != nil {
+		if err := jsonx.Unmarshal(aliasData, &list); err != nil {
 			return nil, fmt.Errorf("解析别名 JSON: %w", err)
 		}
 		for _, a := range list {

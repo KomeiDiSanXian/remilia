@@ -1,10 +1,10 @@
 package songdle
 
 import (
-	"encoding/json"
 	"errors"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 )
 
@@ -154,14 +154,14 @@ func (s *store) loadStat(userID string) (*Stat, error) {
 		LastDailyDay: rec.LastDailyDay,
 	}
 	if rec.GuessDist != "" {
-		_ = json.Unmarshal([]byte(rec.GuessDist), &st.GuessDist)
+		_ = jsonx.Unmarshal([]byte(rec.GuessDist), &st.GuessDist)
 	}
 	return st, nil
 }
 
 // saveStat 写入用户统计（不存在则新建，存在则更新）。
 func (s *store) saveStat(st *Stat) error {
-	dist, err := json.Marshal(st.GuessDist)
+	dist, err := jsonx.Marshal(st.GuessDist)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func (s *store) setDailyLock(key, day string) error {
 
 // recordGame 写入一局历史记录。
 func (s *store) recordGame(g *Game, userID string, durationMs int64) error {
-	probes, err := json.Marshal(append(probeTrail(g.Probes), guessTrail(g.Guesses)...))
+	probes, err := jsonx.Marshal(append(probeTrail(g.Probes), guessTrail(g.Guesses)...))
 	if err != nil {
 		return err
 	}

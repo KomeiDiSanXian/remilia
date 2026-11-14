@@ -2,13 +2,14 @@ package genshin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"image"
 	"net/http"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const (
@@ -64,22 +65,22 @@ type EnkaAPIResponse struct {
 
 // EnkaAvatarInfo 表示 Enka API 返回的单个角色详细信息。
 type EnkaAvatarInfo struct {
-	AvatarID         int                        `json:"avatarId"`
-	PropMap          map[string]json.RawMessage `json:"propMap"`
-	FightPropMap     map[string]float64         `json:"fightPropMap"`
-	SkillLevelMap    map[string]int             `json:"skillLevelMap"`
-	EquipList        []EnkaEquip                `json:"equipList"`
-	TalentIDList     []int                      `json:"talentIdList"`
-	InherentProudMap map[string]int             `json:"inherentProudMap"`
-	SkillDepotID     int                        `json:"skillDepotId"`
+	AvatarID         int                         `json:"avatarId"`
+	PropMap          map[string]jsonx.RawMessage `json:"propMap"`
+	FightPropMap     map[string]float64          `json:"fightPropMap"`
+	SkillLevelMap    map[string]int              `json:"skillLevelMap"`
+	EquipList        []EnkaEquip                 `json:"equipList"`
+	TalentIDList     []int                       `json:"talentIdList"`
+	InherentProudMap map[string]int              `json:"inherentProudMap"`
+	SkillDepotID     int                         `json:"skillDepotId"`
 }
 
 // EnkaEquip 表示角色装备的一个物品（武器或圣遗物）。
 type EnkaEquip struct {
-	ItemType  string           `json:"itemType"`
-	Flat      json.RawMessage  `json:"flat"`
-	Weapon    *EnkaWeapon      `json:"weapon,omitempty"`
-	Reliquary *json.RawMessage `json:"reliquary,omitempty"`
+	ItemType  string            `json:"itemType"`
+	Flat      jsonx.RawMessage  `json:"flat"`
+	Weapon    *EnkaWeapon       `json:"weapon,omitempty"`
+	Reliquary *jsonx.RawMessage `json:"reliquary,omitempty"`
 }
 
 // EnkaWeapon 表示 Enka API 中的武器数据。
@@ -175,9 +176,9 @@ func (s *enkaStore) refresh(ctx context.Context) error {
 	return nil
 }
 
-func extractCNLoc(raw json.RawMessage) map[string]string {
+func extractCNLoc(raw jsonx.RawMessage) map[string]string {
 	var all map[string]map[string]string
-	if err := json.Unmarshal(raw, &all); err != nil {
+	if err := jsonx.Unmarshal(raw, &all); err != nil {
 		return nil
 	}
 	if cn, ok := all["cn"]; ok && cn != nil {
@@ -284,7 +285,7 @@ func FetchShowcase(ctx context.Context, uid string) (*GenshinShowcase, error) {
 
 func parseWeapon(eq EnkaEquip, s *enkaStore) *GenshinWeapon {
 	var flat EnkaFlat
-	if err := json.Unmarshal(eq.Flat, &flat); err != nil || eq.Weapon == nil {
+	if err := jsonx.Unmarshal(eq.Flat, &flat); err != nil || eq.Weapon == nil {
 		return nil
 	}
 	w := &GenshinWeapon{
@@ -304,7 +305,7 @@ func parseWeapon(eq EnkaEquip, s *enkaStore) *GenshinWeapon {
 
 func parseArtifact(eq EnkaEquip, s *enkaStore) *GenshinArtifact {
 	var flat EnkaFlat
-	if err := json.Unmarshal(eq.Flat, &flat); err != nil {
+	if err := jsonx.Unmarshal(eq.Flat, &flat); err != nil {
 		return nil
 	}
 	a := &GenshinArtifact{
@@ -329,7 +330,7 @@ type enkaPropValue struct {
 	IVal int    `json:"ival"`
 }
 
-func extractPropInt(m map[string]json.RawMessage, key string) int {
+func extractPropInt(m map[string]jsonx.RawMessage, key string) int {
 	if m == nil {
 		return 0
 	}
@@ -338,7 +339,7 @@ func extractPropInt(m map[string]json.RawMessage, key string) int {
 		return 0
 	}
 	var p enkaPropValue
-	if err := json.Unmarshal(raw, &p); err != nil {
+	if err := jsonx.Unmarshal(raw, &p); err != nil {
 		return 0
 	}
 	if p.IVal > 0 {
@@ -380,13 +381,13 @@ func fetchJSON[T any](ctx context.Context, url string) (*T, error) {
 		return nil, err
 	}
 	var result T
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := jsonx.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	return &result, nil
 }
 
-func fetchRawJSON(ctx context.Context, url string) (json.RawMessage, error) {
+func fetchRawJSON(ctx context.Context, url string) (jsonx.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -397,8 +398,8 @@ func fetchRawJSON(ctx context.Context, url string) (json.RawMessage, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var raw json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	var raw jsonx.RawMessage
+	if err := jsonx.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 	return raw, nil

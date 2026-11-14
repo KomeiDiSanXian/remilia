@@ -11,7 +11,6 @@ package aimage
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
@@ -133,7 +133,7 @@ func (c *imageClient) generate(ctx context.Context, prompt string, n int) ([]ima
 type openAIGenRequest struct {
 	Model  string `json:"model,omitempty"`
 	Prompt string `json:"prompt"`
-	N      int    `json:"n,omitempty"`
+	N      int    `json:"n,omitzero"`
 	Size   string `json:"size,omitempty"`
 }
 
@@ -148,7 +148,7 @@ type openAIGenResponse struct {
 }
 
 func (c *imageClient) generateOpenAI(ctx context.Context, prompt string, n int) ([]imageResult, error) {
-	body, err := json.Marshal(openAIGenRequest{Model: c.model, Prompt: prompt, N: n, Size: c.size})
+	body, err := jsonx.Marshal(openAIGenRequest{Model: c.model, Prompt: prompt, N: n, Size: c.size})
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (c *imageClient) generateOpenAI(ctx context.Context, prompt string, n int) 
 		return nil, fmt.Errorf("调用图片生成 API 失败: %w", err)
 	}
 	var out openAIGenResponse
-	if err := json.Unmarshal(data, &out); err != nil {
+	if err := jsonx.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("解析图片生成响应失败: %w", err)
 	}
 	if out.Error != nil && out.Error.Message != "" {
@@ -210,7 +210,7 @@ func (c *imageClient) generateSDWebUI(ctx context.Context, prompt string, n int)
 	}
 	images := make([]imageResult, 0, n)
 	for i := range n {
-		body, err := json.Marshal(sdWebUIRequest{
+		body, err := jsonx.Marshal(sdWebUIRequest{
 			Prompt:         prompt,
 			NegativePrompt: c.negative,
 			Steps:          c.steps,
@@ -235,7 +235,7 @@ func (c *imageClient) generateSDWebUI(ctx context.Context, prompt string, n int)
 			return nil, fmt.Errorf("调用 SD WebUI 失败（第 %d 张）: %w", i+1, err)
 		}
 		var out sdWebUIResponse
-		if err := json.Unmarshal(data, &out); err != nil {
+		if err := jsonx.Unmarshal(data, &out); err != nil {
 			return nil, fmt.Errorf("解析 SD WebUI 响应失败（第 %d 张）: %w", i+1, err)
 		}
 		if len(out.Images) == 0 {

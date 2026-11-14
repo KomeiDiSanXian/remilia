@@ -2,7 +2,6 @@ package fuzzing
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/trie"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -231,7 +231,7 @@ func FuzzJSONDecoding(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var result map[string]any
 		// JSON 解码不应该 panic
-		_ = json.Unmarshal(data, &result)
+		_ = jsonx.Unmarshal(data, &result)
 	})
 }
 

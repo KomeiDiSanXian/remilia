@@ -3,7 +3,6 @@ package anime
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -13,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // WeekdayEntry Bangumi 日历中的一天（包含该日放送的番剧列表）。
@@ -177,7 +178,7 @@ func (c *bangumiClient) doRequest(ctx context.Context, method, url string, body 
 		return fmt.Errorf("bangumi api error: status=%d body=%s", resp.StatusCode, string(respBody))
 	}
 
-	if err := json.Unmarshal(respBody, result); err != nil {
+	if err := jsonx.Unmarshal(respBody, result); err != nil {
 		return fmt.Errorf("bangumi json error: %w body=%s", err, string(respBody))
 	}
 	return nil
@@ -213,7 +214,7 @@ func (c *bangumiClient) SearchSubjects(ctx context.Context, keyword string, limi
 		"type":    2,
 		"limit":   limit,
 	}
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, _ := jsonx.Marshal(body)
 
 	url := c.apiBase + "/v0/search/subjects"
 	var result SearchResult

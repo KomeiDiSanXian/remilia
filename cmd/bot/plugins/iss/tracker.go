@@ -2,11 +2,11 @@ package iss
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 )
 
@@ -112,7 +112,7 @@ func (t *Tracker) SetRecords(records []AltRecord) {
 // Save 将历史记录序列化并写入 KV 存储。
 func (t *Tracker) Save(store *kv.DB) error {
 	records := t.Records()
-	data, err := json.Marshal(records)
+	data, err := jsonx.Marshal(records)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (t *Tracker) Load(store *kv.DB) error {
 		return err
 	}
 	var records []AltRecord
-	if err := json.Unmarshal(data, &records); err != nil {
+	if err := jsonx.Unmarshal(data, &records); err != nil {
 		return err
 	}
 	t.SetRecords(records)

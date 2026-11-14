@@ -1,12 +1,13 @@
 package updater
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // pendingFileName 待确认更新标记文件名（位于 data 目录）。
@@ -30,7 +31,7 @@ func writePending(markerPath string, p *PendingUpdate) error {
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
 		return fmt.Errorf("创建标记目录失败: %w", err)
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	data, err := jsonx.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func readPending(markerPath string) (*PendingUpdate, error) {
 		return nil, err
 	}
 	var p PendingUpdate
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := jsonx.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("解析更新标记失败: %w", err)
 	}
 	return &p, nil

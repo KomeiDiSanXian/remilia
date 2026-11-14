@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/api"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/pprof"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
@@ -62,7 +62,7 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = jsonx.NewEncoder(w).Encode(resp)
 	}
 }
 

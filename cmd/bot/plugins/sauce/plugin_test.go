@@ -1,12 +1,12 @@
 package sauce
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -128,7 +128,7 @@ func TestSauceNAOParseStringIntFields(t *testing.T) {
 	// 此前 int 字段解析失败导致整个响应不可用。
 	body := `{"header":{"status":0},"results":[{"header":{"similarity":"13.80","index_id":43,"index_name":"Index #43: Kemono"},"data":{"twitter_user_id":"14792976","pixiv_id":"71231545","member_id":"15686493","da_id":"874130995"}},{"header":{"similarity":"11.51","index_id":40},"data":{"twitter_user_id":3507676,"pixiv_id":49905083,"member_id":623147}}]}`
 	var data saucenaoResponse
-	require.NoError(t, json.Unmarshal([]byte(body), &data))
+	require.NoError(t, jsonx.Unmarshal([]byte(body), &data))
 	require.Len(t, data.Results, 2)
 	assert.Equal(t, flexInt(14792976), data.Results[0].Data.TwitterUserID)
 	assert.Equal(t, flexInt(71231545), data.Results[0].Data.PixivID)
@@ -141,10 +141,10 @@ func TestSauceNAOParseStringIntFields(t *testing.T) {
 func TestFlexIntUnmarshalLenient(t *testing.T) {
 	var f flexInt
 	for _, raw := range []string{"null", "\"\"", "\"abc\""} {
-		require.NoError(t, json.Unmarshal([]byte(raw), &f))
+		require.NoError(t, jsonx.Unmarshal([]byte(raw), &f))
 		assert.Zero(t, f)
 	}
-	require.NoError(t, json.Unmarshal([]byte("\" 42 \""), &f))
+	require.NoError(t, jsonx.Unmarshal([]byte("\" 42 \""), &f))
 	assert.Equal(t, flexInt(42), f)
 }
 

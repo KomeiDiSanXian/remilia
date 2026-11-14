@@ -3,12 +3,13 @@ package sauce
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ── AnimeTrace 客户端 ─────────────────────────────────────────────────
@@ -109,7 +110,7 @@ func (c *animeTraceClient) Search(ctx context.Context, in engineInput, maxResult
 	}
 
 	var data animeTraceResponse
-	if err := json.Unmarshal(raw, &data); err != nil {
+	if err := jsonx.Unmarshal(raw, &data); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 	if data.Code != 0 {

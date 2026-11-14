@@ -3,7 +3,6 @@ package bilibili
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const biliUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -303,7 +304,7 @@ func readBody(resp *http.Response) ([]byte, error) {
 // checkBanned 检查响应是否被风控拦截（code=-412 / -799），返回对应的 sentinel 错误。
 func checkBanned(body []byte) error {
 	var br biliResponse
-	if err := json.Unmarshal(body, &br); err != nil {
+	if err := jsonx.Unmarshal(body, &br); err != nil {
 		return nil
 	}
 	if br.Code == -412 {
@@ -344,7 +345,7 @@ func (c *biliClient) FetchUserInfo(ctx context.Context, mid int64) (*UserInfo, *
 	}
 
 	var result userInfoResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, nil, fmt.Errorf("FetchUserInfo json: %w", err)
 	}
 	if result.Code != 0 {
@@ -383,7 +384,7 @@ func (c *biliClient) fetchUserInfoFallback(ctx context.Context, mid int64) (*Use
 	}
 
 	var result userInfoResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, nil, fmt.Errorf("fetchUserInfoFallback json: %w", err)
 	}
 	if result.Code != 0 {
@@ -422,7 +423,7 @@ func (c *biliClient) FetchRelationStat(ctx context.Context, mid int64) (*Relatio
 	}
 
 	var result relationStatResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("FetchRelationStat json: %w", err)
 	}
 	if result.Code != 0 {
@@ -455,7 +456,7 @@ func (c *biliClient) FetchLiveInfo(ctx context.Context, mid int64) (*LiveInfo, e
 		Message string   `json:"msg"`
 		Data    LiveInfo `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("FetchLiveInfo json: %w", err)
 	}
 	if result.Code != 0 {
@@ -502,7 +503,7 @@ func (c *biliClient) FetchLiveInfoByRoom(ctx context.Context, roomID int64) (*Li
 			RoomStatus int    `json:"room_status"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("FetchLiveInfoByRoom json: %w", err)
 	}
 	if result.Code != 0 {
@@ -564,7 +565,7 @@ func (c *biliClient) SearchUser(ctx context.Context, keyword string, page int) (
 			Result     []SearchUserResult `json:"result"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, 0, fmt.Errorf("SearchUser json: %w", err)
 	}
 	if result.Code != 0 {
@@ -663,7 +664,7 @@ func (c *biliClient) FetchVideos(ctx context.Context, mid int64, page int) ([]Vi
 			} `json:"list"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("FetchVideos json: %w", err)
 	}
 	if result.Code != 0 {
@@ -697,7 +698,7 @@ func (c *biliClient) FetchVideoInfo(ctx context.Context, bvid string) (*VideoInf
 		Message string    `json:"message"`
 		Data    VideoInfo `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("FetchVideoInfo json: %w", err)
 	}
 	if result.Code != 0 {
@@ -736,7 +737,7 @@ func (c *biliClient) SearchBangumi(ctx context.Context, keyword string, limit in
 			Result []BangumiResult `json:"result"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := jsonx.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("SearchBangumi json: %w", err)
 	}
 	if result.Code != 0 {

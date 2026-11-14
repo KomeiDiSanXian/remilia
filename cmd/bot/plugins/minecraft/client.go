@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"image/color"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const (
@@ -133,13 +134,13 @@ type javaResponse struct {
 		Online int          `json:"online"`
 		Sample []PlayerInfo `json:"sample"`
 	} `json:"players"`
-	Description        json.RawMessage `json:"description"`
-	Favicon            string          `json:"favicon"`
-	EnforcesSecureChat bool            `json:"enforcesSecureChat"`
-	PreviewsChat       bool            `json:"previewsChat"`
+	Description        jsonx.RawMessage `json:"description"`
+	Favicon            string           `json:"favicon"`
+	EnforcesSecureChat bool             `json:"enforcesSecureChat"`
+	PreviewsChat       bool             `json:"previewsChat"`
 }
 
-func parseJavaDescription(raw json.RawMessage, result *MCServerStatus) {
+func parseJavaDescription(raw jsonx.RawMessage, result *MCServerStatus) {
 	if len(raw) == 0 {
 		result.MOTD = []MotdSegment{{Text: "A Minecraft Server", Color: color.White}}
 		result.MOTDPlain = "A Minecraft Server"
@@ -148,7 +149,7 @@ func parseJavaDescription(raw json.RawMessage, result *MCServerStatus) {
 	var segments []MotdSegment
 	if raw[0] == '"' {
 		var s string
-		json.Unmarshal(raw, &s)
+		jsonx.Unmarshal(raw, &s)
 		segments = ParseMotd(s)
 	} else {
 		segments = parseTextComponents(raw)
@@ -206,16 +207,16 @@ func motdLinesText(line1, line2 []MotdSegment) string {
 }
 
 type textComponent struct {
-	Text   string            `json:"text"`
-	Bold   bool              `json:"bold,omitempty"`
-	Italic bool              `json:"italic,omitempty"`
-	Color  string            `json:"color,omitempty"`
-	Extra  []json.RawMessage `json:"extra,omitempty"`
+	Text   string             `json:"text"`
+	Bold   bool               `json:"bold,omitzero"`
+	Italic bool               `json:"italic,omitzero"`
+	Color  string             `json:"color,omitempty"`
+	Extra  []jsonx.RawMessage `json:"extra,omitempty"`
 }
 
-func parseTextComponents(raw json.RawMessage) []MotdSegment {
+func parseTextComponents(raw jsonx.RawMessage) []MotdSegment {
 	var root textComponent
-	if err := json.Unmarshal(raw, &root); err != nil {
+	if err := jsonx.Unmarshal(raw, &root); err != nil {
 		return []MotdSegment{{Text: string(raw), Color: color.White}}
 	}
 	var segments []MotdSegment
@@ -237,7 +238,7 @@ func collectTextComponents(c *textComponent, out *[]MotdSegment, parentBold bool
 	}
 	for _, extra := range c.Extra {
 		var child textComponent
-		if err := json.Unmarshal(extra, &child); err != nil {
+		if err := jsonx.Unmarshal(extra, &child); err != nil {
 			continue
 		}
 		collectTextComponents(&child, out, bold, col)
@@ -612,7 +613,7 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	}
 
 	var jr javaResponse
-	if err := json.Unmarshal([]byte(jsonStr), &jr); err != nil {
+	if err := jsonx.Unmarshal([]byte(jsonStr), &jr); err != nil {
 		return viaAPI(fmt.Errorf("parse json: %w", err))
 	}
 
@@ -862,7 +863,7 @@ func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerS
 	}
 
 	var apiResp bedrockAPIResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("api json: %w", err)
 	}
 	if !apiResp.Online {
@@ -954,7 +955,7 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 	}
 
 	var apiResp javaAPIResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("api json: %w", err)
 	}
 	if !apiResp.Online {

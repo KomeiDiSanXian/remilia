@@ -1,12 +1,13 @@
 package bilibili
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // watchFileName 开播订阅状态文件（位于 data/bilibili 目录）。
@@ -49,7 +50,7 @@ func (w *watchManager) load() {
 	if err != nil {
 		return // 首次运行：空订阅
 	}
-	_ = json.Unmarshal(data, &w.entries)
+	_ = jsonx.Unmarshal(data, &w.entries)
 }
 
 func (w *watchManager) save() error {
@@ -58,7 +59,7 @@ func (w *watchManager) save() error {
 	if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(w.entries, "", "  ")
+	data, err := jsonx.MarshalIndent(w.entries, "", "  ")
 	if err != nil {
 		return err
 	}

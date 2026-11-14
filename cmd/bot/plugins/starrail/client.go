@@ -2,7 +2,6 @@ package starrail
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -10,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const (
@@ -202,7 +203,7 @@ func FetchShowcase(ctx context.Context, uid string) (*HSRShowcase, error) {
 	}
 
 	var data MihomoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := jsonx.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 

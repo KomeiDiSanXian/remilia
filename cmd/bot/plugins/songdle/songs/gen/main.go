@@ -14,7 +14,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const (
@@ -140,7 +141,7 @@ func main() {
 		fatal("加载曲目数据失败: %v", err)
 	}
 	var music []dfMusic
-	if err := json.Unmarshal(dfRaw, &music); err != nil {
+	if err := jsonx.Unmarshal(dfRaw, &music); err != nil {
 		fatal("解析曲目数据失败: %v", err)
 	}
 	aliasRaw, err := load(*aliasSrc, *aliasURL)
@@ -148,7 +149,7 @@ func main() {
 		fatal("加载别名数据失败: %v", err)
 	}
 	var aliases []yuzuAlias
-	if err := json.Unmarshal(aliasRaw, &aliases); err != nil {
+	if err := jsonx.Unmarshal(aliasRaw, &aliases); err != nil {
 		fatal("解析别名数据失败: %v", err)
 	}
 
@@ -327,16 +328,9 @@ func writeJSON(path string, v any) error {
 	return os.WriteFile(path, append(body, '\n'), 0o644)
 }
 
-// indentJSON 序列化 JSON 且不转义 HTML 字符、保留原始 Unicode。
+// indentJSON 序列化 JSON 并缩进；v2 默认不转义 HTML 字符，Unicode 原样保留。
 func indentJSON(v any, prefix, indent string) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent(prefix, indent)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+	return jsonx.MarshalIndent(v, prefix, indent)
 }
 
 // fatal 打印错误并退出。

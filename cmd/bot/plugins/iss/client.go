@@ -2,11 +2,12 @@ package iss
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // IssPosition ISS 位置、高度和速度信息。
@@ -56,7 +57,7 @@ func fetchPosition(ctx context.Context) (*IssPosition, error) {
 		return nil, err
 	}
 	var data issPositionResponse
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := jsonx.Unmarshal(body, &data); err != nil {
 		return nil, err
 	}
 	vis := data.Visibility
@@ -86,7 +87,7 @@ func fetchAstros(ctx context.Context) ([]string, int, error) {
 	}
 	defer resp.Body.Close()
 	var data astrosResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := jsonx.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, 0, err
 	}
 	names := make([]string, 0, len(data.People))

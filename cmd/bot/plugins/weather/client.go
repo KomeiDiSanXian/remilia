@@ -2,12 +2,13 @@ package weather
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ── wttr.in 客户端 ────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ func fetchWttr(ctx context.Context, city string) (*Result, error) {
 		return nil, err
 	}
 	var data wttrResponse
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := jsonx.Unmarshal(body, &data); err != nil {
 		return nil, err
 	}
 	if len(data.CurrentCondition) == 0 {
@@ -120,7 +121,7 @@ func fetchOpenMeteo(ctx context.Context, city string) (*Result, error) {
 	}
 	defer resp.Body.Close()
 	var geo omGeoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&geo); err != nil {
+	if err := jsonx.NewDecoder(resp.Body).Decode(&geo); err != nil {
 		return nil, err
 	}
 	if len(geo.Results) == 0 {
@@ -140,7 +141,7 @@ func fetchOpenMeteo(ctx context.Context, city string) (*Result, error) {
 	}
 	defer resp.Body.Close()
 	var wData omWeatherResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wData); err != nil {
+	if err := jsonx.NewDecoder(resp.Body).Decode(&wData); err != nil {
 		return nil, err
 	}
 
@@ -199,7 +200,7 @@ func fetchWeatherAPI(ctx context.Context, city string) (*Result, error) {
 		return nil, fmt.Errorf("WeatherAPI responded with %s", resp.Status)
 	}
 	var data waResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := jsonx.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
 	return &Result{

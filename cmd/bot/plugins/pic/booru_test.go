@@ -2,7 +2,6 @@ package pic
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,7 +103,7 @@ func TestParseMoebooruResponse(t *testing.T) {
 		{"id":406788,"rating":"q","tags":"test","file_url":"https://konachan.net/image/xx.jpg","source":"","author":"","score":8}
 	]`
 	var raws []moebooruRawPost
-	require.NoError(t, json.Unmarshal([]byte(body), &raws))
+	require.NoError(t, jsonx.Unmarshal([]byte(body), &raws))
 	require.Len(t, raws, 2)
 
 	s, _ := findSite("konachan")

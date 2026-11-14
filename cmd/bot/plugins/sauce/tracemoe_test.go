@@ -1,9 +1,9 @@
 package sauce
 
 import (
-	"encoding/json"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ const traceMoeJSON = `{"quota":100,"quotaUsed":0,"frameCount":1696168352,"error"
 
 func TestUnmarshalTraceMoeAndConvert(t *testing.T) {
 	var data traceMoeResponse
-	require.NoError(t, json.Unmarshal([]byte(traceMoeJSON), &data))
+	require.NoError(t, jsonx.Unmarshal([]byte(traceMoeJSON), &data))
 	assert.Empty(t, data.Error)
 	require.Len(t, data.Result, 2)
 
@@ -34,7 +34,7 @@ func TestUnmarshalTraceMoeAndConvert(t *testing.T) {
 
 func TestTraceMoeMinSimilarityFilter(t *testing.T) {
 	var data traceMoeResponse
-	require.NoError(t, json.Unmarshal([]byte(traceMoeJSON), &data))
+	require.NoError(t, jsonx.Unmarshal([]byte(traceMoeJSON), &data))
 
 	var kept []SearchResult
 	for _, item := range data.Result {
@@ -59,7 +59,7 @@ func TestTraceMoeEpisode(t *testing.T) {
 		{``, ""},
 	}
 	for _, c := range cases {
-		assert.Equal(t, c.want, traceMoeEpisode(json.RawMessage(c.raw)), "raw=%s", c.raw)
+		assert.Equal(t, c.want, traceMoeEpisode(jsonx.RawMessage(c.raw)), "raw=%s", c.raw)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const cacheDirName = "css" //nolint:unused
@@ -317,7 +318,7 @@ func (o *OEMEphemeris) SaveCache(baseDir string) error {
 		DownloadedAt: o.DownloadedAt,
 	}
 	metaPath := filepath.Join(baseDir, "meta.json")
-	metaData, err := json.Marshal(meta)
+	metaData, err := jsonx.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("encode meta: %w", err)
 	}
@@ -345,7 +346,7 @@ func LoadCache(baseDir string) *OEMEphemeris {
 	}
 
 	var meta oemMeta
-	if err := json.Unmarshal(metaData, &meta); err != nil {
+	if err := jsonx.Unmarshal(metaData, &meta); err != nil {
 		return nil
 	}
 

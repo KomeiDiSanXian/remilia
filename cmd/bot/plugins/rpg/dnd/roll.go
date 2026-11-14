@@ -1,10 +1,10 @@
 package dnd
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // CheckResult D&D 5e 检定结果，包含骰子值、加值、总计和特殊状态。
@@ -104,7 +104,7 @@ func IsProficient(c *Character, skill string) bool {
 		return false
 	}
 	var profs map[string]bool
-	if err := json.Unmarshal([]byte(c.SkillProfsJSON), &profs); err != nil {
+	if err := jsonx.Unmarshal([]byte(c.SkillProfsJSON), &profs); err != nil {
 		return false
 	}
 	return profs[skill]
@@ -116,7 +116,7 @@ func IsSavingProficient(c *Character, abbr string) bool {
 		return false
 	}
 	var profs map[string]bool
-	if err := json.Unmarshal([]byte(c.SavingProfsJSON), &profs); err != nil {
+	if err := jsonx.Unmarshal([]byte(c.SavingProfsJSON), &profs); err != nil {
 		return false
 	}
 	return profs[abbr]

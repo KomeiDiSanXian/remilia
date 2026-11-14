@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -36,6 +35,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	mw "github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -968,7 +968,7 @@ func main() {
 	}
 	printSummary(results)
 	if *outputFlag != "" {
-		data, _ := json.MarshalIndent(results, "", "  ")
+		data, _ := jsonx.MarshalIndent(results, "", "  ")
 		if err := os.WriteFile(*outputFlag, data, 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "write JSON: %v\n", err)
 		} else {

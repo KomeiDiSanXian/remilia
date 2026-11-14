@@ -2,7 +2,6 @@ package updater
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // apiBase GitHub REST API 根地址（var 以便测试注入 mock）。
@@ -115,7 +116,7 @@ func (c *githubClient) fetchJSON(ctx context.Context, apiURL string, out any) er
 		return fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
+	if err := jsonx.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out); err != nil {
 		return fmt.Errorf("解析 GitHub API 响应失败: %w", err)
 	}
 	return nil

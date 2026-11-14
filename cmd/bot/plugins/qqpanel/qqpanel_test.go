@@ -2,12 +2,12 @@ package qqpanel
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
@@ -72,7 +72,7 @@ func (syncDispatcher) Submit(_ string, task func(stdctx.Context) error) error {
 
 // qqEvent 构造 QQ 平台事件。
 func qqEvent(evType dto.EventType, detail map[string]any) platform.Event {
-	raw, _ := json.Marshal(detail)
+	raw, _ := jsonx.Marshal(detail)
 	return qqplatform.NewEvent(&dto.Payload{
 		ID:        "evt001",
 		Type:      evType,

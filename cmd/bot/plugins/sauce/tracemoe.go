@@ -3,7 +3,6 @@ package sauce
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // traceMoeClient 调用 trace.moe（https://trace.moe）识别动画截图来源。
@@ -40,14 +41,14 @@ type traceMoeResponse struct {
 
 // traceMoeItem trace.moe 单个命中条目。
 type traceMoeItem struct {
-	Anilist    traceMoeAnilist `json:"anilist"`    // 番剧信息（anilistInfo 参数开启时返回）
-	Filename   string          `json:"filename"`   // 来源视频文件名
-	Episode    json.RawMessage `json:"episode"`    // 话数，可为数字/字符串/数组/null
-	From       float64         `json:"from"`       // 命中场景起始时间（秒）
-	To         float64         `json:"to"`         // 命中场景结束时间（秒）
-	Similarity float64         `json:"similarity"` // 相似度（0-1）
-	Video      string          `json:"video"`      // 命中片段预览视频 URL
-	Image      string          `json:"image"`      // 命中画面预览图 URL
+	Anilist    traceMoeAnilist  `json:"anilist"`    // 番剧信息（anilistInfo 参数开启时返回）
+	Filename   string           `json:"filename"`   // 来源视频文件名
+	Episode    jsonx.RawMessage `json:"episode"`    // 话数，可为数字/字符串/数组/null
+	From       float64          `json:"from"`       // 命中场景起始时间（秒）
+	To         float64          `json:"to"`         // 命中场景结束时间（秒）
+	Similarity float64          `json:"similarity"` // 相似度（0-1）
+	Video      string           `json:"video"`      // 命中片段预览视频 URL
+	Image      string           `json:"image"`      // 命中画面预览图 URL
 }
 
 // traceMoeAnilist 命中番剧的 AniList 信息。
@@ -107,7 +108,7 @@ func (c *traceMoeClient) Search(ctx context.Context, in engineInput, maxResults 
 
 	// 非 200 时响应仍为 JSON，携带可读错误信息
 	var data traceMoeResponse
-	if err := json.Unmarshal(raw, &data); err != nil {
+	if err := jsonx.Unmarshal(raw, &data); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 	if data.Error != "" {
@@ -169,23 +170,23 @@ func toTraceMoeResult(item traceMoeItem) SearchResult {
 }
 
 // traceMoeEpisode 从 episode 原始字段中提取话数文本（兼容数字/字符串/数组/null）。
-func traceMoeEpisode(raw json.RawMessage) string {
+func traceMoeEpisode(raw jsonx.RawMessage) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
 	}
 
 	var num int
-	if err := json.Unmarshal(raw, &num); err == nil {
+	if err := jsonx.Unmarshal(raw, &num); err == nil {
 		return strconv.Itoa(num)
 	}
 
 	var str string
-	if err := json.Unmarshal(raw, &str); err == nil {
+	if err := jsonx.Unmarshal(raw, &str); err == nil {
 		return str
 	}
 
-	var arr []json.RawMessage
-	if err := json.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
+	var arr []jsonx.RawMessage
+	if err := jsonx.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
 		return traceMoeEpisode(arr[0])
 	}
 

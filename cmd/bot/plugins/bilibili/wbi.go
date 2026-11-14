@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // wbiKeys 存储 B 站 WBI 签名的 img_key 和 sub_key。
@@ -99,7 +100,7 @@ func (s *wbiSigner) fetchKeys(ctx context.Context) (*wbiKeys, error) {
 			} `json:"wbi_img"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &nav); err != nil {
+	if err := jsonx.Unmarshal(body, &nav); err != nil {
 		return nil, err
 	}
 	if nav.Code != 0 {

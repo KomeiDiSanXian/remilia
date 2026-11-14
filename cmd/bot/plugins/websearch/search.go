@@ -2,7 +2,6 @@ package websearch
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"golang.org/x/net/html"
 )
 
@@ -116,7 +116,7 @@ func (e *searxngEngine) searchJSON(ctx context.Context, base, query string, limi
 	}
 
 	var parsed searxngResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := jsonx.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("searxng 响应解析失败: %w", err)
 	}
 	if parsed.Error != nil && parsed.Error.Message != "" {
@@ -274,7 +274,7 @@ type serperRequest struct {
 	Q   string `json:"q"`
 	Gl  string `json:"gl,omitempty"`
 	Hl  string `json:"hl,omitempty"`
-	Num int    `json:"num,omitempty"`
+	Num int    `json:"num,omitzero"`
 }
 
 type serperResponse struct {
@@ -294,7 +294,7 @@ func (e *serperEngine) Search(ctx context.Context, query string, limit int) ([]R
 	if e.apiKey == "" {
 		return nil, fmt.Errorf("serper 引擎需要配置 serper_api_key")
 	}
-	payload, err := json.Marshal(serperRequest{Q: query, Gl: "cn", Hl: "zh-cn", Num: limit})
+	payload, err := jsonx.Marshal(serperRequest{Q: query, Gl: "cn", Hl: "zh-cn", Num: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (e *serperEngine) Search(ctx context.Context, query string, limit int) ([]R
 	}
 
 	var parsed serperResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := jsonx.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("serper 响应解析失败: %w", err)
 	}
 

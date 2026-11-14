@@ -1,7 +1,6 @@
 package coc
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -9,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 )
 
@@ -181,14 +181,14 @@ func FormatSheet(c *Character) string {
 
 func parseSkills(jsonStr string) map[string]int {
 	var result map[string]int
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+	if err := jsonx.Unmarshal([]byte(jsonStr), &result); err != nil {
 		return nil
 	}
 	return result
 }
 
 func skillsToJSON(skills map[string]int) string {
-	b, err := json.Marshal(skills)
+	b, err := jsonx.Marshal(skills)
 	if err != nil {
 		return "{}"
 	}

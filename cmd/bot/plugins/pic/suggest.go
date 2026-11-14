@@ -12,7 +12,6 @@ package pic
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/zhtext"
 )
 
@@ -174,7 +174,7 @@ func (c *booruClient) fetchMoebooruTags(ctx context.Context, s site, prefix stri
 	}
 
 	var rows []moebooruTagRow
-	if err := json.Unmarshal(body, &rows); err != nil {
+	if err := jsonx.Unmarshal(body, &rows); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 	return rows, nil

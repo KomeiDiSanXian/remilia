@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"unsafe"
 )
 
@@ -39,7 +39,7 @@ func pluginHandle(ptr uint32, length uint32) uint64 {
 	var event struct {
 		Content string `json:"content"`
 	}
-	if err := json.Unmarshal(buf, &event); err != nil {
+	if err := jsonv2.Unmarshal(buf, &event); err != nil {
 		logHost("error: json unmarshal: " + err.Error())
 		return 0
 	}
@@ -56,7 +56,7 @@ func pluginHandle(ptr uint32, length uint32) uint64 {
 		reply = "收到: " + event.Content
 	}
 
-	resp, err := json.Marshal(map[string]string{"reply": reply})
+	resp, err := jsonv2.Marshal(map[string]string{"reply": reply})
 	if err != nil {
 		return 0
 	}
