@@ -23,7 +23,6 @@ package satori
 import (
 	"bytes"
 	stdctx "context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -31,6 +30,8 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ func httpBaseURL(serverURL string) string {
 func (c *Client) call(ctx stdctx.Context, resource, method string, params, result any) error {
 	var body io.Reader
 	if params != nil {
-		data, err := json.Marshal(params)
+		data, err := jsonx.Marshal(params)
 		if err != nil {
 			return fmt.Errorf("satori: 序列化请求参数: %w", err)
 		}
@@ -192,7 +193,7 @@ func (c *Client) call(ctx stdctx.Context, resource, method string, params, resul
 	}
 
 	if result != nil && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, result); err != nil {
+		if err := jsonx.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("satori: %s.%s: 解码响应: %w", resource, method, err)
 		}
 	}
@@ -227,7 +228,7 @@ type MessageCreateRequest struct {
 	// Referrer 是被动请求的来源信息（可选，实验性）。
 	// 在需要被动回复的场景下，将来源事件的 event.referrer 原样传入此字段。
 	// 参见：https://satori.chat/zh-CN/advanced/passive.html
-	Referrer *json.RawMessage `json:"referrer,omitempty"`
+	Referrer *jsonx.RawMessage `json:"referrer,omitempty"`
 }
 
 // MessageCreateWith 使用完整参数向频道发送消息，支持被动请求 referrer。
@@ -284,7 +285,7 @@ type MessageListParams struct {
 	ChannelID string    `json:"channel_id"`
 	Next      string    `json:"next,omitempty"`      // 分页令牌
 	Direction Direction `json:"direction,omitempty"` // 查询方向
-	Limit     int       `json:"limit,omitempty"`     // 消息数量限制
+	Limit     int       `json:"limit,omitzero"`      // 消息数量限制
 	Order     Order     `json:"order,omitempty"`     // 排序方式
 }
 
@@ -728,7 +729,7 @@ func (c *Client) UploadCreate(ctx stdctx.Context, files ...UploadFile) (map[stri
 	}
 
 	var result map[string]string
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	if err := jsonx.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("satori: upload.create: 解码响应: %w", err)
 	}
 	return result, nil
@@ -783,7 +784,7 @@ func (c *Client) ProxyFetch(ctx stdctx.Context, resourceURL string) ([]byte, htt
 func (c *Client) callMeta(ctx stdctx.Context, path string, params, result any) error {
 	var body io.Reader
 	if params != nil {
-		data, err := json.Marshal(params)
+		data, err := jsonx.Marshal(params)
 		if err != nil {
 			return fmt.Errorf("satori: 序列化请求参数: %w", err)
 		}
@@ -817,7 +818,7 @@ func (c *Client) callMeta(ctx stdctx.Context, path string, params, result any) e
 		return fmt.Errorf("satori: %s: HTTP %d: %s", path, resp.StatusCode, string(respBody))
 	}
 	if result != nil && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, result); err != nil {
+		if err := jsonx.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("satori: %s: 解码响应: %w", path, err)
 		}
 	}

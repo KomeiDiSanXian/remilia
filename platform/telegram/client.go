@@ -3,7 +3,6 @@ package telegram
 import (
 	"bytes"
 	stdctx "context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 const (
@@ -114,9 +115,9 @@ func IsParseEntitiesError(err error) bool {
 
 // apiResponse is the standard Telegram API response wrapper.
 type apiResponse struct {
-	OK          bool            `json:"ok"`
-	Description string          `json:"description,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
+	OK          bool             `json:"ok"`
+	Description string           `json:"description,omitempty"`
+	Result      jsonx.RawMessage `json:"result,omitempty"`
 }
 
 // GetUpdates polls for new updates via long polling.
@@ -145,78 +146,78 @@ func (c *Client) GetUpdates(ctx stdctx.Context, offset int, timeout int, limit i
 }
 
 // SendMessage sends a text message.
-func (c *Client) SendMessage(ctx stdctx.Context, p *SendMessagePayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendMessage(ctx stdctx.Context, p *SendMessagePayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "sendMessage", p, &result)
 	return result, err
 }
 
 // SendPhoto sends a photo by file_id or URL.
-func (c *Client) SendPhoto(ctx stdctx.Context, p *SendPhotoPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendPhoto(ctx stdctx.Context, p *SendPhotoPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "sendPhoto", p, &result)
 	return result, err
 }
 
 // SendAudio sends an audio file by file_id or URL.
-func (c *Client) SendAudio(ctx stdctx.Context, p *SendAudioPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendAudio(ctx stdctx.Context, p *SendAudioPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "sendAudio", p, &result)
 	return result, err
 }
 
 // SendVideo sends a video by file_id or URL.
-func (c *Client) SendVideo(ctx stdctx.Context, p *SendVideoPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendVideo(ctx stdctx.Context, p *SendVideoPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "sendVideo", p, &result)
 	return result, err
 }
 
 // SendDocument sends a document/file by file_id or URL.
-func (c *Client) SendDocument(ctx stdctx.Context, p *SendDocumentPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendDocument(ctx stdctx.Context, p *SendDocumentPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "sendDocument", p, &result)
 	return result, err
 }
 
 // SendDocumentUpload sends a document with binary upload via multipart/form-data.
-func (c *Client) SendDocumentUpload(ctx stdctx.Context, p *SendDocumentPayload, fileName string, data []byte) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendDocumentUpload(ctx stdctx.Context, p *SendDocumentPayload, fileName string, data []byte) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.upload(ctx, "sendDocument", "document", fileName, data, p, &result)
 	return result, err
 }
 
 // SendPhotoUpload sends a photo with binary upload via multipart/form-data.
-func (c *Client) SendPhotoUpload(ctx stdctx.Context, p *SendPhotoPayload, fileName string, data []byte) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendPhotoUpload(ctx stdctx.Context, p *SendPhotoPayload, fileName string, data []byte) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.upload(ctx, "sendPhoto", "photo", fileName, data, p, &result)
 	return result, err
 }
 
 // SendAudioUpload sends audio with binary upload via multipart/form-data.
-func (c *Client) SendAudioUpload(ctx stdctx.Context, p *SendAudioPayload, fileName string, data []byte) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendAudioUpload(ctx stdctx.Context, p *SendAudioPayload, fileName string, data []byte) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.upload(ctx, "sendAudio", "audio", fileName, data, p, &result)
 	return result, err
 }
 
 // SendVideoUpload sends video with binary upload via multipart/form-data.
-func (c *Client) SendVideoUpload(ctx stdctx.Context, p *SendVideoPayload, fileName string, data []byte) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) SendVideoUpload(ctx stdctx.Context, p *SendVideoPayload, fileName string, data []byte) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.upload(ctx, "sendVideo", "video", fileName, data, p, &result)
 	return result, err
 }
 
 // EditMessageText edits a message's text.
-func (c *Client) EditMessageText(ctx stdctx.Context, p *EditMessageTextPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) EditMessageText(ctx stdctx.Context, p *EditMessageTextPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "editMessageText", p, &result)
 	return result, err
 }
 
 // EditMessageReplyMarkup edits a message's inline keyboard.
-func (c *Client) EditMessageReplyMarkup(ctx stdctx.Context, p *EditMessageReplyMarkupPayload) (json.RawMessage, error) {
-	var result json.RawMessage
+func (c *Client) EditMessageReplyMarkup(ctx stdctx.Context, p *EditMessageReplyMarkupPayload) (jsonx.RawMessage, error) {
+	var result jsonx.RawMessage
 	err := c.call(ctx, "editMessageReplyMarkup", p, &result)
 	return result, err
 }
@@ -369,7 +370,7 @@ func (c *Client) DownloadFile(ctx stdctx.Context, fileID string, maxBytes int64)
 func (c *Client) call(ctx stdctx.Context, method string, params any, result any) error {
 	var bodyReader io.Reader
 	if params != nil {
-		data, err := json.Marshal(params)
+		data, err := jsonx.Marshal(params)
 		if err != nil {
 			return fmt.Errorf("telegram: marshal %s params: %w", method, err)
 		}
@@ -394,7 +395,7 @@ func (c *Client) call(ctx stdctx.Context, method string, params any, result any)
 	}
 
 	var apiResp apiResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
+	if err := jsonx.Unmarshal(body, &apiResp); err != nil {
 		return fmt.Errorf("telegram: parse %s response: %w", method, err)
 	}
 
@@ -403,7 +404,7 @@ func (c *Client) call(ctx stdctx.Context, method string, params any, result any)
 	}
 
 	if result != nil && len(apiResp.Result) > 0 {
-		if err := json.Unmarshal(apiResp.Result, result); err != nil {
+		if err := jsonx.Unmarshal(apiResp.Result, result); err != nil {
 			return fmt.Errorf("telegram: parse %s result: %w", method, err)
 		}
 	}
@@ -420,12 +421,12 @@ func (c *Client) upload(ctx stdctx.Context, method string, fileFieldName, fileNa
 	w := multipart.NewWriter(&b)
 
 	if params != nil {
-		data, err := json.Marshal(params)
+		data, err := jsonx.Marshal(params)
 		if err != nil {
 			return fmt.Errorf("telegram: marshal %s params: %w", method, err)
 		}
 		var m map[string]any
-		if err := json.Unmarshal(data, &m); err != nil {
+		if err := jsonx.Unmarshal(data, &m); err != nil {
 			return fmt.Errorf("telegram: unmarshal %s params: %w", method, err)
 		}
 		for key, val := range m {
@@ -439,7 +440,7 @@ func (c *Client) upload(ctx stdctx.Context, method string, fileFieldName, fileNa
 					return fmt.Errorf("telegram: write form field %s: %w", key, err)
 				}
 			default:
-				b, err := json.Marshal(v)
+				b, err := jsonx.Marshal(v)
 				if err != nil {
 					return fmt.Errorf("telegram: marshal field %s: %w", key, err)
 				}
@@ -479,14 +480,14 @@ func (c *Client) upload(ctx stdctx.Context, method string, fileFieldName, fileNa
 	}
 
 	var apiResp apiResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
+	if err := jsonx.Unmarshal(body, &apiResp); err != nil {
 		return fmt.Errorf("telegram: parse %s upload response: %w", method, err)
 	}
 	if !apiResp.OK {
 		return fmt.Errorf("telegram: %s upload API error: %s", method, apiResp.Description)
 	}
 	if result != nil && len(apiResp.Result) > 0 {
-		if err := json.Unmarshal(apiResp.Result, result); err != nil {
+		if err := jsonx.Unmarshal(apiResp.Result, result); err != nil {
 			return fmt.Errorf("telegram: parse %s upload result: %w", method, err)
 		}
 	}

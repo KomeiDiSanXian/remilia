@@ -13,13 +13,13 @@ package deadletter
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -30,7 +30,7 @@ import (
 type Error struct {
 	Message string `json:"message"`
 	Source  string `json:"source,omitempty"`
-	Attempt int    `json:"attempt,omitempty"`
+	Attempt int    `json:"attempt,omitzero"`
 }
 
 // PlatformDeadLetterRecord 是平台无关死信条目的 JSON 表示。
@@ -46,7 +46,7 @@ type PlatformDeadLetterEvent struct {
 	RawType       string `json:"raw_type"`
 	ChatID        string `json:"chat_id,omitempty"`
 	SenderID      string `json:"sender_id,omitempty"`
-	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
+	TimestampUnix int64  `json:"timestamp_unix,omitzero"`
 }
 
 // MarshalPlatformEventItem 序列化平台无关的死信队列条目。
@@ -76,7 +76,7 @@ func MarshalPlatformEventItem(item dlq.Item[platform.Event]) ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(rec)
+	return jsonx.Marshal(rec)
 }
 
 // ─── Consumer 实现 ───────────────────────────────────────────────────────────

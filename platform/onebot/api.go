@@ -3,7 +3,6 @@ package onebot
 import (
 	"bytes"
 	stdctx "context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/gorilla/websocket"
 )
 
@@ -67,7 +67,7 @@ func newWSAPIClient(conn *websocket.Conn, timeout time.Duration) *wsAPIClient {
 // 当适配器的接收循环收到非事件 JSON 消息时调用此方法。
 func (c *wsAPIClient) routeResponse(data []byte) {
 	var resp APIResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := jsonx.Unmarshal(data, &resp); err != nil {
 		return
 	}
 	if resp.Echo == "" {
@@ -93,7 +93,7 @@ func (c *wsAPIClient) Call(ctx stdctx.Context, action string, params any) (*APIR
 		Params: params,
 		Echo:   echo,
 	}
-	b, err := json.Marshal(req)
+	b, err := jsonx.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("onebot api: marshal request: %w", err)
 	}
@@ -174,7 +174,7 @@ func newHTTPAPIClient(baseURL, token string, timeout time.Duration) *httpAPIClie
 
 // Call 通过 HTTP POST 实现 APIClient 接口。
 func (c *httpAPIClient) Call(ctx stdctx.Context, action string, params any) (*APIResponse, error) {
-	b, err := json.Marshal(params)
+	b, err := jsonx.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("onebot api: marshal params: %w", err)
 	}
@@ -210,7 +210,7 @@ func (c *httpAPIClient) Call(ctx stdctx.Context, action string, params any) (*AP
 	}
 
 	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
+	if err := jsonx.Unmarshal(body, &apiResp); err != nil {
 		return nil, fmt.Errorf("onebot api: unmarshal response: %w", err)
 	}
 	return &apiResp, checkResponse(&apiResp)
@@ -237,7 +237,7 @@ func callDecoded(ctx stdctx.Context, c APIClient, action string, params any, dst
 	if dst == nil || len(resp.Data) == 0 {
 		return nil
 	}
-	return json.Unmarshal(resp.Data, dst)
+	return jsonx.Unmarshal(resp.Data, dst)
 }
 
 // callCompat 调用主动作；若协议端返回"动作不存在"（retcode=404 或 not found），
@@ -271,7 +271,7 @@ func callCompatDecoded(ctx stdctx.Context, c APIClient, primary string, fallback
 	if dst == nil || len(resp.Data) == 0 {
 		return nil
 	}
-	return json.Unmarshal(resp.Data, dst)
+	return jsonx.Unmarshal(resp.Data, dst)
 }
 
 // isActionNotFound 判断错误是否为"动作不存在"。

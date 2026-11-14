@@ -2,13 +2,13 @@ package satori
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -118,7 +118,7 @@ func TestWebhookAdapter_ProxyURLs_InitiallyEmpty(t *testing.T) {
 
 func makeWebhookRequest(t *testing.T, op Opcode, body any, token string) *http.Request {
 	t.Helper()
-	data, err := json.Marshal(body)
+	data, err := jsonx.Marshal(body)
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}

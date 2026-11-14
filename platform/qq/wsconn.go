@@ -2,7 +2,6 @@ package qq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
@@ -89,7 +89,7 @@ type helloData struct {
 
 type wsPayload struct {
 	Op   dto.OperationCode `json:"op"`
-	Data json.RawMessage   `json:"d,omitempty"`
+	Data jsonx.RawMessage  `json:"d,omitempty"`
 	S    uint64            `json:"s,omitempty"`
 	T    string            `json:"t,omitempty"`
 	ID   string            `json:"id,omitempty"`
@@ -362,7 +362,7 @@ func (c *WSConn) waitHello(conn *websocket.Conn) error {
 	}
 
 	var p wsPayload
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := jsonx.Unmarshal(data, &p); err != nil {
 		return fmt.Errorf("unmarshal hello: %w", err)
 	}
 
@@ -371,7 +371,7 @@ func (c *WSConn) waitHello(conn *websocket.Conn) error {
 	}
 
 	var h helloData
-	if err := json.Unmarshal(p.Data, &h); err != nil {
+	if err := jsonx.Unmarshal(p.Data, &h); err != nil {
 		return fmt.Errorf("unmarshal hello data: %w", err)
 	}
 
@@ -452,7 +452,7 @@ func (c *WSConn) waitReady(conn *websocket.Conn) error {
 		case dto.Dispatch:
 			if p.T == "READY" {
 				var ready dto.ReadyEvent
-				if err := json.Unmarshal(p.Data, &ready); err != nil {
+				if err := jsonx.Unmarshal(p.Data, &ready); err != nil {
 					return fmt.Errorf("unmarshal ready: %w", err)
 				}
 				c.sessionID = ready.SessionID
@@ -488,7 +488,7 @@ func (c *WSConn) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 				Op: dto.Heartbeat,
 			}
 			if seq := c.lastSeq.Load(); seq > 0 {
-				payload.Data = json.RawMessage(fmt.Sprintf("%d", seq))
+				payload.Data = jsonx.RawMessage(fmt.Sprintf("%d", seq))
 			}
 
 			if err := c.writeJSON(conn, payload); err != nil {
@@ -558,11 +558,11 @@ func (c *WSConn) readJSON(conn *websocket.Conn, v any) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, v)
+	return jsonx.Unmarshal(data, v)
 }
 
 func (c *WSConn) writeJSON(conn *websocket.Conn, v any) error {
-	data, err := json.Marshal(v)
+	data, err := jsonx.Marshal(v)
 	if err != nil {
 		return err
 	}
@@ -574,8 +574,8 @@ func (c *WSConn) writeJSON(conn *websocket.Conn, v any) error {
 	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
-func mustMarshal(v any) json.RawMessage {
-	data, _ := json.Marshal(v)
+func mustMarshal(v any) jsonx.RawMessage {
+	data, _ := jsonx.Marshal(v)
 	return data
 }
 

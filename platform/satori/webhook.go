@@ -3,7 +3,6 @@ package satori
 import (
 	stdctx "context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -314,7 +314,7 @@ func (a *WebhookAdapter) makeHTTPHandler(handler func(platform.Event)) http.Hand
 		switch op {
 		case OpcodeEvent:
 			var evt Event
-			if err := json.Unmarshal(body, &evt); err != nil {
+			if err := jsonx.Unmarshal(body, &evt); err != nil {
 				http.Error(w, "Bad Request: invalid event body", http.StatusBadRequest)
 				return
 			}
@@ -329,7 +329,7 @@ func (a *WebhookAdapter) makeHTTPHandler(handler func(platform.Event)) http.Hand
 		case OpcodeMeta:
 			// 实验性：代理 URL 列表更新，存储到 adapter 供后续使用。
 			var meta MetaBody
-			if err := json.Unmarshal(body, &meta); err != nil {
+			if err := jsonx.Unmarshal(body, &meta); err != nil {
 				// 解析失败时仍返回 200，不影响 SDK 继续推送。
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),

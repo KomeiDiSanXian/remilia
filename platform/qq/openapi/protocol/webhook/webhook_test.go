@@ -3,7 +3,6 @@ package webhook
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 )
@@ -131,7 +131,7 @@ func (t *testWebHook) EventStream() <-chan *dto.Payload              { return t.
 
 // dispatchBody 构造一个合法的 Dispatch 事件请求体（op=0）。
 func dispatchBody(t dto.EventType, id string) []byte {
-	b, _ := json.Marshal(map[string]any{
+	b, _ := jsonx.Marshal(map[string]any{
 		"id": id,
 		"op": 0,
 		"d": map[string]any{

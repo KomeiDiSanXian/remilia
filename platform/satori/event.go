@@ -1,10 +1,10 @@
 package satori
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -324,7 +324,7 @@ func (e *satoriEvent) RawPayload() any { return e.raw }
 // 若事件不含 referrer 信息则返回 nil。
 //
 // 参见：https://satori.chat/zh-CN/advanced/passive.html
-func (e *satoriEvent) Referrer() *json.RawMessage {
+func (e *satoriEvent) Referrer() *jsonx.RawMessage {
 	if e.raw == nil {
 		return nil
 	}
@@ -346,7 +346,7 @@ func (e *satoriEvent) NativeType() string {
 // NativeData 返回平台原生事件数据（实验性）。
 //
 // 参见：https://satori.chat/zh-CN/advanced/internal.html#事件扩展
-func (e *satoriEvent) NativeData() *json.RawMessage {
+func (e *satoriEvent) NativeData() *jsonx.RawMessage {
 	if e.raw == nil {
 		return nil
 	}

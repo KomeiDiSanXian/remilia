@@ -3,7 +3,6 @@ package telegram
 import (
 	stdctx "context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -329,7 +329,7 @@ func (a *WebhookAdapter) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var upd Update
-	if err := json.Unmarshal(body, &upd); err != nil {
+	if err := jsonx.Unmarshal(body, &upd); err != nil {
 		logger.WithError(err).Warn("[telegram.WebhookAdapter] 无法解析更新")
 		http.Error(w, "invalid update", http.StatusBadRequest)
 		return

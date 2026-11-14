@@ -2,11 +2,11 @@ package onebot
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -1284,8 +1284,8 @@ func (s *Sender) LLOneBotDebug(ctx stdctx.Context, apiClass, method string, args
 }
 
 // GetEvent 获取 HTTP 事件池中的事件（配合 LLB 的 HTTP 事件模式）。
-func (s *Sender) GetEvent(ctx stdctx.Context, key string, timeout int) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetEvent(ctx stdctx.Context, key string, timeout int) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_event", GetEventParams{
 		Key:     key,
 		Timeout: timeout,
@@ -1636,8 +1636,8 @@ func (s *Sender) ClickInlineKeyboardButton(ctx stdctx.Context, params ClickInlin
 }
 
 // GetRecentContact 获取最近会话列表（NapCat 扩展）。
-func (s *Sender) GetRecentContact(ctx stdctx.Context) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetRecentContact(ctx stdctx.Context) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_recent_contact", struct{}{}, &result); err != nil {
 		return nil, err
 	}
@@ -1645,8 +1645,8 @@ func (s *Sender) GetRecentContact(ctx stdctx.Context) ([]json.RawMessage, error)
 }
 
 // GetOnlineClients 获取账号在线客户端列表（NapCat 扩展）。
-func (s *Sender) GetOnlineClients(ctx stdctx.Context) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetOnlineClients(ctx stdctx.Context) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_online_clients", struct{}{}, &result); err != nil {
 		return nil, err
 	}
@@ -1678,8 +1678,8 @@ func (s *Sender) SetGroupNewMemberHistoryVisibility(ctx stdctx.Context, groupID 
 }
 
 // GetMiniAppArk 获取小程序 ARK 模板（NapCat 扩展）。
-func (s *Sender) GetMiniAppArk(ctx stdctx.Context) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetMiniAppArk(ctx stdctx.Context) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_mini_app_ark", struct{}{}, &result); err != nil {
 		return nil, err
 	}
@@ -1738,8 +1738,8 @@ func (s *Sender) CheckUrlSafely(ctx stdctx.Context, url string) (*CheckUrlSafely
 }
 
 // FetchCustomFaceDetail 获取自定义表情详情列表（NapCat 扩展）。
-func (s *Sender) FetchCustomFaceDetail(ctx stdctx.Context, count int) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) FetchCustomFaceDetail(ctx stdctx.Context, count int) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "fetch_custom_face_detail", CountParams{Count: count}, &result); err != nil {
 		return nil, err
 	}
@@ -1887,8 +1887,8 @@ func (s *Sender) SendFlashMsg(ctx stdctx.Context, fileSetID string, userID, grou
 
 // GetMusicArk 获取音乐 ARK 模板（go-cqhttp/Lagrange 扩展）。
 // params 结构随协议端文档变化，调用方按需构造（如 {"id": "...", "music_type": 0}）。
-func (s *Sender) GetMusicArk(ctx stdctx.Context, params map[string]any) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetMusicArk(ctx stdctx.Context, params map[string]any) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_music_ark", params, &result); err != nil {
 		return nil, err
 	}
@@ -1932,8 +1932,8 @@ func (s *Sender) DeleteGroupMemo(ctx stdctx.Context, groupID int64, memoID strin
 }
 
 // GetGroupRequests 获取群请求列表（Lagrange v1 扩展）。
-func (s *Sender) GetGroupRequests(ctx stdctx.Context, params map[string]any) ([]json.RawMessage, error) {
-	var result []json.RawMessage
+func (s *Sender) GetGroupRequests(ctx stdctx.Context, params map[string]any) ([]jsonx.RawMessage, error) {
+	var result []jsonx.RawMessage
 	if err := callDecoded(ctx, s.api, "get_group_requests", params, &result); err != nil {
 		return nil, err
 	}

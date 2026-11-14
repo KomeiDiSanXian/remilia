@@ -2,10 +2,10 @@ package qq_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -37,7 +37,7 @@ func TestAdapter_AcksInteractionEvent(t *testing.T) {
 		_ = adapter.Start(ctx, func(e platform.Event) { got <- e })
 	}()
 
-	detail, _ := json.Marshal(map[string]any{
+	detail, _ := jsonx.Marshal(map[string]any{
 		"id":                  "interact-123",
 		"type":                11,
 		"scene":               "group",
@@ -110,7 +110,7 @@ func TestAdapter_NoAckForNormalMessage(t *testing.T) {
 		_ = adapter.Start(ctx, func(platform.Event) { got <- struct{}{} })
 	}()
 
-	detail, _ := json.Marshal(map[string]any{
+	detail, _ := jsonx.Marshal(map[string]any{
 		"id":      "msg001",
 		"content": "hello",
 	})

@@ -2,12 +2,12 @@ package qq
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -502,7 +502,7 @@ func TestUploadMediaImage_AppendsExtensionWhenMissing(t *testing.T) {
 // TestMediaImageWireFormat 固化请求体字段名：素材接口是新增能力，
 // 字段拼错不会有编译错误，只会在真机上 400，因此用 JSON 断言锁住。
 func TestMediaImageWireFormat(t *testing.T) {
-	prep, err := json.Marshal(dto.MediaImagePrepareRequest{
+	prep, err := jsonx.Marshal(dto.MediaImagePrepareRequest{
 		FileName: "a.png", FileSize: 3, ContentType: "image/png", MD5: "m", SHA1: "s",
 	})
 	require.NoError(t, err)
@@ -510,11 +510,11 @@ func TestMediaImageWireFormat(t *testing.T) {
 		`{"file_name":"a.png","file_size":3,"content_type":"image/png","md5":"m","sha1":"s"}`,
 		string(prep))
 
-	comp, err := json.Marshal(dto.MediaImageCompleteRequest{UploadID: "u", MD5: "m"})
+	comp, err := jsonx.Marshal(dto.MediaImageCompleteRequest{UploadID: "u", MD5: "m"})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"upload_id":"u","md5":"m"}`, string(comp))
 
-	card, err := json.Marshal(dto.NewTuwenCard("t", "d", "https://a", "https://b"))
+	card, err := jsonx.Marshal(dto.NewTuwenCard("t", "d", "https://a", "https://b"))
 	require.NoError(t, err)
 	assert.JSONEq(t,
 		`{"type":"tuwen","content":{"title":"t","description":"d","url":"https://a","pic_url":"https://b"}}`,

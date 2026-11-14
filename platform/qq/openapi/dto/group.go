@@ -27,7 +27,7 @@ type GroupMember struct {
 	// MemberRole 群成员角色：member-普通成员，owner-群主，admin-管理员。
 	MemberRole string `json:"member_role,omitempty"`
 	// Bot 是否机器人。
-	Bot bool `json:"bot,omitempty"`
+	Bot bool `json:"bot,omitzero"`
 	// JoinedAt 入群时间（RFC3339）。
 	JoinedAt string `json:"joined_at,omitempty"`
 	// UnionOpenID 用户在应用/开放平台下的统一标识（如有）。
@@ -50,7 +50,7 @@ type BatchRemoveGroupMembersRequest struct {
 	// MemberOpenIDs 需要移除的成员 openid 列表，单次最多 20 个。
 	MemberOpenIDs []string `json:"member_openids"`
 	// AddToMemberBlacklist 是否同时加入群黑名单，默认 false。
-	AddToMemberBlacklist bool `json:"add_to_member_blacklist,omitempty"`
+	AddToMemberBlacklist bool `json:"add_to_member_blacklist,omitzero"`
 }
 
 // BlacklistUser 群黑名单用户。
@@ -64,7 +64,7 @@ type BlacklistUser struct {
 	// BannedAt 拉黑时间（RFC3339）。
 	BannedAt string `json:"banned_at,omitempty"`
 	// Bot 是否为机器人账号。
-	Bot bool `json:"bot,omitempty"`
+	Bot bool `json:"bot,omitzero"`
 }
 
 // GroupMemberBlacklist 群黑名单响应。
@@ -93,14 +93,14 @@ type GroupInfo struct {
 	GroupFingerMemo string   `json:"group_finger_memo,omitempty"`
 	GroupClassText  string   `json:"group_class_text,omitempty"`
 	GroupTags       []string `json:"group_tags,omitempty"`
-	GroupMemberNum  int      `json:"group_member_num,omitempty"`
+	GroupMemberNum  int      `json:"group_member_num,omitzero"`
 }
 
 // GroupBotState 机器人群内状态。
 type GroupBotState struct {
 	MemberOpenID      string `json:"member_openid,omitempty"`
 	JoinedAt          string `json:"joined_at,omitempty"`
-	AllowProactiveMsg bool   `json:"allow_proactive_msg,omitempty"`
+	AllowProactiveMsg bool   `json:"allow_proactive_msg,omitzero"`
 	RecvMsgSetting    string `json:"recv_msg_setting,omitempty"`
 	MemberRole        string `json:"member_role,omitempty"`
 }
@@ -115,7 +115,7 @@ type JoinRequest struct {
 	ApplyAt       string      `json:"apply_at,omitempty"`
 	ApplySource   string      `json:"apply_source,omitempty"`
 	InvitedBy     string      `json:"invited_by,omitempty"`
-	Bot           bool        `json:"bot,omitempty"`
+	Bot           bool        `json:"bot,omitzero"`
 	VerifyInfo    *VerifyInfo `json:"verify_info,omitempty"`
 }
 
@@ -146,7 +146,7 @@ type ApprovalJoinRequest struct {
 	// RejectReason 拒绝理由，action=decline 时可填。
 	RejectReason string `json:"reject_reason,omitempty"`
 	// AddToMemberBlacklist 是否同时加入群黑名单，默认 false，action=decline 时可填。
-	AddToMemberBlacklist bool `json:"add_to_member_blacklist,omitempty"`
+	AddToMemberBlacklist bool `json:"add_to_member_blacklist,omitzero"`
 }
 
 // GroupRestrictChatSetting 群禁言状态响应。
@@ -167,7 +167,7 @@ type MuteScheduleRule struct {
 	TaskID  string `json:"task_id,omitempty"`
 	StartAt string `json:"start_at,omitempty"`
 	EndAt   string `json:"end_at,omitempty"`
-	Enabled bool   `json:"enabled,omitempty"`
+	Enabled bool   `json:"enabled,omitzero"`
 }
 
 // MuteRecurringRule 周期禁言规则。
@@ -176,7 +176,7 @@ type MuteRecurringRule struct {
 	Weekdays  []int  `json:"weekdays,omitempty"`
 	StartTime string `json:"start_time,omitempty"`
 	EndTime   string `json:"end_time,omitempty"`
-	Enabled   bool   `json:"enabled,omitempty"`
+	Enabled   bool   `json:"enabled,omitzero"`
 }
 
 // MemberMuteState 当前处于禁言中的用户。
@@ -207,7 +207,7 @@ type JoinApprovalStrategy struct {
 	StrategyID         string   `json:"strategy_id,omitempty"`
 	GroupOpenIDs       []string `json:"group_openids,omitempty"`
 	GroupIDs           []string `json:"group_ids,omitempty"`
-	WhitelistUserCount int      `json:"whitelist_user_count,omitempty"`
+	WhitelistUserCount int      `json:"whitelist_user_count,omitzero"`
 	IsEnable           string   `json:"is_enable,omitempty"`
 	ExpireAt           string   `json:"expire_at,omitempty"`
 	CreatedAt          string   `json:"created_at,omitempty"`

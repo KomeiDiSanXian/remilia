@@ -7,12 +7,12 @@ package satori
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +31,7 @@ func TestSendUploadsDataAttachments(t *testing.T) {
 		case "/v1/message.create":
 			var req map[string]any
 			body, _ := io.ReadAll(r.Body)
-			require.NoError(t, json.Unmarshal(body, &req))
+			require.NoError(t, jsonx.Unmarshal(body, &req))
 			if c, ok := req["content"].(string); ok {
 				msgContent = c
 			}

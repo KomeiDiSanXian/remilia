@@ -1,12 +1,12 @@
 package milky
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -137,7 +137,7 @@ func parseRawEvent(data []byte) (platform.Event, error) {
 // 用于 Mentions() 的 IsSelf 判定（@ 机器人自身 → OnMentionedBot 命中）。
 func parseRawEventWithBot(data []byte, botID string) (platform.Event, error) {
 	var env rawEvent
-	if err := json.Unmarshal(data, &env); err != nil {
+	if err := jsonx.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("milky: parse event envelope: %w", err)
 	}
 
@@ -220,7 +220,7 @@ func chatInfoFromScene(scene string, peerID int64) platform.ChatInfo {
 
 func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var msg incomingMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonx.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("milky: parse message_receive: %w", err)
 	}
 
@@ -367,7 +367,7 @@ func incomingSegmentsToPlatform(incoming []incomingSegment) []platform.Segment {
 
 func parseMessageRecallEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d messageRecallData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse message_recall: %w", err)
 	}
 	e.kind = platform.EventKindMessageDelete
@@ -382,7 +382,7 @@ func parseMessageRecallEvent(e *milkyEvent, data []byte) (platform.Event, error)
 
 func parseGroupMemberIncreaseEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupMemberIncreaseData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_member_increase: %w", err)
 	}
 	e.kind = platform.EventKindMemberJoin
@@ -395,7 +395,7 @@ func parseGroupMemberIncreaseEvent(e *milkyEvent, data []byte) (platform.Event, 
 
 func parseGroupMemberDecreaseEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupMemberDecreaseData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_member_decrease: %w", err)
 	}
 	e.kind = platform.EventKindMemberLeave
@@ -410,7 +410,7 @@ func parseGroupMemberDecreaseEvent(e *milkyEvent, data []byte) (platform.Event, 
 
 func parseGroupAdminChangeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupAdminChangeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_admin_change: %w", err)
 	}
 	e.kind = platform.EventKindMemberUpdate
@@ -425,7 +425,7 @@ func parseGroupAdminChangeEvent(e *milkyEvent, data []byte) (platform.Event, err
 
 func parseGroupMuteEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupMuteData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_mute: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -438,7 +438,7 @@ func parseGroupMuteEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 
 func parseGroupWholeMuteEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupWholeMuteData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_whole_mute: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -453,7 +453,7 @@ func parseGroupWholeMuteEvent(e *milkyEvent, data []byte) (platform.Event, error
 
 func parseGroupMessageReactionEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupMessageReactionData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_message_reaction: %w", err)
 	}
 	e.kind = platform.EventKindReaction
@@ -468,7 +468,7 @@ func parseGroupMessageReactionEvent(e *milkyEvent, data []byte) (platform.Event,
 
 func parseFriendRequestEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d friendRequestData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse friend_request: %w", err)
 	}
 	e.kind = platform.EventKindRequest
@@ -483,7 +483,7 @@ func parseFriendRequestEvent(e *milkyEvent, data []byte) (platform.Event, error)
 
 func parseGroupJoinRequestEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupJoinRequestData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_join_request: %w", err)
 	}
 	e.kind = platform.EventKindRequest
@@ -498,7 +498,7 @@ func parseGroupJoinRequestEvent(e *milkyEvent, data []byte) (platform.Event, err
 
 func parseGroupInvitationEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupInvitationData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_invitation: %w", err)
 	}
 	e.kind = platform.EventKindRequest
@@ -513,7 +513,7 @@ func parseGroupInvitationEvent(e *milkyEvent, data []byte) (platform.Event, erro
 
 func parseBotOfflineEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d botOfflineData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse bot_offline: %w", err)
 	}
 	e.kind = platform.EventKindSystem
@@ -527,7 +527,7 @@ func parseBotOfflineEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 
 func parsePeerPinChangeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d peerPinChangeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse peer_pin_change: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -544,7 +544,7 @@ func parsePeerPinChangeEvent(e *milkyEvent, data []byte) (platform.Event, error)
 // 此事件由其他成员邀请某人加群后触发，需要管理员审批。
 func parseGroupInvitedJoinRequestEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupInvitedJoinRequestData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_invited_join_request: %w", err)
 	}
 	e.kind = platform.EventKindRequest
@@ -559,7 +559,7 @@ func parseGroupInvitedJoinRequestEvent(e *milkyEvent, data []byte) (platform.Eve
 
 func parseFriendNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d friendNudgeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse friend_nudge: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -575,7 +575,7 @@ func parseFriendNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 
 func parseFriendFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d friendFileUploadData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse friend_file_upload: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -600,7 +600,7 @@ func parseFriendFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, err
 
 func parseGroupEssenceMessageChangeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupEssenceMessageChangeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_essence_message_change: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -615,7 +615,7 @@ func parseGroupEssenceMessageChangeEvent(e *milkyEvent, data []byte) (platform.E
 
 func parseGroupNameChangeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupNameChangeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_name_change: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -633,7 +633,7 @@ func parseGroupNameChangeEvent(e *milkyEvent, data []byte) (platform.Event, erro
 
 func parseGroupNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupNudgeData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_nudge: %w", err)
 	}
 	e.kind = platform.EventKindNotice
@@ -649,7 +649,7 @@ func parseGroupNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 
 func parseGroupFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var d groupFileUploadData
-	if err := json.Unmarshal(data, &d); err != nil {
+	if err := jsonx.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("milky: parse group_file_upload: %w", err)
 	}
 	e.kind = platform.EventKindNotice

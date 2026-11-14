@@ -2,7 +2,6 @@ package onebot
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/gorilla/websocket"
@@ -430,7 +430,7 @@ func isAPIResponse(msg []byte) bool {
 		Retcode *int    `json:"retcode"`
 		Echo    *string `json:"echo"`
 	}
-	if err := json.Unmarshal(msg, &probe); err != nil {
+	if err := jsonx.Unmarshal(msg, &probe); err != nil {
 		return false
 	}
 	// API 响应含 retcode；事件含 post_type

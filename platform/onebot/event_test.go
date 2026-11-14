@@ -22,9 +22,9 @@ package onebot
 //     LLB/Lagrange 不产生，保留解析无碍。
 
 import (
-	"encoding/json"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -703,7 +703,7 @@ func TestJsonMarshalTime(t *testing.T) {
 		Time int64 `json:"time"`
 	}
 	var te testEvent
-	err := json.Unmarshal([]byte(`{"time":1700000000}`), &te)
+	err := jsonx.Unmarshal([]byte(`{"time":1700000000}`), &te)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1700000000), te.Time)
 }

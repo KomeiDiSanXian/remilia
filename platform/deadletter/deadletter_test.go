@@ -2,7 +2,6 @@ package deadletter
 
 import (
 	"bufio"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,7 +84,7 @@ func TestPlatformFileConsumer_Consume_WritesJSONLine(t *testing.T) {
 	require.Len(t, lines, 1)
 
 	var rec PlatformDeadLetterRecord
-	require.NoError(t, json.Unmarshal([]byte(lines[0]), &rec))
+	require.NoError(t, jsonx.Unmarshal([]byte(lines[0]), &rec))
 
 	require.NotNil(t, rec.Event)
 	assert.Equal(t, "qq", rec.Event.Platform)
@@ -120,7 +120,7 @@ func TestPlatformFileConsumer_Consume_AppendMultiple(t *testing.T) {
 	for scanner.Scan() {
 		lineCount++
 		var rec PlatformDeadLetterRecord
-		require.NoError(t, json.Unmarshal(scanner.Bytes(), &rec))
+		require.NoError(t, jsonx.Unmarshal(scanner.Bytes(), &rec))
 		require.NotNil(t, rec.Event)
 		assert.Equal(t, "discord", rec.Event.Platform)
 	}
@@ -140,7 +140,7 @@ func TestPlatformFileConsumer_Consume_NilEvent(t *testing.T) {
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	var rec PlatformDeadLetterRecord
-	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(content))), &rec))
+	require.NoError(t, jsonx.Unmarshal([]byte(strings.TrimSpace(string(content))), &rec))
 	assert.Nil(t, rec.Event)
 }
 
@@ -155,7 +155,7 @@ func TestPlatformWebhookConsumer_Consume_Success(t *testing.T) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		var body PlatformDeadLetterRecord
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.NoError(t, jsonx.NewDecoder(r.Body).Decode(&body))
 		assert.NotNil(t, body.Event)
 		assert.Equal(t, "telegram", body.Event.Platform)
 
@@ -227,7 +227,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 		require.NoError(t, err)
 
 		var rec PlatformDeadLetterRecord
-		require.NoError(t, json.Unmarshal(data, &rec))
+		require.NoError(t, jsonx.Unmarshal(data, &rec))
 
 		require.NotNil(t, rec.Event)
 		assert.Equal(t, "qq", rec.Event.Platform)
@@ -247,7 +247,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 		require.NoError(t, err)
 
 		var rec PlatformDeadLetterRecord
-		require.NoError(t, json.Unmarshal(data, &rec))
+		require.NoError(t, jsonx.Unmarshal(data, &rec))
 		assert.Nil(t, rec.Event)
 		assert.NotEmpty(t, rec.Error.Message)
 	})
@@ -258,7 +258,7 @@ func TestMarshalPlatformEventItem(t *testing.T) {
 		require.NoError(t, err)
 
 		var rec PlatformDeadLetterRecord
-		require.NoError(t, json.Unmarshal(data, &rec))
+		require.NoError(t, jsonx.Unmarshal(data, &rec))
 		assert.Empty(t, rec.Error.Message)
 	})
 }

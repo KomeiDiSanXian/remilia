@@ -55,14 +55,14 @@ const telegramExtraKey = "__telegram_message_extra__"
 //	    Then(telegram.ApplyExtra(telegram.MessageExtra{DisableNotification: true}))
 type MessageExtra struct {
 	// DisableWebPreview disables link previews for links in this message.
-	DisableWebPreview bool `json:"disable_web_page_preview,omitempty"`
+	DisableWebPreview bool `json:"disable_web_page_preview,omitzero"`
 	// DisableNotification sends the message silently.
-	DisableNotification bool `json:"disable_notification,omitempty"`
+	DisableNotification bool `json:"disable_notification,omitzero"`
 	// ProtectContent protects the message from being forwarded.
-	ProtectContent bool `json:"protect_content,omitempty"`
+	ProtectContent bool `json:"protect_content,omitzero"`
 	// AllowPaidBroadcast allows the message to be sent as a paid broadcast
 	// (Telegram Stars; Bot API 7.10+).
-	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitempty"`
+	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitzero"`
 }
 
 // messageOptions 把 MessageExtra 中各发送接口通用的开关转换为 payload 字段。

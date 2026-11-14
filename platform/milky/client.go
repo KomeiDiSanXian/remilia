@@ -3,11 +3,12 @@ package milky
 import (
 	"bytes"
 	stdctx "context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ func newMilkyClient(cfg Config) *milkyClient {
 // input 将序列化为 JSON 写入请求体。
 // output 若非 nil，将从响应的 data 字段中反序列化填充。
 func (c *milkyClient) call(ctx stdctx.Context, endpoint string, input, output any) error {
-	body, err := json.Marshal(input)
+	body, err := jsonx.Marshal(input)
 	if err != nil {
 		return fmt.Errorf("milky: marshal input for %s: %w", endpoint, err)
 	}
@@ -76,12 +77,12 @@ func (c *milkyClient) call(ctx stdctx.Context, endpoint string, input, output an
 	}
 
 	var apiResp struct {
-		Status  string          `json:"status"`
-		Retcode int             `json:"retcode"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
+		Status  string           `json:"status"`
+		Retcode int              `json:"retcode"`
+		Message string           `json:"message"`
+		Data    jsonx.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &apiResp); err != nil {
+	if err := jsonx.Unmarshal(raw, &apiResp); err != nil {
 		return fmt.Errorf("milky: parse response for %s: %w", endpoint, err)
 	}
 
@@ -94,7 +95,7 @@ func (c *milkyClient) call(ctx stdctx.Context, endpoint string, input, output an
 	}
 
 	if output != nil && len(apiResp.Data) > 0 {
-		if err := json.Unmarshal(apiResp.Data, output); err != nil {
+		if err := jsonx.Unmarshal(apiResp.Data, output); err != nil {
 			return fmt.Errorf("milky: parse data for %s: %w", endpoint, err)
 		}
 	}

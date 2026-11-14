@@ -2,7 +2,6 @@ package satori
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -252,7 +252,7 @@ func (c *wsConn) readLoop(ctx stdctx.Context, conn *websocket.Conn) error {
 		}
 
 		var sig Signal
-		if err := json.Unmarshal(data, &sig); err != nil {
+		if err := jsonx.Unmarshal(data, &sig); err != nil {
 			logger.WithFields(logger.Fields{
 				"platform": c.platformID,
 			}).WithError(err).Warn("[satori.wsConn] 解析信令失败")
@@ -268,7 +268,7 @@ func (c *wsConn) handleSignal(sig Signal) {
 	switch sig.Op {
 	case OpcodeEvent:
 		var evt Event
-		if err := json.Unmarshal(sig.Body, &evt); err != nil {
+		if err := jsonx.Unmarshal(sig.Body, &evt); err != nil {
 			logger.WithFields(logger.Fields{
 				"platform": c.platformID,
 			}).WithError(err).Warn("[satori.wsConn] 解析事件 body 失败")
@@ -286,7 +286,7 @@ func (c *wsConn) handleSignal(sig Signal) {
 
 	case OpcodeReady:
 		var ready ReadyBody
-		if err := json.Unmarshal(sig.Body, &ready); err != nil {
+		if err := jsonx.Unmarshal(sig.Body, &ready); err != nil {
 			logger.WithFields(logger.Fields{
 				"platform": c.platformID,
 			}).WithError(err).Warn("[satori.wsConn] 解析 READY body 失败")
@@ -311,7 +311,7 @@ func (c *wsConn) handleSignal(sig Signal) {
 	case OpcodeMeta:
 		// 实验性：代理 URL 列表更新。
 		var meta MetaBody
-		if err := json.Unmarshal(sig.Body, &meta); err != nil {
+		if err := jsonx.Unmarshal(sig.Body, &meta); err != nil {
 			logger.WithFields(logger.Fields{
 				"platform": c.platformID,
 			}).WithError(err).Warn("[satori.wsConn] 解析 META body 失败")
@@ -336,7 +336,7 @@ func (c *wsConn) writeSignal(conn *websocket.Conn, op Opcode, body any) error {
 		Body any    `json:"body,omitempty"`
 	}{Op: op, Body: body}
 
-	data, err := json.Marshal(sig)
+	data, err := jsonx.Marshal(sig)
 	if err != nil {
 		return fmt.Errorf("序列化信令 op=%d: %w", op, err)
 	}

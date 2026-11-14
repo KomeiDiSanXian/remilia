@@ -1,10 +1,10 @@
 package onebot
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -70,8 +70,8 @@ func (d *SegmentData) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || string(b) == "null" {
 		return nil
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
+	var raw map[string]jsonx.RawMessage
+	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		// data 不是对象（实测有实现会发 "data":"" 或 "data":[]）。
 		// 这里同样不能返回错误：错误会冒泡到 parseEvent 并丢弃整条事件，
 		// 正是本类型要消除的失败模式。降级为"无参数消息段"。
@@ -91,14 +91,14 @@ func (d *SegmentData) UnmarshalJSON(b []byte) error {
 //	123 / true → 123 / true   （字面量原样）
 //	[...] {...}→ 原始 JSON 文本（供调用方按需二次解析）
 //	null       → 空字符串
-func rawJSONToString(v json.RawMessage) string {
+func rawJSONToString(v jsonx.RawMessage) string {
 	s := strings.TrimSpace(string(v))
 	if s == "" || s == "null" {
 		return ""
 	}
 	if s[0] == '"' {
 		var str string
-		if err := json.Unmarshal(v, &str); err == nil {
+		if err := jsonx.Unmarshal(v, &str); err == nil {
 			return str
 		}
 	}
@@ -115,7 +115,7 @@ type MessageSegment struct {
 	// content 数组）。非 nil 时序列化以它为准，Data 被忽略。
 	//
 	// 仅用于发送侧；接收侧一律填充 Data。
-	RawData map[string]json.RawMessage `json:"-"`
+	RawData map[string]jsonx.RawMessage `json:"-"`
 }
 
 // MarshalJSON 实现 json.Marshaler。
@@ -128,13 +128,13 @@ func (s MessageSegment) MarshalJSON() ([]byte, error) {
 			Type string      `json:"type"`
 			Data SegmentData `json:"data"`
 		}
-		return json.Marshal(plain{Type: s.Type, Data: s.Data})
+		return jsonx.Marshal(plain{Type: s.Type, Data: s.Data})
 	}
 	type rawSeg struct {
-		Type string                     `json:"type"`
-		Data map[string]json.RawMessage `json:"data"`
+		Type string                      `json:"type"`
+		Data map[string]jsonx.RawMessage `json:"data"`
 	}
-	return json.Marshal(rawSeg{Type: s.Type, Data: s.RawData})
+	return jsonx.Marshal(rawSeg{Type: s.Type, Data: s.RawData})
 }
 
 // NewNodeSegment 构造合并转发的 node 段。
@@ -143,15 +143,15 @@ func (s MessageSegment) MarshalJSON() ([]byte, error) {
 // 无法用 map[string]string 表达；此前 SegTypeNode 因此完全不可构造，
 // 合并转发发不出去。这里通过 RawData 承载嵌套结构。
 func NewNodeSegment(userID, nickname string, content MessageChain) (MessageSegment, error) {
-	contentJSON, err := json.Marshal(content)
+	contentJSON, err := jsonx.Marshal(content)
 	if err != nil {
 		return MessageSegment{}, fmt.Errorf("onebot: marshal node content: %w", err)
 	}
-	uid, _ := json.Marshal(userID)
-	nick, _ := json.Marshal(nickname)
+	uid, _ := jsonx.Marshal(userID)
+	nick, _ := jsonx.Marshal(nickname)
 	return MessageSegment{
 		Type: SegTypeNode,
-		RawData: map[string]json.RawMessage{
+		RawData: map[string]jsonx.RawMessage{
 			"user_id":  uid,
 			"nickname": nick,
 			"content":  contentJSON,
@@ -210,7 +210,7 @@ func (mc *MessageChain) UnmarshalJSON(b []byte) error {
 	case '[':
 		// 数组格式：直接反序列化
 		var segs []MessageSegment
-		if err := json.Unmarshal(b, &segs); err != nil {
+		if err := jsonx.Unmarshal(b, &segs); err != nil {
 			return err
 		}
 		*mc = segs
@@ -219,7 +219,7 @@ func (mc *MessageChain) UnmarshalJSON(b []byte) error {
 	case '"':
 		// 字符串格式：先反转义 JSON 字符串，再解析 CQ 码
 		var s string
-		if err := json.Unmarshal(b, &s); err != nil {
+		if err := jsonx.Unmarshal(b, &s); err != nil {
 			return err
 		}
 		*mc = parseCQString(s)
@@ -235,7 +235,7 @@ func (mc MessageChain) MarshalJSON() ([]byte, error) {
 	if len(mc) == 0 {
 		return []byte("[]"), nil
 	}
-	return json.Marshal([]MessageSegment(mc))
+	return jsonx.Marshal([]MessageSegment(mc))
 }
 
 // Text 返回所有文本段拼接后的纯文本内容。

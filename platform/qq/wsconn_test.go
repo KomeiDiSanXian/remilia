@@ -1,9 +1,9 @@
 package qq
 
 import (
-	"encoding/json"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,16 +24,16 @@ func TestIdentifyPayloadMarshaling(t *testing.T) {
 		Data: mustMarshal(data),
 	}
 
-	raw, err := json.Marshal(payload)
+	raw, err := jsonx.Marshal(payload)
 	assert.NoError(t, err)
 
 	var parsed wsPayload
-	err = json.Unmarshal(raw, &parsed)
+	err = jsonx.Unmarshal(raw, &parsed)
 	assert.NoError(t, err)
 	assert.Equal(t, dto.Identify, parsed.Op, "op should be Identify (2)")
 
 	var decoded identifyData
-	err = json.Unmarshal(parsed.Data, &decoded)
+	err = jsonx.Unmarshal(parsed.Data, &decoded)
 	assert.NoError(t, err)
 	assert.Equal(t, "QQBot test_access_token", decoded.Token)
 	assert.Equal(t, [2]int{0, 1}, decoded.Shard)
@@ -52,16 +52,16 @@ func TestResumePayloadMarshaling(t *testing.T) {
 		Data: mustMarshal(data),
 	}
 
-	raw, err := json.Marshal(payload)
+	raw, err := jsonx.Marshal(payload)
 	assert.NoError(t, err)
 
 	var parsed wsPayload
-	err = json.Unmarshal(raw, &parsed)
+	err = jsonx.Unmarshal(raw, &parsed)
 	assert.NoError(t, err)
 	assert.Equal(t, dto.Resume, parsed.Op, "op should be Resume (6)")
 
 	var decoded resumeData
-	err = json.Unmarshal(parsed.Data, &decoded)
+	err = jsonx.Unmarshal(parsed.Data, &decoded)
 	assert.NoError(t, err)
 	assert.Equal(t, "session_abc123", decoded.SessionID)
 	assert.Equal(t, uint64(42), decoded.Seq)
@@ -71,22 +71,22 @@ func TestHeartbeatPayloadMarshaling(t *testing.T) {
 	// 有心跳序列号
 	payload := wsPayload{
 		Op:   dto.Heartbeat,
-		Data: json.RawMessage("42"),
+		Data: jsonx.RawMessage("42"),
 	}
-	raw, err := json.Marshal(payload)
+	raw, err := jsonx.Marshal(payload)
 	assert.NoError(t, err)
 
 	var parsed wsPayload
-	err = json.Unmarshal(raw, &parsed)
+	err = jsonx.Unmarshal(raw, &parsed)
 	assert.NoError(t, err)
 	assert.Equal(t, dto.Heartbeat, parsed.Op)
 	assert.Equal(t, "42", string(parsed.Data))
 
 	// 无线索号（首次连接）
 	payload2 := wsPayload{Op: dto.Heartbeat}
-	raw2, _ := json.Marshal(payload2)
+	raw2, _ := jsonx.Marshal(payload2)
 	var parsed2 wsPayload
-	json.Unmarshal(raw2, &parsed2)
+	jsonx.Unmarshal(raw2, &parsed2)
 	assert.Equal(t, dto.Heartbeat, parsed2.Op)
 	assert.Empty(t, string(parsed2.Data), "first heartbeat should have no data")
 }
@@ -94,12 +94,12 @@ func TestHeartbeatPayloadMarshaling(t *testing.T) {
 func TestHelloPayloadParsing(t *testing.T) {
 	raw := `{"op":10,"d":{"heartbeat_interval":45000}}`
 	var p wsPayload
-	err := json.Unmarshal([]byte(raw), &p)
+	err := jsonx.Unmarshal([]byte(raw), &p)
 	assert.NoError(t, err)
 	assert.Equal(t, dto.Hello, p.Op)
 
 	var h helloData
-	err = json.Unmarshal(p.Data, &h)
+	err = jsonx.Unmarshal(p.Data, &h)
 	assert.NoError(t, err)
 	assert.Equal(t, 45000, h.HeartbeatInterval)
 }
@@ -111,14 +111,14 @@ func TestDispatchEventPayloadParsing(t *testing.T) {
 		"d":{"version":1,"session_id":"sess_001","user":{"id":"bot001","username":"TestBot","bot":true}}
 	}`
 	var p wsPayload
-	err := json.Unmarshal([]byte(raw), &p)
+	err := jsonx.Unmarshal([]byte(raw), &p)
 	assert.NoError(t, err)
 	assert.Equal(t, dto.Dispatch, p.Op)
 	assert.Equal(t, uint64(1), p.S)
 	assert.Equal(t, "READY", p.T)
 
 	var ready dto.ReadyEvent
-	err = json.Unmarshal(p.Data, &ready)
+	err = jsonx.Unmarshal(p.Data, &ready)
 	assert.NoError(t, err)
 	assert.Equal(t, "sess_001", ready.SessionID)
 	assert.Equal(t, "bot001", ready.User.ID)
@@ -131,7 +131,7 @@ func TestDispatchEventPayloadParsing(t *testing.T) {
 		"d":{"content":"hello","author":{"id":"u001","username":"User"}}
 	}`
 	var p2 wsPayload
-	json.Unmarshal([]byte(raw2), &p2)
+	jsonx.Unmarshal([]byte(raw2), &p2)
 	assert.Equal(t, "C2C_MESSAGE_CREATE", p2.T)
 	assert.Equal(t, uint64(2), p2.S)
 }
@@ -139,18 +139,18 @@ func TestDispatchEventPayloadParsing(t *testing.T) {
 func TestReconnectAndInvalidSessionParsing(t *testing.T) {
 	// Reconnect
 	var reconnect wsPayload
-	json.Unmarshal([]byte(`{"op":7}`), &reconnect)
+	jsonx.Unmarshal([]byte(`{"op":7}`), &reconnect)
 	assert.Equal(t, dto.Reconnect, reconnect.Op)
 
 	// InvalidSession
 	var invalid wsPayload
-	json.Unmarshal([]byte(`{"op":9}`), &invalid)
+	jsonx.Unmarshal([]byte(`{"op":9}`), &invalid)
 	assert.Equal(t, dto.InvalidSession, invalid.Op)
 }
 
 func TestHeartbeatAckParsing(t *testing.T) {
 	var ack wsPayload
-	json.Unmarshal([]byte(`{"op":11}`), &ack)
+	jsonx.Unmarshal([]byte(`{"op":11}`), &ack)
 	assert.Equal(t, dto.HeartbeatACK, ack.Op)
 }
 

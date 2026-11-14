@@ -2,7 +2,6 @@ package webhook
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/bytesconv"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
@@ -194,7 +194,7 @@ func (c *Conn) handle(w http.ResponseWriter, r *http.Request) {
 	// 从池中获取 Payload，减少 GC 压力
 	payload := dto.AcquirePayload()
 	payload.Raw = b
-	if err := json.Unmarshal(b, payload); err != nil {
+	if err := jsonx.Unmarshal(b, payload); err != nil {
 		dto.ReleasePayload(payload)
 		logger.WithError(err).Error("[Webhook] Failed to unmarshal payload")
 		http.Error(w, "invalid payload", http.StatusBadRequest)
@@ -248,7 +248,7 @@ func dispatchACK(success bool) []byte {
 	if !success {
 		data = 1
 	}
-	result, err := json.Marshal(&httpCallbackAck{Op: dto.HTTPCallbackACK, Data: data})
+	result, err := jsonx.Marshal(&httpCallbackAck{Op: dto.HTTPCallbackACK, Data: data})
 	if err != nil {
 		// 构造常量结构不可能失败；失败时退化为不带 d 的 ACK
 		return []byte(`{"op":12,"d":0}`)
@@ -312,7 +312,7 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 	if err != nil {
 		return nil, errutil.Wrap(err, "failed to sign the validation request")
 	}
-	resp, err := json.Marshal(&dto.ValidationRsp{
+	resp, err := jsonx.Marshal(&dto.ValidationRsp{
 		PlainToken: req.PlainToken,
 		Signature:  hex.EncodeToString(sign),
 	})
@@ -374,7 +374,7 @@ func (c *Conn) handleDispatch(payload *dto.Payload) bool {
 
 func (c *Conn) handleHeartbeat(payload *dto.Payload) ([]byte, error) {
 	logger.Info("[Webhook] Received the heartbeat from the server")
-	result, _ := json.Marshal(struct {
+	result, _ := jsonx.Marshal(struct {
 		Op   dto.OperationCode `json:"op"`
 		Data uint64            `json:"data"`
 	}{
@@ -387,7 +387,7 @@ func (c *Conn) handleHeartbeat(payload *dto.Payload) ([]byte, error) {
 func (c *Conn) handleHttpCallbackValidation(payload *dto.Payload, header http.Header) ([]byte, error) {
 	logger.Info("[Webhook] Received the validation request from the server")
 	var req dto.ValidationReq
-	if err := json.Unmarshal(payload.Detail, &req); err != nil {
+	if err := jsonx.Unmarshal(payload.Detail, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal the validation request: %w", err)
 	}
 	return c.validationACK(req, header)

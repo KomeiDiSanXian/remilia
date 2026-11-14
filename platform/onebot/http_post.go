@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -307,7 +307,7 @@ func (q *quickOpContext) hasOp() bool {
 func (q *quickOpContext) encode() []byte {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	b, _ := json.Marshal(q.ops)
+	b, _ := jsonx.Marshal(q.ops)
 	return b
 }
 

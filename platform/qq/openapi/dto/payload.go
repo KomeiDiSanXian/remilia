@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"encoding/json"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // OperationCode 消息载荷的操作码
@@ -40,12 +40,12 @@ var OperationCodeName = map[OperationCode]string{
 
 // Payload 保存请求载荷数据的结构体
 type Payload struct {
-	ID        EventID         `json:"id,omitempty"` // 事件 ID
-	Operation OperationCode   `json:"op"`           // 操作码
-	Detail    json.RawMessage `json:"d,omitempty"`  // 事件详情
-	Sequence  uint64          `json:"s,omitempty"`  // 序列号
-	Type      EventType       `json:"t,omitempty"`  // 事件类型
-	Raw       []byte          `json:"-"`            // 原始载荷字节
+	ID        EventID          `json:"id,omitempty"` // 事件 ID
+	Operation OperationCode    `json:"op"`           // 操作码
+	Detail    jsonx.RawMessage `json:"d,omitempty"`  // 事件详情
+	Sequence  uint64           `json:"s,omitzero"`   // 序列号
+	Type      EventType        `json:"t,omitempty"`  // 事件类型
+	Raw       []byte           `json:"-"`            // 原始载荷字节
 }
 
 // ReadyEvent is the struct for ready event

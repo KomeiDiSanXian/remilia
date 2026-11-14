@@ -190,7 +190,7 @@ type PhotoSize struct {
 	// Height is the photo height.
 	Height int `json:"height"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 }
 
 // Audio represents an audio file (voice note or music).
@@ -210,7 +210,7 @@ type Audio struct {
 	// MimeType is the MIME type of the file.
 	MimeType string `json:"mime_type,omitempty"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 }
 
 // Video represents a video file.
@@ -230,7 +230,7 @@ type Video struct {
 	// MimeType is the MIME type of the file.
 	MimeType string `json:"mime_type,omitempty"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 }
 
 // Document represents a general file (no audio/video/voice/photo/STT).
@@ -244,7 +244,7 @@ type Document struct {
 	// MimeType is the MIME type of the file.
 	MimeType string `json:"mime_type,omitempty"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 	// Thumbnail is the document thumbnail.
 	Thumbnail *PhotoSize `json:"thumbnail,omitempty"`
 }
@@ -260,7 +260,7 @@ type Voice struct {
 	// MimeType is the MIME type of the file.
 	MimeType string `json:"mime_type,omitempty"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 }
 
 // Animation represents a GIF or H.264/MPEG-4 AVC video without sound.
@@ -280,7 +280,7 @@ type Animation struct {
 	// MimeType is the MIME type of the file.
 	MimeType string `json:"mime_type,omitempty"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 	// Thumbnail is the animation thumbnail.
 	Thumbnail *PhotoSize `json:"thumbnail,omitempty"`
 }
@@ -298,7 +298,7 @@ type Sticker struct {
 	// Height is the sticker height.
 	Height int `json:"height"`
 	// FileSize is the file size in bytes.
-	FileSize int `json:"file_size,omitempty"`
+	FileSize int `json:"file_size,omitzero"`
 }
 
 // CallbackQuery represents an incoming callback query from an inline button.
@@ -353,11 +353,11 @@ type ChatMember struct {
 // 五千人群依然会在凌晨收到推送，且没有任何报错。
 type MessageOptions struct {
 	// DisableNotification sends the message silently.
-	DisableNotification bool `json:"disable_notification,omitempty"`
+	DisableNotification bool `json:"disable_notification,omitzero"`
 	// ProtectContent protects the message from being forwarded or saved.
-	ProtectContent bool `json:"protect_content,omitempty"`
+	ProtectContent bool `json:"protect_content,omitzero"`
 	// AllowPaidBroadcast allows sending as a paid broadcast (Bot API 7.10+).
-	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitempty"`
+	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitzero"`
 }
 
 // SendMessagePayload is the JSON body for the sendMessage API method.
@@ -365,11 +365,11 @@ type SendMessagePayload struct {
 	ChatID           string                `json:"chat_id"`
 	Text             string                `json:"text"`
 	ParseMode        string                `json:"parse_mode,omitempty"`
-	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
+	ReplyToMessageID int                   `json:"reply_to_message_id,omitzero"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	MessageThreadID  int                   `json:"message_thread_id,omitempty"`
+	MessageThreadID  int                   `json:"message_thread_id,omitzero"`
 	// DisableWebPreview 仅文本消息适用（媒体消息没有链接预览）。
-	DisableWebPreview bool `json:"disable_web_page_preview,omitempty"`
+	DisableWebPreview bool `json:"disable_web_page_preview,omitzero"`
 	MessageOptions
 }
 
@@ -380,7 +380,7 @@ type SendPhotoPayload struct {
 	Photo            string                `json:"photo"`
 	Caption          string                `json:"caption,omitempty"`
 	ParseMode        string                `json:"parse_mode,omitempty"`
-	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
+	ReplyToMessageID int                   `json:"reply_to_message_id,omitzero"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	MessageOptions
 }
@@ -391,7 +391,7 @@ type SendAudioPayload struct {
 	Audio            string                `json:"audio"`
 	Caption          string                `json:"caption,omitempty"`
 	ParseMode        string                `json:"parse_mode,omitempty"`
-	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
+	ReplyToMessageID int                   `json:"reply_to_message_id,omitzero"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	MessageOptions
 }
@@ -402,7 +402,7 @@ type SendVideoPayload struct {
 	Video            string                `json:"video"`
 	Caption          string                `json:"caption,omitempty"`
 	ParseMode        string                `json:"parse_mode,omitempty"`
-	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
+	ReplyToMessageID int                   `json:"reply_to_message_id,omitzero"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	MessageOptions
 }
@@ -413,7 +413,7 @@ type SendDocumentPayload struct {
 	Document         string                `json:"document"`
 	Caption          string                `json:"caption,omitempty"`
 	ParseMode        string                `json:"parse_mode,omitempty"`
-	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
+	ReplyToMessageID int                   `json:"reply_to_message_id,omitzero"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	MessageOptions
 }
@@ -421,17 +421,17 @@ type SendDocumentPayload struct {
 // EditMessageTextPayload is the JSON body for the editMessageText API method.
 type EditMessageTextPayload struct {
 	ChatID            string                `json:"chat_id,omitempty"`
-	MessageID         int                   `json:"message_id,omitempty"`
+	MessageID         int                   `json:"message_id,omitzero"`
 	Text              string                `json:"text"`
 	ParseMode         string                `json:"parse_mode,omitempty"`
 	ReplyMarkup       *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	DisableWebPreview bool                  `json:"disable_web_page_preview,omitempty"`
+	DisableWebPreview bool                  `json:"disable_web_page_preview,omitzero"`
 }
 
 // EditMessageReplyMarkupPayload is the JSON body for the editMessageReplyMarkup API method.
 type EditMessageReplyMarkupPayload struct {
 	ChatID      string                `json:"chat_id,omitempty"`
-	MessageID   int                   `json:"message_id,omitempty"`
+	MessageID   int                   `json:"message_id,omitzero"`
 	ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
@@ -452,22 +452,22 @@ type SetMessageReactionPayload struct {
 	ChatID    string `json:"chat_id"`
 	MessageID int    `json:"message_id"`
 	Emoji     string `json:"emoji,omitempty"`
-	IsBig     bool   `json:"is_big,omitempty"`
+	IsBig     bool   `json:"is_big,omitzero"`
 }
 
 // AnswerCallbackQueryPayload is the JSON body for the answerCallbackQuery API method.
 type AnswerCallbackQueryPayload struct {
 	CallbackQueryID string `json:"callback_query_id"`
 	Text            string `json:"text,omitempty"`
-	ShowAlert       bool   `json:"show_alert,omitempty"`
+	ShowAlert       bool   `json:"show_alert,omitzero"`
 	URL             string `json:"url,omitempty"`
 }
 
 // GetUpdatesPayload is the JSON body for the getUpdates API method.
 type GetUpdatesPayload struct {
-	Offset  int `json:"offset,omitempty"`
-	Timeout int `json:"timeout,omitempty"`
-	Limit   int `json:"limit,omitempty"`
+	Offset  int `json:"offset,omitzero"`
+	Timeout int `json:"timeout,omitzero"`
+	Limit   int `json:"limit,omitzero"`
 }
 
 // SetWebhookPayload is the JSON body for the setWebhook API method.
@@ -478,9 +478,9 @@ type SetWebhookPayload struct {
 	// header of every delivery; the receiver must verify it.
 	SecretToken string `json:"secret_token,omitempty"`
 	// MaxConnections caps concurrent deliveries (1-100, Telegram default 40).
-	MaxConnections int `json:"max_connections,omitempty"`
+	MaxConnections int `json:"max_connections,omitzero"`
 	// DropPendingUpdates discards updates queued while no webhook was set.
-	DropPendingUpdates bool `json:"drop_pending_updates,omitempty"`
+	DropPendingUpdates bool `json:"drop_pending_updates,omitzero"`
 }
 
 // WebhookInfo is the response of the getWebhookInfo API method.
@@ -488,9 +488,9 @@ type WebhookInfo struct {
 	URL                  string `json:"url"`
 	HasCustomCertificate bool   `json:"has_custom_certificate"`
 	PendingUpdateCount   int    `json:"pending_update_count"`
-	LastErrorDate        int64  `json:"last_error_date,omitempty"`
+	LastErrorDate        int64  `json:"last_error_date,omitzero"`
 	LastErrorMessage     string `json:"last_error_message,omitempty"`
-	MaxConnections       int    `json:"max_connections,omitempty"`
+	MaxConnections       int    `json:"max_connections,omitzero"`
 	IPAddress            string `json:"ip_address,omitempty"`
 }
 
@@ -508,7 +508,7 @@ type File struct {
 	// FileUniqueID is the permanent unique identifier for this file.
 	FileUniqueID string `json:"file_unique_id"`
 	// FileSize is the file size in bytes.
-	FileSize int64 `json:"file_size,omitempty"`
+	FileSize int64 `json:"file_size,omitzero"`
 	// FilePath is the relative path used to build the download URL.
 	FilePath string `json:"file_path,omitempty"`
 }

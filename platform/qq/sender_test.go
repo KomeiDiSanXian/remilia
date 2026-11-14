@@ -3,7 +3,6 @@ package qq
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -801,7 +801,7 @@ func TestSendImageOnly_MediaMessageContent(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, fake.chatMsg)
 		assert.Empty(t, fake.chatMsg.Content, "群聊纯图片消息不再补空格占位，直接省略 content")
-		data, err := json.Marshal(fake.chatMsg)
+		data, err := jsonx.Marshal(fake.chatMsg)
 		require.NoError(t, err)
 		assert.NotContains(t, string(data), `"content"`, "序列化后不应出现 content 字段")
 	})

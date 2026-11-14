@@ -45,7 +45,6 @@ package qq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -61,6 +60,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -261,7 +261,7 @@ func runPassiveReplyCases(t *testing.T, ctx context.Context, api openapi.OpenAPI
 		seq++
 		m.MessageID = dto.EventID(msgID)
 		m.MessageSeq = seq
-		payload, _ := json.Marshal(m)
+		payload, _ := jsonx.Marshal(m)
 
 		var (
 			resp gjson.Result

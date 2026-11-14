@@ -2,13 +2,13 @@ package telegram_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/telegram"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +23,7 @@ func testAPI(result any) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{"ok": true, "result": result}
-		json.NewEncoder(w).Encode(resp)
+		jsonx.NewEncoder(w).Encode(resp)
 	}))
 }
 
@@ -33,7 +33,7 @@ func testAPIError(description string, status int) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{"ok": false, "description": description}
 		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(resp)
+		jsonx.NewEncoder(w).Encode(resp)
 	}))
 }
 
@@ -702,7 +702,7 @@ func TestClient_SendMessage(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		jsonx.NewEncoder(w).Encode(map[string]any{
 			"ok": true,
 			"result": map[string]any{
 				"message_id": 42,
@@ -969,7 +969,7 @@ func TestClient_SendMessage_RequestMethod(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{}})
+		jsonx.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{}})
 	})
 	defer srv.Close()
 
@@ -983,11 +983,11 @@ func TestClient_SendMessage_RequestMethod(t *testing.T) {
 func TestClient_SendMessage_RequestBody(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		jsonx.NewDecoder(r.Body).Decode(&body)
 		assert.Equal(t, "100", body["chat_id"])
 		assert.Equal(t, "hello", body["text"])
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{}})
+		jsonx.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{}})
 	})
 	defer srv.Close()
 
@@ -1003,12 +1003,12 @@ func TestClient_SendMessage_RequestBody(t *testing.T) {
 func TestSender_SegmentsInterleavedAt(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		jsonx.NewDecoder(r.Body).Decode(&body)
 		assert.Equal(t, "100", body["chat_id"])
 		// at 段降级为 "@ID" 文本，保序拼接（原文不含 at 后空格）
 		assert.Equal(t, "@42一段文本 @7文本...", body["text"])
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 1}})
+		jsonx.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 1}})
 	})
 	defer srv.Close()
 
@@ -1028,11 +1028,11 @@ func TestSender_SegmentsInterleavedAt(t *testing.T) {
 func TestSender_SegmentsReplyToMessageID(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		jsonx.NewDecoder(r.Body).Decode(&body)
 		assert.Equal(t, float64(555), body["reply_to_message_id"])
 		assert.Equal(t, "hi", body["text"])
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 2}})
+		jsonx.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 2}})
 	})
 	defer srv.Close()
 
@@ -1053,7 +1053,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": nil})
+		jsonx.NewEncoder(w).Encode(map[string]any{"ok": true, "result": nil})
 	})
 	defer srv.Close()
 

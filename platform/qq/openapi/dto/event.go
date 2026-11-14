@@ -91,9 +91,9 @@ type MessageCreateEvent struct {
 type Attachment struct {
 	Type         string `json:"content_type,omitempty"`
 	FileName     string `json:"filename,omitempty"`
-	Height       int    `json:"height,omitempty"`
-	Width        int    `json:"width,omitempty"`
-	Size         int    `json:"size,omitempty"`
+	Height       int    `json:"height,omitzero"`
+	Width        int    `json:"width,omitzero"`
+	Size         int    `json:"size,omitzero"`
 	URL          string `json:"url,omitempty"`
 	VoiceWavURL  string `json:"voice_wav_url,omitempty"`  // 语音文件链接（wav 格式）
 	AsrReferText string `json:"asr_refer_text,omitempty"` // 语音 ASR 参考结果
@@ -124,7 +124,7 @@ type GroupAtMessageCreateEvent struct {
 
 // GroupOpRobotEvent 表示群操作机器人事件
 type GroupOpRobotEvent struct {
-	Timestamp      int    `json:"timestamp,omitempty"`
+	Timestamp      int    `json:"timestamp,omitzero"`
 	GroupOpenID    string `json:"group_openid,omitempty"`
 	OpMemberOpenID string `json:"op_member_openid,omitempty"` // 操作者成员 OpenID
 }
@@ -196,7 +196,7 @@ type GroupJoinRequestEvent struct {
 	ApplyAt       string      `json:"apply_at,omitempty"`
 	ApplySource   string      `json:"apply_source,omitempty"`
 	InvitedBy     string      `json:"invited_by,omitempty"`
-	Bot           bool        `json:"bot,omitempty"`
+	Bot           bool        `json:"bot,omitzero"`
 	VerifyInfo    *VerifyInfo `json:"verify_info,omitempty"`
 	AutoApproved  *struct {
 		StrategyID string `json:"strategy_id,omitempty"`
@@ -222,22 +222,22 @@ type SubscribeMessageStatusEvent struct {
 // SubscribeMsgTemplateResult 表示单个订阅模板的授权结果。
 type SubscribeMsgTemplateResult struct {
 	// TemplateID 平台提供的订阅模板 ID
-	TemplateID int `json:"template_id,omitempty"`
+	TemplateID int `json:"template_id,omitzero"`
 	// CustomTemplateID 自定义订阅模板 ID
 	CustomTemplateID string `json:"custom_template_id,omitempty"`
 	// Op 用户操作。1=允许订阅，2=拒绝订阅
-	Op int `json:"op,omitempty"`
+	Op int `json:"op,omitzero"`
 	// SubscribeID 订阅 ID，发送订阅消息时需使用
 	SubscribeID string `json:"subscribe_id,omitempty"`
 	// SubscribeTS 订阅操作时间戳（Unix 秒）
-	SubscribeTS int `json:"subscribe_ts,omitempty"`
+	SubscribeTS int `json:"subscribe_ts,omitzero"`
 	// UpdateTS 订阅状态最后更新时间戳（Unix 秒）
-	UpdateTS int `json:"update_ts,omitempty"`
+	UpdateTS int `json:"update_ts,omitzero"`
 }
 
 // UserOpRobotEvent 表示用户操作机器人事件
 type UserOpRobotEvent struct {
-	Timestamp int    `json:"timestamp,omitempty"`
+	Timestamp int    `json:"timestamp,omitzero"`
 	OpenID    string `json:"openid,omitempty"` // 添加机器人的用户 OpenID
 }
 
@@ -247,7 +247,7 @@ type UserOpRobotEvent struct {
 type FriendAddEvent struct {
 	UserOpRobotEvent
 	// Scene 加好友场景值：1000=默认，1001~1004=搜索/群/空间，2001~2004=分享链接
-	Scene int `json:"scene,omitempty"`
+	Scene int `json:"scene,omitzero"`
 	// SceneParam 开发者自定义的回调数据（机器人链接中的 callback_data）
 	SceneParam string `json:"scene_param,omitempty"`
 }
@@ -383,12 +383,12 @@ type MessageReactionEvent struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/event/guild.html
 type GuildEvent struct {
-	ID          string `json:"id,omitempty"`           // 频道 ID
-	Name        string `json:"name,omitempty"`         // 频道名称
-	Description string `json:"description,omitempty"`  // 频道描述
-	OwnerID     string `json:"owner_id,omitempty"`     // 创建人 ID
-	JoinedAt    string `json:"joined_at,omitempty"`    // 机器人加入时间（RFC3339）
-	MemberCount int    `json:"member_count,omitempty"` // 成员数量
+	ID          string `json:"id,omitempty"`          // 频道 ID
+	Name        string `json:"name,omitempty"`        // 频道名称
+	Description string `json:"description,omitempty"` // 频道描述
+	OwnerID     string `json:"owner_id,omitempty"`    // 创建人 ID
+	JoinedAt    string `json:"joined_at,omitempty"`   // 机器人加入时间（RFC3339）
+	MemberCount int    `json:"member_count,omitzero"` // 成员数量
 }
 
 // GuildCreateEvent 机器人加入频道事件（intents: GUILDS = 1<<0）。
@@ -418,7 +418,7 @@ type GuildMemberEvent struct {
 		ID       string `json:"id,omitempty"`
 		Username string `json:"username,omitempty"`
 		Avatar   string `json:"avatar,omitempty"`
-		Bot      bool   `json:"bot,omitempty"`
+		Bot      bool   `json:"bot,omitzero"`
 	} `json:"user,omitempty"`
 }
 
@@ -444,9 +444,9 @@ type ChannelEvent struct {
 	ID       string `json:"id,omitempty"`         // 子频道 ID
 	GuildID  string `json:"guild_id,omitempty"`   // 所属频道 ID
 	Name     string `json:"name,omitempty"`       // 子频道名称
-	Type     int    `json:"type,omitempty"`       // 子频道类型
-	SubType  int    `json:"sub_type,omitempty"`   // 子频道子类型
-	Position int    `json:"position,omitempty"`   // 排序权重
+	Type     int    `json:"type,omitzero"`        // 子频道类型
+	SubType  int    `json:"sub_type,omitzero"`    // 子频道子类型
+	Position int    `json:"position,omitzero"`    // 排序权重
 	OpUserID string `json:"op_user_id,omitempty"` // 操作人 ID
 }
 
@@ -503,7 +503,7 @@ type MessageAudited struct {
 	// ChannelID 子频道 ID
 	ChannelID string `json:"channel_id,omitempty"`
 	// AuditResult 审核结果：0=未审核，1=通过，2=拒绝
-	AuditResult int `json:"audit_result,omitempty"`
+	AuditResult int `json:"audit_result,omitzero"`
 	// AuditTime 消息审核时间（RFC3339 格式）
 	AuditTime string `json:"audit_time,omitempty"`
 	// CreateTime 消息创建时间（RFC3339 格式）
@@ -538,9 +538,9 @@ type ForumEvent struct {
 	// ReplyInfo 回复信息（回复事件）
 	ReplyInfo *ForumReply `json:"reply_info,omitempty"`
 	// Type 审核事件类型：1=发帖审核
-	Type int `json:"type,omitempty"`
+	Type int `json:"type,omitzero"`
 	// Result 审核结果：0=通过，1=拒绝
-	Result int `json:"result,omitempty"`
+	Result int `json:"result,omitzero"`
 	// ErrMsg 审核失败原因（result=1 时有值）
 	ErrMsg string `json:"err_msg,omitempty"`
 	// ThreadID 审核事件关联的主题 ID
@@ -579,7 +579,7 @@ type ForumReply struct {
 // ForumRichText 论坛富文本节点。
 type ForumRichText struct {
 	// Type 节点类型：1=文本，3=链接，4=表情，5=频道
-	Type int `json:"type,omitempty"`
+	Type int `json:"type,omitzero"`
 	// TextInfo 文本节点内容（type=1）
 	TextInfo *struct {
 		Text string `json:"text,omitempty"`
@@ -591,7 +591,7 @@ type ForumRichText struct {
 	} `json:"url_info,omitempty"`
 	// EmojiInfo 表情节点内容（type=4）
 	EmojiInfo *struct {
-		ID   int    `json:"id,omitempty"`
+		ID   int    `json:"id,omitzero"`
 		Type string `json:"type,omitempty"`
 	} `json:"emoji_info,omitempty"`
 	// ChannelInfo 频道节点内容（type=5）
@@ -624,6 +624,6 @@ type AudioActionEvent struct {
 type AudioOrLiveChannelMemberEvent struct {
 	GuildID     string `json:"guild_id,omitempty"`
 	ChannelID   string `json:"channel_id,omitempty"`
-	ChannelType int    `json:"channel_type,omitempty"` // 2=音视频子频道，5=直播子频道
+	ChannelType int    `json:"channel_type,omitzero"` // 2=音视频子频道，5=直播子频道
 	UserID      string `json:"user_id,omitempty"`
 }

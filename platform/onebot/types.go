@@ -16,7 +16,7 @@
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(adapter).Build()
 package onebot
 
-import "encoding/json"
+import "github.com/KomeiDiSanXian/remilia/infra/jsonx"
 
 // ────────────────────────────────────────────────────────────────────────────
 // 上报类型常量
@@ -203,10 +203,10 @@ type PrivateMessageEvent struct {
 	MessageType string        `json:"message_type"`
 	SubType     string        `json:"sub_type"` // friend, group, other
 	MessageID   int32         `json:"message_id"`
-	MessageSeq  int32         `json:"message_seq,omitempty"` // 消息序列号
-	RealID      int32         `json:"real_id,omitempty"`     // 真实消息 ID
-	TargetID    int64         `json:"target_id,omitempty"`   // 机器人自身发出的消息目标
-	TempSource  int32         `json:"temp_source,omitempty"` // 临时会话来源
+	MessageSeq  int32         `json:"message_seq,omitzero"` // 消息序列号
+	RealID      int32         `json:"real_id,omitzero"`     // 真实消息 ID
+	TargetID    int64         `json:"target_id,omitzero"`   // 机器人自身发出的消息目标
+	TempSource  int32         `json:"temp_source,omitzero"` // 临时会话来源
 	UserID      int64         `json:"user_id"`
 	Message     MessageChain  `json:"message"`
 	RawMessage  string        `json:"raw_message"`
@@ -220,9 +220,9 @@ type GroupMessageEvent struct {
 	MessageType string         `json:"message_type"`
 	SubType     string         `json:"sub_type"` // normal, anonymous, notice
 	MessageID   int32          `json:"message_id"`
-	MessageSeq  int32          `json:"message_seq,omitempty"` // 消息序列号
-	RealID      int32          `json:"real_id,omitempty"`     // 真实消息 ID
-	TargetID    int64          `json:"target_id,omitempty"`   // 机器人自身发出的消息目标
+	MessageSeq  int32          `json:"message_seq,omitzero"` // 消息序列号
+	RealID      int32          `json:"real_id,omitzero"`     // 真实消息 ID
+	TargetID    int64          `json:"target_id,omitzero"`   // 机器人自身发出的消息目标
 	GroupID     int64          `json:"group_id"`
 	UserID      int64          `json:"user_id"`
 	Anonymous   *AnonymousInfo `json:"anonymous"` // 非匿名时为 nil
@@ -243,24 +243,24 @@ type NoticeEvent struct {
 	BaseEvent
 	NoticeType string    `json:"notice_type"`
 	SubType    string    `json:"sub_type,omitempty"`
-	GroupID    int64     `json:"group_id,omitempty"`
-	UserID     int64     `json:"user_id,omitempty"`
-	OperatorID int64     `json:"operator_id,omitempty"`
-	MessageID  int64     `json:"message_id,omitempty"`
-	Duration   int64     `json:"duration,omitempty"` // 秒，用于 group_ban
-	TargetID   int64     `json:"target_id,omitempty"`
+	GroupID    int64     `json:"group_id,omitzero"`
+	UserID     int64     `json:"user_id,omitzero"`
+	OperatorID int64     `json:"operator_id,omitzero"`
+	MessageID  int64     `json:"message_id,omitzero"`
+	Duration   int64     `json:"duration,omitzero"` // 秒，用于 group_ban
+	TargetID   int64     `json:"target_id,omitzero"`
 	HonorType  string    `json:"honor_type,omitempty"`
 	File       *FileInfo `json:"file,omitempty"` // group_upload
 
 	// ── LLOneBot / LuckyLilliaBot 扩展字段 ────────────────────────────────
-	CardNew      string          `json:"card_new,omitempty"`      // group_card 新名片
-	CardOld      string          `json:"card_old,omitempty"`      // group_card 旧名片
-	SenderID     int64           `json:"sender_id,omitempty"`     // essence 操作对象
-	OperatorNick string          `json:"operator_nick,omitempty"` // profile_like 操作者昵称
-	Times        int             `json:"times,omitempty"`         // profile_like 点赞次数
-	Title        string          `json:"title,omitempty"`         // notify/title 新头衔
-	Likes        json.RawMessage `json:"likes,omitempty"`         // group_msg_emoji_like 回应列表
-	IsAdd        bool            `json:"is_add,omitempty"`        // group_msg_emoji_like 是否添加
+	CardNew      string           `json:"card_new,omitempty"`      // group_card 新名片
+	CardOld      string           `json:"card_old,omitempty"`      // group_card 旧名片
+	SenderID     int64            `json:"sender_id,omitzero"`      // essence 操作对象
+	OperatorNick string           `json:"operator_nick,omitempty"` // profile_like 操作者昵称
+	Times        int              `json:"times,omitzero"`          // profile_like 点赞次数
+	Title        string           `json:"title,omitempty"`         // notify/title 新头衔
+	Likes        jsonx.RawMessage `json:"likes,omitempty"`         // group_msg_emoji_like 回应列表
+	IsAdd        bool             `json:"is_add,omitzero"`         // group_msg_emoji_like 是否添加
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ type RequestEvent struct {
 	RequestType string `json:"request_type"` // friend, group
 	SubType     string `json:"sub_type,omitempty"`
 	UserID      int64  `json:"user_id"`
-	GroupID     int64  `json:"group_id,omitempty"`
+	GroupID     int64  `json:"group_id,omitzero"`
 	Comment     string `json:"comment"`
 	Flag        string `json:"flag"` // 用于 set_friend_add_request / set_group_add_request
 }
@@ -285,10 +285,10 @@ type RequestEvent struct {
 // MetaEvent 覆盖生命周期和心跳元事件。
 type MetaEvent struct {
 	BaseEvent
-	MetaEventType string          `json:"meta_event_type"` // lifecycle, heartbeat
-	SubType       string          `json:"sub_type,omitempty"`
-	Status        json.RawMessage `json:"status,omitempty"`   // 心跳状态（与 get_status 相同）
-	Interval      int64           `json:"interval,omitempty"` // 心跳间隔，单位毫秒
+	MetaEventType string           `json:"meta_event_type"` // lifecycle, heartbeat
+	SubType       string           `json:"sub_type,omitempty"`
+	Status        jsonx.RawMessage `json:"status,omitempty"`  // 心跳状态（与 get_status 相同）
+	Interval      int64            `json:"interval,omitzero"` // 心跳间隔，单位毫秒
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -304,10 +304,10 @@ type APIRequest struct {
 
 // APIResponse 是 OneBot 实现返回的响应。
 type APIResponse struct {
-	Status  string          `json:"status"`  // ok, async, failed
-	Retcode int             `json:"retcode"` // 0=成功, 1=异步, 其他=错误
-	Data    json.RawMessage `json:"data"`
-	Echo    string          `json:"echo,omitempty"`
+	Status  string           `json:"status"`  // ok, async, failed
+	Retcode int              `json:"retcode"` // 0=成功, 1=异步, 其他=错误
+	Data    jsonx.RawMessage `json:"data"`
+	Echo    string           `json:"echo,omitempty"`
 }
 
 // IsOK 当 API 调用成功时（retcode == 0）返回 true。
@@ -324,23 +324,23 @@ func (r *APIResponse) IsAsync() bool { return r.Status == "async" && r.Retcode =
 type SendPrivateMsgParams struct {
 	UserID     int64 `json:"user_id"`
 	Message    any   `json:"message"` // string 或 MessageChain
-	AutoEscape bool  `json:"auto_escape,omitempty"`
+	AutoEscape bool  `json:"auto_escape,omitzero"`
 }
 
 // SendGroupMsgParams 是 send_group_msg 的请求参数。
 type SendGroupMsgParams struct {
 	GroupID    int64 `json:"group_id"`
 	Message    any   `json:"message"` // string 或 MessageChain
-	AutoEscape bool  `json:"auto_escape,omitempty"`
+	AutoEscape bool  `json:"auto_escape,omitzero"`
 }
 
 // SendMsgParams 是 send_msg 的请求参数（自动判断私聊/群聊）。
 type SendMsgParams struct {
 	MessageType string `json:"message_type,omitempty"`
-	UserID      int64  `json:"user_id,omitempty"`
-	GroupID     int64  `json:"group_id,omitempty"`
+	UserID      int64  `json:"user_id,omitzero"`
+	GroupID     int64  `json:"group_id,omitzero"`
 	Message     any    `json:"message"`
-	AutoEscape  bool   `json:"auto_escape,omitempty"`
+	AutoEscape  bool   `json:"auto_escape,omitzero"`
 }
 
 // SendMsgResult 是 send_private_msg / send_group_msg / send_msg 的响应数据。
@@ -389,14 +389,14 @@ type GetForwardMsgResult struct {
 // SendLikeParams 是 send_like 的请求参数。
 type SendLikeParams struct {
 	UserID int64 `json:"user_id"`
-	Times  int   `json:"times,omitempty"` // 点赞次数，默认 1，上限 10
+	Times  int   `json:"times,omitzero"` // 点赞次数，默认 1，上限 10
 }
 
 // SetGroupKickParams 是 set_group_kick 的请求参数。
 type SetGroupKickParams struct {
 	GroupID          int64 `json:"group_id"`
 	UserID           int64 `json:"user_id"`
-	RejectAddRequest bool  `json:"reject_add_request,omitempty"`
+	RejectAddRequest bool  `json:"reject_add_request,omitzero"`
 }
 
 // SetGroupBanParams 是 set_group_ban 的请求参数。
@@ -445,7 +445,7 @@ type SetGroupNameParams struct {
 // SetGroupLeaveParams 是 set_group_leave 的请求参数。
 type SetGroupLeaveParams struct {
 	GroupID   int64 `json:"group_id"`
-	IsDismiss bool  `json:"is_dismiss,omitempty"`
+	IsDismiss bool  `json:"is_dismiss,omitzero"`
 }
 
 // SetGroupSpecialTitleParams 是 set_group_special_title 的请求参数。
@@ -453,7 +453,7 @@ type SetGroupSpecialTitleParams struct {
 	GroupID      int64  `json:"group_id"`
 	UserID       int64  `json:"user_id"`
 	SpecialTitle string `json:"special_title,omitempty"`
-	Duration     int64  `json:"duration,omitempty"` // -1 表示永久
+	Duration     int64  `json:"duration,omitzero"` // -1 表示永久
 }
 
 // SetFriendAddRequestParams 是 set_friend_add_request 的请求参数。
@@ -480,7 +480,7 @@ type GetLoginInfoResult struct {
 // GetStrangerInfoParams 是 get_stranger_info 的请求参数。
 type GetStrangerInfoParams struct {
 	UserID  int64 `json:"user_id"`
-	NoCache bool  `json:"no_cache,omitempty"`
+	NoCache bool  `json:"no_cache,omitzero"`
 }
 
 // StrangerInfo 是 get_stranger_info 的响应数据。
@@ -501,7 +501,7 @@ type FriendInfo struct {
 // GetGroupInfoParams 是 get_group_info 的请求参数。
 type GetGroupInfoParams struct {
 	GroupID int64 `json:"group_id"`
-	NoCache bool  `json:"no_cache,omitempty"`
+	NoCache bool  `json:"no_cache,omitzero"`
 }
 
 // GroupInfo 是 get_group_info / get_group_list 的响应数据。
@@ -516,7 +516,7 @@ type GroupInfo struct {
 type GetGroupMemberInfoParams struct {
 	GroupID int64 `json:"group_id"`
 	UserID  int64 `json:"user_id"`
-	NoCache bool  `json:"no_cache,omitempty"`
+	NoCache bool  `json:"no_cache,omitzero"`
 }
 
 // GroupIDParams 是 get_group_member_list 的请求参数。
@@ -637,7 +637,7 @@ type GetVersionInfoResult struct {
 
 // SetRestartParams 是 set_restart 的请求参数。
 type SetRestartParams struct {
-	Delay int `json:"delay,omitempty"` // 延迟毫秒数，默认 0
+	Delay int `json:"delay,omitzero"` // 延迟毫秒数，默认 0
 }
 
 // GroupIDParams 是 get_group_at_all_remain 的请求参数。
@@ -657,8 +657,8 @@ type GetGroupAtAllRemainResult struct {
 // SendForwardMsgParams 是 send_forward_msg（智能路由合并转发）的请求参数。
 type SendForwardMsgParams struct {
 	MessageType string       `json:"message_type,omitempty"` // group / private
-	UserID      int64        `json:"user_id,omitempty"`
-	GroupID     int64        `json:"group_id,omitempty"`
+	UserID      int64        `json:"user_id,omitzero"`
+	GroupID     int64        `json:"group_id,omitzero"`
 	Messages    MessageChain `json:"messages"` // node 消息段数组
 }
 
@@ -677,25 +677,25 @@ type SendPrivateForwardMsgParams struct {
 // GetGroupMsgHistoryParams 是 get_group_msg_history 的请求参数（go-cqhttp 定义）。
 type GetGroupMsgHistoryParams struct {
 	GroupID    int64 `json:"group_id"`
-	MessageSeq int64 `json:"message_seq,omitempty"` // 起始消息序号，0 从最新开始
-	Count      int   `json:"count,omitempty"`       // 数量，默认 20
+	MessageSeq int64 `json:"message_seq,omitzero"` // 起始消息序号，0 从最新开始
+	Count      int   `json:"count,omitzero"`       // 数量，默认 20
 }
 
 // GetFriendMsgHistoryParams 是 get_friend_msg_history 的请求参数（go-cqhttp 定义）。
 type GetFriendMsgHistoryParams struct {
 	UserID     int64 `json:"user_id"`
-	MessageSeq int64 `json:"message_seq,omitempty"`
-	Count      int   `json:"count,omitempty"`
+	MessageSeq int64 `json:"message_seq,omitzero"`
+	Count      int   `json:"count,omitzero"`
 }
 
 // HistoryMsg 是历史消息列表中的单条消息。
 type HistoryMsg struct {
 	Time       int64        `json:"time"`
 	MessageID  int32        `json:"message_id"`
-	RealID     int32        `json:"real_id,omitempty"`
-	MessageSeq int64        `json:"message_seq,omitempty"`
-	GroupID    int64        `json:"group_id,omitempty"`
-	UserID     int64        `json:"user_id,omitempty"`
+	RealID     int32        `json:"real_id,omitzero"`
+	MessageSeq int64        `json:"message_seq,omitzero"`
+	GroupID    int64        `json:"group_id,omitzero"`
+	UserID     int64        `json:"user_id,omitzero"`
 	Message    MessageChain `json:"message"`
 	RawMessage string       `json:"raw_message,omitempty"`
 	Sender     GroupSender  `json:"sender"`
@@ -740,9 +740,9 @@ type UploadPrivateFileParams struct {
 // DownloadFileParams 是 download_file 的请求参数（OneBot 11 标准）。
 type DownloadFileParams struct {
 	URL         string            `json:"url"`
-	ThreadCount int               `json:"thread_count,omitempty"`
+	ThreadCount int               `json:"thread_count,omitzero"`
 	Headers     map[string]string `json:"headers,omitempty"`
-	Timeout     int               `json:"timeout,omitempty"` // 毫秒
+	Timeout     int               `json:"timeout,omitzero"` // 毫秒
 }
 
 // DownloadFileResult 是 download_file 的响应数据。
@@ -759,7 +759,7 @@ type GetFileParams struct {
 type GetFileResult struct {
 	File     string `json:"file"`
 	URL      string `json:"url,omitempty"`
-	FileSize int64  `json:"file_size,omitempty"`
+	FileSize int64  `json:"file_size,omitzero"`
 }
 
 // OCRImageParams 是 ocr_image 的请求参数（OneBot 11 标准）。
@@ -795,8 +795,8 @@ type GroupNotice struct {
 	NoticeID string `json:"notice_id"`
 	Title    string `json:"title,omitempty"`
 	Content  string `json:"content"`
-	UserID   int64  `json:"user_id,omitempty"`
-	Time     int64  `json:"time,omitempty"`
+	UserID   int64  `json:"user_id,omitzero"`
+	Time     int64  `json:"time,omitzero"`
 }
 
 // GroupIDParams 是 get_group_notice 的请求参数（LLB 扩展）。
@@ -826,7 +826,7 @@ type GroupInvitedRequest struct {
 	GroupID     int64  `json:"group_id"`
 	GroupName   string `json:"group_name"`
 	Checked     bool   `json:"checked"`
-	Actor       int64  `json:"actor,omitempty"`
+	Actor       int64  `json:"actor,omitzero"`
 }
 
 // GroupJoinRequest 是加群请求条目。
@@ -838,7 +838,7 @@ type GroupJoinRequest struct {
 	GroupID   int64  `json:"group_id"`
 	GroupName string `json:"group_name"`
 	Checked   bool   `json:"checked"`
-	Actor     int64  `json:"actor,omitempty"`
+	Actor     int64  `json:"actor,omitzero"`
 }
 
 // GuildInfo 是频道信息（go-cqhttp/LLB 扩展 get_guild_list）。
@@ -851,8 +851,8 @@ type GuildInfo struct {
 
 // SendPokeParams 是 send_poke 的请求参数（OneBot 11 标准扩展）。
 type SendPokeParams struct {
-	UserID   int64 `json:"user_id,omitempty"`
-	GroupID  int64 `json:"group_id,omitempty"`
+	UserID   int64 `json:"user_id,omitzero"`
+	GroupID  int64 `json:"group_id,omitzero"`
 	TargetID int64 `json:"target_id"` // 接收戳一戳的 QQ 号
 }
 
@@ -889,7 +889,7 @@ type SetGroupReactionParams struct {
 	Code      string `json:"code"` // 表情 ID
 	GroupID   int64  `json:"group_id"`
 	MessageID int64  `json:"message_id"`
-	IsAdd     bool   `json:"is_add,omitempty"`
+	IsAdd     bool   `json:"is_add,omitzero"`
 }
 
 // FilePathParams 是 set_qq_avatar 的请求参数（LLB 扩展）。
@@ -922,7 +922,7 @@ type SetFriendRemarkParams struct {
 // SetInputStatusParams 是 set_input_status 的请求参数（LLB 扩展）。
 type SetInputStatusParams struct {
 	EventType int `json:"event_type"` // 0=输入中，1=离开
-	Times     int `json:"times,omitempty"`
+	Times     int `json:"times,omitzero"`
 }
 
 // GroupShutMember 是群禁言列表中的成员。
@@ -947,13 +947,13 @@ type SetGroupMsgMaskParams struct {
 type BatchDeleteGroupMemberParams struct {
 	GroupID          int64   `json:"group_id"`
 	UserIDs          []int64 `json:"user_ids"`
-	RejectAddRequest bool    `json:"reject_add_request,omitempty"`
+	RejectAddRequest bool    `json:"reject_add_request,omitzero"`
 }
 
 // GetAICharactersParams 是 get_ai_characters 的请求参数（LLB 扩展）。
 type GetAICharactersParams struct {
 	GroupID  int64 `json:"group_id"`
-	ChatType int   `json:"chat_type,omitempty"`
+	ChatType int   `json:"chat_type,omitzero"`
 }
 
 // AICharacter 是 AI 角色条目。
@@ -982,7 +982,7 @@ type AIRecord struct {
 	MessageID   int32        `json:"message_id"`
 	CharacterID int64        `json:"character_id"`
 	Message     MessageChain `json:"message"`
-	SenderID    int64        `json:"sender_id,omitempty"`
+	SenderID    int64        `json:"sender_id,omitzero"`
 }
 
 // GroupIDParams 是 get_group_file_system_info 的请求参数（LLB 扩展）。
@@ -1000,10 +1000,10 @@ type GroupFileItem struct {
 	FileName      string `json:"file_name"`
 	FileSize      int64  `json:"file_size"`
 	UploadTime    int64  `json:"upload_time"`
-	DeadTime      int64  `json:"dead_time,omitempty"`
-	ModifyTime    int64  `json:"modify_time,omitempty"`
-	DownloadTimes int64  `json:"download_times,omitempty"`
-	Uploader      int64  `json:"uploader,omitempty"`
+	DeadTime      int64  `json:"dead_time,omitzero"`
+	ModifyTime    int64  `json:"modify_time,omitzero"`
+	DownloadTimes int64  `json:"download_times,omitzero"`
+	Uploader      int64  `json:"uploader,omitzero"`
 	UploaderName  string `json:"uploader_name,omitempty"`
 }
 
@@ -1011,8 +1011,8 @@ type GroupFileItem struct {
 type GroupFolderItem struct {
 	FolderID    string `json:"folder_id"`
 	FolderName  string `json:"folder_name"`
-	CreateTime  int64  `json:"create_time,omitempty"`
-	Creator     int64  `json:"creator,omitempty"`
+	CreateTime  int64  `json:"create_time,omitzero"`
+	Creator     int64  `json:"creator,omitzero"`
 	CreatorName string `json:"creator_name,omitempty"`
 }
 
@@ -1106,14 +1106,14 @@ type LLOneBotConfig struct {
 	Satori              any    `json:"satori,omitempty"`
 	OB11                any    `json:"ob11,omitempty"`
 	WebUI               any    `json:"webui,omitempty"`
-	OnlyLocalhost       bool   `json:"onlyLocalhost,omitempty"`
-	EnableLocalFile2URL bool   `json:"enableLocalFile2Url,omitempty"`
-	Log                 bool   `json:"log,omitempty"`
-	AutoDeleteFile      bool   `json:"autoDeleteFile,omitempty"`
-	AutoDeleteFileSec   int    `json:"autoDeleteFileSecond,omitempty"`
+	OnlyLocalhost       bool   `json:"onlyLocalhost,omitzero"`
+	EnableLocalFile2URL bool   `json:"enableLocalFile2Url,omitzero"`
+	Log                 bool   `json:"log,omitzero"`
+	AutoDeleteFile      bool   `json:"autoDeleteFile,omitzero"`
+	AutoDeleteFileSec   int    `json:"autoDeleteFileSecond,omitzero"`
 	FFmpeg              string `json:"ffmpeg,omitempty"`
 	MusicSignURL        string `json:"musicSignUrl,omitempty"`
-	MsgCacheExpire      int    `json:"msgCacheExpire,omitempty"`
+	MsgCacheExpire      int    `json:"msgCacheExpire,omitzero"`
 }
 
 // LLOneBotDebugParams 是 llonebot_debug 的请求参数（调用 LLB 内部 API）。
@@ -1126,7 +1126,7 @@ type LLOneBotDebugParams struct {
 // GetEventParams 是 get_event 的请求参数（获取 HTTP 事件池中的事件）。
 type GetEventParams struct {
 	Key     string `json:"key,omitempty"`
-	Timeout int    `json:"timeout,omitempty"`
+	Timeout int    `json:"timeout,omitzero"`
 }
 
 // GetRobotUinRangeResult 是 get_robot_uin_range 的响应条目。
@@ -1167,8 +1167,8 @@ type GetRkeyResult struct {
 // 的请求参数（转发单条消息）。
 type ForwardSingleMsgParams struct {
 	MessageID int64 `json:"message_id"`
-	GroupID   int64 `json:"group_id,omitempty"`
-	UserID    int64 `json:"user_id,omitempty"`
+	GroupID   int64 `json:"group_id,omitzero"`
+	UserID    int64 `json:"user_id,omitzero"`
 }
 
 // MessageIDParams 是 voice_msg_to_text 的请求参数（语音转文字）。
@@ -1198,15 +1198,15 @@ type SetOnlineStatusParams struct {
 // ProfileLikeUser 是名片赞列表中的用户条目。
 type ProfileLikeUser struct {
 	UID      string `json:"uid,omitempty"`
-	UIN      int64  `json:"uin,omitempty"`
-	IsFriend bool   `json:"is_friend,omitempty"`
+	UIN      int64  `json:"uin,omitzero"`
+	IsFriend bool   `json:"is_friend,omitzero"`
 }
 
 // GetProfileLikeParams 是 get_profile_like / get_profile_like_me 的请求参数。
 // Start 从 0 开始，-1 表示获取全部；Count 每页最多 30。
 type GetProfileLikeParams struct {
-	Start int `json:"start,omitempty"`
-	Count int `json:"count,omitempty"`
+	Start int `json:"start,omitzero"`
+	Count int `json:"count,omitzero"`
 }
 
 // GetProfileLikeResult 是 get_profile_like / get_profile_like_me 的响应数据。
@@ -1226,8 +1226,8 @@ type GetProfileLikeCountResult struct {
 type FriendCategoryWithList struct {
 	CategoryID    int64        `json:"category_id"`
 	CategoryName  string       `json:"category_name"`
-	CategoryCount int          `json:"category_mb_count,omitempty"`
-	OnlineCount   int          `json:"online_count,omitempty"`
+	CategoryCount int          `json:"category_mb_count,omitzero"`
+	OnlineCount   int          `json:"online_count,omitzero"`
 	BuddyList     []FriendInfo `json:"buddy_list"`
 }
 
@@ -1252,7 +1252,7 @@ type DoubtFriendRequest struct {
 
 // CountParams 是 get_doubt_friends_add_request 的请求参数。
 type CountParams struct {
-	Count int `json:"count,omitempty"`
+	Count int `json:"count,omitzero"`
 }
 
 // SetDoubtFriendsAddRequestParams 是 set_doubt_friends_add_request 的请求参数。
@@ -1314,7 +1314,7 @@ func (r *FlashFileSetResult) UnmarshalJSON(b []byte) error {
 		FileSetIDNap string              `json:"fileset_id"`
 		DownloadsNap []FlashFileDownload `json:"downloads"`
 	}
-	if err := json.Unmarshal(b, &raw); err != nil {
+	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		return err
 	}
 	*r = FlashFileSetResult(raw.alias)
@@ -1421,7 +1421,7 @@ type GetGroupAlbumMediaListParams struct {
 
 // GroupAlbumMedia 是群相册媒体条目（简化字段）。
 type GroupAlbumMedia struct {
-	Type       int    `json:"type,omitempty"`
+	Type       int    `json:"type,omitzero"`
 	Desc       string `json:"desc,omitempty"`
 	UploadTime string `json:"upload_time,omitempty"`
 	Uploader   string `json:"uploader,omitempty"`
@@ -1447,18 +1447,18 @@ type GetGroupAlbumMediaListResult struct {
 type SetGroupKickMembersParams struct {
 	GroupID          int64   `json:"group_id"`
 	UserIDs          []int64 `json:"user_id"`
-	RejectAddRequest bool    `json:"reject_add_request,omitempty"`
+	RejectAddRequest bool    `json:"reject_add_request,omitzero"`
 }
 
 // MessageIDParams 是 fetch_ptt_text 的请求参数（NapCat 语音转文字）。
 
 // GetEmojiLikesParams 是 get_emoji_likes 的请求参数（NapCat 表情回应列表）。
 type GetEmojiLikesParams struct {
-	GroupID   int64  `json:"group_id,omitempty"`
+	GroupID   int64  `json:"group_id,omitzero"`
 	MessageID string `json:"message_id"`
 	EmojiID   string `json:"emoji_id"`
 	EmojiType string `json:"emoji_type,omitempty"`
-	Count     int    `json:"count,omitempty"` // 0=全部
+	Count     int    `json:"count,omitzero"` // 0=全部
 }
 
 // EmojiLikeUser 是表情回应中的用户。
@@ -1484,7 +1484,7 @@ type GetQunAlbumListParams struct {
 type GroupInfoEx struct {
 	GroupID     int64  `json:"group_id"`
 	GroupName   string `json:"group_name,omitempty"`
-	MemberCount int    `json:"member_count,omitempty"`
+	MemberCount int    `json:"member_count,omitzero"`
 	// 其余字段与协议端返回一致（透传）。
 }
 
@@ -1521,15 +1521,15 @@ type SetGroupNewMemberHistoryVisibilityParams struct {
 // SetDiyOnlineStatusParams 是 set_diy_online_status 的请求参数（NapCat 扩展）。
 type SetDiyOnlineStatusParams struct {
 	FaceID   int    `json:"face_id"`
-	FaceType int    `json:"face_type,omitempty"`
+	FaceType int    `json:"face_type,omitzero"`
 	Wording  string `json:"wording,omitempty"`
 }
 
 // SetGroupSearchParams 是 set_group_search 的请求参数（NapCat 扩展）。
 type SetGroupSearchParams struct {
 	GroupID          int64 `json:"group_id"`
-	NoCodeFingerOpen int   `json:"no_code_finger_open,omitempty"`
-	NoFingerOpen     int   `json:"no_finger_open,omitempty"`
+	NoCodeFingerOpen int   `json:"no_code_finger_open,omitzero"`
+	NoFingerOpen     int   `json:"no_finger_open,omitzero"`
 }
 
 // TranslateEn2ZhParams 是 translate_en2zh 的请求参数（NapCat 英译中）。
@@ -1562,10 +1562,10 @@ type AddCustomFaceParams struct {
 	EmojiID    string `json:"emoji_id,omitempty"`
 	PackageID  string `json:"package_id,omitempty"`
 	FileName   string `json:"file_name,omitempty"`
-	FileSize   int64  `json:"file_size,omitempty"`
+	FileSize   int64  `json:"file_size,omitzero"`
 	MD5        string `json:"md5,omitempty"`
-	IsMarkFace bool   `json:"is_mark_face,omitempty"`
-	IsOrigin   bool   `json:"is_origin,omitempty"`
+	IsMarkFace bool   `json:"is_mark_face,omitzero"`
+	IsOrigin   bool   `json:"is_origin,omitzero"`
 }
 
 // DeleteCustomFaceParams 是 delete_custom_face 的请求参数。
@@ -1596,15 +1596,15 @@ type SetGroupAddOptionParams struct {
 // SetGroupRobotAddOptionParams 是 set_group_robot_add_option 的请求参数（NapCat 扩展）。
 type SetGroupRobotAddOptionParams struct {
 	GroupID            int64 `json:"group_id"`
-	RobotMemberSwitch  int   `json:"robot_member_switch,omitempty"`
-	RobotMemberExamine int   `json:"robot_member_examine,omitempty"`
+	RobotMemberSwitch  int   `json:"robot_member_switch,omitzero"`
+	RobotMemberExamine int   `json:"robot_member_examine,omitzero"`
 }
 
 // MarkMsgAsReadExParams 是 mark_group_msg_as_read / mark_private_msg_as_read 的请求参数。
 type MarkMsgAsReadExParams struct {
-	UserID    int64 `json:"user_id,omitempty"`
-	GroupID   int64 `json:"group_id,omitempty"`
-	MessageID int64 `json:"message_id,omitempty"`
+	UserID    int64 `json:"user_id,omitzero"`
+	GroupID   int64 `json:"group_id,omitzero"`
+	MessageID int64 `json:"message_id,omitzero"`
 }
 
 // GroupIgnoredNotify 是被过滤的加群通知条目。
@@ -1629,10 +1629,10 @@ type FilesetInfo struct {
 	Title     string `json:"title,omitempty"`
 	ShareLink string `json:"share_link,omitempty"`
 	FileName  string `json:"file_name,omitempty"`
-	FileSize  int64  `json:"file_size,omitempty"`
-	FileCount int    `json:"file_count,omitempty"`
+	FileSize  int64  `json:"file_size,omitzero"`
+	FileCount int    `json:"file_count,omitzero"`
 	// 其余字段透传（napcat 返回较深结构，用 Raw 保留）。
-	Raw json.RawMessage `json:"-"`
+	Raw jsonx.RawMessage `json:"-"`
 }
 
 // FlashFileParams 是 get_fileset_id 的请求参数（NapCat 由分享链接取 ID）。
@@ -1656,13 +1656,13 @@ type FlashFileEntry struct {
 type GetFlashFileUrlParams struct {
 	FileSetID string `json:"fileset_id"`
 	FileName  string `json:"file_name,omitempty"`
-	FileIndex int    `json:"file_index,omitempty"`
+	FileIndex int    `json:"file_index,omitzero"`
 }
 
 // GetFlashFileUrlResult 是 get_flash_file_url 的响应数据。
 type GetFlashFileUrlResult struct {
 	URL    string `json:"url"`
-	Expire int64  `json:"expire,omitempty"`
+	Expire int64  `json:"expire,omitzero"`
 }
 
 // FlashFileParams 是 get_share_link 的请求参数。
@@ -1675,8 +1675,8 @@ type GetShareLinkResult struct {
 // SendFlashMsgParams 是 send_flash_msg 的请求参数。
 type SendFlashMsgParams struct {
 	FileSetID string `json:"fileset_id"`
-	UserID    int64  `json:"user_id,omitempty"`
-	GroupID   int64  `json:"group_id,omitempty"`
+	UserID    int64  `json:"user_id,omitzero"`
+	GroupID   int64  `json:"group_id,omitzero"`
 }
 
 // FetchMFaceKeyParams 是 fetch_mface_key 的请求参数（Lagrange v1 扩展）。
@@ -1694,8 +1694,8 @@ type FetchMFaceKeyResult struct {
 type GroupMemo struct {
 	MemoID  string `json:"memo_id,omitempty"`
 	Content string `json:"content"`
-	UserID  int64  `json:"user_id,omitempty"`
-	Time    int64  `json:"time,omitempty"`
+	UserID  int64  `json:"user_id,omitzero"`
+	Time    int64  `json:"time,omitzero"`
 }
 
 // SetGroupMemoParams 是 set_group_memo 的请求参数（Lagrange v1 扩展）。

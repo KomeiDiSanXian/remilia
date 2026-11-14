@@ -1,6 +1,6 @@
 package milky
 
-import "encoding/json"
+import "github.com/KomeiDiSanXian/remilia/infra/jsonx"
 
 // ────────────────────────────────────────────────────────────────────────────
 // API 请求/响应类型（内部使用，不对外暴露）
@@ -208,7 +208,7 @@ type getHistoryMessagesInput struct {
 	MessageScene    string `json:"message_scene"`
 	PeerID          int64  `json:"peer_id"`
 	StartMessageSeq *int64 `json:"start_message_seq,omitempty"`
-	Limit           int    `json:"limit,omitempty"`
+	Limit           int    `json:"limit,omitzero"`
 }
 
 type getHistoryMessagesOutput struct {
@@ -587,12 +587,12 @@ type outgoingSegData struct {
 	// 文本
 	Text string `json:"text,omitempty"`
 	// 提及
-	UserID int64 `json:"user_id,omitempty"`
+	UserID int64 `json:"user_id,omitzero"`
 	// 表情
 	FaceID  string `json:"face_id,omitempty"`
-	IsLarge bool   `json:"is_large,omitempty"`
+	IsLarge bool   `json:"is_large,omitzero"`
 	// 引用回复
-	MessageSeq int64 `json:"message_seq,omitempty"`
+	MessageSeq int64 `json:"message_seq,omitzero"`
 	// 图片
 	URI     string `json:"uri,omitempty"`
 	SubType string `json:"sub_type,omitempty"`
@@ -621,10 +621,10 @@ type outgoingForwardedMessage struct {
 
 // rawEvent 是通过 WebSocket 接收的 Milky 事件最外层信封。
 type rawEvent struct {
-	EventType string          `json:"event_type"`
-	Time      int64           `json:"time"`
-	SelfID    int64           `json:"self_id"`
-	Data      json.RawMessage `json:"data"` // 延迟解析
+	EventType string           `json:"event_type"`
+	Time      int64            `json:"time"`
+	SelfID    int64            `json:"self_id"`
+	Data      jsonx.RawMessage `json:"data"` // 延迟解析
 }
 
 // incomingMessage 涵盖三种消息场景（好友/群/临时会话）。
@@ -653,27 +653,27 @@ type incomingSegmentData struct {
 	// 文本
 	Text string `json:"text,omitempty"`
 	// 提及
-	UserID int64  `json:"user_id,omitempty"`
+	UserID int64  `json:"user_id,omitzero"`
 	Name   string `json:"name,omitempty"`
 	// 表情
 	FaceID  string `json:"face_id,omitempty"`
-	IsLarge bool   `json:"is_large,omitempty"`
+	IsLarge bool   `json:"is_large,omitzero"`
 	// 引用回复
-	MessageSeq int64  `json:"message_seq,omitempty"`
-	SenderID   int64  `json:"sender_id,omitempty"`
+	MessageSeq int64  `json:"message_seq,omitzero"`
+	SenderID   int64  `json:"sender_id,omitzero"`
 	SenderName string `json:"sender_name,omitempty"`
-	ReplyTime  int64  `json:"time,omitempty"` // 被引用消息的 Unix 时间戳
+	ReplyTime  int64  `json:"time,omitzero"` // 被引用消息的 Unix 时间戳
 	// 图片/语音/视频
 	ResourceID string `json:"resource_id,omitempty"`
 	TempURL    string `json:"temp_url,omitempty"`
 	SubType    string `json:"sub_type,omitempty"` // 图片子类型，例如 "normal"、"sticker"
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	Duration   int    `json:"duration,omitempty"`
+	Width      int    `json:"width,omitzero"`
+	Height     int    `json:"height,omitzero"`
+	Duration   int    `json:"duration,omitzero"`
 	// 文件
 	FileID   string `json:"file_id,omitempty"`
 	FileName string `json:"file_name,omitempty"`
-	FileSize int64  `json:"file_size,omitempty"`
+	FileSize int64  `json:"file_size,omitzero"`
 	FileHash string `json:"file_hash,omitempty"` // TriSHA1 哈希，仅私聊文件存在
 	// 合并转发
 	ForwardID string   `json:"forward_id,omitempty"`
@@ -681,7 +681,7 @@ type incomingSegmentData struct {
 	Preview   []string `json:"preview,omitempty"`
 	Summary   string   `json:"summary,omitempty"`
 	// 市场表情（market_face）
-	EmojiPackageID int    `json:"emoji_package_id,omitempty"`
+	EmojiPackageID int    `json:"emoji_package_id,omitzero"`
 	EmojiID        string `json:"emoji_id,omitempty"`
 	EmojiKey       string `json:"key,omitempty"`
 	EmojiURL       string `json:"url,omitempty"`
@@ -689,7 +689,7 @@ type incomingSegmentData struct {
 	AppName     string `json:"app_name,omitempty"`
 	JSONPayload string `json:"json_payload,omitempty"`
 	// XML 消息
-	ServiceID  int    `json:"service_id,omitempty"`
+	ServiceID  int    `json:"service_id,omitzero"`
 	XMLPayload string `json:"xml_payload,omitempty"`
 }
 

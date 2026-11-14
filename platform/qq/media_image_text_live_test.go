@@ -38,7 +38,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -50,6 +49,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
@@ -199,7 +199,7 @@ func runLiveScenario(t *testing.T, api openapi.OpenAPI, target string, isGroup b
 		},
 	})
 	if got := rec.capture(); got != nil {
-		payload, _ := json.Marshal(got)
+		payload, _ := jsonx.Marshal(got)
 		t.Logf("%s 用例 C 现行 sender 实际发出 payload=%s", scene, payload)
 		if !isGroup && got.Content == "" && body != "" {
 			t.Logf("%s 用例 C 注意：现行 sendMediaMessage 在单聊媒体消息里把 content 清空（sendMediaMessage 逻辑），这是当前版本单聊文字被吞的直接原因。", scene)
@@ -251,7 +251,7 @@ func liveUploadMedia(ctx context.Context, t *testing.T, api openapi.OpenAPI, tar
 // liveSendRaw 直接调用发消息接口发送一条 dto.Message，并打印载荷与完整响应。
 func liveSendRaw(ctx context.Context, t *testing.T, api openapi.OpenAPI, target string, isGroup bool, label string, msg *dto.Message) {
 	t.Helper()
-	payload, _ := json.Marshal(msg)
+	payload, _ := jsonx.Marshal(msg)
 	scene := "群聊"
 	if !isGroup {
 		scene = "单聊"

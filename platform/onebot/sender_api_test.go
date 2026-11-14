@@ -2,10 +2,10 @@ package onebot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,14 +25,14 @@ func (m *mockAPIClient) Call(_ context.Context, action string, params any) (*API
 	m.actions = append(m.actions, action)
 	m.params = append(m.params, params)
 	if m.notFound[action] {
-		return &APIResponse{Status: "failed", Retcode: 404, Data: json.RawMessage("null")},
+		return &APIResponse{Status: "failed", Retcode: 404, Data: jsonx.RawMessage("null")},
 			fmt.Errorf("onebot api: action failed (status=failed, retcode=404)")
 	}
 	raw, ok := m.data[action]
 	if !ok {
 		raw = "{}"
 	}
-	return &APIResponse{Status: "ok", Retcode: 0, Data: json.RawMessage(raw)}, nil
+	return &APIResponse{Status: "ok", Retcode: 0, Data: jsonx.RawMessage(raw)}, nil
 }
 
 func newMockSender(t *testing.T) (*Sender, *mockAPIClient) {
@@ -48,7 +48,7 @@ func assertAction(t *testing.T, m *mockAPIClient, wantAction, wantParams string)
 	got := m.actions[len(m.actions)-1]
 	assert.Equal(t, wantAction, got)
 	if wantParams != "" {
-		raw, err := json.Marshal(m.params[len(m.params)-1])
+		raw, err := jsonx.Marshal(m.params[len(m.params)-1])
 		require.NoError(t, err)
 		assert.JSONEq(t, wantParams, string(raw))
 	}

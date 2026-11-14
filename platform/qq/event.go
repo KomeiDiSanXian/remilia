@@ -6,11 +6,11 @@ package qq
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/tidwall/gjson"
@@ -58,7 +58,7 @@ func NewEvent(payload *dto.Payload) platform.Event {
 }
 
 // populateFrom 根据事件类型解析 detail 字节并填充 e 的字段。
-func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
+func (e *qqEvent) populateFrom(evType string, detail jsonx.RawMessage) {
 	switch evType {
 	case dto.C2CMessageCreate:
 		e.kind = platform.EventKindPrivateMessage
@@ -195,7 +195,7 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	}
 }
 
-func (e *qqEvent) populateC2C(detail json.RawMessage) {
+func (e *qqEvent) populateC2C(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -296,7 +296,7 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 	e.segments = append(e.segments, mediaSegments(parseAttachments(results[5]))...)
 }
 
-func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
+func (e *qqEvent) populateGroupAt(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -528,7 +528,7 @@ func quoteReplyID(ext gjson.Result) string {
 	return extIndexValue(ext, "ref_msg_idx")
 }
 
-func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
+func (e *qqEvent) populateGuildMessage(evType string, detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -590,7 +590,7 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 }
 
 // populateGuildEvent 解析频道事件（机器人加入/退出/更新频道）。
-func (e *qqEvent) populateGuildEvent(detail json.RawMessage) {
+func (e *qqEvent) populateGuildEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -617,7 +617,7 @@ func (e *qqEvent) populateGuildEvent(detail json.RawMessage) {
 }
 
 // populateGuildMemberEvent 解析频道成员事件（加入/更新/移除成员）。
-func (e *qqEvent) populateGuildMemberEvent(detail json.RawMessage) {
+func (e *qqEvent) populateGuildMemberEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -645,7 +645,7 @@ func (e *qqEvent) populateGuildMemberEvent(detail json.RawMessage) {
 }
 
 // populateChannelEvent 解析子频道事件（创建/更新/删除子频道）。
-func (e *qqEvent) populateChannelEvent(detail json.RawMessage) {
+func (e *qqEvent) populateChannelEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -667,7 +667,7 @@ func (e *qqEvent) populateChannelEvent(detail json.RawMessage) {
 }
 
 // populateMessageDelete 解析频道消息撤回事件。
-func (e *qqEvent) populateMessageDelete(detail json.RawMessage) {
+func (e *qqEvent) populateMessageDelete(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -689,7 +689,7 @@ func (e *qqEvent) populateMessageDelete(detail json.RawMessage) {
 }
 
 // populateMessageAudit 解析消息审核事件（MESSAGE_AUDIT）。
-func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
+func (e *qqEvent) populateMessageAudit(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -727,7 +727,7 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 //
 // 统一映射为 EventKindNotice，通过 RawType 区分具体事件。
 // 帖子/主题文本内容折叠为 content 段，便于 handler 匹配。
-func (e *qqEvent) populateForumEvent(detail json.RawMessage) {
+func (e *qqEvent) populateForumEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -759,7 +759,7 @@ func (e *qqEvent) populateForumEvent(detail json.RawMessage) {
 // populateAudioActionEvent 解析音频事件（AUDIO_START/FINISH/ON_MIC/OFF_MIC）。
 //
 // 统一映射为 EventKindNotice，通过 RawType 区分具体事件。
-func (e *qqEvent) populateAudioActionEvent(detail json.RawMessage) {
+func (e *qqEvent) populateAudioActionEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -777,7 +777,7 @@ func (e *qqEvent) populateAudioActionEvent(detail json.RawMessage) {
 // populateAudioOrLiveChannelMemberEvent 解析音视频/直播子频道成员进出事件。
 //
 // 统一映射为 EventKindNotice，通过 RawType 区分进入/退出。
-func (e *qqEvent) populateAudioOrLiveChannelMemberEvent(detail json.RawMessage) {
+func (e *qqEvent) populateAudioOrLiveChannelMemberEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -833,7 +833,7 @@ func decodeFaceExt(ext string) string {
 	var m struct {
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &m) != nil {
+	if jsonx.Unmarshal(raw, &m) != nil {
 		return ""
 	}
 	return m.Text
@@ -964,7 +964,7 @@ func parseAttachments(r gjson.Result) []platform.Attachment {
 //     合成固定内容 clearSessionContent 供上层插件识别（builtin/ai 据此清空会话）
 //
 // e.replyToID 被设为 data.resolved.message_id（仅频道场景，被操作的消息 ID）。
-func (e *qqEvent) populateInteraction(detail json.RawMessage) {
+func (e *qqEvent) populateInteraction(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1067,7 +1067,7 @@ const clearSessionContent = "clear_session"
 //
 // e.content 被设置为表情 ID，便于 handler 判断具体表情。
 // e.replyToID 被设置为被表态的消息 ID（target.id），便于 handler 知道是哪条消息被表态。
-func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
+func (e *qqEvent) populateMessageReaction(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1100,7 +1100,7 @@ func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
 //     见 passive_eventid.go）
 //   - GROUP_MEMBER_REMOVE：不支持（实测错误码 40034027"该事件不能回复消息"），
 //     告别消息只能以主动消息发送
-func (e *qqEvent) populateGroupMemberEvent(detail json.RawMessage) {
+func (e *qqEvent) populateGroupMemberEvent(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1121,7 +1121,7 @@ func (e *qqEvent) populateGroupMemberEvent(detail json.RawMessage) {
 	}
 }
 
-func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {
+func (e *qqEvent) populateNoticeGroup(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1142,7 +1142,7 @@ func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {
 	}
 }
 
-func (e *qqEvent) populateGroupJoinRequest(detail json.RawMessage) {
+func (e *qqEvent) populateGroupJoinRequest(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1182,7 +1182,7 @@ func (e *qqEvent) populateGroupJoinRequest(detail json.RawMessage) {
 //
 // 事件体同时可能携带 group_openid（群订阅场景）或 openid（个人订阅场景），
 // 二者至少存在其一：优先按群订阅处理（IsGroup=true），否则按个人订阅处理。
-func (e *qqEvent) populateSubscribeMessageStatus(detail json.RawMessage) {
+func (e *qqEvent) populateSubscribeMessageStatus(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -1206,7 +1206,7 @@ func (e *qqEvent) populateSubscribeMessageStatus(detail json.RawMessage) {
 	e.segments = textSegments(results[2].Raw)
 }
 
-func (e *qqEvent) populateNoticeUser(detail json.RawMessage) {
+func (e *qqEvent) populateNoticeUser(detail jsonx.RawMessage) {
 	if detail == nil {
 		return
 	}

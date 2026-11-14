@@ -2,9 +2,9 @@ package onebot
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -42,7 +42,7 @@ func TestEnrichQuotedAttachments(t *testing.T) {
 			{Type: SegTypeText, Data: map[string]string{"text": "[图片]"}},
 		},
 	}
-	data, err := json.Marshal(getMsg)
+	data, err := jsonx.Marshal(getMsg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestEnrichQuotedAttachmentsFillsFirstReplyOnly(t *testing.T) {
 			{Type: SegTypeImage, Data: map[string]string{"url": "https://multimedia.example/a.jpg"}},
 		},
 	}
-	data, err := json.Marshal(getMsg)
+	data, err := jsonx.Marshal(getMsg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestEnrichQuotedAttachmentsSecondReplyUnfilledStillFetches(t *testing.T) {
 			{Type: SegTypeImage, Data: map[string]string{"url": "https://multimedia.example/a.jpg"}},
 		},
 	}
-	data, err := json.Marshal(getMsg)
+	data, err := jsonx.Marshal(getMsg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestEnrichQuotedAttachmentsNoURLImage(t *testing.T) {
 			{Type: SegTypeText, Data: map[string]string{"text": "[图片]"}},
 		},
 	}
-	data, err := json.Marshal(getMsg)
+	data, err := jsonx.Marshal(getMsg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,13 +33,13 @@ package qq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
@@ -175,7 +175,7 @@ func runMessageReferenceScenario(t *testing.T, api openapi.OpenAPI, target strin
 			continue
 		}
 		msg := c.build()
-		payload, _ := json.Marshal(msg)
+		payload, _ := jsonx.Marshal(msg)
 		t.Logf("%s 用例 %s payload=%s", scene, c.label, payload)
 
 		var (
@@ -280,7 +280,7 @@ func resolveLiveReferenceID(ctx context.Context, t *testing.T, api openapi.OpenA
 // liveSendSeed 发送种子消息并返回完整响应（供提取 ext_info.ref_idx）。
 func liveSendSeed(ctx context.Context, t *testing.T, api openapi.OpenAPI, target string, isGroup bool, label string, msg *dto.Message) gjson.Result {
 	t.Helper()
-	payload, _ := json.Marshal(msg)
+	payload, _ := jsonx.Marshal(msg)
 	scene := "群聊"
 	if !isGroup {
 		scene = "单聊"

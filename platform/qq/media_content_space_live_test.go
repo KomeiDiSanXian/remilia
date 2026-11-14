@@ -30,7 +30,6 @@ package qq
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -40,6 +39,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
@@ -105,7 +105,7 @@ func spaceProbeRun(t *testing.T, ctx context.Context, api openapi.OpenAPI, group
 			}},
 		})
 		if got := rec.capture(); got != nil {
-			payload, _ := json.Marshal(got)
+			payload, _ := jsonx.Marshal(got)
 			t.Logf("群聊 用例 A 生产路径实际发出 payload=%s", payload)
 		}
 		if err != nil {

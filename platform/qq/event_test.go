@@ -1,10 +1,10 @@
 package qq_test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -12,7 +12,7 @@ import (
 )
 
 func makePayload(t dto.EventType, detail any) *dto.Payload {
-	raw, _ := json.Marshal(detail)
+	raw, _ := jsonx.Marshal(detail)
 	return &dto.Payload{
 		ID:        "evt001",
 		Type:      t,

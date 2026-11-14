@@ -1,9 +1,10 @@
 package dto
 
 import (
-	"encoding/json"
 	"net/url"
 	"strings"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // MessageType ...
@@ -151,13 +152,13 @@ type ActionButton struct {
 	// CallbackData 回调数据，用户点击按钮后原样透传给开发者（INTERACTION_CREATE）。
 	CallbackData string `json:"callback_data,omitempty"`
 	// Feedback 反馈按钮（赞踩按钮）。
-	Feedback bool `json:"feedback,omitempty"`
+	Feedback bool `json:"feedback,omitzero"`
 	// TTS TTS 语音播放按钮。
-	TTS bool `json:"tts,omitempty"`
+	TTS bool `json:"tts,omitzero"`
 	// ReGenerate 重新生成按钮。
-	ReGenerate bool `json:"re_generate,omitempty"`
+	ReGenerate bool `json:"re_generate,omitzero"`
 	// StopGenerate 停止生成按钮。
-	StopGenerate bool `json:"stop_generate,omitempty"`
+	StopGenerate bool `json:"stop_generate,omitzero"`
 }
 
 // PromptKeyboard 提示键盘，发送消息时随消息下发。
@@ -219,23 +220,23 @@ func NewPromptKeyboard(rows ...[]PromptKeyboardButton) *PromptKeyboard {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF
 type Message struct {
-	Content  string          `json:"content,omitempty"`
-	Type     MessageType     `json:"msg_type"`
-	Markdown *Markdown       `json:"markdown,omitempty"`
-	Keyboard json.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
-	Ark      *Ark            `json:"ark,omitempty"`
-	Media    *MediaResponse  `json:"media,omitempty"`
-	Card     *Card           `json:"card,omitempty"`
+	Content  string           `json:"content,omitempty"`
+	Type     MessageType      `json:"msg_type"`
+	Markdown *Markdown        `json:"markdown,omitempty"`
+	Keyboard jsonx.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
+	Ark      *Ark             `json:"ark,omitempty"`
+	Media    *MediaResponse   `json:"media,omitempty"`
+	Card     *Card            `json:"card,omitempty"`
 	// MessageReference 消息引用（展示引用气泡），与 msg_id/event_id 独立，用于在消息中显示被引用消息。
 	// 与 GuildMessage.MessageReference 含义相同，但适用于 QQ 单聊与群聊场景。
 	MessageReference *MessageReference `json:"message_reference,omitempty"`
 	EventID          EventID           `json:"event_id,omitempty"`
 	MessageID        EventID           `json:"msg_id,omitempty"`
-	MessageSeq       uint64            `json:"msg_seq,omitempty"`
+	MessageSeq       uint64            `json:"msg_seq,omitzero"`
 	// IsWakeup 互动召回消息标志（2026/01/10 新增）
 	// 与 msg_id / event_id 互斥使用；用户主动对话后每周期最多下发 1 条召回消息。
 	// 仅适用于 QQ 单聊（C2C），群聊不支持此字段。
-	IsWakeup bool `json:"is_wakeup,omitempty"`
+	IsWakeup bool `json:"is_wakeup,omitzero"`
 	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
 	InputNotify *InputNotify `json:"input_notify,omitempty"`
 	// ActionButton 操作按钮（实验性透传字段，见 ActionButton 说明）。
@@ -262,7 +263,7 @@ type Markdown struct {
 	Params           []MarkdownParam `json:"params,omitempty"`
 	// ForceVerifyImageResource 是否校验图片转存结果（2026-08 新增）。
 	// 为 true 时，若图片转存失败则返回错误，消息不会发送。默认 false。
-	ForceVerifyImageResource bool `json:"force_verify_image_resource,omitempty"`
+	ForceVerifyImageResource bool `json:"force_verify_image_resource,omitzero"`
 }
 
 // Ark ...
@@ -293,7 +294,7 @@ type Media struct {
 type MediaResponse struct {
 	FileUUID string `json:"file_uuid,omitempty"`
 	FileInfo string `json:"file_info,omitempty"`
-	TTL      int    `json:"ttl,omitempty"`
+	TTL      int    `json:"ttl,omitzero"`
 	ID       string `json:"id,omitempty"`
 }
 
@@ -454,7 +455,7 @@ type GuildMessage struct {
 	// Markdown Markdown 消息对象
 	Markdown *Markdown `json:"markdown,omitempty"`
 	// Keyboard 按钮对象（InlineKeyboard）
-	Keyboard json.RawMessage `json:"keyboard,omitempty"`
+	Keyboard jsonx.RawMessage `json:"keyboard,omitempty"`
 }
 
 // MessageReference 引用消息对象。
@@ -557,17 +558,17 @@ type KeyboardAction struct {
 	// Type 操作类型：0=跳转按钮（http/小程序 scheme），1=回调按钮（通知后台），2=指令按钮（插入输入框）
 	Type int `json:"type"`
 	// Anchor 指令按钮专有：1=唤起手Q选图器（仅手机端 v8983+，桌面端不支持）
-	Anchor int `json:"anchor,omitempty"`
+	Anchor int `json:"anchor,omitzero"`
 	// ClickLimit 【已弃用】可操作点击的次数，默认不限。
 	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
-	ClickLimit int `json:"click_limit,omitempty"`
+	ClickLimit int `json:"click_limit,omitzero"`
 	// Reply 指令按钮专有：是否带引用回复本消息，默认 false（v8983+）
-	Reply bool `json:"reply,omitempty"`
+	Reply bool `json:"reply,omitzero"`
 	// Enter 指令按钮专有：点击后直接自动发送 data，默认 false（v8983+）
-	Enter bool `json:"enter,omitempty"`
+	Enter bool `json:"enter,omitzero"`
 	// AtBotShowChannelList 【已弃用】指令按钮专有：弹出子频道选择器，默认 false。
 	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
-	AtBotShowChannelList bool `json:"at_bot_show_channel_list,omitempty"`
+	AtBotShowChannelList bool `json:"at_bot_show_channel_list,omitzero"`
 }
 
 // KeyboardPermission 按钮操作权限配置。
@@ -590,14 +591,14 @@ type KeyboardPermission struct {
 type StreamMessage struct {
 	InputMode   string `json:"input_mode,omitempty"`    // "append" 或 "replace"
 	InputState  int    `json:"input_state"`             // 1=生成中, 10=生成结束
-	Index       int    `json:"index,omitempty"`         // 分片序号，从0递增
+	Index       int    `json:"index,omitzero"`          // 分片序号，从0递增
 	ContentType string `json:"content_type,omitempty"`  // "text" 或 "markdown"
 	ContentRaw  string `json:"content_raw,omitempty"`   // Markdown 格式内容
 	EventID     string `json:"event_id,omitempty"`      // 被动回复事件ID（与 msg_id 二选一）
 	MsgID       string `json:"msg_id,omitempty"`        // 被动回复消息ID（与 event_id 二选一）
 	StreamMsgID string `json:"stream_msg_id,omitempty"` // 首片由服务端返回，后续分片携带
-	MsgSeq      int    `json:"msg_seq,omitempty"`       // 消息序号，用于去重
-	IsWakeup    bool   `json:"is_wakeup,omitempty"`     // 是否为召回消息
+	MsgSeq      int    `json:"msg_seq,omitzero"`        // 消息序号，用于去重
+	IsWakeup    bool   `json:"is_wakeup,omitzero"`      // 是否为召回消息
 }
 
 // MarshalKeyboard 将 InlineKeyboard 序列化为 json.RawMessage，便于赋值给 Message.Keyboard。
@@ -610,7 +611,7 @@ type StreamMessage struct {
 //	    },
 //	})
 //	msg.Keyboard = kb
-func MarshalKeyboard(kb *InlineKeyboard) json.RawMessage {
-	data, _ := json.Marshal(kb)
+func MarshalKeyboard(kb *InlineKeyboard) jsonx.RawMessage {
+	data, _ := jsonx.Marshal(kb)
 	return data
 }

@@ -4,7 +4,6 @@ import (
 	stdctx "context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/bwmarrin/discordgo"
@@ -349,7 +349,7 @@ func (a *InteractionsAdapter) handleInteraction(w http.ResponseWriter, r *http.R
 	var partial struct {
 		Type int `json:"type"`
 	}
-	if err := json.Unmarshal(body, &partial); err != nil {
+	if err := jsonx.Unmarshal(body, &partial); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -365,7 +365,7 @@ func (a *InteractionsAdapter) handleInteraction(w http.ResponseWriter, r *http.R
 
 	// Parse full interaction
 	var interaction discordgo.Interaction
-	if err := json.Unmarshal(body, &interaction); err != nil {
+	if err := jsonx.Unmarshal(body, &interaction); err != nil {
 		http.Error(w, "Invalid interaction payload", http.StatusBadRequest)
 		return
 	}
@@ -386,7 +386,7 @@ func (a *InteractionsAdapter) handleWithAutoDefer(w http.ResponseWriter, i *disc
 	deferResp := map[string]any{
 		"type": int(discordgo.InteractionResponseDeferredChannelMessageWithSource),
 	}
-	respBytes, _ := json.Marshal(deferResp)
+	respBytes, _ := jsonx.Marshal(deferResp)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(respBytes)
@@ -450,7 +450,7 @@ func (a *InteractionsAdapter) handleWithSyncWindow(
 		deferResp := map[string]any{
 			"type": int(discordgo.InteractionResponseDeferredChannelMessageWithSource),
 		}
-		respBytes, _ := json.Marshal(deferResp)
+		respBytes, _ := jsonx.Marshal(deferResp)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(respBytes)
@@ -536,7 +536,7 @@ func (s *syncInteractionSender) Send(_ stdctx.Context, req platform.SendRequest)
 	extra := extractExtra(msg)
 	resp := buildInteractionResponse(msg, extra)
 
-	respBytes, err := json.Marshal(resp)
+	respBytes, err := jsonx.Marshal(resp)
 	if err != nil {
 		return platform.SendResult{}, fmt.Errorf("discord sync sender: marshal error: %w", err)
 	}

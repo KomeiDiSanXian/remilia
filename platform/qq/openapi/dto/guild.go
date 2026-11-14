@@ -33,9 +33,9 @@ type GuildRoleRequest struct {
 	// Name 身份组名称（最长 100 字符）
 	Name string `json:"name,omitempty"`
 	// Color ARGB 颜色值
-	Color uint32 `json:"color,omitempty"`
+	Color uint32 `json:"color,omitzero"`
 	// Hoist 是否在成员列表中单独展示：0=否，1=是
-	Hoist int32 `json:"hoist,omitempty"`
+	Hoist int32 `json:"hoist,omitzero"`
 }
 
 // AddMemberRoleRequest 添加/删除身份组成员时可选传递子频道 ID（用于频道私有身份组）。
@@ -95,7 +95,7 @@ type CreateGuildAnnounceRequest struct {
 	// ChannelID 消息所在子频道 ID（与 message_id 配合使用）
 	ChannelID string `json:"channel_id,omitempty"`
 	// AnnouncesType 公告类型：0=成员公告，1=欢迎公告；默认 0
-	AnnouncesType int `json:"announces_type,omitempty"`
+	AnnouncesType int `json:"announces_type,omitzero"`
 	// RecommendChannels 推荐子频道列表（欢迎公告时使用）
 	RecommendChannels []RecommendChannel `json:"recommend_channels,omitempty"`
 }
@@ -147,7 +147,7 @@ type ScheduleUser struct {
 	ID       string `json:"id,omitempty"`
 	Username string `json:"username,omitempty"`
 	Avatar   string `json:"avatar,omitempty"`
-	Bot      bool   `json:"bot,omitempty"`
+	Bot      bool   `json:"bot,omitzero"`
 }
 
 // AudioControlRequest 音频控制请求体。
@@ -195,17 +195,17 @@ type ChannelRequest struct {
 	// Name 子频道名称（1~100 字符）
 	Name string `json:"name"`
 	// Type 子频道类型：0=文字，2=语音，4=分组，10000=直播，10001=应用，10002=论坛
-	Type int `json:"type,omitempty"`
+	Type int `json:"type,omitzero"`
 	// SubType 子类型（仅文字子频道有效）：0=闲聊，1=公告，2=攻略，3=开黑
-	SubType int `json:"sub_type,omitempty"`
+	SubType int `json:"sub_type,omitzero"`
 	// Position 排列顺序（数值越小越靠前，0 表示默认位置）
-	Position int `json:"position,omitempty"`
+	Position int `json:"position,omitzero"`
 	// ParentID 所属分组子频道 ID（type=4 的子频道）
 	ParentID string `json:"parent_id,omitempty"`
 	// PrivateType 私密类型：0=公开，1=管理员，2=群主及管理员+指定成员
-	PrivateType int `json:"private_type,omitempty"`
+	PrivateType int `json:"private_type,omitzero"`
 	// SpeakPermission 发言权限：0=无效，1=所有人，2=群主及管理员+指定成员
-	SpeakPermission int `json:"speak_permission,omitempty"`
+	SpeakPermission int `json:"speak_permission,omitzero"`
 	// ApplicationID 应用类型子频道的应用 ID（type=10001 时使用）
 	ApplicationID string `json:"application_id,omitempty"`
 }

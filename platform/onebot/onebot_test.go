@@ -1,10 +1,10 @@
 package onebot
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -194,7 +194,7 @@ func TestSegmentData_TolerantDecode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var seg MessageSegment
-			require.NoError(t, json.Unmarshal([]byte(tt.payload), &seg))
+			require.NoError(t, jsonx.Unmarshal([]byte(tt.payload), &seg))
 			assert.Equal(t, tt.want, seg.Data[tt.key])
 		})
 	}
@@ -210,7 +210,7 @@ func TestMessageChain_NullMessage(t *testing.T) {
 	var payload struct {
 		Message MessageChain `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(`{"message":null}`), &payload))
+	require.NoError(t, jsonx.Unmarshal([]byte(`{"message":null}`), &payload))
 	assert.Empty(t, payload.Message)
 }
 
@@ -221,7 +221,7 @@ func TestMessageChain_MixedTypesSurviveDecode(t *testing.T) {
 
 	raw := `[{"type":"text","data":{"text":"hi"}},{"type":"at","data":{"qq":10001}}]`
 	var mc MessageChain
-	require.NoError(t, json.Unmarshal([]byte(raw), &mc))
+	require.NoError(t, jsonx.Unmarshal([]byte(raw), &mc))
 	require.Len(t, mc, 2)
 	assert.Equal(t, "hi", mc.Text())
 	assert.Equal(t, "10001", mc[1].AtQQ())
@@ -237,7 +237,7 @@ func TestNewNodeSegment(t *testing.T) {
 	node, err := NewNodeSegment("10001", "小明", MessageChain{textSegment("hello")})
 	require.NoError(t, err)
 
-	out, err := json.Marshal(node)
+	out, err := jsonx.Marshal(node)
 	require.NoError(t, err)
 	assert.JSONEq(t,
 		`{"type":"node","data":{"user_id":"10001","nickname":"小明","content":[{"type":"text","data":{"text":"hello"}}]}}`,

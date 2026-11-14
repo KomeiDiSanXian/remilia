@@ -1,11 +1,11 @@
 package onebot
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -83,7 +83,7 @@ func parseEvent(raw []byte) (platform.Event, error) {
 	var base struct {
 		PostType string `json:"post_type"`
 	}
-	if err := json.Unmarshal(raw, &base); err != nil {
+	if err := jsonx.Unmarshal(raw, &base); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse event base: %w", err)
 	}
 
@@ -109,7 +109,7 @@ func parseMessageEvent(raw []byte) (platform.Event, error) {
 	var msgType struct {
 		MessageType string `json:"message_type"`
 	}
-	if err := json.Unmarshal(raw, &msgType); err != nil {
+	if err := jsonx.Unmarshal(raw, &msgType); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse message_type: %w", err)
 	}
 
@@ -125,7 +125,7 @@ func parseMessageEvent(raw []byte) (platform.Event, error) {
 
 func parsePrivateMessageEvent(raw []byte) (platform.Event, error) {
 	var ev PrivateMessageEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse private message event: %w", err)
 	}
 
@@ -153,7 +153,7 @@ func parsePrivateMessageEvent(raw []byte) (platform.Event, error) {
 
 func parseGroupMessageEvent(raw []byte) (platform.Event, error) {
 	var ev GroupMessageEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse group message event: %w", err)
 	}
 
@@ -204,7 +204,7 @@ func parseGroupMessageEvent(raw []byte) (platform.Event, error) {
 
 func parseNoticeEvent(raw []byte) (platform.Event, error) {
 	var ev NoticeEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse notice event: %w", err)
 	}
 
@@ -348,7 +348,7 @@ func parseNoticeEvent(raw []byte) (platform.Event, error) {
 
 func parseRequestEvent(raw []byte) (platform.Event, error) {
 	var ev RequestEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse request event: %w", err)
 	}
 
@@ -392,7 +392,7 @@ func parseRequestEvent(raw []byte) (platform.Event, error) {
 
 func parseMetaEvent(raw []byte) (platform.Event, error) {
 	var ev MetaEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, fmt.Errorf("onebot: failed to parse meta event: %w", err)
 	}
 
@@ -426,7 +426,7 @@ func parseUnknownEvent(raw []byte, rawType string) platform.Event {
 	return &onebotEvent{
 		kind:       platform.EventKindUnknown,
 		rawType:    rawType,
-		rawPayload: json.RawMessage(raw),
+		rawPayload: jsonx.RawMessage(raw),
 		timestamp:  time.Now(),
 	}
 }

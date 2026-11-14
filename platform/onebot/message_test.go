@@ -1,10 +1,10 @@
 package onebot
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -380,14 +380,14 @@ func TestGetReplyToID_NoReply(t *testing.T) {
 
 func TestMessageChain_UnmarshalJSON_Null(t *testing.T) {
 	var mc MessageChain
-	err := json.Unmarshal([]byte(`null`), &mc)
+	err := jsonx.Unmarshal([]byte(`null`), &mc)
 	require.NoError(t, err)
 	assert.Empty(t, mc)
 }
 
 func TestMessageChain_MarshalJSON(t *testing.T) {
 	mc := MessageChain{textSegment("hello"), {Type: SegTypeAt, Data: map[string]string{"qq": "123"}}}
-	data, err := json.Marshal(mc)
+	data, err := jsonx.Marshal(mc)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "text")
 	assert.Contains(t, string(data), "at")
@@ -395,7 +395,7 @@ func TestMessageChain_MarshalJSON(t *testing.T) {
 
 func TestMessageChain_MarshalJSON_Empty(t *testing.T) {
 	mc := MessageChain{}
-	data, err := json.Marshal(mc)
+	data, err := jsonx.Marshal(mc)
 	require.NoError(t, err)
 	assert.Equal(t, "[]", string(data))
 }
@@ -403,7 +403,7 @@ func TestMessageChain_MarshalJSON_Empty(t *testing.T) {
 func TestMessageSegment_MarshalJSON_RawData(t *testing.T) {
 	node, err := NewNodeSegment("10001", "Alice", MessageChain{textSegment("hello")})
 	require.NoError(t, err)
-	data, err := json.Marshal(node)
+	data, err := jsonx.Marshal(node)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "node")
 	assert.Contains(t, string(data), "10001")
@@ -437,21 +437,21 @@ func TestMessageSegment_ReplyID(t *testing.T) {
 func TestSegmentData_UnmarshalJSON(t *testing.T) {
 	t.Run("null", func(t *testing.T) {
 		var d SegmentData
-		err := json.Unmarshal([]byte(`null`), &d)
+		err := jsonx.Unmarshal([]byte(`null`), &d)
 		require.NoError(t, err)
 		assert.Nil(t, d)
 	})
 
 	t.Run("empty", func(t *testing.T) {
 		var d SegmentData
-		err := json.Unmarshal([]byte(`{}`), &d)
+		err := jsonx.Unmarshal([]byte(`{}`), &d)
 		require.NoError(t, err)
 		assert.Empty(t, d)
 	})
 
 	t.Run("non-object", func(t *testing.T) {
 		var d SegmentData
-		err := json.Unmarshal([]byte(`""`), &d)
+		err := jsonx.Unmarshal([]byte(`""`), &d)
 		require.NoError(t, err)
 		assert.Nil(t, d)
 	})
@@ -494,6 +494,6 @@ func TestRawJSONToString(t *testing.T) {
 		{`""`, ""},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, rawJSONToString(json.RawMessage(tt.input)))
+		assert.Equal(t, tt.want, rawJSONToString(jsonx.RawMessage(tt.input)))
 	}
 }

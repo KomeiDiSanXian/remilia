@@ -4,7 +4,7 @@
 // Satori 协议规范：https://satori.chat/zh-CN/protocol/
 package satori
 
-import "encoding/json"
+import "github.com/KomeiDiSanXian/remilia/infra/jsonx"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Opcode
@@ -30,8 +30,8 @@ const (
 //
 //	{ "op": 0, "body": { ... } }
 type Signal struct {
-	Op   Opcode          `json:"op"`
-	Body json.RawMessage `json:"body,omitempty"`
+	Op   Opcode           `json:"op"`
+	Body jsonx.RawMessage `json:"body,omitempty"`
 }
 
 // IdentifyBody 是 IDENTIFY 信令的 body 数据。
@@ -74,7 +74,7 @@ type Event struct {
 	User      *User        `json:"user,omitempty"`
 	// Referrer 是用于被动请求的来源信息（实验性）。
 	// 参见：https://satori.chat/zh-CN/advanced/passive.html
-	Referrer *json.RawMessage `json:"referrer,omitempty"`
+	Referrer *jsonx.RawMessage `json:"referrer,omitempty"`
 
 	// NativeType 是平台原生事件类型（实验性）。
 	// 当 Type 为 "internal" 时，此字段包含平台原生事件类型字符串；
@@ -85,7 +85,7 @@ type Event struct {
 	// NativeData 是平台原生事件数据（实验性）。
 	// 结构由具体平台/适配器定义，框架层透传不解析。
 	// 参见：https://satori.chat/zh-CN/advanced/internal.html#事件扩展
-	NativeData *json.RawMessage `json:"_data,omitempty"`
+	NativeData *jsonx.RawMessage `json:"_data,omitempty"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

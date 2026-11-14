@@ -48,7 +48,7 @@ type Switch struct {
 	// 消息的 ext 字段中会携带 "search=1" 的标识，关闭后不携带）
 	SwitchID string `json:"switch_id,omitempty"`
 	// Default 开关的初始状态。true 表示默认打开，false 表示默认关闭
-	Default bool `json:"default,omitempty"`
+	Default bool `json:"default,omitzero"`
 }
 
 // UpdateMenuRequest 修改全局自定义菜单请求体（PUT /v2/menu）。
@@ -88,7 +88,7 @@ type Panel struct {
 	// Remark 面板备注，用于开发者标记面板用途，最多 255 个字符，不对用户展示
 	Remark string `json:"remark,omitempty"`
 	// Version 当前版本号
-	Version int `json:"version,omitempty"`
+	Version int `json:"version,omitzero"`
 }
 
 // PanelItem 指令面板元素。
@@ -102,7 +102,7 @@ type PanelItem struct {
 	// Type 元素类型：command（指令）、link（链接跳转）
 	Type string `json:"type,omitempty"`
 	// OnlyAdmin 是否仅管理员可操作。true 时仅频道/群管理员可点击
-	OnlyAdmin bool `json:"only_admin,omitempty"`
+	OnlyAdmin bool `json:"only_admin,omitzero"`
 	// Link 跳转链接 URL，仅 type=link 时有效
 	Link string `json:"link,omitempty"`
 }
@@ -122,7 +122,7 @@ type PanelRecord struct {
 	// UpdatedAt 面板更新时间，RFC3339 格式
 	UpdatedAt string `json:"updated_at,omitempty"`
 	// Version 面板版本号
-	Version int `json:"version,omitempty"`
+	Version int `json:"version,omitzero"`
 	// UserOpenIDs 关联的用户 openid 列表。仅 c2c 场景且 target_type=specific 时返回，最多 1000 条
 	UserOpenIDs []string `json:"user_openids,omitempty"`
 	// GroupOpenIDs 关联的群 openid 列表。仅 group 场景且 target_type=specific 时返回，最多 1000 条
