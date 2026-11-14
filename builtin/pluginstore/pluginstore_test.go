@@ -1,12 +1,12 @@
 package pluginstore_test
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/pluginstore"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func newTestDataFile(t *testing.T) string {
@@ -26,8 +26,8 @@ func TestRegisterFunc_SaveAndRestore(t *testing.T) {
 	p.RegisterFunc("myplugin",
 		func() (any, error) { return saved, nil },
 		func(v any) error {
-			data, _ := json.Marshal(v)
-			return json.Unmarshal(data, restored)
+			data, _ := jsonx.Marshal(v)
+			return jsonx.Unmarshal(data, restored)
 		},
 	)
 	// Save
@@ -41,8 +41,8 @@ func TestRegisterFunc_SaveAndRestore(t *testing.T) {
 	p.RegisterFunc("myplugin",
 		func() (any, error) { return saved, nil },
 		func(v any) error {
-			data, _ := json.Marshal(v)
-			return json.Unmarshal(data, restored)
+			data, _ := jsonx.Marshal(v)
+			return jsonx.Unmarshal(data, restored)
 		},
 	)
 	if restored.Counter != 42 || restored.Name != "hello" {

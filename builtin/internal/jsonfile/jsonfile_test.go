@@ -69,6 +69,40 @@ func TestIsNotExist(t *testing.T) {
 	assert.False(t, IsNotExist(nil))
 }
 
+// 历史文件可能由 v1（大小写不敏感）或不同大小写的键名写成，
+// 读取必须兼容；写出仍是严格语义下的规范键名。
+func TestReadAcceptsCaseInsensitiveKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"Name":"legacy","VALUE":7}`), 0644))
+
+	got, err := Read[testData](path)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", got.Name)
+	assert.Equal(t, 7, got.Value)
+}
+
+// 写出时 map 键必须稳定排序，否则同一份数据每次落盘都不同字节，
+// 会让"内容没变"的写入变成无意义的文件改动。
+func TestWriteIsDeterministic(t *testing.T) {
+	type holder struct {
+		Tags map[string]int `json:"tags"`
+	}
+	dir := t.TempDir()
+	v := holder{Tags: map[string]int{"c": 3, "a": 1, "b": 2}}
+
+	first := filepath.Join(dir, "a.json")
+	second := filepath.Join(dir, "b.json")
+	require.NoError(t, Write(first, v))
+	require.NoError(t, Write(second, v))
+
+	a, err := os.ReadFile(first)
+	require.NoError(t, err)
+	b, err := os.ReadFile(second)
+	require.NoError(t, err)
+	assert.Equal(t, string(a), string(b))
+	assert.Contains(t, string(a), `"tags":{"a":1,"b":2,"c":3}`)
+}
+
 func TestAtomicWriteReplacesContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "atomic.json")
 

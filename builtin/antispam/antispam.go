@@ -21,13 +21,13 @@ package antispam
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/syncx"
@@ -180,7 +180,7 @@ func (p *Plugin) loadBanList() {
 		return
 	}
 	var entries map[string]banEntryJSON
-	if err := json.Unmarshal(data, &entries); err != nil {
+	if err := jsonx.Unmarshal(data, &entries); err != nil {
 		return
 	}
 	now := time.Now()
@@ -212,7 +212,7 @@ func (p *Plugin) saveBanList() {
 		return true
 	})
 
-	data, err := json.Marshal(entries)
+	data, err := jsonx.Marshal(entries)
 	if err != nil {
 		logger.WithError(err).Warn("[AntiSpam] Failed to marshal ban list")
 		return

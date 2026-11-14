@@ -23,7 +23,6 @@ package keywordfilter
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -33,6 +32,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -346,7 +346,7 @@ func (p *Plugin) save() {
 	p.mu.RUnlock()
 
 	snap := kfSnapshot{Keywords: kws, Patterns: pats}
-	bytes, err := json.Marshal(snap)
+	bytes, err := jsonx.Marshal(snap)
 	if err != nil {
 		logger.WithError(err).Warn("[KeywordFilter] Failed to marshal state")
 		return
@@ -368,7 +368,7 @@ func (p *Plugin) load(ctx *plugin.SetupContext) {
 		return
 	}
 	var snap kfSnapshot
-	if err := json.Unmarshal(bytes, &snap); err != nil {
+	if err := jsonx.Unmarshal(bytes, &snap); err != nil {
 		ctx.Log.Warnf("[KeywordFilter] Failed to unmarshal state: %v", err)
 		return
 	}

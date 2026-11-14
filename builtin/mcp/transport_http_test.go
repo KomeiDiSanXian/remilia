@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // TestHTTPTransportRoundTrip 通过真实的 Streamable HTTP 传输跑完
@@ -267,7 +267,7 @@ func TestHTTPStatelessHeadersAndNoStream(t *testing.T) {
 			Method string `json:"method"`
 			Name   string `json:"name"`
 		}
-		_ = json.Unmarshal(body, &env)
+		_ = jsonx.Unmarshal(body, &env)
 		mu.Lock()
 		got = append(got, seen{
 			mirrored: r.Header.Get("Mcp-Method"),

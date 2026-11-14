@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/outbound"
 )
@@ -352,7 +352,7 @@ func (t *httpTransport) consumeSSEUntilResponse(r io.Reader) error {
 		}
 		t.dispatch(payload)
 		var env rpcEnvelope
-		if json.Unmarshal(payload, &env) == nil && env.ID != nil && env.Method == "" {
+		if jsonx.Unmarshal(payload, &env) == nil && env.ID != nil && env.Method == "" {
 			*done = true
 		}
 	}
@@ -409,7 +409,7 @@ func (t *httpTransport) consumeSSE(r io.Reader) error {
 // 不经解析报文体即可路由（这些头对现代服务器是 REQUIRED）。
 func mirrorHeaders(h http.Header, msg []byte) {
 	var env rpcEnvelope
-	if err := json.Unmarshal(msg, &env); err != nil {
+	if err := jsonx.Unmarshal(msg, &env); err != nil {
 		return
 	}
 	if env.Method != "" {
@@ -417,7 +417,7 @@ func mirrorHeaders(h http.Header, msg []byte) {
 	}
 	if env.Method == methodCallTool {
 		var p callToolParams
-		if err := json.Unmarshal(env.Params, &p); err == nil && p.Name != "" {
+		if err := jsonx.Unmarshal(env.Params, &p); err == nil && p.Name != "" {
 			h.Set("Mcp-Name", encodeHeaderValue(p.Name))
 		}
 	}

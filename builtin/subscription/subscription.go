@@ -39,7 +39,6 @@ package subscription
 
 import (
 	stdctx "context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -47,6 +46,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -428,7 +428,7 @@ func (m *Manager) saveLocked() {
 		cp := *v
 		d.Subs[k] = &cp
 	}
-	bytes, err := json.Marshal(d)
+	bytes, err := jsonx.Marshal(d)
 	if err != nil {
 		logger.WithError(err).Warn("[Subscription] Failed to marshal")
 		return
@@ -447,7 +447,7 @@ func (m *Manager) load() {
 		return
 	}
 	var d subscriptionStorageData
-	if err := json.Unmarshal(bytes, &d); err != nil {
+	if err := jsonx.Unmarshal(bytes, &d); err != nil {
 		return
 	}
 	m.mu.Lock()

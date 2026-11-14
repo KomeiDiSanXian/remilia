@@ -2,7 +2,6 @@ package auditlog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -253,7 +253,7 @@ func (p *Plugin) getGormDB() *gorm.DB {
 func (p *Plugin) toModel(e LogEntry) LogEntryModel {
 	metaStr := ""
 	if e.Meta != nil {
-		if b, err := json.Marshal(e.Meta); err == nil {
+		if b, err := jsonx.Marshal(e.Meta); err == nil {
 			metaStr = string(b)
 		}
 	}
@@ -495,7 +495,7 @@ func (p *Plugin) loadModels(models []LogEntryModel) {
 		}
 		if m.Meta != "" {
 			var meta map[string]any
-			if err := json.Unmarshal([]byte(m.Meta), &meta); err == nil {
+			if err := jsonx.Unmarshal([]byte(m.Meta), &meta); err == nil {
 				entry.Meta = meta
 			}
 		}

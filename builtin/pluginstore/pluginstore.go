@@ -23,12 +23,12 @@
 package pluginstore
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -57,7 +57,7 @@ type registration struct {
 
 // pluginstoreFile is the on-disk format: map of plugin name → raw JSON state.
 type pluginstoreFile struct {
-	States map[string]json.RawMessage `json:"states"`
+	States map[string]jsonx.RawMessage `json:"states"`
 }
 
 // Plugin 插件配置持久化插件
@@ -192,7 +192,7 @@ func (p *Plugin) doSave(r *registration) error {
 	if state == nil {
 		return nil
 	}
-	data, err := json.Marshal(state)
+	data, err := jsonx.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("pluginstore: marshal for %s failed: %w", r.name, err)
 	}
@@ -213,7 +213,7 @@ func (p *Plugin) doSave(r *registration) error {
 	defer p.fileMu.Unlock()
 	current, err := jsonfile.Read[pluginstoreFile](p.dataFile)
 	if err != nil || current.States == nil {
-		current = pluginstoreFile{States: make(map[string]json.RawMessage)}
+		current = pluginstoreFile{States: make(map[string]jsonx.RawMessage)}
 	}
 	current.States[r.name] = data
 	if err := jsonfile.Write(p.dataFile, current); err != nil {
@@ -257,7 +257,7 @@ func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
 
 func (p *Plugin) restoreFromRaw(name string, raw []byte, restore RestoreFunc) {
 	var state any
-	if err := json.Unmarshal(raw, &state); err != nil {
+	if err := jsonx.Unmarshal(raw, &state); err != nil {
 		logger.WithError(err).Warnf("[PluginStore] Failed to unmarshal state for plugin %s", name)
 		return
 	}

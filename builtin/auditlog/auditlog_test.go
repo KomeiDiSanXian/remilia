@@ -1,10 +1,10 @@
 package auditlog_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 func TestAuditLog_RecordAndQuery(t *testing.T) {
@@ -63,12 +63,12 @@ func TestAuditLog_LogEntryJSONContract(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	data, err := json.Marshal(entries[0])
+	data, err := jsonx.Marshal(entries[0])
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := jsonx.Unmarshal(data, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	for _, key := range []string{"id", "timestamp", "user_id", "action"} {

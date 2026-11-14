@@ -1,7 +1,6 @@
 package autoresponder
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -403,7 +403,7 @@ func (p *Plugin) save() {
 	}
 	copy(data.Rules, p.rules)
 	p.mu.RUnlock()
-	bytes, err := json.Marshal(data)
+	bytes, err := jsonx.Marshal(data)
 	if err != nil {
 		logger.WithError(err).Warn("[AutoResponder] Failed to marshal")
 		return
@@ -425,7 +425,7 @@ func (p *Plugin) load() {
 		Rules  []*Rule `json:"rules"`
 		NextID int64   `json:"next_id"`
 	}
-	if err := json.Unmarshal(bytes, &data); err != nil {
+	if err := jsonx.Unmarshal(bytes, &data); err != nil {
 		return
 	}
 	p.mu.Lock()

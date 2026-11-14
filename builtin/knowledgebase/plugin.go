@@ -11,7 +11,6 @@ package knowledgebase
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -235,7 +235,7 @@ func configInt(ctx *plugin.SetupContext, key string) (int, bool) {
 		return int(v), true
 	case float64:
 		return int(v), true
-	case json.Number:
+	case jsonx.Number:
 		n, err := v.Int64()
 		return int(n), err == nil
 	default:

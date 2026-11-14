@@ -1,9 +1,10 @@
 package mcp
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // protocol.go — MCP 协议类型、版本与元数据约定。
@@ -134,9 +135,9 @@ type discoverResult struct {
 
 // subscriptionFilter subscriptions/listen 的 opt-in 通知集合。
 type subscriptionFilter struct {
-	ToolsListChanged     bool `json:"toolsListChanged,omitempty"`
-	PromptsListChanged   bool `json:"promptsListChanged,omitempty"`
-	ResourcesListChanged bool `json:"resourcesListChanged,omitempty"`
+	ToolsListChanged     bool `json:"toolsListChanged,omitzero"`
+	PromptsListChanged   bool `json:"promptsListChanged,omitzero"`
+	ResourcesListChanged bool `json:"resourcesListChanged,omitzero"`
 }
 
 // subscriptionsListenParams subscriptions/listen 请求参数。
@@ -159,7 +160,7 @@ type toolAnnotations struct {
 type mcpTool struct {
 	Name        string           `json:"name"`
 	Description string           `json:"description"`
-	InputSchema json.RawMessage  `json:"inputSchema"`
+	InputSchema jsonx.RawMessage `json:"inputSchema"`
 	Annotations *toolAnnotations `json:"annotations"`
 }
 
@@ -204,10 +205,10 @@ type contentItem struct {
 
 // callToolResult tools/call 响应结果。
 type callToolResult struct {
-	Content           []contentItem   `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent"`
-	IsError           bool            `json:"isError"`
-	ResultType        string          `json:"resultType"`
+	Content           []contentItem    `json:"content"`
+	StructuredContent jsonx.RawMessage `json:"structuredContent"`
+	IsError           bool             `json:"isError"`
+	ResultType        string           `json:"resultType"`
 }
 
 // metaCarrier 由需要携带 _meta 的请求参数实现（无状态流程填充）。

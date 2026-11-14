@@ -3,7 +3,6 @@ package mcp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/catalog"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -347,8 +347,8 @@ func sameToolSet(a, b []mcpTool) bool {
 	sort.Slice(as, func(i, j int) bool { return as[i].Name < as[j].Name })
 	sort.Slice(bs, func(i, j int) bool { return bs[i].Name < bs[j].Name })
 	for i := range as {
-		rawA, errA := json.Marshal(as[i])
-		rawB, errB := json.Marshal(bs[i])
+		rawA, errA := jsonx.Marshal(as[i])
+		rawB, errB := jsonx.Marshal(bs[i])
 		if errA != nil || errB != nil || !bytes.Equal(rawA, rawB) {
 			return false
 		}

@@ -3,28 +3,24 @@
 package jsonfile
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
-// opts 使用 encoding/json/v2（Go 1.27）并启用确定性输出：
-// map 键按字典序序列化，保证同一数据写入的文件字节稳定。
-//
-// 注意：v2 与 v1 在语义上存在差异——"omitempty" 仅在值为
-// null/""/{}/[] 时省略（数字 0 与 false 不会省略），且解到 any
-// 时得到 jsontext.Value 而非 float64。jsonfile 的当前调用方
-// （broadcast/pluginstore）不涉及这些差异；如需 v1 语义请继续使用
-// encoding/json。
-var opts = jsonv2.JoinOptions(
-	jsonv2.MatchCaseInsensitiveNames(true),
-	jsonv2.Deterministic(true),
-)
+// 读旧文件时放宽大小写匹配：历史版本写下的状态文件可能出现键名大小写差异。
+// 写新文件仍走 jsonx 默认的严格语义。
+var compat = jsonx.CaseInsensitiveNames()
 
 // Write atomically writes v as JSON to path.
 // Creates parent directories as needed.
 // If path is empty, Write is a no-op and returns nil.
+//
+// 序列化走 infra/jsonx（encoding/json/v2 + 确定性 map 顺序），保证同一数据
+// 写入的文件字节稳定；v2 的 omitempty 只省略 null/""/{}/[]，bool 与数值
+// 字段需用 omitzero 才会省略 0/false（本包调用方不受影响）。
 func Write(path string, v any) error {
 	if path == "" {
 		return nil
@@ -32,7 +28,7 @@ func Write(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	data, err := jsonv2.Marshal(v, opts)
+	data, err := jsonx.Marshal(v)
 	if err != nil {
 		return err
 	}
@@ -51,7 +47,7 @@ func Read[T any](path string) (T, error) {
 	if err != nil {
 		return zero, err
 	}
-	if err := jsonv2.Unmarshal(data, &zero, opts); err != nil {
+	if err := jsonx.Unmarshal(data, &zero, compat); err != nil {
 		return zero, err
 	}
 	return zero, nil

@@ -2,7 +2,6 @@ package messagelog
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -121,7 +121,7 @@ func (s *spool) append(entry RecordEntry) error {
 	if s.size >= s.maxSize {
 		return errSpoolFull
 	}
-	data, err := json.Marshal(entry)
+	data, err := jsonx.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal spool record: %w", err)
 	}
@@ -170,7 +170,7 @@ func (s *spool) read(offset int64, n int) ([]spoolRecord, error) {
 		}
 		next := offset + int64(len(line)) + 1
 		var e RecordEntry
-		if err := json.Unmarshal(line, &e); err != nil {
+		if err := jsonx.Unmarshal(line, &e); err != nil {
 			logger.WithError(err).Warn("[MessageLog] spool corrupt record skipped")
 			s.cursor = next
 			if s.records > 0 {

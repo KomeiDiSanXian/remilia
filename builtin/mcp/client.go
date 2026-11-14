@@ -2,13 +2,13 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -215,11 +215,11 @@ func (c *client) callInto(ctx context.Context, method string, params, out any) e
 	if out == nil || len(raw) == 0 {
 		return nil
 	}
-	return json.Unmarshal(raw, out)
+	return jsonx.Unmarshal(raw, out)
 }
 
 // call 发起一次请求并等待响应，顺带记录请求次数与耗时。
-func (c *client) call(ctx context.Context, method string, params any) (raw json.RawMessage, err error) {
+func (c *client) call(ctx context.Context, method string, params any) (raw jsonx.RawMessage, err error) {
 	start := time.Now()
 	defer func() { recordRPCRequest(c.cfg.Name, method, time.Since(start), err) }()
 
@@ -267,7 +267,7 @@ func (c *client) nextRequestID() int64 { return c.nextID.Add(1) }
 // 服务器会永久挂起等待。
 func (c *client) handleMessage(raw []byte) {
 	var env rpcEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := jsonx.Unmarshal(raw, &env); err != nil {
 		logger.Debugf("[MCP] %s: drop malformed message: %v", c.cfg.Name, err)
 		return
 	}
@@ -320,7 +320,7 @@ func (c *client) replyServerRequestError(id int64) {
 		ID:      &id,
 		Error:   &rpcError{Code: -32601, Message: "method not found: server requests are not supported by this client"},
 	}
-	data, err := json.Marshal(resp)
+	data, err := jsonx.Marshal(resp)
 	if err != nil {
 		return
 	}

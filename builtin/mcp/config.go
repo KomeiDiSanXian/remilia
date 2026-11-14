@@ -1,11 +1,12 @@
 package mcp
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // config.go — 本子系统自持的配置。
@@ -27,7 +28,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 	if strings.HasPrefix(s, `"`) {
 		var str string
-		if err := json.Unmarshal(b, &str); err != nil {
+		if err := jsonx.Unmarshal(b, &str); err != nil {
 			return err
 		}
 		v, err := time.ParseDuration(str)
@@ -38,7 +39,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	var n float64
-	if err := json.Unmarshal(b, &n); err != nil {
+	if err := jsonx.Unmarshal(b, &n); err != nil {
 		return err
 	}
 	*d = Duration(time.Duration(n * float64(time.Second)))
@@ -47,7 +48,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // MarshalJSON 以 Go 时长字符串序列化。
 func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Duration(d).String())
+	return jsonx.Marshal(time.Duration(d).String())
 }
 
 // Std 返回标准库时长。
@@ -141,11 +142,11 @@ func Load(values map[string]any) (*Config, error) {
 	if len(values) == 0 {
 		return &cfg, nil
 	}
-	raw, err := json.Marshal(values)
+	raw, err := jsonx.Marshal(values)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: encode config: %w", err)
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	if err := jsonx.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("mcp: decode config: %w", err)
 	}
 	return &cfg, nil

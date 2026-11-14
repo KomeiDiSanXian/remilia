@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net"
 	"slices"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -181,14 +181,14 @@ func (s *fakeServer) notifyToolsChanged() {
 // handle 处理一条客户端报文；通知返回 nil（无需响应）。
 func (s *fakeServer) handle(raw []byte) []byte {
 	var env rpcEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := jsonx.Unmarshal(raw, &env); err != nil {
 		return nil
 	}
 	if env.Method != "" {
 		var carrier struct {
 			Meta map[string]any `json:"_meta"`
 		}
-		_ = json.Unmarshal(env.Params, &carrier)
+		_ = jsonx.Unmarshal(env.Params, &carrier)
 		s.recordRequest(env.Method, carrier.Meta)
 	}
 	// 订阅是长连：先回一条 ack 通知（无 id），流的生命周期由传输维持。
@@ -211,7 +211,7 @@ func (s *fakeServer) handle(raw []byte) []byte {
 		if pv == "" {
 			pv = HandshakeProtocolVersion
 		}
-		resp.Result, _ = json.Marshal(initializeResult{
+		resp.Result, _ = jsonx.Marshal(initializeResult{
 			ProtocolVersion: pv,
 			ServerInfo:      serverInfo{Name: "fake", Version: "1.0"},
 		})
@@ -237,7 +237,7 @@ func (s *fakeServer) handle(raw []byte) []byte {
 			}
 			break
 		}
-		resp.Result, _ = json.Marshal(discoverResult{
+		resp.Result, _ = jsonx.Marshal(discoverResult{
 			ResultType:        resultTypeComplete,
 			SupportedVersions: versions,
 			Capabilities:      map[string]any{"tools": map[string]any{}},
@@ -253,10 +253,10 @@ func (s *fakeServer) handle(raw []byte) []byte {
 			tools = append([]mcpTool(nil), s.tools...)
 		}
 		s.mu.Unlock()
-		resp.Result, _ = json.Marshal(listToolsResult{Tools: tools, ResultType: resultTypeComplete})
+		resp.Result, _ = jsonx.Marshal(listToolsResult{Tools: tools, ResultType: resultTypeComplete})
 	case methodCallTool:
 		var p callToolParams
-		_ = json.Unmarshal(env.Params, &p)
+		_ = jsonx.Unmarshal(env.Params, &p)
 		var res *callToolResult
 		if s.onCall != nil {
 			res = s.onCall(p.Name, p.Arguments)
@@ -264,11 +264,11 @@ func (s *fakeServer) handle(raw []byte) []byte {
 			res = &callToolResult{Content: []contentItem{{Type: "text", Text: "ok"}}}
 		}
 		res.ResultType = resultTypeComplete
-		resp.Result, _ = json.Marshal(res)
+		resp.Result, _ = jsonx.Marshal(res)
 	default:
 		resp.Error = &rpcError{Code: rpcCodeMethodNotFound, Message: "method not found"}
 	}
-	out, _ := json.Marshal(resp)
+	out, _ := jsonx.Marshal(resp)
 	return out
 }
 
@@ -340,7 +340,7 @@ func TestManagerMaterializesToolsAndExecutes(t *testing.T) {
 	srv := newFakeServer(mcpTool{
 		Name:        "search",
 		Description: "search things",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+		InputSchema: jsonx.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
 	})
 	srv.onCall = func(name string, _ map[string]any) *callToolResult {
 		return &callToolResult{Content: []contentItem{{Type: "text", Text: "result for " + name}}}
@@ -521,7 +521,7 @@ func TestStatelessSessionConnectsExecutesAndSubscribes(t *testing.T) {
 	srv := newFakeServer(mcpTool{
 		Name:        "search",
 		Description: "search things",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+		InputSchema: jsonx.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
 	})
 	srv.setStateless(true)
 	srv.onCall = func(name string, _ map[string]any) *callToolResult {
@@ -878,7 +878,7 @@ func TestConvertCallResultPreservesRichParts(t *testing.T) {
 		{Type: "image", Data: base64.StdEncoding.EncodeToString([]byte("img")), MimeType: "image/png"},
 		{Type: "resource", Resource: &resourceContent{URI: "mem://x", MimeType: "text/plain"}},
 	}}
-	res.StructuredContent = json.RawMessage(`{"k":1}`)
+	res.StructuredContent = jsonx.RawMessage(`{"k":1}`)
 
 	got, err := convertCallResult("srv", res)
 	if err != nil {

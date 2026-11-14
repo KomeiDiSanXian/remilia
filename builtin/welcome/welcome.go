@@ -1,7 +1,6 @@
 package welcome
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -30,8 +30,8 @@ type GroupConfig struct {
 	// WelcomeSet / FarewellSet 标记对应字段是否被显式配置过（set/off）。
 	// 群配置条目存在但某字段未显式配置时，该字段回退到全局配置，
 	// 避免"只设置了告别就意外屏蔽全局欢迎"。
-	WelcomeSet  bool `json:"welcome_set,omitempty"`
-	FarewellSet bool `json:"farewell_set,omitempty"`
+	WelcomeSet  bool `json:"welcome_set,omitzero"`
+	FarewellSet bool `json:"farewell_set,omitzero"`
 }
 
 type Plugin struct {
@@ -552,7 +552,7 @@ func (p *Plugin) save() {
 	data := make(map[string]*GroupConfig, len(p.configs))
 	maps.Copy(data, p.configs)
 	p.mu.RUnlock()
-	bytes, err := json.Marshal(data)
+	bytes, err := jsonx.Marshal(data)
 	if err != nil {
 		logger.WithError(err).Warn("[Welcome] Failed to marshal")
 		return
@@ -571,7 +571,7 @@ func (p *Plugin) load() {
 		return
 	}
 	var data map[string]*GroupConfig
-	if err := json.Unmarshal(bytes, &data); err != nil {
+	if err := jsonx.Unmarshal(bytes, &data); err != nil {
 		return
 	}
 	p.mu.Lock()

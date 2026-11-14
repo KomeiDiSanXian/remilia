@@ -20,7 +20,6 @@ package verifycode
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -28,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -281,7 +281,7 @@ func (p *Plugin) save() {
 	codes := make(map[string]*CodeEntry, len(p.codes))
 	maps.Copy(codes, p.codes)
 	p.mu.RUnlock()
-	bytes, err := json.Marshal(codes)
+	bytes, err := jsonx.Marshal(codes)
 	if err != nil {
 		logger.WithError(err).Warn("[VerifyCode] Failed to marshal codes")
 		return
@@ -300,7 +300,7 @@ func (p *Plugin) load() {
 		return
 	}
 	var codes map[string]*CodeEntry
-	if err := json.Unmarshal(bytes, &codes); err != nil {
+	if err := jsonx.Unmarshal(bytes, &codes); err != nil {
 		logger.WithError(err).Warn("[VerifyCode] Failed to unmarshal codes")
 		return
 	}

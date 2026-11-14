@@ -18,7 +18,6 @@ package acl
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
@@ -28,6 +27,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -385,7 +385,7 @@ func (p *Plugin) save() {
 	maps.Copy(snap.Entries, p.entries)
 	p.mu.RUnlock()
 
-	data, err := json.Marshal(snap)
+	data, err := jsonx.Marshal(snap)
 	if err != nil {
 		logger.WithError(err).Warn("[ACL] Failed to marshal")
 		return
@@ -404,7 +404,7 @@ func (p *Plugin) load() {
 		return
 	}
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := jsonx.Unmarshal(data, &snap); err != nil {
 		return
 	}
 	p.mu.Lock()

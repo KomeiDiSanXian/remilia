@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/toolkit"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -123,10 +123,10 @@ func destructiveHint(ann *toolAnnotations) bool {
 
 // parseInputSchema 把 MCP 的 inputSchema 收敛为工具参数 Schema；无法解析时
 // 回退到"单一 object 参数"。
-func parseInputSchema(raw json.RawMessage) protocol.ToolParamSchema {
+func parseInputSchema(raw jsonx.RawMessage) protocol.ToolParamSchema {
 	if len(raw) > 0 {
 		var sch protocol.ToolParamSchema
-		if err := json.Unmarshal(raw, &sch); err == nil && sch.Type != "" {
+		if err := jsonx.Unmarshal(raw, &sch); err == nil && sch.Type != "" {
 			return sch
 		}
 	}
