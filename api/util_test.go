@@ -1,10 +1,10 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -176,7 +176,7 @@ func TestWriteOK(t *testing.T) {
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
 	var resp APIResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
+	err := jsonx.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.Code)
 	assert.Equal(t, "ok", resp.Message)
@@ -188,7 +188,7 @@ func TestWriteErr(t *testing.T) {
 	assert.Equal(t, 404, w.Code)
 
 	var resp APIResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
+	err := jsonx.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 404, resp.Code)
 	assert.Equal(t, "not found", resp.Message)

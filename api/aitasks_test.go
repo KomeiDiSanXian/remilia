@@ -1,11 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,7 +17,7 @@ func doJSON(t *testing.T, h http.Handler, method, path string) (int, map[string]
 	r.Header.Set("Authorization", "Bearer test-key")
 	h.ServeHTTP(w, r)
 	var resp map[string]any
-	_ = json.NewDecoder(w.Body).Decode(&resp)
+	_ = jsonx.NewDecoder(w.Body).Decode(&resp)
 	return w.Code, resp
 }
 

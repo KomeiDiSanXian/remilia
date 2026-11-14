@@ -2,12 +2,12 @@ package api
 
 import (
 	"encoding/json/jsontext"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -128,11 +128,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	enc := jsontext.NewEncoder(w)
+	enc := jsontext.NewEncoder(w, jsonx.Options())
 	writeLog := func(entry LogEntry) {
 		fmt.Fprint(w, "data: ")
 		// 直接流式编码到 ResponseWriter，避免每次分配中间 []byte。
-		if err := jsonv2.MarshalEncode(enc, entry); err != nil {
+		if err := jsonx.MarshalEncode(enc, entry); err != nil {
 			logger.WithError(err).Error("[API] Failed to encode log entry")
 			return
 		}

@@ -2,12 +2,12 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"gopkg.in/yaml.v3"
@@ -49,7 +49,7 @@ func (s *Server) handleAddPlatform(w http.ResponseWriter, r *http.Request) {
 		Type   string         `json:"type"`
 		Config map[string]any `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
 		return
 	}

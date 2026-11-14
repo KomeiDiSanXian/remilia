@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -305,14 +305,14 @@ log:
 		Code int            `json:"code"`
 		Data map[string]any `json:"data"`
 	}
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.NoError(t, jsonx.NewDecoder(w.Body).Decode(&resp))
 	qq := resp.Data["Bot"].(map[string]any)["QQ"].(map[string]any)
 	assert.Equal(t, "9007199254740993", qq["AppID"])
 	assert.Equal(t, "456", qq["BotID"])
 
 	// 模拟仪表盘：改一个无关字段后把整棵（含字符串 ID 的）配置回传
 	qq["Webhook"].(map[string]any)["Port"] = float64(9090)
-	body, err := json.Marshal(map[string]any{"Bot": resp.Data["Bot"]})
+	body, err := jsonx.Marshal(map[string]any{"Bot": resp.Data["Bot"]})
 	require.NoError(t, err)
 
 	w = httptest.NewRecorder()

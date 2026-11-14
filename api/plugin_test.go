@@ -1,11 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,11 +58,11 @@ func TestPluginDetailJSONKeys(t *testing.T) {
 		MatcherCount: 2,
 	})
 
-	data, err := json.Marshal(detail)
+	data, err := jsonx.Marshal(detail)
 	require.NoError(t, err)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(data, &m))
+	require.NoError(t, jsonx.Unmarshal(data, &m))
 	assert.Equal(t, "Error", m["state"])
 	assert.Equal(t, "5s", m["uptime"])
 	assert.Equal(t, "kaboom", m["last_error"])

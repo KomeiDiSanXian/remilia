@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func getJSON(t *testing.T, h http.Handler, path string) (int, map[string]any) {
 	r.Header.Set("Authorization", "Bearer test-key")
 	h.ServeHTTP(w, r)
 	var resp map[string]any
-	_ = json.NewDecoder(w.Body).Decode(&resp)
+	_ = jsonx.NewDecoder(w.Body).Decode(&resp)
 	return w.Code, resp
 }
 

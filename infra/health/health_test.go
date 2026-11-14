@@ -2,13 +2,13 @@ package health
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -341,7 +341,7 @@ func TestCheck_HTTPHandler(t *testing.T) {
 			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
 			var response CheckResponse
-			err := json.NewDecoder(w.Body).Decode(&response)
+			err := jsonx.NewDecoder(w.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedHealth, response.Status)

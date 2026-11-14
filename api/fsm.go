@@ -60,7 +60,7 @@ func (s *Server) handleListFSMSessions(w http.ResponseWriter, _ *http.Request) {
 		Current   string `json:"current"`
 		CreatedAt int64  `json:"created_at"`
 		UpdatedAt int64  `json:"updated_at"`
-		ExpireAt  int64  `json:"expire_at,omitempty"`
+		ExpireAt  int64  `json:"expire_at,omitzero"`
 	}
 	sessions := eng.ListSessions()
 	out := make([]sessionResp, 0, len(sessions))

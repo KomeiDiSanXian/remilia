@@ -1,11 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/permission"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 type permPlugin interface {
@@ -69,7 +69,7 @@ func (s *Server) handleAssignRole(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -104,7 +104,7 @@ func (s *Server) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -163,7 +163,7 @@ func (s *Server) handleAddRolePermission(w http.ResponseWriter, r *http.Request)
 		Resource string `json:"resource"`
 		Action   string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -188,7 +188,7 @@ func (s *Server) handleRemoveRolePermission(w http.ResponseWriter, r *http.Reque
 		Resource string `json:"resource"`
 		Action   string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -208,7 +208,7 @@ func (s *Server) handleCheckPermission(w http.ResponseWriter, r *http.Request) {
 		Resource string `json:"resource"`
 		Action   string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid request body", http.StatusBadRequest)
 		return
 	}

@@ -3,13 +3,13 @@ package httpclient
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/tidwall/gjson"
 )
 
@@ -242,7 +242,7 @@ func (r *Request) SetBody(body io.Reader) *Request {
 
 // SetJSON 设置 JSON 请求体
 func (r *Request) SetJSON(data any) *Request {
-	jsonData, err := json.Marshal(data)
+	jsonData, err := jsonx.Marshal(data)
 	if err != nil {
 		// 修复 #9：存储错误，Do() 时返回，而非静默丢弃（避免发出空 body 请求）
 		r.buildErr = fmt.Errorf("SetJSON: failed to marshal data: %w", err)
@@ -547,7 +547,7 @@ func (r *Response) Unmarshal(v any) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(body, v)
+	return jsonx.Unmarshal(body, v)
 }
 
 // IsSuccess 检查响应是否成功 (2xx)

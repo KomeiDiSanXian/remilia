@@ -2,8 +2,9 @@ package api
 
 import (
 	"bytes"
-	jsonv2 "encoding/json/v2"
 	"sync"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // LogCaptureWriter 实现 io.Writer，解析 zerolog JSON 输出并存入环形缓冲区。
@@ -48,12 +49,11 @@ func (w *LogCaptureWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// parseLogLine 使用 encoding/json/v2（Go 1.27）解析 zerolog 行：
-// 字段顺序无关，字符串转义（如 \n）由解码器正确处理。
-// 无法解析时返回 ("info", "")，由调用方回退到原始行。
+// parseLogLine 解析 zerolog 行：字段顺序无关，字符串转义（如 \n）由解码器
+// 正确处理。无法解析时返回 ("info", "")，由调用方回退到原始行。
 func parseLogLine(line []byte) (level, msg string) {
 	var entry logLine
-	if err := jsonv2.Unmarshal(line, &entry); err != nil {
+	if err := jsonx.Unmarshal(line, &entry); err != nil {
 		return "info", ""
 	}
 	if entry.Level == "" {

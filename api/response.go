@@ -21,9 +21,9 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -42,7 +42,7 @@ type APIResponse struct {
 func writeJSON(w http.ResponseWriter, status int, resp APIResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := jsonx.NewEncoder(w).Encode(resp); err != nil {
 		logger.WithError(err).Error("[API] Failed to encode JSON response")
 	}
 }

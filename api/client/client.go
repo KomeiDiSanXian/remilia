@@ -17,12 +17,13 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // --- 核心客户端 ---
@@ -52,9 +53,9 @@ func New(baseURL, apiKey string) *Client {
 
 // apiResponse 匹配服务器端的统一响应结构，用于内部解析。
 type apiResponse struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data"`
+	Code    int              `json:"code"`
+	Message string           `json:"message"`
+	Data    jsonx.RawMessage `json:"data"`
 }
 
 // do 发送 HTTP 请求并解析统一响应。
@@ -62,7 +63,7 @@ type apiResponse struct {
 func (c *Client) do(ctx context.Context, method, path string, body any, result any) error {
 	var reqBody io.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := jsonx.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("client: marshal request body: %w", err)
 		}
@@ -92,7 +93,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	}
 
 	var apiResp apiResponse
-	if err := json.Unmarshal(raw, &apiResp); err != nil {
+	if err := jsonx.Unmarshal(raw, &apiResp); err != nil {
 		return fmt.Errorf("client: parse response: %w (body: %s)", err, string(raw))
 	}
 
@@ -101,7 +102,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	}
 
 	if result != nil && len(apiResp.Data) > 0 {
-		if err := json.Unmarshal(apiResp.Data, result); err != nil {
+		if err := jsonx.Unmarshal(apiResp.Data, result); err != nil {
 			return fmt.Errorf("client: unmarshal data: %w", err)
 		}
 	}

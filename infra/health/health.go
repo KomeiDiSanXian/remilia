@@ -17,12 +17,13 @@ package health
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 )
 
 // Status 表示健康状态。
@@ -115,7 +116,7 @@ type Node struct {
 	Status     Status         `json:"status,omitempty"`
 	Message    string         `json:"message,omitempty"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
-	DurationMs int64          `json:"duration_ms,omitempty"`
+	DurationMs int64          `json:"duration_ms,omitzero"`
 	Children   []*Node        `json:"children,omitempty"`
 }
 
@@ -133,8 +134,8 @@ type CheckResponse struct {
 type CategorySummary struct {
 	Total     int `json:"total"`
 	Healthy   int `json:"healthy"`
-	Degraded  int `json:"degraded,omitempty"`
-	Unhealthy int `json:"unhealthy,omitempty"`
+	Degraded  int `json:"degraded,omitzero"`
+	Unhealthy int `json:"unhealthy,omitzero"`
 }
 
 // SummarySection 是摘要视图的分类汇总。
@@ -688,7 +689,7 @@ func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Query().Get("view") == "full" {
-		_ = json.NewEncoder(w).Encode(response)
+		_ = jsonx.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -698,7 +699,7 @@ func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	summary.Commit = response.Commit
 	summary.BuildTime = response.BuildTime
 	summary.Time = response.Time
-	_ = json.NewEncoder(w).Encode(summary)
+	_ = jsonx.NewEncoder(w).Encode(summary)
 }
 
 // ReadinessHandler 用于 K8s readiness probe。
@@ -714,7 +715,7 @@ func (h *Check) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	_ = json.NewEncoder(w).Encode(response)
+	_ = jsonx.NewEncoder(w).Encode(response)
 }
 
 // LivenessHandler 用于 K8s liveness probe。
@@ -729,5 +730,5 @@ func (h *Check) LivenessHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	_ = json.NewEncoder(w).Encode(response)
+	_ = jsonx.NewEncoder(w).Encode(response)
 }

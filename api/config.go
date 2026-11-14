@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"gopkg.in/yaml.v3"
 )
@@ -93,7 +93,7 @@ func deleteConfigKey(m map[string]any, keys ...string) {
 
 func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	if err := jsonx.NewDecoder(r.Body).Decode(&updates); err != nil {
 		writeErr(w, 400, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -275,12 +275,12 @@ func dropMaskedSecrets(current, updates map[string]any) {
 
 // maskSensitive 将 config.Get() 返回的配置脱敏后返回（JSON 序列化 → map 操作）。
 func maskSensitive(raw any) any {
-	data, err := json.Marshal(raw)
+	data, err := jsonx.Marshal(raw)
 	if err != nil {
 		return raw
 	}
 	var tree map[string]any
-	if err := json.Unmarshal(data, &tree); err != nil {
+	if err := jsonx.Unmarshal(data, &tree); err != nil {
 		return raw
 	}
 	maskTree(tree)

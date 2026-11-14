@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ func TestHandleHealth(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	var resp APIResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
+	err := jsonx.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.Code)
 }
@@ -65,7 +65,7 @@ func TestHandleAuthVerify(t *testing.T) {
 		assert.Equal(t, 200, w.Code)
 
 		var resp APIResponse
-		err := json.NewDecoder(w.Body).Decode(&resp)
+		err := jsonx.NewDecoder(w.Body).Decode(&resp)
 		require.NoError(t, err)
 		assert.Equal(t, 0, resp.Code)
 	})
@@ -130,7 +130,7 @@ func TestHandleGetConfig(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	var resp APIResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
+	err := jsonx.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.Code)
 }
@@ -226,7 +226,7 @@ func TestHandleGetBots_WithAuth(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	var resp APIResponse
-	err := json.NewDecoder(w.Body).Decode(&resp)
+	err := jsonx.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 0, resp.Code)
 }
