@@ -358,6 +358,36 @@ type AuditEntry struct {
 }
 ```
 
+### infra/jsonx
+
+仓库内 JSON 的唯一入口，封装 `encoding/json/v2`：
+
+```go
+// 语义固定为 v2 严格模式 + 确定性 map 顺序 + time.Duration 纳秒数字
+func Marshal(v any, opts ...jsonv2.Options) ([]byte, error)
+func MarshalIndent(v any, prefix, indent string, opts ...jsonv2.Options) ([]byte, error)
+func MarshalWrite(w io.Writer, v any, opts ...jsonv2.Options) error
+func Unmarshal(data []byte, out any, opts ...jsonv2.Options) error
+func UnmarshalRead(r io.Reader, out any, opts ...jsonv2.Options) error
+func MarshalEncode(enc *jsontext.Encoder, v any, opts ...jsonv2.Options) error
+func UnmarshalDecode(dec *jsontext.Decoder, out any, opts ...jsonv2.Options) error
+
+type Decoder struct{ /* 逐个读取流式多值 */ }
+type Encoder struct{ /* 每次 Encode 追加换行 */ }
+type RawMessage = jsontext.Value
+type Number string
+```
+
+模块内禁止 import `encoding/json`（v1）：v1/v2 的 `omitempty`、大小写匹配、
+重复键、非法 UTF-8、nil 切片/映射、`[N]byte`、`time.Duration` 语义都不同，
+混用会让出站字节与落盘文件不可推理。迁移后需要留意的三点：
+
+- `bool` 与数值字段的 `omitempty` 已统一改为 `omitzero`（v2 的 `omitempty`
+  只省略 null/""/{}/[]）；
+- 解码不再大小写不敏感、不再接受重复键与非法 UTF-8，上游脏数据会显式报错；
+- `time.Duration` 由本包的编解码器保证仍写成纳秒数字（v2 默认无表示，
+  直接 Marshal 会报错）。
+
 ## 迭代过程
 
 ### 背景：从"散落各处的通用代码"到"集中管理的 infra 包"

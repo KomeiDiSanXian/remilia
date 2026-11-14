@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### ♻️ 重构
+
+**JSON：统一迁移到 `encoding/json/v2`，新增 `infra/jsonx` 作为唯一入口**
+
+Go 1.27 起 `encoding/json/v2` 已稳定，但仓库里仍有 149 个文件 import 的是 v1 的 `encoding/json`，与已迁移的 `api` SSE 日志流、`builtin/internal/jsonfile` 混用。两套语义并存时，"同一份结构体在哪里被序列化"决定它落成什么字节，持久化文件与平台出站 payload 的兼容性都变得不可推理。
+
+- **新增 `infra/jsonx`**：`Marshal` / `MarshalIndent` / `MarshalWrite` / `Unmarshal` / `UnmarshalRead` / `MarshalEncode` / `UnmarshalDecode` / `Valid` / `Decoder` / `Encoder` / `RawMessage` / `Number` / `Options()`。选项集在包内单点定义，调用方可按次追加（后者覆盖前者），因此个别场景仍能临时放宽。
+- **语义基线是 v2 严格模式**，只额外固定两项非兼容性设置：`Deterministic(true)`（map 按键排序，同一输入的落盘字节稳定）与 `time.Duration` 的纳秒数字编解码器。v2 默认**没有** `time.Duration` 表示，不注册会直接报 `no default representation`，`builtin/scheduler` 的 `JobRecord.Duration`、`builtin/ai/session` 的 `ToolTraceEntry.Duration` 都会炸。
+- **149 个文件、全部 `json.X` 调用点**机械迁移到 `jsonx.X`（`api`、`builtin`、`platform`、`core` 之外的 `cmd/bot`、`testbot`、`examples`、`tests` 一并处理）；`platform/{milky,onebot,satori}` 的 `json.RawMessage` 换成 `jsonx.RawMessage`（`= jsontext.Value` 的别名，可与 `jsontext` API 直接互传）。
+- **`bool` 与数值字段的 `omitempty` 全部改成 `omitzero`（248 个字段）**：v2 的 `omitempty` 只看"编码结果是否为空 JSON"（`null`/`""`/`{}`/`[]`），Go 的 `0` 与 `false` 不再被省略，会从"字段消失"变成"字段为 0/false"。这会让 Telegram/OneBot/QQ 的 `reply_to_message_id`、`max_tokens`、`enabled` 等字段在零值时被一并发出，平台侧行为随之变化——`omitzero` 才是 v1 `omitempty` 的等价语义。
+- **`string`、指针、`slice`/`map`、`interface`、结构体字段的 `omitempty` 保持不变**：v1 与 v2 对这些类型的行为一致，或差异在可接受范围内。
+- **`builtin/internal/jsonfile` 改用 `jsonx`**，只保留 `MatchCaseInsensitiveNames(true)` 这一处放宽——历史版本写下的状态文件可能出现键名大小写差异，读旧文件必须兼容，写新文件仍走严格语义。
+- **`api` 的日志流与 `api/logwriter` 收敛到 `jsonx`**：SSE 用 `jsontext.NewEncoder(w, jsonx.Options())` + `jsonx.MarshalEncode`，zerolog 行解析用 `jsonx.Unmarshal`，不再各自声明选项。
+- **`plugin/wasm/testdata`**（独立的 `go.mod`，`wasip1/wasm`）也迁到 `encoding/json/v2`，`go` 指令同步到 1.27；`make build-wasm-test` 的 fixture 已用 Go 1.27 重新构建。
+- **`.golangci.yml` 的 errcheck 白名单同步改名**：`encoding/json.Encoder.Encode` / `encoding/json.Unmarshal` 换成 `jsonx` 的对应方法。
+- **`AGENTS.md` 与 `docs/notes/10-infra-toolkit.md`** 补上约束与用法：模块内不再 import `encoding/json`，新增 JSON 代码一律走 `infra/jsonx`。
+
+**迁移后需要知道的行为变化**
+
+- 解码不再大小写不敏感（v1 会匹配 `FooBar` → `foo_bar`）；外部平台回包若键名大小写与结构体标签不一致，现在会静默解不到值。
+- JSON 对象里的重复键、非法 UTF-8、顶层值之后的尾随内容现在直接报错（v1 分别容忍/替换/忽略）。
+- `nil` 切片/映射编码为 `[]`/`{}` 而非 `null`；`[N]byte` 编码为 Base64 字符串而非数字数组（仓库内没有 `[N]byte` 的 JSON 字段，暂无影响）。
+- 字符串不再转义 `<`、`>`、`&`（`MarshalIndent` 得到的脚本类输出更可读）。
+
 ## v1.81.0 (2026-11-07)
 
 ### 🛠 修复

@@ -37,9 +37,9 @@ linters:
         - fmt.Fprintln
         - (net/http.ResponseWriter).Write
         - (net/http.Request).ParseForm
-        - encoding/json.Encoder.Encode
+        - (*github.com/KomeiDiSanXian/remilia/infra/jsonx.Encoder).Encode
+        - github.com/KomeiDiSanXian/remilia/infra/jsonx.Unmarshal
         - math/rand.Read
-        - encoding/json.Unmarshal
         - (net.Conn).SetDeadline
         - io/fs.WalkDir
   exclusions:
