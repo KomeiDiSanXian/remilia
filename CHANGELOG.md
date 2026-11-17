@@ -24,6 +24,55 @@
 
 - 新增用例：`TestTrimDoesNotRunMidTurn`（断言回合内第 n 轮请求是第 n+1 轮请求的严格前缀、且首轮工具结果仍在末轮请求里）、`TestTrimDoesNotRunOnTurnSavings`、`TestTrimWindowIsTheOnlyTurnBoundaryEntry`、`TestAppendMessageNoPersistDoesNotTrim`、`TestTrimWindowTrimsAtTurnBoundary`、`TestTouchSkipsTrimWhileTurnActive`。
 
+### ✨ 新特性
+
+**`builtin/ai`：框架事实按"可回放性"分道，支持原生上下文通道（默认关闭）**
+
+改造前，日期/时区/星期/平台等框架事实被拼进本轮用户消息。这带来两个成本：模型
+无法区分"框架提供的事实"与"用户说的话"；而且每轮那条 user 消息字节都不同，
+上一轮问答的尾部因此永久无法命中前缀缓存。
+
+- 新增 `promptctx.EnvironmentFacts`（取值）与 `RenderEnvProse`（渲染）：默认输出与改造
+  前**逐字节一致**；新增的 `weekday` / `timezone` / `location` / `language` 四个字段
+  必须由 `context_fields` 显式列出才会出现——升级本身不会击穿既有会话的缓存。
+- 新增 `promptctx.Item` / `Channel` / `Snapshot` / `Render`：上下文按"能否随历史回放"
+  分成 `Persistent`（框架事实）与 `Ephemeral`（群聊窗口/记忆/RAG/计划），信任边界由
+  **类型**保证——只有 `EnvironmentFacts.PersistentItems` 能产 `Persistent` 项，
+  不可信内容在编译期就写不进去，不需要运行时 Trust 检查。
+- 新增 `protocol.RoleEnvContext`（provider 中立的存储角色）与 `protocol.EnvFacts`
+  载荷：历史里存 JSON 事实，编码时才按端点渲染（DeepSeek `latest_reminder` 单行 CSV /
+  OpenAI `developer` 指令块 / Anthropic 中途 `system` / 兜底散文），换端点不需要
+  改写旧记录。
+- 新增 `runtime.EncodeEnvContext`：按端点处理**位置约束**（reminder/developer 保持在
+  user 之前；Anthropic 的中途 system 必须挪到 user **之后**，否则 400），并丢弃
+  无后继 user 的孤儿环境消息。
+- 新增 `protocol.ProbeMemory` + `DetectNativeContext`：按**端点身份**（base_url +
+  provider）选择形状，而不是维护一张必然腐化的模型白名单表。收到 400/422 且错误体
+  提到角色时，本进程内永久降级并当轮自动重试一次；鉴权失败/上下文超长等 400 不触发
+  降级。
+- 新增配置 `context_channel`（`user_suffix` 默认 / `auto`）、`context_timezone`、
+  `context_language`、`context_location`；`context_fields` 新增四个 opt-in 字段。
+- 环境事实按日期粒度去重：同一份事实不逐轮重复追加（事实已在历史里，重复只会按
+  回合线性占用窗口预算）；跨日后才写新的一条。
+- 新增指标 `ai_context_channel_total{channel,outcome}`，用于与
+  `ai_llm_tokens_total{type="prompt_cached"}` 对照评估原生通道收益。
+- `context_window` 现在同时计入环境事实：加上事实不会悄悄突破窗口。
+
+**适配器修正（与开关无关的既有缺陷）**
+
+- `toAnthropicMessages` 改为按角色变化 flush 的状态机：数组内的 system 不再被
+  `case RoleSystem: continue` 静默丢弃（Anthropic 自 2026 起支持 mid-conversation
+  system messages），且首条 system 仍只进顶级字段。
+- `toOpenAIMessages` 改用角色白名单：内部新增角色（含未编码的 `RoleEnvContext`）不再
+  `string(m.Role)` 裸透传给网关，避免不支持的端点以 400 拒绝整个请求。
+- `TrimMessages` 的裁剪起点同时跳过上下文通道消息：否则会留下"没有后继 user 的
+  reminder/中途 system"，请求必然 400。
+- `freeze_prefix_test` 的稳定前缀口径从"除最后一条"改为"最后一条 user 之前"：
+  旧口径在插入环境消息后会退化成恒真断言。
+
+行为开关默认关闭（`context_channel: user_suffix`），因此本次升级对现有部署的请求
+字节无影响；开关打开后由 `ai_context_channel_total` 与命中率数据决定是否切默认值。
+
 ## v1.82.0 (2026-11-14)
 
 ### ♻️ 重构

@@ -15,6 +15,11 @@
 // context_group_messages > 0 控制（关闭时两条路径都不纳入）。
 //
 // 各节的正文由调用方（装配侧）提供函数，因此本包不读取任何插件状态。
+//
+// 从"字符串拼接"到"条目集合"：本文件的所有 Builder 内部都产出 [Item]
+// （见 item.go），最终由 [Render] 拼成文本。这样预算编排、通道划分与
+// 渲染彼此独立——预算变化不会顺手改掉发出去的字节，通道划分也不需要
+// 在渲染层再做一次文本匹配。
 
 package promptctx
 
@@ -28,8 +33,12 @@ const ReserveTokens = 512
 
 // Source 动态上下文的一节来源（Provider）。
 // 只描述"能提供什么"，不决定其他节是否存在、也不决定整体预算。
+//
+// Source 产出的条目一律是 [Ephemeral]：群聊窗口、长期记忆、相关历史都可能
+// 来自任意成员或被模型抽取，回放它们等于把不可信内容钉成历史指令。能产
+// [Persistent] 条目的只有 [EnvironmentFacts]。
 type Source struct {
-	// Enabled 本节是否参与非预算路径；nil 表示恒参与。
+	// Enabled 本节是否参与；nil 表示恒参与。
 	Enabled func() bool
 	// Body 生成正文；limit 为调用方给出的上限（预算编排时会缩减）。
 	Body func(limit int) string
@@ -53,27 +62,31 @@ func (s Source) participates() bool {
 	return s.Enabled == nil || s.Enabled()
 }
 
-// fit 在剩余预算内装入本节，装入成功时扣减 *remain。
-// Shrink 为 true 时按比例缩量重试一次、必要时截断；否则单次估测，
-// 正文为空或超预算都不装入。
-func (s Source) fit(remain *int) string {
+// collect 在剩余预算内装入本节，返回条目（未装入时返回 nil）。
+// 装入成功时扣减 *remain。
+func (s Source) collect(remain *int) []Item {
+	body, ok := s.fit(remain)
+	if !ok {
+		return nil
+	}
+	return []Item{{section: s.Header, channel: Ephemeral, body: body}}
+}
+
+// fit 在剩余预算内装入本节，返回正文与是否装入。
+func (s Source) fit(remain *int) (string, bool) {
 	if s.Shrink {
-		return fitSection(remain, s.Limit, s.KeepTail, s.Body)
+		text := fitSection(remain, s.Limit, s.KeepTail, s.Body)
+		return text, text != ""
 	}
 	body := s.Body(s.Limit)
 	if body == "" {
-		return ""
+		return "", false
 	}
 	if est := EstimateTokens(body); est <= *remain {
 		*remain -= est
-		return body
+		return body, true
 	}
-	return ""
-}
-
-// render 渲染为注入文本：标题 + 换行 + 正文。
-func (s Source) render(body string) string {
-	return "===== " + s.Header + " =====\n" + body
+	return "", false
 }
 
 // EstimateTokens 粗略估算文本 token 数（CJK 3 字节/字 ≈ 1 token，
@@ -162,10 +175,11 @@ func truncateToTokenBudget(text string, budget int, keepTail bool) string {
 	return strings.TrimLeft(text[start:], "\n")
 }
 
-// Build 非预算路径：各节按节序装入，正文为空的节跳过。
-// 返回空串表示当前无动态上下文。
-func Build(sources []Source) string {
-	var parts []string
+// Collect 非预算路径：各节按节序装入，正文为空的节跳过。
+// persistent 为已确定可以随历史回放的条目（顺序在全部节之前）。
+func Collect(sources []Source, persistent []Item) Snapshot {
+	items := make([]Item, 0, len(persistent)+len(sources))
+	items = append(items, persistent...)
 	for _, s := range sources {
 		if !s.participates() {
 			continue
@@ -174,21 +188,21 @@ func Build(sources []Source) string {
 		if body == "" {
 			continue
 		}
-		parts = append(parts, s.render(body))
+		items = append(items, Item{section: s.Header, channel: Ephemeral, body: body})
 	}
-	return strings.Join(parts, "\n\n")
+	return newSnapshot(items)
 }
 
-// BuildBudgeted 按窗口预算编排动态上下文：
-// reserve 从窗口中预留后，先扣除 staticSystemPrompt 的估算用量，
-// 剩余额度按节序依次装入，装不下则缩减或丢弃。
+// CollectBudgeted 按窗口预算编排动态上下文：
+// reserve 从窗口中预留后，先扣除 staticSystemPrompt 与 persistent 条目的
+// 估算用量，剩余额度按节序依次装入，装不下则缩减或丢弃。
 //
 // 本函数是预算路径的权威实现：window > 0 时调用方必须直接采用其返回值，
-// 返回空串只表示"本轮无动态上下文可装下"，不得据此回退到 [Build] 的
-// 非预算路径——那会恰好在预算最紧时突破窗口。装配入口请用 [BuildWindowed]。
-func BuildBudgeted(sources []Source, window int, staticSystemPrompt string) string {
+// 返回空快照只表示"本轮无可用上下文"，不得据此回退到 [Collect] 的
+// 非预算路径——那会恰好在预算最紧时突破窗口。装配入口请用 [BuildWindowedSnapshot]。
+func CollectBudgeted(sources []Source, persistent []Item, window int, staticSystemPrompt string) Snapshot {
 	if window <= 0 {
-		return ""
+		return Snapshot{}
 	}
 
 	remain := window - ReserveTokens
@@ -199,35 +213,64 @@ func BuildBudgeted(sources []Source, window int, staticSystemPrompt string) stri
 	// 稳定系统提示词（框架 + 自定义指令）始终作为 System 消息发送，
 	// 先从这里扣除它的预算，剩余额度才归动态各节分配。
 	remain -= EstimateTokens(staticSystemPrompt)
+
+	// Persistent 条目同样占据窗口：它们会随请求发出（而且逐轮存在于历史中），
+	// 必须与各节共享同一份预算，否则"加上环境事实"会悄悄突破 context_window。
+	items := make([]Item, 0, len(persistent)+len(sources))
+	for _, it := range persistent {
+		est := EstimateTokens(it.body)
+		if remain < est {
+			break
+		}
+		remain -= est
+		items = append(items, it)
+	}
 	if remain <= 0 {
-		return ""
+		return newSnapshot(items)
 	}
 
-	var parts []string
 	for _, s := range sources {
 		if !s.participates() {
 			continue
 		}
-		body := s.fit(&remain)
-		if body == "" {
-			continue
-		}
-		parts = append(parts, s.render(body))
+		items = append(items, s.collect(&remain)...)
 	}
-	return strings.Join(parts, "\n\n")
+	return newSnapshot(items)
 }
 
-// BuildWindowed 是动态上下文装配的唯一入口：按 context_window 选择路径。
+// BuildWindowedSnapshot 是动态上下文装配的唯一入口（条目形态）：按
+// context_window 选择路径。
 //
-//	window > 0  → 预算路径（权威）：稳定系统提示词先扣除，剩余额度装不下的
-//	              节一律缩减或丢弃，绝不回退到非预算路径；
+//	window > 0  → 预算路径（权威）：稳定系统提示词与 persistent 条目先扣除，
+//	              剩余额度装不下的节一律缩减或丢弃，绝不回退到非预算路径；
 //	window <= 0 → 非预算路径：各节按配置上限装配。
 //
-// 两条路径共用同一套参与条件（见 Source.participates），因此返回值只表达
-// "本轮装下的动态上下文"，空串是合法结果（无动态内容或预算装不下）。
-func BuildWindowed(sources []Source, window int, staticSystemPrompt string) string {
+// 两条路径共用同一套参与条件（见 Source.participates），因此返回的快照只
+// 表达"本轮装下的上下文"，空快照是合法结果（无动态内容或预算装不下）。
+func BuildWindowedSnapshot(sources []Source, persistent []Item, window int, staticSystemPrompt string) Snapshot {
 	if window > 0 {
-		return BuildBudgeted(sources, window, staticSystemPrompt)
+		return CollectBudgeted(sources, persistent, window, staticSystemPrompt)
 	}
-	return Build(sources)
+	return Collect(sources, persistent)
+}
+
+// Build 非预算路径：各节按节序装入，正文为空的节跳过。
+// 返回空串表示当前无动态上下文。
+func Build(sources []Source) string {
+	return Collect(sources, nil).Render()
+}
+
+// BuildBudgeted 按窗口预算编排动态上下文（字符串形态，保留给既有调用方）。
+//
+// 语义与 [CollectBudgeted] 完全一致，只是省去了条目层。
+func BuildBudgeted(sources []Source, window int, staticSystemPrompt string) string {
+	return CollectBudgeted(sources, nil, window, staticSystemPrompt).Render()
+}
+
+// BuildWindowed 是动态上下文装配的字符串入口：按 context_window 选择路径。
+//
+// 与 [BuildWindowedSnapshot] 等价，只是直接返回渲染结果。新代码应优先使用
+// 快照形态（它保留了通道与 token 用量），字符串入口保留给只需要文本的调用方。
+func BuildWindowed(sources []Source, window int, staticSystemPrompt string) string {
+	return BuildWindowedSnapshot(sources, nil, window, staticSystemPrompt).Render()
 }

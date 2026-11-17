@@ -18,6 +18,7 @@
 package ai
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -91,11 +92,34 @@ func (p *Plugin) dynamicContextSources(ctx *eventctx.Context, sess *session.Sess
 //
 // 返回空串表示当前无动态上下文。调用方负责把它注入到请求尾部
 // （processWithTools 挂在本轮用户消息上），不要写进 System 消息。
+//
+// 启用原生上下文通道（context_channel=auto）时，运行时上下文不再出现在这里：
+// 它已经作为独立消息写进会话历史，由请求构建阶段按端点编码（见 envcontext.go）。
+// 但它的 token 用量仍然计入预算，否则"加上环境事实"会悄悄突破 context_window。
 func (p *Plugin) buildDynamicContext(ctx *eventctx.Context, sess *session.Session) string {
+	return p.buildDynamicContextSnapshot(ctx, sess).RenderSuffix()
+}
+
+// buildDynamicContextSnapshot 构建本轮上下文快照（含通道划分与预算编排）。
+//
+// Persistent 条目只在原生通道启用时产生：它们代表"随历史回放的框架事实"，
+// 因此不进入尾部渲染（RenderSuffix 会丢弃），只用于预算扣除与指纹统计。
+func (p *Plugin) buildDynamicContextSnapshot(ctx *eventctx.Context, sess *session.Session) promptctx.Snapshot {
+	sources := p.dynamicContextSources(ctx, sess)
+	var persistent []promptctx.Item
+
+	if p.envChannelEnabled() {
+		// 运行时上下文已进历史：从尾部的节里去掉，避免同一份事实出现两次。
+		sources = slices.DeleteFunc(sources, func(s promptctx.Source) bool {
+			return s.Header == promptctx.RuntimeContextSection
+		})
+		persistent = p.buildEnvFacts(ctx).PersistentItems(contextOptions(p.cfg))
+	}
+
 	// 预算扣除复用会话里"实际会发送"的稳定系统提示词（回合开始时写入，
 	// 见 handler 的 runtime.SetSystemMessage），不重算：重算既浪费，
 	// 又可能在群策略热更新时与实际发送内容不一致。
-	return promptctx.BuildWindowed(p.dynamicContextSources(ctx, sess),
+	return promptctx.BuildWindowedSnapshot(sources, persistent,
 		p.cfg.ContextWindow, runtime.SystemMessage(sess))
 }
 

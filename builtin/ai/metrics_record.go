@@ -88,6 +88,15 @@ func recordRAG(d time.Duration, text string) {
 // recordToolSelectPath 记录工具选择走的是短路还是本地检索。
 func recordToolSelectPath(path string) { toolSelect.WithLabelValues(path).Inc() }
 
+// recordContextChannel 记录一次框架事实的投递通道使用。
+//
+// channel 取原生形状名（reminder/developer/mid_system），outcome 取
+// ok / downgraded。与 ai_llm_tokens_total{type="prompt_cached"} 对照即可判断
+// 原生通道是否真的提高了前缀复用——不要只凭推断改默认值。
+func recordContextChannel(channel, outcome string) {
+	contextChannelTotal.WithLabelValues(channel, outcome).Inc()
+}
+
 // recordLLMRetry 记录一次协议层重试（由 protocol.SetRetryObserver 回调）。
 func recordLLMRetry(reason string) { llmRetries.WithLabelValues(reason).Inc() }
 

@@ -264,47 +264,93 @@ func TestMergeOrAppendToolCall(t *testing.T) {
 	}
 }
 
-// TestAnthropicDropsMidArraySystemButKeepsUserTail 冻结 Anthropic 适配器的两条
-// 角色约束，二者共同决定"逐轮变化的尾部内容"必须用 user 角色承载：
-//   - 数组内的 system 消息被整条丢弃（只有首条 system 进入顶级 system 字段），
-//     因此尾部追加的 system（如执行计划）对 Claude 完全不可见；
-//   - 尾部的 user 消息与相邻 user 轮合并为一条消息（API 硬性要求 roles 严格
-//     交替，连续两条 user 会被 400 拒绝），内容以 text block 完整送达。
+// TestAnthropicMidArraySystemIsPreservedInPlace 冻结 Anthropic 适配器对
+// **中途系统消息**的新行为：数组内的 system 不再被静默丢弃，而是原位保留。
 //
-// 这是 processWithTools 用 user 角色注入执行计划（而非 system）的依据。
-func TestAnthropicDropsMidArraySystemButKeepsUserTail(t *testing.T) {
-	const plan = "===== 当前执行计划 =====\n- s1 收集资料"
-	base := func() []Message {
-		return []Message{
-			{Role: RoleSystem, Content: "stable system"},
-			{Role: RoleUser, Content: "开始"},
-		}
+// 旧实现 `case RoleSystem: continue` 把非首条 system 整条扔掉，等于"对话
+// 中途追加的系统指令对 Claude 完全不可见"。Anthropic 自 2026 起正式支持
+// mid-conversation system messages（见 docs/notes/33），因此这里断言的是
+// "按角色状态机原样输出"：
+//   - 只有首条 system 进入顶级 system 字段（由 extractAnthropicSystem 提取）；
+//   - 其余 system 原位成条，不参与 user 合并，也不被丢弃。
+func TestAnthropicMidArraySystemIsPreservedInPlace(t *testing.T) {
+	const env = "<environment>\n当前日期: 2026-11-17 (星期二)\n</environment>"
+	msgs := []Message{
+		{Role: RoleSystem, Content: "stable system"},
+		{Role: RoleUser, Content: "第一问"},
+		{Role: RoleAssistant, Content: "第一答"},
+		{Role: RoleSystem, Content: env},
+		{Role: RoleUser, Content: "第二问"},
 	}
 
-	withSystemTail := append(base(), Message{Role: RoleSystem, Content: plan})
-	if got := extractAnthropicSystem(withSystemTail); got != "stable system" {
+	if got := extractAnthropicSystem(msgs); got != "stable system" {
 		t.Errorf("only the first system message feeds the top-level field, got %q", got)
 	}
-	if out := toAnthropicMessages(withSystemTail); len(out) != 1 {
-		t.Fatalf("mid-array system must be dropped by Anthropic, got %d messages: %+v", len(out), out)
+
+	out := toAnthropicMessages(msgs)
+	if len(out) != 4 {
+		t.Fatalf("mid-array system must be kept as its own message, got %d: %+v", len(out), out)
+	}
+	if out[2].Role != anthropicRoleSystem {
+		t.Errorf("third message must be the mid-conversation system, got %q", out[2].Role)
+	}
+	if len(out[2].Content) != 1 || !strings.Contains(out[2].Content[0].Text, "当前日期") {
+		t.Errorf("system content must survive unchanged, got %+v", out[2].Content)
+	}
+	if out[3].Role != anthropicRoleUser || out[3].Content[0].Text != "第二问" {
+		t.Errorf("the user turn after the system message must follow it, got %+v", out[3])
+	}
+	// 中途 system 不得被合并进相邻的 user 消息（合并会改变它的角色语义）。
+	for _, m := range out[2].Content {
+		if strings.Contains(m.Text, "第二问") {
+			t.Errorf("mid-array system must not absorb user content, got %+v", m)
+		}
+	}
+}
+
+// TestAnthropicDropsFirstArraySystem 冻结"首条 system 只进顶级字段"：
+// 它不得再作为数组内消息重复出现（否则模型会看到两份系统指令）。
+func TestAnthropicDropsFirstArraySystem(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleSystem, Content: "stable system"},
+		{Role: RoleUser, Content: "问题"},
+	}
+	out := toAnthropicMessages(msgs)
+	if len(out) != 1 || out[0].Role != anthropicRoleUser {
+		t.Fatalf("leading system must not appear in messages, got %+v", out)
+	}
+}
+
+// TestAnthropicMergesConsecutiveUserTail 冻结连续 user 的合并语义：
+// 尾部的 user 消息（如执行计划、反思指令）与相邻 user 轮合并为一条，
+// 内容以 text block 完整送达——这是 API 硬性要求 roles 严格交替。
+//
+// 执行计划之所以用 user 角色注入（而非 system），原因见该用例：
+// 同一条 user 消息里的附加文本对所有端点都成立，而 system 的位置约束
+// 取决于端点能力（见 docs/notes/33）。
+func TestAnthropicMergesConsecutiveUserTail(t *testing.T) {
+	const plan = "===== 当前执行计划 =====\n- s1 收集资料"
+	msgs := []Message{
+		{Role: RoleSystem, Content: "stable system"},
+		{Role: RoleUser, Content: "开始"},
+		{Role: RoleUser, Content: plan},
 	}
 
-	withUserTail := append(base(), Message{Role: RoleUser, Content: plan})
-	out := toAnthropicMessages(withUserTail)
+	out := toAnthropicMessages(msgs)
 	if len(out) != 1 {
 		t.Fatalf("consecutive user messages must merge into one (roles must alternate), got %d messages: %+v", len(out), out)
 	}
 	merged := out[0]
-	if merged.Role != "user" {
+	if merged.Role != anthropicRoleUser {
 		t.Errorf("merged message must keep the user role, got %q", merged.Role)
 	}
 	if len(merged.Content) != 2 {
 		t.Fatalf("both text payloads must be preserved as separate blocks, got %+v", merged.Content)
 	}
-	if merged.Content[0].Type != "text" || merged.Content[0].Text != "开始" {
+	if merged.Content[0].Type != anthropicBlockText || merged.Content[0].Text != "开始" {
 		t.Errorf("first block must be the original user text, got %+v", merged.Content[0])
 	}
-	if merged.Content[1].Type != "text" || !strings.Contains(merged.Content[1].Text, "当前执行计划") {
+	if merged.Content[1].Type != anthropicBlockText || !strings.Contains(merged.Content[1].Text, "当前执行计划") {
 		t.Errorf("plan text must reach Anthropic unchanged, got %+v", merged.Content[1])
 	}
 }

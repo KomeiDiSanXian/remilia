@@ -226,6 +226,52 @@ func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 	}
 }
 
+// TestTrimMessagesDoesNotLeaveOrphanEnvContext 冻结上下文通道消息的裁剪约束：
+// env_context / reminder / 中途 system 必须紧邻其后的 user，裁剪起点落在它
+// 身上时必须一并跳过，否则请求会因位置约束被端点 400 拒绝。
+func TestTrimMessagesDoesNotLeaveOrphanEnvContext(t *testing.T) {
+	s := &Session{
+		Messages: []protocol.Message{
+			{Role: protocol.RoleSystem, Content: "sys"},
+			{Role: protocol.RoleEnvContext, Content: `{"date":"2026-11-17"}`},
+			{Role: protocol.RoleUser, Content: "u1"},
+			{Role: protocol.RoleAssistant, Content: "a1"},
+			{Role: protocol.RoleEnvContext, Content: `{"date":"2026-11-18"}`},
+			{Role: protocol.RoleUser, Content: "u2"},
+		},
+	}
+	// 窗口恰好让裁剪起点落在那条 env_context 上。
+	TrimMessages(s, 3)
+
+	msgs := s.Messages
+	require.NotEmpty(t, msgs)
+	assert.NotEqual(t, protocol.RoleEnvContext, msgs[0].Role,
+		"首条不能是需要后继 user 的结构性消息，got %+v", msgs)
+	for i, m := range msgs {
+		if m.Role != protocol.RoleEnvContext {
+			continue
+		}
+		require.Less(t, i+1, len(msgs), "env_context 后面必须有 user")
+		assert.Equal(t, protocol.RoleUser, msgs[i+1].Role, "env_context 必须紧邻 user，got %+v", msgs)
+	}
+}
+
+// TestAppendMessageWithEnvContextKeepsOrder 验证写入顺序契约：
+// AppendMessage 逐条追加，env 在 user 之前的顺序由调用方保证（handler 里
+// 就是先写 env 再写 user），这里锁定 Session 层不做任何重排。
+func TestAppendMessageWithEnvContextKeepsOrder(t *testing.T) {
+	sm := NewSessionManager(10, 20, time.Hour, nil)
+	s := sm.GetOrCreate("env:order", "u", "c")
+
+	sm.AppendMessage(s, protocol.Message{Role: protocol.RoleEnvContext, Content: "facts-1"})
+	sm.AppendMessage(s, protocol.Message{Role: protocol.RoleUser, Content: "问题"})
+
+	msgs := s.SnapshotMessages()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, protocol.RoleEnvContext, msgs[0].Role)
+	assert.Equal(t, protocol.RoleUser, msgs[1].Role)
+}
+
 // TestAppendMessageNoPersistDoesNotTrim 冻结"回合内追加不裁剪"：
 // 裁剪会前移 Messages 头部，而头部是提示词缓存的可复用前缀。回合进行中追加
 // 的中间消息（assistant / tool / 反思 / 重规划）不得触发裁剪，否则本轮全部

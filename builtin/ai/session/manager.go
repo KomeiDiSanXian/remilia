@@ -633,7 +633,14 @@ func TrimMessages(s *Session, maxHistory int) {
 			keep = max(targetOther-trimHeadroom(targetOther), 1)
 		}
 		start := max(len(otherMsgs)-keep, 0)
-		for start < len(otherMsgs) && otherMsgs[start].Role == protocol.RoleTool {
+		// 起点不能落在"需要后继"的结构性消息上：
+		//   - tool 消息必须紧邻其前的 assistant(tool_calls)，否则成孤儿；
+		//   - 上下文通道消息（env_context / reminder / 中途 system）必须紧邻
+		//     其后的 user，否则位置约束被违反（端点会 400）。
+		// 两者都是"向前推进到第一条可以独立存在的消息"。
+		for start < len(otherMsgs) &&
+			(otherMsgs[start].Role == protocol.RoleTool ||
+				protocol.IsContextChannelRole(otherMsgs[start].Role)) {
 			start++
 		}
 		otherMsgs = otherMsgs[start:]

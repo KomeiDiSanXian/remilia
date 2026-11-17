@@ -198,6 +198,16 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		return err
 	}
 
+	// 框架事实作为独立消息写入历史（仅在 context_channel=auto 且端点支持时）：
+	// 位置固定在 user 消息**之前**，随历史逐轮回放。请求构建时按端点编码
+	// （见 buildTurnRequest / runtime.EncodeEnvContext），因此历史里存的是
+	// provider 中立载荷，换端点不需要改写旧记录。
+	//
+	// 默认（user_suffix）不写：事实照旧拼进 user 文本，请求字节不变。
+	if env := p.envContextMessage(ctx, sess); env != nil {
+		p.sm.AppendMessage(sess, *env)
+	}
+
 	p.sm.AppendMessage(sess, userMsg)
 
 	// LLM 处理前发送"正在输入"状态（平台支持时），给用户即时反馈。

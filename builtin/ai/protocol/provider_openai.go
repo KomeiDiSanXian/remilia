@@ -230,11 +230,52 @@ type openaiErrorBody struct {
 
 // --- 消息转换 ---
 
+// openAIRoleOf 把内部角色映射成 OpenAI 线格式角色。
+//
+// 白名单而不是 `string(m.Role)` 直接透传：内部新增一个角色（如 Anthropic 的
+// 中途 system、DeepSeek 的 latest_reminder）时，裸透传会把它原样发给网关，
+// 不支持的网关便以 400 拒绝整个请求——而这本可以在本地挡住。
+//
+// 返回 ok=false 表示该角色在 OpenAI 形状下没有表达方式，调用方丢弃该消息。
+//
+// 两处刻意的映射：
+//   - RoleSystemMid → "system"：OpenAI 兼容端点没有"中途 system"的概念，
+//     退化成数组内的 system 消息是语义最接近的降级（不认角色的网关极少，
+//     且 system 在数组中部多数实现会照常读取）。
+//   - RoleEnvContext → 丢弃：装配侧本该已经用 runtime.EncodeEnvContext 把它
+//     翻译成 developer 或折进 user 文本；走到这里说明漏了编码，宁可丢弃也
+//     不要把内部存储角色发给网关。
+func openAIRoleOf(r Role) (string, bool) {
+	switch r {
+	case RoleSystem:
+		return string(RoleSystem), true
+	case RoleSystemMid:
+		return string(RoleSystem), true
+	case RoleDeveloper:
+		return string(RoleDeveloper), true
+	case RoleLatestReminder:
+		return string(RoleLatestReminder), true
+	case RoleUser:
+		return string(RoleUser), true
+	case RoleAssistant:
+		return string(RoleAssistant), true
+	case RoleTool:
+		return string(RoleTool), true
+	}
+	return "", false
+}
+
 func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 	out := make([]openaiChatMessage, 0, len(msgs))
 	for i, m := range msgs {
+		role, ok := openAIRoleOf(m.Role)
+		if !ok {
+			// 未知角色（含未编码的 RoleEnvContext）：本地丢弃，
+			// 不让端点以 400 拒绝整个请求。
+			continue
+		}
 		ocm := openaiChatMessage{
-			Role: string(m.Role),
+			Role: role,
 		}
 		if len(m.ContentParts) > 0 {
 			ocm.Content = &openaiMessageContent{parts: buildOpenAIContentParts(m.ContentParts)}

@@ -36,7 +36,9 @@
 //   - ai_tool_calls_total{tool, result}       工具调用次数（result: ok/error）
 //   - ai_toolset_changes_total{reason}        工具集变更次数
 //     （reason: init/grow/shrink/decay；仅在集合真的变化时计数，keep 不计数）
-//   - ai_toolset_size                        每轮发送的工具数量分布
+// ai_toolset_size                        每轮发送的工具数量分布
+//   - ai_context_channel_total{channel, outcome} 框架事实的投递通道使用次数
+//     （channel: reminder/developer/mid_system；outcome: ok/downgraded）
 //   - ai_catalog_changes_total{reason}        目录代数推进次数（reason: add/remove/update）
 //   - ai_catalog_generation                   当前目录内容版本
 //   - ai_tasks_created_total                  任务创建次数（新计划取代旧任务同样计数）
@@ -361,5 +363,14 @@ var (
 			Help:      "工具选择路径（path: bypass=工具数未超阈值，retrieval=本地检索 Top-K）",
 		},
 		[]string{"path"},
+	)).(*prometheus.CounterVec)
+
+	contextChannelTotal = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "ai",
+			Name:      "context_channel_total",
+			Help:      "框架事实的投递通道使用次数（channel: reminder/developer/mid_system；outcome: ok/downgraded/user_suffix）",
+		},
+		[]string{"channel", "outcome"},
 	)).(*prometheus.CounterVec)
 )

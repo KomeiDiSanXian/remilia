@@ -125,6 +125,10 @@ type Config struct {
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
 	//   - time        当前时间
+	//   - weekday     星期（星期一到星期日；默认不注入，需显式列出）
+	//   - timezone    时区（IANA 名 + UTC 偏移；默认不注入，需显式列出）
+	//   - location    所在地（context_location 为空时不输出）
+	//   - language    用户语言（context_language 为空时不输出）
 	//   - platform    平台
 	//   - bot_id      机器人 ID
 	//   - bot_name    机器人名称
@@ -136,7 +140,33 @@ type Config struct {
 	//   - chat_name   群名称 / 会话名称
 	//   - parent_id   所属服务器 ID（频道类平台）
 	//   - group_role  发送者群角色（群主/管理员/普通成员）
+	//
+	// 新增的 weekday/timezone/location/language 默认不注入：这样默认配置下
+	// 的运行时上下文与改造前逐字节一致（前缀缓存不会因升级而整体失效）。
 	ContextFields []string `yaml:"context_fields"`
+	// ContextTimezone 运行时时间事实使用的时区（IANA 名，如 "Asia/Shanghai"）。
+	// 为空表示使用本机本地时区。只影响时间事实的取值（日期/星期/偏移），
+	// 不参与任何调度或持久化。
+	ContextTimezone string `yaml:"context_timezone"`
+	// ContextLanguage 用户语言的自称（如 "中文"、"English"、"日本語"）。
+	// 为空表示不注入。除渲染 "用户语言" 字段外，还会用于按厂商环境消息协议
+	// （DeepSeek latest_reminder 的 language 段）投递环境事实。
+	ContextLanguage string `yaml:"context_language"`
+	// ContextLocation 用户所在地（如 "新加坡"）。为空表示未知。
+	//
+	// 刻意不做推断：平台事件通常拿不到可靠的地理位置，从 IP 或群名猜一个
+	// 值会让模型把猜测当事实复述给用户。需要时由运维按部署实际填写。
+	ContextLocation string `yaml:"context_location"`
+	// ContextChannel 框架事实的投递方式（默认 user_suffix = 改造前行为）。
+	//
+	//   - "user_suffix"：把运行时上下文拼进本轮用户消息（今天的行为，默认）；
+	//   - "auto"：按端点身份选择原生通道（DeepSeek latest_reminder /
+	//     Anthropic 中途 system / OpenAI developer），探测失败自动回退到
+	//     user_suffix。
+	//
+	// 无论哪种方式，群聊窗口/长期记忆/相关历史等不可信内容一律保持拼接在
+	// 用户消息里，永不升级为系统级消息（见 docs/notes/33）。
+	ContextChannel string `yaml:"context_channel"`
 	// ExecTimeout 单次进程执行超时（默认 120s）。
 	ExecTimeout time.Duration `yaml:"exec_timeout"`
 	// ExecMaxOutputBytes 标准输出与标准错误各自的捕获上限（默认 32 KiB）。
@@ -457,6 +487,19 @@ const (
 	NeedActionAlways = "always"
 )
 
+// context_channel 取值：框架事实的投递方式。
+const (
+	// ContextChannelUserSuffix 把运行时上下文拼进本轮用户消息（默认 = 改造前行为）。
+	ContextChannelUserSuffix = "user_suffix"
+	// ContextChannelAuto 按端点身份选择原生通道，探测失败回退到 user_suffix。
+	ContextChannelAuto = "auto"
+)
+
+// ValidContextChannel 判断 context_channel 取值是否合法。
+func ValidContextChannel(v string) bool {
+	return v == ContextChannelUserSuffix || v == ContextChannelAuto
+}
+
 // reasoning_effort 的合法取值（OpenAI 兼容端点；空串 = 不发送该字段）。
 const (
 	// ReasoningEffortNone 关闭思考，思考型模型直接作答。
@@ -552,6 +595,7 @@ var DefaultConfig = Config{
 	IncludeRuntimeContext:  true,
 	IncludeMentionInfo:     true,
 	IncludeReplyContext:    true,
+	ContextChannel:         ContextChannelUserSuffix,
 	ContextGroupMessages:   10,
 	ContextGroupIncludeBot: false,
 	ToolApproval:           "off",

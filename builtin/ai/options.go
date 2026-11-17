@@ -46,6 +46,9 @@ func selectionOptions(cfg *config.Config) decision.SelectionOptions {
 func contextOptions(cfg *config.Config) promptctx.ContextOptions {
 	return promptctx.ContextOptions{
 		RuntimeFields:   cfg.ContextFields,
+		Timezone:        cfg.ContextTimezone,
+		Language:        cfg.ContextLanguage,
+		Location:        cfg.ContextLocation,
 		GroupIncludeBot: cfg.ContextGroupIncludeBot,
 		GroupMessages:   cfg.ContextGroupMessages,
 		RAGDays:         cfg.ContextRAGDays,

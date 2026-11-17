@@ -181,6 +181,15 @@ func (p *Plugin) buildTurnRequest(ctx *eventctx.Context, run *turnRun, turnCtx c
 	// 都可能让 assistant(tool_calls) 缺少对应 tool 消息（OpenAI/Anthropic
 	// API 硬性约束，缺失即 400）。按需补占位 tool 消息，自愈会话历史。
 	msgs = runtime.RepairToolCallSequence(msgs)
+
+	// 环境事实编码：会话历史里存的是 provider 中立的 RoleEnvContext，
+	// 这里按端点形状翻译成 reminder / developer / 中途 system，或折进 user 文本。
+	// 位置约束各家不同（Anthropic 的中途 system 必须跟在 user 之后），
+	// 全部由 runtime.EncodeEnvContext 一处处理，适配器只负责序列化。
+	//
+	// 关闭原生通道（默认 user_suffix）时序列里没有 RoleEnvContext，这一步是 no-op。
+	msgs = runtime.EncodeEnvContext(msgs, p.envChannelShape())
+
 	msgs = runtime.InjectDynamicContext(msgs, dynamicContext)
 
 	// 计划注入：存在进行中的任务计划时，把"当前计划+进度"附在消息序列末尾，

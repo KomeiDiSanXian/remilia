@@ -30,6 +30,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execnode"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/execution"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/procexec"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/retrieval"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/session"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/task"
@@ -149,6 +150,11 @@ type runtimeState struct {
 	taskUsage map[string]*taskUsage
 	// taskUsageMu 保护 taskUsage。
 	taskUsageMu sync.Mutex
+	// contextProbe 端点原生上下文通道的探测记忆：记录"哪些端点拒绝过
+	// reminder/developer/中途 system"，本进程内一次失败即永久降级为
+	// user 文本拼接（400/422 在推理前拒绝、不消耗 token，因此探测成本可接受，
+	// 换来的是新模型零维护——不需要维护一张会腐化的模型白名单）。
+	contextProbe protocol.ProbeMemory
 	// registeredTrigger 实际注册了触发命令 matcher 的前缀（空 = 未注册）。
 	// 只用于"正文是否会被命令 matcher 派发"这类路由判定：展示侧读的是
 	// triggerPrefix()，它会为空值兜底，不能用来判断 matcher 是否存在。

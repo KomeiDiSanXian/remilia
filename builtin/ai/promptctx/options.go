@@ -17,6 +17,13 @@ const (
 type ContextOptions struct {
 	// RuntimeFields 运行时上下文的字段白名单（context_fields；空表示注入全部字段）。
 	RuntimeFields []string
+	// Timezone 渲染运行时时间事实时使用的时区（context_timezone；IANA 名，
+	// 空表示使用本机本地时区）。只影响事实取值，不影响消息构造。
+	Timezone string
+	// Language 用户语言的自称（context_language；如 "中文"，空表示不注入）。
+	Language string
+	// Location 用户所在地（context_location；空表示未知——不做 IP 推断）。
+	Location string
 	// GroupIncludeBot 群聊窗口是否包含机器人自身回复（context_group_include_bot）。
 	GroupIncludeBot bool
 	// GroupMessages 群聊窗口条数，同时用于历史检索与窗口的去重（context_group_messages）。

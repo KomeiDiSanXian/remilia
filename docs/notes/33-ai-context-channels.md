@@ -6,7 +6,8 @@
 > **§D2/D3/D5 与"没有真实消费者不抽象"已在本轮作废**，其余契约（A/B/C/E/F/G
 > 组、分包依赖方向）继续有效。
 >
-> 状态：`P0` 已实现（窗口裁剪时机）；`P1`–`P3` 待实施。
+> 状态：`P0`–`P3` 已实现（裁剪时机、环境事实、通道模型、原生编码与探测降级）；
+> `P4` 待真实流量验证后再决定是否把 `context_channel` 默认值切到 `auto`。
 
 ## 一、问题重述
 
@@ -82,6 +83,12 @@ turn3 请求: [sys] ctx1  u1  a1  ctx2  u2  a2  ctx3  u3
 同时它天然满足放置约束：`ctx` 紧跟自己的 user 消息，工具轮在其后追加
 assistant/tool，不会把 `ctx` 挤到 `tool_use` 与 `tool_result` 之间。
 
+**去重规则**（实现时的必要补充）：环境事实只按**日期粒度**表达（见
+`protocol.EnvFacts` 刻意不含时钟），因此同一份事实在多轮之间逐字节相同。
+写入前与历史里最近一条环境消息比较，相同则不重复追加——事实已经在历史里，
+模型随时能读到；重复追加只会按回合线性占用窗口预算。跨日后事实变化，才写
+新的一条。这也让 `ctx_n` 在一天之内保持稳定，不再逐轮增长。
+
 ## 三、厂商适配：按端点身份定首选 + 失败一次永久降级
 
 三家都没有"通用的环境元信息协议"，可用形状各不相同：
@@ -105,8 +112,25 @@ assistant/tool，不会把 `ctx` 挤到 `tool_use` 与 `tool_result` 之间。
 400/422 在推理前拒绝、不消耗 token，因此"探测失败一次"的成本可接受，
 换来的是**新模型零维护**。
 
-## 四、窗口裁剪必须收敛到回合边界（P0，已实现）
+### 3.1 存储角色与线格式角色必须分离
 
+会话历史里存的是 provider 中立的 `RoleEnvContext` + JSON 载荷（`protocol.EnvFacts`），
+**不是**某家的线格式。原因：历史一旦落库就长期存在，而端点可以换
+（DeepSeek ↔ Anthropic ↔ 其它兼容网关）；三种形状的表达方式完全不同
+（单行 CSV / 可读指令块 / 散文），存成 CSV 就只能投递给 DeepSeek。
+
+编码由装配侧的 `runtime.EncodeEnvContext` 一处完成，适配器只负责序列化：
+
+| 形状 | 放置 | 正文 |
+|---|---|---|
+| reminder | **保持在 user 之前**（官方要求紧跟） | `date,weekday,location,platform,language` |
+| developer | 保持在 user 之前 | `<environment>` 指令块 |
+| 中途 system | **挪到 user 之后**（否则 400） | `<environment>` 指令块 |
+| 兜底 | 删除独立消息，正文折进 user | 散文（不加标签） |
+
+最后一行就是"探测失败后回退到 user 文本"的实现，与 `user_suffix` 的表达等价。
+
+## 四、窗口裁剪必须收敛到回合边界（P0，已实现）
 这是本轮的**前置项**：只要 `TrimMessages` 还在回合中途跑，`append-only` 的
 前缀收益就会被抵消——裁剪每发生一次，其后的历史全部失效。
 
@@ -139,10 +163,10 @@ func (sm *SessionManager) AppendMessageNoPersist(session *Session, msg protocol.
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | **P0** ✅ | 裁剪收敛到回合边界 + 时机用例 | 回合内第 n 轮请求是第 n+1 轮的严格前缀；全量测试绿 |
-| **P1** | `EnvironmentFacts` 结构体：补 weekday / timezone / language / session_type；`EnvItems()` 产出 `Item`（**仅内部**，渲染仍走现有字符串路径，字节不变） | `context_pipeline_test.go` 不改即绿 |
-| **P2** | `Item` / `Channel` / `Snapshot` 落地；`BuildWindowed` 增加返回 `Snapshot` 的变体；`Render` 保持现有 `===== x =====` 拼接 | 同上 + `TestChannelTrustByType`（编译期不可写入） |
-| **P3** | `Persistent` 通道 append-only 写入历史 + 适配器原生编码 + 探测降级；配置开关 `context_channel: user_suffix \| auto`（默认 `user_suffix`，即今天的行为） | 跨轮前缀逐字节断言、DeepSeek 放置规则断言、降级用例 |
-| **P4** | 真实流量对照 `cached/prompt` 与 `ai_context_trimmed_messages_total`，决定是否把默认值切到 `auto` | 一周数据 |
+| **P1** ✅ | `EnvironmentFacts` + `EnvFacts` 载荷：补 weekday / timezone / language / location / conversation kind；`RenderEnvProse` 保持默认输出逐字节不变 | `facts_test.go` 的逐字节用例 + 既有 `context_pipeline_test.go` 不改即绿 |
+| **P2** ✅ | `Item` / `Channel` / `Snapshot` / `Render`：信任边界由类型保证（只有 `EnvironmentFacts.PersistentItems` 能产 `Persistent`） | `item_test.go`（含指纹稳定性与预算共享） |
+| **P3** ✅ | `RoleEnvContext` 存储角色 + 适配器编码（reminder / developer / 中途 system / 兜底）+ 端点探测降级 + `context_channel` 开关 | `envcontext_test.go`（放置规则）、`capability_test.go`（端点判定与降级边界）、`append_prefix_test.go`（跨轮严格前缀）、`envcontext_channel_test.go`（默认不变 + 自动降级重试） |
+| **P4** ⏳ | 真实流量对照 `ai_llm_tokens_total{type="prompt_cached"}` 与 `ai_context_channel_total`，决定是否把默认值切到 `auto` | 一周数据 |
 
 `P3` 必须带开关：`freeze_prefix_test` 里"动态上下文不写回历史"的断言在
 `user_suffix` 下仍然成立，两条通道可以共存、用数据决胜负。

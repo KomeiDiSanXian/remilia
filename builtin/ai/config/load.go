@@ -17,6 +17,7 @@ package config
 
 import (
 	"strings"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -379,6 +380,28 @@ func loadContext(ctx *plugin.SetupContext, cfg *Config) {
 	}
 	cfg.ContextGroupIncludeBot = ctx.Config.GetBool("context_group_include_bot", cfg.ContextGroupIncludeBot)
 	cfg.ContextFields = stringList(ctx, "context_fields")
+	if v := strings.TrimSpace(ctx.Config.GetString("context_timezone", "")); v != "" {
+		// 非法时区在取值侧回退到本机时区（见 promptctx.FactsFromEvent），
+		// 这里只做一次告警，避免每轮都静默失败。
+		if _, err := time.LoadLocation(v); err != nil {
+			ctx.Log.Warnf("invalid context_timezone %q (want IANA name like Asia/Shanghai), using local: %v", v, err)
+		}
+		cfg.ContextTimezone = v
+	}
+	if v := strings.TrimSpace(ctx.Config.GetString("context_language", "")); v != "" {
+		cfg.ContextLanguage = v
+	}
+	if v := strings.TrimSpace(ctx.Config.GetString("context_location", "")); v != "" {
+		cfg.ContextLocation = v
+	}
+	if v := strings.TrimSpace(ctx.Config.GetString("context_channel", "")); v != "" {
+		switch v {
+		case ContextChannelUserSuffix, ContextChannelAuto:
+			cfg.ContextChannel = v
+		default:
+			ctx.Log.Warnf("invalid context_channel %q, must be user_suffix|auto, ignoring", v)
+		}
+	}
 }
 
 // loadMemory 读取长期记忆。

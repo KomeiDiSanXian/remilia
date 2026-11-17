@@ -69,11 +69,31 @@ func NewAnthropicProvider(opts ProviderOptions) (Provider, error) {
 
 // --- Anthropic API 请求/响应结构 ---
 
+// Anthropic 的 role 与 content block type 取值（集中定义，避免散落的字符串
+// 字面量在后面改动时漏改一处）。
+const (
+	anthropicRoleUser      = "user"
+	anthropicRoleAssistant = "assistant"
+	anthropicRoleSystem    = "system"
+
+	anthropicBlockText       = "text"
+	anthropicBlockImage      = "image"
+	anthropicBlockToolUse    = "tool_use"
+	anthropicBlockToolResult = "tool_result"
+)
+
 // anthropicMessage 对应 Anthropic Messages API 的 content block 数组格式。
 // 与 OpenAI 不同，Anthropic 的 content 是数组而非字符串。
+//
+// ClearAt 只在 role=system 且需要"只对当前轮生效"时使用（turn-scoped
+// system message）：取值 "next_user_message" 表示后续出现 user 消息后本条
+// 不再渲染，但仍留在数组里（删除它会改变它之前的对话，破坏前缀缓存与思考
+// 块的签名校验）。这是 beta 特性，需要 mid-conversation-system-clear-at-2026-08-21
+// 头；不发送该字段时行为等同 "never"。
 type anthropicReqMessage struct {
 	Role    string                     `json:"role"`
 	Content []anthropicReqContentBlock `json:"content"`
+	ClearAt string                     `json:"clear_at,omitempty"`
 }
 
 // anthropicImgSrc Anthropic image content block 的 source 字段。
@@ -136,77 +156,91 @@ type anthropicErrorBody struct {
 
 // --- 消息转换：内部 Message → Anthropic 格式 ---
 
+// toAnthropicMessages 把内部消息序列翻译成 Anthropic 的 messages 数组。
+//
+// Anthropic 的约束比 OpenAI 严格得多，实现必须同时满足：
+//
+//  1. roles 必须严格交替：连续 user / 连续 tool_result 合并为同一条 user 消息
+//     （拆开会被 400 拒绝）。并行工具的多个 tool_result 尤其必须合并。
+//  2. 顶级 system 字段才是"始终生效"的系统提示词；数组内的 system 消息表示
+//     **对话中途**追加的系统指令（mid-conversation system messages），
+//     不能是数组首条，必须跟在 user（或以 tool_result 结尾的 assistant）之后。
+//  3. 数组内的 system 不能被静默丢弃——旧实现 `case RoleSystem: continue`
+//     把它整条扔掉，等于中途指令对 Claude 完全不可见。
+//
+// 因此本函数是"按角色变化 flush 的状态机"：遇到 user / assistant 边界就把
+// 累积的消息推出，遇到中途 system 就单独成条（它本身就是一条独立消息，
+// 不与前后合并）。
+//
+// RoleEnvContext 不出现在这里：它在装配侧已被 runtime.EncodeEnvContext
+// 翻译成 RoleSystemMid（Anthropic 形状）或折进 user 文本（兜底形状）。
 func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 	var out []anthropicReqMessage
-	var current *anthropicReqMessage
-
-	flush := func() {
-		if current != nil && len(current.Content) > 0 {
-			out = append(out, *current)
-		}
-	}
 
 	for _, m := range msgs {
 		switch m.Role {
-		case RoleSystem:
-			continue
-
-		case RoleUser:
-			// 连续 user 消息必须合并为一条：Anthropic 要求 roles 严格交替，
-			// 拆开会以 400 拒绝（messages: roles must alternate）。
-			if current != nil && current.Role == "user" {
-				current.Content = append(current.Content, toAnthropicUserBlocks(m)...)
+		case RoleSystem, RoleSystemMid:
+			// 数组内的 system = 中途系统指令，原位保留（首条由
+			// extractAnthropicSystem 提取到顶级字段，这里跳过它以免重复）。
+			//
+			// RoleSystemMid 是内部名，它在线格式上就是 Anthropic 的 "system"；
+			// 两者走同一条分支，避免"内部名忘了映射导致指令静默丢失"。
+			if len(out) == 0 {
 				continue
 			}
-			flush()
-			current = &anthropicReqMessage{
-				Role:    "user",
-				Content: toAnthropicUserBlocks(m),
+			out = append(out, anthropicReqMessage{
+				Role:    anthropicRoleSystem,
+				Content: []anthropicReqContentBlock{{Type: anthropicBlockText, Text: m.Content}},
+			})
+
+		case RoleUser:
+			blocks := toAnthropicUserBlocks(m)
+			// 连续 user 消息必须合并为一条：Anthropic 要求 roles 严格交替。
+			if n := len(out); n > 0 && out[n-1].Role == anthropicRoleUser {
+				out[n-1].Content = append(out[n-1].Content, blocks...)
+				continue
 			}
+			out = append(out, anthropicReqMessage{Role: anthropicRoleUser, Content: blocks})
 
 		case RoleTool:
 			block := anthropicReqContentBlock{
-				Type: "tool_result",
+				Type: anthropicBlockToolResult,
 				ID:   m.ToolCallID,
 				Text: m.Content,
 			}
 			// 并行工具的多个 tool_result 必须全部放进紧随 assistant(tool_use)
-			// 之后的同一条 user 消息里（官方 SDK 同样如此合并）；拆成相邻多条
-			// user 消息会被 400 拒绝。
-			if current != nil && current.Role == "user" {
-				current.Content = append(current.Content, block)
+			// 之后的同一条 user 消息里（官方 SDK 同样如此合并）。
+			if n := len(out); n > 0 && out[n-1].Role == anthropicRoleUser {
+				out[n-1].Content = append(out[n-1].Content, block)
 				continue
 			}
-			flush()
-			current = &anthropicReqMessage{
-				Role:    "user",
+			out = append(out, anthropicReqMessage{
+				Role:    anthropicRoleUser,
 				Content: []anthropicReqContentBlock{block},
-			}
+			})
 
 		case RoleAssistant:
-			flush()
-			blocks := []anthropicReqContentBlock{}
+			blocks := make([]anthropicReqContentBlock, 0, 1+len(m.ToolCalls))
 			if m.Content != "" {
 				blocks = append(blocks, anthropicReqContentBlock{
-					Type: "text",
+					Type: anthropicBlockText,
 					Text: m.Content,
 				})
 			}
 			for _, tc := range m.ToolCalls {
 				blocks = append(blocks, anthropicReqContentBlock{
-					Type:  "tool_use",
+					Type:  anthropicBlockToolUse,
 					ID:    tc.ID,
 					Name:  tc.Name,
 					Input: tc.Arguments,
 				})
 			}
-			current = &anthropicReqMessage{
-				Role:    "assistant",
-				Content: blocks,
+			if len(blocks) == 0 {
+				continue
 			}
+			out = append(out, anthropicReqMessage{Role: anthropicRoleAssistant, Content: blocks})
 		}
 	}
-	flush()
 
 	return out
 }

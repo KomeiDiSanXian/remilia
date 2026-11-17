@@ -149,6 +149,17 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) 
 
 		streamCtx, cancel := context.WithTimeout(turnCtx, p.cfg.APITimeout)
 		streamCh, err := p.prov.ChatStream(streamCtx, req)
+		// 端点拒绝原生上下文角色（400/422 且错误体提到角色）：记入降级集合，
+		// 立刻用兜底形态（事实折进 user 文本）重建同一轮请求重试一次。
+		//
+		// 这是一次能力探测，不是失败：400/422 在推理前被拒、不消耗 token，
+		// 且不占用 max_depth 预算（不递增 currentDepth）。
+		if err != nil && p.tryDowngradeEnvChannel(err) {
+			cancel()
+			req = p.buildTurnRequest(ctx, run, turnCtx, activeTools, dynamicContext, currentDepth == 1)
+			streamCtx, cancel = context.WithTimeout(turnCtx, p.cfg.APITimeout)
+			streamCh, err = p.prov.ChatStream(streamCtx, req)
+		}
 		if err != nil {
 			cancel()
 			if sess.Interrupted() {
@@ -161,6 +172,11 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) 
 		outcome := consumeTurnStream(streamCh)
 		cancel()
 		run.provAttachments = append(run.provAttachments, outcome.attachments...)
+		// 首轮成功即记录一次原生通道使用：用于对照命中率评估收益
+		// （与 ai_llm_tokens_total{type="prompt_cached"} 一起看）。
+		if currentDepth == 1 {
+			p.recordChannelUse()
+		}
 
 		// 主动停止收尾：流因中断被取消（未收到结束事件，或 provider 以错误
 		// 事件收尾）。把已到手部分记入会话并作为最终回复返回，不视为错误——

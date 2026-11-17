@@ -377,6 +377,8 @@ func agentStatePluginNonAgent() map[string]string {
 		"taskMu":      "任务记录同步的串行化互斥（不承载业务状态）",
 		"evidenceMu":  "execEvidence 的互斥锁",
 		"taskUsageMu": "taskUsage 的互斥锁",
+		"contextProbe": "原生上下文通道的降级探测记忆（进程级、按端点索引，" +
+			"与对话内容无关：记录哪些端点拒绝过 reminder/developer/中途 system）",
 	}
 }
 
