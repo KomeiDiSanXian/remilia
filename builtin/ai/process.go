@@ -70,7 +70,18 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) 
 	// AppendMessageNoPersist，回合结束（含提前 return / 出错 / 中断）在这里
 	// 一次性落库：把每条工具结果一次整记录 upsert 降为每回合一次，消除写放大。
 	// 用户消息等跨回合的即时持久化仍由 handler / generateVerified 负责。
+	//
+	// 窗口裁剪同样收敛到收尾（defer 执行顺序：回收字节 → 裁剪 → 落库，因此
+	// 落库快照看到的是裁剪后的窗口）：回合进行中裁剪会前移 Messages 头部，
+	// 让本轮所有请求（含工具轮）的提示词前缀同时失效。一次 processWithTools
+	// 只在跑完全部工具轮之后裁一次，跨轮代价从"每条中间消息一次"降到"每次
+	// 调用一次"。
+	//
+	// 校验重生成（generateVerified 的 retry 循环）会再次调用本函数，因此那时
+	// 已经裁过一次；这是可接受的——重生成本身追加了新的内部指令，它要复用的
+	// 只是同一份被裁窗口内的历史。
 	defer p.sm.SaveSession(sess)
+	defer p.sm.TrimWindow(sess)
 	// 回合结束回收"本来就不会再随请求发送"的历史图片/音频字节：
 	// 请求构建只保留 image_context_window 内的附件（runtime.PrepareRequestMessages），
 	// 更早的二进制留在会话里只是白占内存。降级后的文本与请求侧逐字节一致

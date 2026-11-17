@@ -19,7 +19,8 @@ import (
 //   - PeekOrLoad: 只读查找（LRU → 持久化存储，不创建、不写库、不动 LRU）
 //   - Save: 持久化保存会话
 //   - Delete: 删除会话（LRU + 持久化）
-//   - AppendMessage: 追加消息并自动裁剪上下文窗口
+//   - AppendMessage: 追加消息并持久化
+//   - TrimWindow: 回合边界裁剪上下文窗口（回合进行中一律不裁剪）
 //   - CleanupExpired: 清理超过 TTL 未活跃的会话
 //   - evictLocked: LRU 淘汰（达到 maxSize 时淘汰最久未访问的）
 type SessionManager struct {
@@ -205,12 +206,37 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	return session
 }
 
-// touch 更新会话活跃时间并按窗口裁剪消息（内部持会话锁）。
+// touch 更新会话活跃时间；仅在没有进行中的回合时顺带裁剪窗口。
+//
+// 裁剪会改动 Messages 头部，而头部前缀是提示词缓存的可复用段：回合进行中裁剪
+// 会让本轮后续请求（工具轮）与跨轮请求同时失去前缀复用。回合内的裁剪因此
+// 一律推迟到 [SessionManager.TrimWindow]（回合收尾时）执行。
 func (sm *SessionManager) touch(session *Session) {
 	session.Lock()
 	session.UpdatedAt = time.Now()
-	TrimMessages(session, sm.maxHistory)
+	if !session.TurnActive() {
+		TrimMessages(session, sm.maxHistory)
+	}
 	session.Unlock()
+}
+
+// TrimWindow 在回合边界按窗口裁剪消息（内部持会话锁）。
+//
+// 这是回合内唯一允许的裁剪入口：processWithTools 在收尾时调用它，
+// 保证一次回合内追加的全部中间消息（assistant / tool / 反思 / 重规划 / 校验
+// 修正）落地之后才可能触发裁剪。回合中途被裁掉的前缀没有机会被复用，属于
+// 纯损失；而跨回合裁剪只会让"上一轮之前"的历史失效一次，代价远小得多。
+//
+// 回合内不做裁剪并不会让内存无限增长：一次 processWithTools 的轮次由
+// max_depth 约束（默认 5），每轮追加的 assistant + tool 结果因此有上界，
+// 会话长度最多短时超出窗口"一个回合的量"，收尾这一次裁剪就会收敛回低水位。
+func (sm *SessionManager) TrimWindow(session *Session) {
+	if session == nil {
+		return
+	}
+	session.Lock()
+	defer session.Unlock()
+	TrimMessages(session, sm.maxHistory)
 }
 
 // Peek 仅从内存缓存查找会话，不创建、不触碰持久化存储。
@@ -298,7 +324,11 @@ func (sm *SessionManager) snapshot(session *Session) *Session {
 		return nil
 	}
 	session.UpdatedAt = time.Now()
-	TrimMessages(session, sm.maxHistory)
+	// 回合进行中不裁剪：本轮的请求前缀仍在被使用（工具轮），头部一动就整段失效。
+	// 回合边界的裁剪由 [SessionManager.TrimWindow] 负责。
+	if !session.TurnActive() {
+		TrimMessages(session, sm.maxHistory)
+	}
 
 	return &Session{
 		ID:        session.ID,
@@ -541,12 +571,13 @@ func (sm *SessionManager) evictCandidateLocked() *list.Element {
 // 词完全稳定，历史也永远命中不了。批量裁剪牺牲少量保留条数，换来两次裁剪
 // 之间前缀字节一致。
 //
-// 余量必须随窗口放大：max_history=50（生产配置）时固定 4 条只够一个回合
-// 的一半——一个带工具调用的回合会一次追加 assistant + N 条 tool 结果，
-// 裁剪因此常常落在回合中途，把本回合刚生成的工具结果前缀一起作废。按
-// 1/4 窗口让出余量（50 → 12 条 ≈ 4 轮）后，裁剪间隔变长而单次失效的
-// 历史更多，缓存命中率整体更高。下限 TrimLowWaterMin 保留小窗口
-// （max_history=8 等）的"不逐轮裁剪"收益。
+// 余量随窗口放大：max_history=50（生产配置）时按 1/4 让出 12 条（≈4 轮），
+// 裁剪间隔变长而单次失效的历史更多，命中率整体更高。下限 TrimLowWaterMin
+// 保留小窗口（max_history=8 等）的"不逐轮裁剪"收益。
+//
+// 注意：余量只在回合**之间**有意义——裁剪本身已收敛到回合边界
+// （[SessionManager.TrimWindow]），回合中途不再裁剪，因此这里不再需要为
+// "一个回合追加 assistant + N 条 tool 结果"预留额外空间。
 const (
 	TrimLowWaterDivisor = 4
 	TrimLowWaterMin     = 4
@@ -569,6 +600,10 @@ func trimHeadroom(targetOther int) int {
 // assistant(tool_calls)（OpenAI/Anthropic API 硬性约束），若 assistant
 // 被裁掉而 tool 消息残留，会产生孤儿 tool 消息，下一次请求会被 400 拒绝。
 // 因此起点会向前推进，把残留的 tool 响应连同其 assistant 一起裁掉。
+//
+// 调用时机：只在回合边界（[SessionManager.TrimWindow]）与回合未活跃时的
+// [SessionManager.touch] / [SessionManager.snapshot] 调用。回合进行中不得
+// 调用——本轮的请求前缀仍在使用中，头部一动，本轮所有请求的缓存全部失效。
 func TrimMessages(s *Session, maxHistory int) {
 	if maxHistory <= 0 {
 		return
@@ -619,14 +654,17 @@ func (sm *SessionManager) AppendMessage(session *Session, msg protocol.Message) 
 	sm.SaveSession(session)
 }
 
-// AppendMessageNoPersist 向会话追加一条消息并裁剪窗口，但不写持久化存储。
+// AppendMessageNoPersist 向会话追加一条消息，但不写持久化存储。
 //
 // 供一回合内的多次追加使用：回合内每条 tool 结果各写一次库会把单次 upsert
 // 放大成 N 次，改为调用方在回合结束时（processWithTools 的 defer）统一
 // [SaveSession]，把 N 次整记录 upsert 降为 1 次。线程安全，持有 session 写锁。
+//
+// **不裁剪窗口**：裁剪会前移 Messages 头部，而头部是提示词缓存的可复用前缀。
+// 回合进行中裁剪会让本轮全部请求（含后续工具轮）与跨轮请求同时失去前缀复用，
+// 是纯损失。裁剪统一由 [SessionManager.TrimWindow] 在回合边界执行。
 func (sm *SessionManager) AppendMessageNoPersist(session *Session, msg protocol.Message) {
 	session.Lock()
 	defer session.Unlock()
 	session.Messages = append(session.Messages, msg)
-	TrimMessages(session, sm.maxHistory)
 }

@@ -226,6 +226,93 @@ func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 	}
 }
 
+// TestAppendMessageNoPersistDoesNotTrim 冻结"回合内追加不裁剪"：
+// 裁剪会前移 Messages 头部，而头部是提示词缓存的可复用前缀。回合进行中追加
+// 的中间消息（assistant / tool / 反思 / 重规划）不得触发裁剪，否则本轮全部
+// 请求（含后续工具轮）与跨轮请求同时失去前缀复用。
+func TestAppendMessageNoPersistDoesNotTrim(t *testing.T) {
+	const maxHistory = 5
+	sm := NewSessionManager(10, maxHistory, time.Hour, nil)
+	s := sm.GetOrCreate("s", "u", "c")
+
+	// 远超窗口：回合内的追加一律原样保留。
+	for i := range 40 {
+		sm.AppendMessageNoPersist(s, protocol.Message{Role: protocol.RoleUser, Content: fmt.Sprintf("m%d", i)})
+	}
+	if got := len(s.SnapshotMessages()); got != 40 {
+		t.Fatalf("回合内追加不得裁剪，消息数 = %d want 40", got)
+	}
+}
+
+// TestTrimWindowTrimsAtTurnBoundary 冻结"裁剪只发生在回合边界"：
+// 回合进行中（BeginTurn 之后、EndTurn 之前）追加的消息不裁剪，
+// 回合收尾调用 TrimWindow 后才按窗口收敛到低水位。
+func TestTrimWindowTrimsAtTurnBoundary(t *testing.T) {
+	const maxHistory = 10
+	sm := NewSessionManager(10, maxHistory, time.Hour, nil)
+	s := sm.GetOrCreate("s", "u", "c")
+
+	if !s.BeginTurn() {
+		t.Fatal("BeginTurn failed")
+	}
+	for i := range 40 {
+		sm.AppendMessageNoPersist(s, protocol.Message{Role: protocol.RoleUser, Content: fmt.Sprintf("m%d", i)})
+	}
+	if got := len(s.SnapshotMessages()); got != 40 {
+		t.Fatalf("回合内不得裁剪，消息数 = %d want 40", got)
+	}
+
+	// 回合进行中保存也不裁剪：落库快照保留本轮的完整请求形状。
+	sm.SaveSession(s)
+	if got := len(s.SnapshotMessages()); got != 40 {
+		t.Fatalf("回合进行中 SaveSession 不得裁剪，消息数 = %d want 40", got)
+	}
+
+	s.EndTurn()
+	sm.TrimWindow(s)
+
+	if got := len(s.SnapshotMessages()); got > maxHistory {
+		t.Fatalf("回合边界应裁剪到窗口内，消息数 = %d want <= %d", got, maxHistory)
+	}
+	if got := len(s.SnapshotMessages()); got == 0 {
+		t.Fatal("裁剪必须保留最近的消息")
+	}
+	// 裁剪后保留最新一条。
+	msgs := s.SnapshotMessages()
+	if last := msgs[len(msgs)-1].Content; last != "m39" {
+		t.Errorf("裁剪应保留最新消息，got %q want %q", last, "m39")
+	}
+}
+
+// TestTouchSkipsTrimWhileTurnActive 冻结 touch 的裁剪条件：
+// 会话被再次取用（GetOrCreate 命中缓存）时，回合进行中不得裁剪。
+func TestTouchSkipsTrimWhileTurnActive(t *testing.T) {
+	const maxHistory = 5
+	sm := NewSessionManager(10, maxHistory, time.Hour, nil)
+	s := sm.GetOrCreate("s", "u", "c")
+
+	for i := range 30 {
+		sm.AppendMessageNoPersist(s, protocol.Message{Role: protocol.RoleUser, Content: fmt.Sprintf("m%d", i)})
+	}
+
+	if !s.BeginTurn() {
+		t.Fatal("BeginTurn failed")
+	}
+	// 命中缓存的 GetOrCreate 会 touch → 回合活跃时跳过裁剪。
+	if got := sm.GetOrCreate("s", "u", "c"); got != s {
+		t.Fatal("GetOrCreate must return the cached session")
+	}
+	if got := len(s.SnapshotMessages()); got != 30 {
+		t.Fatalf("回合进行中 touch 不得裁剪，消息数 = %d want 30", got)
+	}
+
+	s.EndTurn()
+	sm.GetOrCreate("s", "u", "c")
+	if got := len(s.SnapshotMessages()); got > maxHistory {
+		t.Fatalf("回合结束后 touch 应裁剪，消息数 = %d want <= %d", got, maxHistory)
+	}
+}
+
 // TestTrimMessagesKeepsPrefixStable 验证裁剪是批量的：超限时一次裁到低水位，
 // 之后连续追加少量消息不会再触发裁剪。逐条滑窗会让每次请求的历史前缀都发生
 // 位移，LLM 侧的前缀缓存从第一条历史消息起整段失效。

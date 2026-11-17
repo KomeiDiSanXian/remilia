@@ -235,12 +235,20 @@ Stable Prefix
 `buildDynamicContext` 的输出附在**本轮用户消息尾部**，不写回会话历史、不进 System 消息
 （`handler.go`）。
 
+> **已被 [33](33-ai-context-channels.md) 取代。** 现在的规则是：`Ephemeral`
+> 上下文（群聊窗口/记忆/RAG/计划/反思）保持本条的语义；`Persistent` 上下文
+> （框架事实：时间/时区/星期/平台/会话类型）作为独立消息随历史回放，见 33 §二。
+
 ### D3 动态上下文变化不改变 History 前缀 ⭐
 
 `Memory / RAG / Runtime / Group` 内容变化 **不改变** History 之前的前缀字节。
 这**不是普通优化，而是 Context Pipeline 的基础约束**：
 
 > 任何 `ContextProvider` 新增的数据，默认不得进入 Stable Prefix（suffix-only）。
+
+> **已被 [33](33-ai-context-channels.md) 取代。** 该约束把"框架事实"与"不可信
+> 检索内容"一刀切成 suffix-only，正是本轮要拆掉的东西。新规则见 33 §二：
+> 按可回放性分道，`Persistent` 就是要进入历史前缀。
 
 ### D4 ToolSet 变化必须产生新的请求前缀边界 ⭐
 
@@ -252,6 +260,9 @@ Stable Prefix
 
 动态状态里只有 `ToolSet` 位于 History **之前**；其余动态内容全部后置。因此 ToolSet Jitter
 是当前 Prompt Cache 的主要结构性扰动源（26 P3）。
+
+> **已被 [33](33-ai-context-channels.md) 取代。** 新一轮的 `Persistent` 上下文
+> 同样是跨 History 边界的动态变量；ToolSet Jitter 依旧是一个扰动源，但不再是唯一的。
 
 ## 七、E — 策略闸门（Policy Gate）
 

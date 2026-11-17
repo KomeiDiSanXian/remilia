@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### ⚡ 性能
+
+**`builtin/ai`：历史窗口裁剪收敛到回合边界，回合内的工具轮不再互相打断前缀缓存**
+
+提示词前缀缓存按字节比对请求前缀，而 `TrimMessages` 会前移消息数组的头部——一次裁剪会让"从裁剪点开始"的全部历史在下一个请求里变成未命中。因此裁剪的代价不取决于裁掉多少条，而取决于**裁剪发生的次数**。
+
+历史实现把裁剪挂在两条高频路径上：
+
+- `AppendMessageNoPersist`：回合内每追加一条 assistant / tool / 反思 / 重规划 / 校验修正消息都裁一次；
+- `SessionManager.snapshot`（即每次 `SaveSession`，含回合内收尾落库）也裁一次。
+
+于是一个带工具调用的回合会在中途被裁多次，而最大的受害者恰是本回合刚生成的工具结果：那些消息刚进入一次请求，还没被任何后续请求复用，下一次请求的前缀就从它们的头部错位。`max_history` 越小（或一个回合的工具轮越多），这段前缀就越可能反复作废。
+
+- 新增 `SessionManager.TrimWindow`：唯一的回合边界裁剪入口，由 `processWithTools` 在收尾时显式调用（defer 顺序为 回收附件字节 → 裁剪 → 落库，落库快照因此看到的是裁剪后的窗口）。
+- `AppendMessageNoPersist` **不再裁剪**：回合内的全部追加都保持"只增不减"，一次 `processWithTools` 内的所有请求共享同一份稳定前缀。
+- `touch`（`GetOrCreate` 命中缓存时）与 `snapshot`（落库）只在**回合未活跃**时裁剪：回合进行中，本轮的请求前缀仍在使用中。
+- `TrimMessages` 的语义本身不变（批量低水位、System 优先、不裁出孤儿 tool 消息），只是调用时机收敛；`TrimLowWaterDivisor` 的注释同步修正——余量只在回合**之间**有意义，不再需要为一个回合中途的 assistant + N 条 tool 预留空间。
+
+预期收益：工具轮越多的回合收益越明显（回合内第 2..N 轮请求重新变成上一轮的字节前缀）。可通过 `ai_llm_tokens_total{kind="chat"}` 的 `cached`/`prompt` 与 Debug 日志里的 `hit%` 对照，`ai_context_trimmed_messages_total` 应出现"次数下降、单次条数上升"的形态。
+
+- 新增用例：`TestTrimDoesNotRunMidTurn`（断言回合内第 n 轮请求是第 n+1 轮请求的严格前缀、且首轮工具结果仍在末轮请求里）、`TestTrimDoesNotRunOnTurnSavings`、`TestTrimWindowIsTheOnlyTurnBoundaryEntry`、`TestAppendMessageNoPersistDoesNotTrim`、`TestTrimWindowTrimsAtTurnBoundary`、`TestTouchSkipsTrimWhileTurnActive`。
+
 ## v1.82.0 (2026-11-14)
 
 ### ♻️ 重构
