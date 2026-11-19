@@ -6,6 +6,7 @@
 package ai
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai/protocol"
@@ -42,8 +43,8 @@ func TestDynamicContextChangeKeepsPrefix(t *testing.T) {
 	stablePrefix := func(dynamic string) string {
 		msgs := build(dynamic)
 		cut := len(msgs)
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == protocol.RoleUser {
+		for i, msg := range slices.Backward(msgs) {
+			if msg.Role == protocol.RoleUser {
 				cut = i
 				break
 			}
@@ -84,8 +85,8 @@ func TestEnvContextShiftsSuffixBoundaryOnly(t *testing.T) {
 	}
 	stablePrefix := func(msgs []protocol.Message) string {
 		cut := len(msgs)
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == protocol.RoleUser {
+		for i, msg := range slices.Backward(msgs) {
+			if msg.Role == protocol.RoleUser {
 				cut = i
 				break
 			}
