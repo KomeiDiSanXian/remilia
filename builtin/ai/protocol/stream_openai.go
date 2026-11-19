@@ -3,6 +3,7 @@ package protocol
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/jsonx"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -42,9 +43,13 @@ type openaiStreamChunk struct {
 // streamState（那是"结束时回填给 Done 事件"的字段）的原因。
 func newOpenAIStreamDecoder() streamDecoder {
 	var pendingToolCalls []OpenAIToolCall
+	// reasoning 与工具调用一样是跨分片累积的：每个 delta 只带一小段，
+	// 必须在整轮内拼起来才能回传给要求"历史轮次推理原样回传"的端点。
+	var reasoning strings.Builder
 
 	return func(data string, state *streamState, send func(StreamEvent) bool) (bool, error) {
 		if data == "[DONE]" {
+			state.reasoning = reasoning.String()
 			return true, nil
 		}
 
@@ -84,6 +89,8 @@ func newOpenAIStreamDecoder() streamDecoder {
 		}
 
 		if rc := delta.ReasoningContent; rc != "" {
+			reasoning.WriteString(rc)
+			state.reasoning = reasoning.String()
 			if !send(StreamEvent{Type: StreamEventReasoning, Content: rc}) {
 				return false, nil
 			}

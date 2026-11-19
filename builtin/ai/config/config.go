@@ -148,9 +148,11 @@ type Config struct {
 	// 为空表示使用本机本地时区。只影响时间事实的取值（日期/星期/偏移），
 	// 不参与任何调度或持久化。
 	ContextTimezone string `yaml:"context_timezone"`
-	// ContextLanguage 用户语言的自称（如 "中文"、"English"、"日本語"）。
-	// 为空表示不注入。除渲染 "用户语言" 字段外，还会用于按厂商环境消息协议
-	// （DeepSeek latest_reminder 的 language 段）投递环境事实。
+	// ContextLanguage 用户语言（如 "中文"、"English"、"日本語"）。
+	//
+	// 只在 context_fields 里显式列出 language 时才进入运行时上下文；原生通道
+	// 的正文是普通文本，按配置原样使用，不做任何厂商特定的语言名映射。
+	// 为空表示不注入。
 	ContextLanguage string `yaml:"context_language"`
 	// ContextLocation 用户所在地（如 "新加坡"）。为空表示未知。
 	//
@@ -160,9 +162,15 @@ type Config struct {
 	// ContextChannel 框架事实的投递方式（默认 user_suffix = 改造前行为）。
 	//
 	//   - "user_suffix"：把运行时上下文拼进本轮用户消息（今天的行为，默认）；
-	//   - "auto"：按端点身份选择原生通道（DeepSeek latest_reminder /
-	//     Anthropic 中途 system / OpenAI developer），探测失败自动回退到
-	//     user_suffix。
+	//   - "auto"：按**线格式**选择原生通道（OpenAI 兼容 → developer，必要时
+	//     退到中途 system；Anthropic 兼容 → 中途 system），逐级探测失败后
+	//     回退到 user_suffix。
+	//
+	// 形状只看 provider（用户声明的线格式），不看模型名或域名：部署方用的
+	// 模型是未知的，任何按厂商识别的表都会腐化。
+	//
+	// 开关同时作用于写入与编码两侧：改回 user_suffix 之后，历史里已存在的
+	// RoleEnvContext 记录会在编码时折回 user 文本，不会被继续以原生角色发出。
 	//
 	// 无论哪种方式，群聊窗口/长期记忆/相关历史等不可信内容一律保持拼接在
 	// 用户消息里，永不升级为系统级消息（见 docs/notes/33）。

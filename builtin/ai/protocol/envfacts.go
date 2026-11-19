@@ -5,10 +5,9 @@
 //
 // 为什么要 JSON 而不是直接存某家的线格式：
 //
-//	历史一旦落库就长期存在，而端点是可以换的（DeepSeek ↔ Anthropic ↔ 其它
-//	兼容网关）。DeepSeek 的 latest_reminder 要求单行 CSV、Anthropic 的中途
-//	system 要求可读指令、兜底路径要求一段散文——同一份事实要能换三种表达。
-//	存 CSV 就只能投递给 DeepSeek，存散文就只能兜底。
+//	历史一旦落库就长期存在，而端点是可以换的（OpenAI 兼容 ↔ Anthropic 兼容）。
+//	两家对"应用级指令"的表达不同：OpenAI 用 developer 角色，Anthropic 用数组
+//	内的 system 消息。存成其中一家的线格式，换端点就要改写全部历史。
 //
 // 载荷只包含**回放安全**的框架事实：日期、星期、时区、平台、语言、地点。
 // 用户昵称/ID 之类逐轮变化的信息不属于这里——它们本来就在 user 消息里。
@@ -37,6 +36,10 @@ type EnvFacts struct {
 	// Location 所在地（可为空——平台通常拿不到，不做推断）。
 	Location string `json:"location,omitempty"`
 	// Platform 平台标识（如 "qq"）。
+	//
+	// 只用于别的渲染形态（Instruction/Prose）里那句"平台: qq"。它**不会**
+	// 被投进任何厂商的结构化字段：OpenAI developer / Anthropic 中途 system
+	// 都只是普通正文，没有字段级校验，因此这个内部标识留在正文里是安全的。
 	Platform string `json:"platform,omitempty"`
 	// Language 用户语言的自称（如 "中文"）。
 	Language string `json:"language,omitempty"`
@@ -76,33 +79,13 @@ func ParseEnvFacts(content string) (EnvFacts, bool) {
 	return f, true
 }
 
-// cleanField 把字段里的分隔符替换掉。
-//
-// latest_reminder 用逗号分隔 5 个字段，字段内出现逗号会被端点判为格式错误
-// （400），因此投递前必须净化。
-func cleanField(s string) string {
-	return strings.ReplaceAll(strings.TrimSpace(s), ",", " ")
-}
-
-// ReminderLine 渲染成 DeepSeek latest_reminder 的单行格式：
-//
-//	<date>,<weekday>,<location>,<platform>,<language>
-//
-// 字段数必须恒为 5（location 可以为空，但不能缺列）。
-func (f EnvFacts) ReminderLine() string {
-	return strings.Join([]string{
-		cleanField(f.Date),
-		cleanField(f.Weekday),
-		cleanField(f.Location),
-		cleanField(f.Platform),
-		cleanField(f.Language),
-	}, ",")
-}
-
 // Instruction 渲染成给 OpenAI developer / Anthropic 中途 system 用的可读指令。
 //
 // 这两个角色本身就是"应用级指令"，散文式表达比 CSV 更合适（模型对
-// "当前日期：…" 的理解比对 5 列裸字段更稳）。字段顺序固定，保证逐轮字节一致。
+// "当前日期：…" 的理解比对裸字段更稳）。字段顺序固定，保证逐轮字节一致。
+//
+// 刻意不做任何厂商特有的字段编码：正文就是普通文本，因此不存在"某个字段
+// 取值不合某个端点的私有校验"这一类整轮 400。
 func (f EnvFacts) Instruction() string {
 	var b strings.Builder
 	b.WriteString("<environment>\n")

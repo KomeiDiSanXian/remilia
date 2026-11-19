@@ -101,7 +101,7 @@ func TestUserSuffixChannelKeepsHistoryClean(t *testing.T) {
 
 	// 不得出现任何原生通道角色。
 	for _, m := range last {
-		assert.NotEqual(t, protocol.RoleLatestReminder, m.Role)
+		assert.NotEqual(t, protocol.RoleSystemMid, m.Role)
 		assert.NotEqual(t, protocol.RoleDeveloper, m.Role)
 		assert.NotEqual(t, protocol.RoleEnvContext, m.Role)
 	}
@@ -222,9 +222,11 @@ func TestAutoChannelFallsBackWhenRejected(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, 2, attempts, "首轮应重试一次")
-	assert.True(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL), "端点应被标记为不支持")
+	assert.True(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL, protocol.NativeContextDeveloper),
+		"该端点上的 developer 形状应被标记为不支持")
 
-	// 第一次请求有 developer，第二次（降级后）没有，且事实折进了 user 文本。
+	// 第一次请求用 developer；第二次退到同线格式的第二个候选（中途 system），
+	// 它对本例的 mock 端点可用，因此事实仍以原生消息投递。
 	first, second := reqs[0], reqs[1]
 	hasDev := false
 	for _, m := range first {
@@ -232,17 +234,77 @@ func TestAutoChannelFallsBackWhenRejected(t *testing.T) {
 			hasDev = true
 		}
 	}
-	assert.True(t, hasDev, "探测请求应带原生通道")
+	assert.True(t, hasDev, "探测请求应带首选原生形状")
+
+	hasMid := false
 	for _, m := range second {
-		assert.NotEqual(t, protocol.RoleDeveloper, m.Role, "降级后不得再发原生角色")
+		assert.NotEqual(t, protocol.RoleDeveloper, m.Role, "降级后不得再发被拒的形状")
+		if m.Role == protocol.RoleSystemMid {
+			hasMid = true
+		}
+	}
+	assert.True(t, hasMid, "developer 被拒后应退到同线格式的第二个候选")
+}
+
+// TestAutoChannelFallsBackToUserTextWhenAllShapesRejected 冻结最终兜底：
+// 同线格式的候选全部被拒后，事实折进 user 文本，请求仍能成功。
+func TestAutoChannelFallsBackToUserTextWhenAllShapesRejected(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		reqs [][]protocol.Message
+	)
+	p := channelTestPlugin("你是助手", config.ContextChannelAuto,
+		&mockProvider{chatStreamFn: func(_ context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+			var hasNative bool
+			for _, m := range req.Messages {
+				if m.Role == protocol.RoleDeveloper || m.Role == protocol.RoleSystemMid {
+					hasNative = true
+				}
+			}
+			mu.Lock()
+			reqs = append(reqs, append([]protocol.Message(nil), req.Messages...))
+			mu.Unlock()
+			if hasNative {
+				// 端点不认任何原生上下文形状。
+				return nil, &protocol.APIError{
+					StatusCode: 400,
+					Body:       `{"error":{"message":"invalid role: developer / system"}}`,
+				}
+			}
+			ch := make(chan protocol.StreamEvent, 2)
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "答"}
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
+			close(ch)
+			return ch, nil
+		}})
+
+	ctx := channelTestContext()
+	sess := p.sm.GetOrCreate("ch:fallback-all", "u1", "c1")
+	env := p.envContextMessage(ctx, sess)
+	require.NotNil(t, env)
+	p.sm.AppendMessage(sess, *env)
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "你好"})
+
+	require.True(t, sess.BeginTurn())
+	_, err := p.processWithTools(ctx, sess)
+	sess.EndTurn()
+	require.NoError(t, err, "全部形状被拒后仍应成功（折进 user 文本）")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(reqs), 2)
+	last := reqs[len(reqs)-1]
+	for _, m := range last {
+		assert.NotEqual(t, protocol.RoleDeveloper, m.Role)
+		assert.NotEqual(t, protocol.RoleSystemMid, m.Role)
 	}
 	merged := false
-	for _, m := range second {
+	for _, m := range last {
 		if m.Role == protocol.RoleUser && strings.Contains(m.Content, "===== 运行时上下文 =====") {
 			merged = true
 		}
 	}
-	assert.True(t, merged, "降级后事实必须折进 user 文本")
+	assert.True(t, merged, "全部形状被拒后事实必须折进 user 文本")
 }
 
 // TestProbeRejectionDoesNotTriggerOnAuthError 冻结降级边界：鉴权失败不得让
@@ -251,10 +313,120 @@ func TestProbeRejectionDoesNotTriggerOnAuthError(t *testing.T) {
 	p := channelTestPlugin("你是助手", config.ContextChannelAuto, &mockProvider{})
 	authErr := &protocol.APIError{StatusCode: 401, Body: `{"error":{"message":"invalid api key"}}`}
 	assert.False(t, p.tryDowngradeEnvChannel(authErr))
-	assert.False(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL))
+	assert.False(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL, protocol.NativeContextDeveloper))
 
 	// 上下文超长的 400 同样不应误判。
 	ctxErr := &protocol.APIError{StatusCode: 400, Body: `context length exceeded`}
 	assert.False(t, p.tryDowngradeEnvChannel(ctxErr))
-	assert.False(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL))
+	assert.False(t, p.contextProbe.IsBad(p.cfg.Provider, p.cfg.BaseURL, protocol.NativeContextDeveloper))
+}
+
+// TestRuntimeContextDisabledDropsEnvEntirely 冻结隐私开关：
+// include_runtime_context=false 时既不写新的环境事实，也不把历史里残留的
+// 折回 user 文本——"完全不注入"必须是真的不注入。
+func TestRuntimeContextDisabledDropsEnvEntirely(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		reqs [][]protocol.Message
+	)
+	p := channelTestPlugin("你是助手", config.ContextChannelAuto,
+		&mockProvider{chatStreamFn: func(_ context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+			mu.Lock()
+			reqs = append(reqs, append([]protocol.Message(nil), req.Messages...))
+			mu.Unlock()
+			ch := make(chan protocol.StreamEvent, 2)
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "答"}
+			ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
+			close(ch)
+			return ch, nil
+		}})
+	p.cfg.BaseURL = "https://api.deepseek.com"
+	p.cfg.IncludeRuntimeContext = false
+
+	ctx := channelTestContext()
+	sess := p.sm.GetOrCreate("ch:privacy", "u1", "c1")
+	runtime.SetSystemMessage(sess, p.buildStaticSystemPrompt(ctx))
+
+	assert.Nil(t, p.envContextMessage(ctx, sess), "关闭运行时上下文后不得写环境事实")
+
+	// 历史里已有的旧记录也必须消失，而不是折回 user 文本。
+	p.sm.AppendMessage(sess, runtime.EnvContextMessage(protocol.MarshalEnvFacts(protocol.EnvFacts{
+		Date: "2026-11-19", Weekday: "星期四", Platform: "qq", Language: "中文",
+	})))
+	p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "你好"})
+
+	require.True(t, sess.BeginTurn())
+	_, err := p.processWithTools(ctx, sess)
+	sess.EndTurn()
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, reqs)
+	for _, m := range reqs[len(reqs)-1] {
+		assert.NotContains(t, m.Content, "2026-11-19", "关闭后不得再注入任何环境事实")
+		assert.NotContains(t, m.Content, "运行时上下文")
+	}
+}
+
+// TestDisabledChannelFoldsStoredEnvIntoUser 冻结"关掉开关后历史里残留的
+// RoleEnvContext 不得再以原生角色发出"。
+//
+// 历史跨版本、跨配置长期存在：一旦某次开过 auto，env 记录就留在会话里。
+// 只让写入侧遵守开关是不够的——编码侧若仍按端点形状翻译，配置改回
+// user_suffix 之后这些旧记录依然会以 latest_reminder 发出（生产环境里
+// "unknown platform 'qq'" 就是这样在"不填 context_channel"时出现的）。
+func TestDisabledChannelFoldsStoredEnvIntoUser(t *testing.T) {
+	for _, channel := range []string{"", config.ContextChannelUserSuffix} {
+		var (
+			mu   sync.Mutex
+			reqs [][]protocol.Message
+		)
+		p := channelTestPlugin("你是助手", channel,
+			&mockProvider{chatStreamFn: func(_ context.Context, req *protocol.ChatRequest) (<-chan protocol.StreamEvent, error) {
+				mu.Lock()
+				reqs = append(reqs, append([]protocol.Message(nil), req.Messages...))
+				mu.Unlock()
+				ch := make(chan protocol.StreamEvent, 2)
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventText, Content: "答"}
+				ch <- protocol.StreamEvent{Type: protocol.StreamEventDone}
+				close(ch)
+				return ch, nil
+			}})
+		// DeepSeek 端点：若编码侧忽略开关，这里会被编成 latest_reminder。
+		p.cfg.BaseURL = "https://api.deepseek.com"
+
+		ctx := channelTestContext()
+		sess := p.sm.GetOrCreate("ch:disabled:"+channel, "u1", "c1")
+		runtime.SetSystemMessage(sess, p.buildStaticSystemPrompt(ctx))
+		// 历史里已有一条早期 auto 留下的环境事实。
+		p.sm.AppendMessage(sess, runtime.EnvContextMessage(protocol.MarshalEnvFacts(protocol.EnvFacts{
+			Date: "2026-11-19", Weekday: "星期四", Platform: "qq", Language: "中文",
+		})))
+		p.sm.AppendMessage(sess, protocol.Message{Role: protocol.RoleUser, Content: "你好"})
+
+		require.True(t, sess.BeginTurn())
+		_, err := p.processWithTools(ctx, sess)
+		sess.EndTurn()
+		require.NoError(t, err)
+
+		mu.Lock()
+		require.NotEmpty(t, reqs)
+		req := reqs[len(reqs)-1]
+		mu.Unlock()
+
+		for _, m := range req {
+			assert.NotEqual(t, protocol.RoleDeveloper, m.Role,
+				"关闭原生通道后不得再发原生角色（channel=%q）", channel)
+			assert.NotEqual(t, protocol.RoleSystemMid, m.Role)
+			assert.NotEqual(t, protocol.RoleEnvContext, m.Role)
+		}
+		merged := false
+		for _, m := range req {
+			if m.Role == protocol.RoleUser && strings.Contains(m.Content, "2026-11-19") {
+				merged = true
+			}
+		}
+		assert.True(t, merged, "残留的环境事实必须折回 user 文本（channel=%q）", channel)
+	}
 }

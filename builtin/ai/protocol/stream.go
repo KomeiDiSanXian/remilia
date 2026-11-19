@@ -34,6 +34,12 @@ func newHTTPClient() *http.Client {
 type streamState struct {
 	usage        *TokenUsage
 	finishReason string
+	// reasoning 本轮累积的推理文本（provider 中立名）。
+	//
+	// 部分思考型端点在"请求携带 tools"时要求历史轮次的推理原样回传，缺了
+	// 直接 400。这里只在端点**确实产出过推理**时才有值：从不返回该字段的
+	// 端点永远得到空串，适配器也就永远不会发出这个字段。
+	reasoning string
 }
 
 // streamDecoder 解释一条 SSE 负载。
@@ -80,7 +86,12 @@ func pumpSSE(ctx context.Context, resp *http.Response, out chan<- StreamEvent, d
 			return
 		}
 		if done {
-			send(StreamEvent{Type: StreamEventDone, Usage: state.usage, FinishReason: state.finishReason})
+			send(StreamEvent{
+				Type:         StreamEventDone,
+				Usage:        state.usage,
+				FinishReason: state.finishReason,
+				Reasoning:    state.reasoning,
+			})
 			return
 		}
 		if ctx.Err() != nil {
@@ -91,5 +102,10 @@ func pumpSSE(ctx context.Context, resp *http.Response, out chan<- StreamEvent, d
 		send(StreamEvent{Type: StreamEventError, Err: err})
 		return
 	}
-	send(StreamEvent{Type: StreamEventDone, Usage: state.usage, FinishReason: state.finishReason})
+	send(StreamEvent{
+		Type:         StreamEventDone,
+		Usage:        state.usage,
+		FinishReason: state.finishReason,
+		Reasoning:    state.reasoning,
+	})
 }

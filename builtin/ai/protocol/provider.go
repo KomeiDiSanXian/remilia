@@ -87,7 +87,8 @@ type ContentPart struct {
 // 按 Role 不同，字段含义不同：
 //   - RoleSystem: Content 为系统提示词，ToolCalls/ToolCallID 为空
 //   - RoleUser: Content 为用户消息（ContentParts 优先于 Content）
-//   - RoleAssistant: Content 为 AI 回复，ToolCalls 为 AI 请求的工具调用（可选）
+//   - RoleAssistant: Content 为 AI 回复，ToolCalls 为 AI 请求的工具调用（可选），
+//     Reasoning 为该轮模型给出的推理文本（思考型模型，可选）
 //   - RoleTool: Content 为工具执行结果，ToolCallID 对应 Assistant 消息中的 ToolCall.ID
 type Message struct {
 	Role         Role          `json:"role"`
@@ -95,6 +96,17 @@ type Message struct {
 	ContentParts []ContentPart `json:"content_parts,omitempty"`
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
+	// Reasoning 该轮 assistant 的推理文本（provider 中立名）。
+	//
+	// 为什么必须存：部分思考型端点在"请求携带 tools"时要求把历史轮次的推理
+	// 原样回传，缺了就直接 400（"The `reasoning_content` in the thinking mode
+	// must be passed back to the API."）。这是端点自己给出的语义，不是我们要
+	// 发明的字段——适配器只在**模型确实产出过推理**时才把它写回线上，因此
+	// 从不返回该字段的端点永远收不到它，不需要维护任何厂商/模型名单。
+	//
+	// 对 Anthropic 线格式它是空的：那边的推理是带签名的 thinking 块，
+	// 拿不到签名就无法回传，只能由端点自行恢复（官方允许缺省）。
+	Reasoning string `json:"reasoning,omitempty"`
 	// Timestamp 消息到达时间（用于历史图片保留时间窗判定；0 值表示未知）。
 	Timestamp time.Time `json:"timestamp"`
 	// Internal 标记系统注入的内部指令（反思/重规划/校验修正），它们虽以
@@ -116,7 +128,14 @@ type ChatRequest struct {
 	// none/minimal/low/medium/high）。空串表示不携带该字段，由端点决定
 	// 默认行为——不支持该字段的网关因此不受影响。
 	ReasoningEffort string
-	Stream          bool
+	// ReasoningEcho 是否要求适配器为"带工具调用但没有推理"的历史轮次补发
+	// 空的 reasoning_content。
+	//
+	// 只有探测确认"该端点会因缺失推理而 400"时才置真（见
+	// [IsReasoningEchoRequired]）。从不产出推理的端点永远保持 false，
+	// 请求字节与升级前完全一致。
+	ReasoningEcho bool
+	Stream        bool
 }
 
 // TokenUsage 一次 LLM 调用的 token 用量（由提供商响应解析；缺失时为 nil）。
@@ -139,6 +158,9 @@ type TokenUsage struct {
 type ChatResponse struct {
 	Content   string
 	ToolCalls []ToolCall
+	// Reasoning 本轮完整的推理文本（思考型模型；provider 中立名）。
+	// 与 [Message.Reasoning] 同义，用于把这一轮回填进会话历史。
+	Reasoning string
 	// Attachments 模型在响应中直接返回的媒体附件（如原生图像输出模型的
 	// base64 图片或图片 URL）。纯文本输出型模型始终为空。
 	Attachments []platform.Attachment
@@ -178,6 +200,13 @@ type StreamEvent struct {
 	// 供编排层区分"正常 stop"与"length/content_filter 导致的空回复"，
 	// 空回复不再被静默当成成功。
 	FinishReason string
+	// Reasoning 本轮完整的推理文本（StreamEventDone 时有效）。
+	//
+	// 与 StreamEventReasoning 的关系：那是一条条增量（只用于计数/日志），
+	// 这里是拼好的全文，用于写回会话历史——部分思考型端点在"请求携带 tools"
+	// 时要求历史轮次的推理原样回传。适配器只在非空时才把它放进请求，因此
+	// 从不产出推理的端点完全不受影响。
+	Reasoning string
 }
 
 // Provider LLM 提供商抽象接口。

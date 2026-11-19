@@ -621,13 +621,18 @@ messagelog:
 #                                         #     新增（opt-in）: weekday, timezone, location, language
 #                                         #     —— 默认配置下输出与旧版本逐字节一致，避免升级击穿前缀缓存
 #     context_timezone: ""                # [R] 时间事实使用的时区（IANA 名，如 Asia/Shanghai）；空 = 本机时区
-#     context_language: ""               # [R] 用户语言的自称（如 中文 / English）；空 = 不注入
+#     context_language: ""               # [R] 用户语言（如 中文 / English / 日本語）。只在 context_fields
+#                                         #     里显式列出 language 时才注入运行时上下文；原生通道的正文
+#                                         #     是普通文本，按此值原样使用。空 = 不注入
 #     context_location: ""               # [R] 用户所在地；空 = 未知（刻意不从 IP/群名推断）
 #     context_channel: user_suffix        # [R] 框架事实的投递方式：
 #                                         #     user_suffix（默认）= 拼进本轮用户消息，行为与旧版本一致；
-#                                         #     auto = 按端点身份使用原生通道（DeepSeek latest_reminder /
-#                                         #     Anthropic 中途 system / OpenAI developer），失败自动回退。
+#                                         #     auto = 按线格式使用原生通道（OpenAI 兼容 → developer，
+#                                         #     必要时退到中途 system；Anthropic 兼容 → 中途 system），
+#                                         #     逐级探测失败后回退到 user 文本。只看 provider，不看模型名
 #                                         #     群聊窗口/记忆/RAG 等不可信内容始终留在用户消息里，永不升级为系统级
+#                                         #     include_runtime_context=false 时无论取何值都不注入，且历史里残留的
+#                                         #     环境事实会折回 user 文本（不会以原生角色发出）
 #     include_mention_info: true          # [R] 是否将本条消息 @ 提及的其他用户昵称注入用户消息
 #
 #     # —— 结构级上下文（依赖 messagelog 消息历史）——

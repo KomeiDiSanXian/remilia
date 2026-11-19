@@ -33,6 +33,12 @@ type streamOutcome struct {
 	finishReason    string
 	reasoningChars  int
 	reasoningTokens int
+	// reasoning 本轮完整推理文本（Done 事件携带）。
+	//
+	// 必须写回会话历史里的那条 assistant 消息：部分思考型端点在"请求携带
+	// tools"时要求历史轮次的推理原样回传，缺了直接 400。端点从不返回推理时
+	// 这里恒为空，装配侧的 omitzero 保证请求里不会多出字段。
+	reasoning string
 }
 
 // turnRun 一次回合运行的可变状态，也是回合内各收尾步骤的接收者。
@@ -92,6 +98,7 @@ func consumeTurnStream(events <-chan protocol.StreamEvent) streamOutcome {
 		case protocol.StreamEventDone:
 			out.doneReceived = true
 			out.finishReason = event.FinishReason
+			out.reasoning = event.Reasoning
 			if event.Usage != nil {
 				out.reasoningTokens = event.Usage.ReasoningTokens
 			}
@@ -187,8 +194,16 @@ func (p *Plugin) buildTurnRequest(ctx *eventctx.Context, run *turnRun, turnCtx c
 	// 位置约束各家不同（Anthropic 的中途 system 必须跟在 user 之后），
 	// 全部由 runtime.EncodeEnvContext 一处处理，适配器只负责序列化。
 	//
-	// 关闭原生通道（默认 user_suffix）时序列里没有 RoleEnvContext，这一步是 no-op。
-	msgs = runtime.EncodeEnvContext(msgs, p.envChannelShape())
+	// 关闭原生通道（默认 user_suffix）时形状为 None：历史里已存在的
+	// RoleEnvContext 会被折回 user 文本，而不是继续以原生角色发出。
+	//
+	// include_runtime_context=false 是"完全不注入"的隐私开关：连折回 user 文本
+	// 都不允许，因此直接删除这些记录（写入侧本来也不会再产生新的）。
+	if p.cfg != nil && !p.cfg.IncludeRuntimeContext {
+		msgs = runtime.DropEnvContext(msgs)
+	} else {
+		msgs = runtime.EncodeEnvContext(msgs, p.envChannelShape())
+	}
 
 	msgs = runtime.InjectDynamicContext(msgs, dynamicContext)
 
@@ -212,6 +227,9 @@ func (p *Plugin) buildTurnRequest(ctx *eventctx.Context, run *turnRun, turnCtx c
 		TopP:            p.cfg.TopP,
 		MaxTokens:       maxTokens,
 		ReasoningEffort: p.cfg.ReasoningEffort,
+		// 探测确认该端点要求历史工具轮回传推理时，让适配器给缺推理的旧记录
+		// 补一个空串（端点接受空串、拒绝缺字段）。默认 false，请求字节不变。
+		ReasoningEcho: p.contextProbe.RequiresReasoningEcho(p.cfg.Provider, p.cfg.BaseURL),
 	}
 }
 
@@ -343,6 +361,9 @@ func (r *turnRun) finishWithoutToolCalls(outcome streamOutcome,
 	replanMsg *protocol.Message, firstRound bool) (*chatResult, error) {
 	sess := r.sess
 	if outcome.text != "" {
+		// 普通对话轮不保存推理：端点只在"请求携带 tools 且历史里有 tool_calls
+		// 轮次"时强制回传，普通轮存了反而会让历史字节无谓变大、前缀缓存
+		// 失效。
 		r.p.sm.AppendMessageNoPersist(sess, protocol.Message{Role: protocol.RoleAssistant, Content: outcome.text})
 	}
 	if replanMsg != nil {

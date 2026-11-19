@@ -8,6 +8,9 @@
 >
 > 状态：`P0`–`P3` 已实现（裁剪时机、环境事实、通道模型、原生编码与探测降级）；
 > `P4` 待真实流量验证后再决定是否把 `context_channel` 默认值切到 `auto`。
+> v1.83.0 之后 `auto` 分支有过一次线上 400 修复（形状选择不再绑定厂商私有
+> 角色、开关作用域覆盖编码侧、思考型端点的历史推理回传，见 §三），`P4` 的
+> 对照数据需在该修复之后重采。
 
 ## 一、问题重述
 
@@ -77,8 +80,8 @@ turn3 请求: [sys] ctx1  u1  a1  ctx2  u2  a2  ctx3  u3
 ```
 
 上一轮的请求是下一轮请求的**严格字节前缀**，`ctx_n`/`u_n`/`a_n` 全部永久可复用。
-这是唯一能突破 76% 天花板的形状，也是 DeepSeek 官方要求的"历史轮次的
-`latest_reminder` 要随历史一起回传，否则降低缓存命中"。
+这是唯一能突破 76% 天花板的形状，也是各家"上下文缓存按请求前缀逐块比对"的
+直接推论：历史里回放的每一条都在命中范围之内。
 
 同时它天然满足放置约束：`ctx` 紧跟自己的 user 消息，工具轮在其后追加
 assistant/tool，不会把 `ctx` 挤到 `tool_use` 与 `tool_result` 之间。
@@ -89,46 +92,93 @@ assistant/tool，不会把 `ctx` 挤到 `tool_use` 与 `tool_result` 之间。
 模型随时能读到；重复追加只会按回合线性占用窗口预算。跨日后事实变化，才写
 新的一条。这也让 `ctx_n` 在一天之内保持稳定，不再逐轮增长。
 
-## 三、厂商适配：按端点身份定首选 + 失败一次永久降级
+## 三、厂商适配：只用两家公开协议里的形状
 
-三家都没有"通用的环境元信息协议"，可用形状各不相同：
+框架只声明兼容两种线格式（`config.provider`）：OpenAI 兼容 / Anthropic 兼容。
+两种协议里各有一个官方定义的"应用级指令"形状，都能承载环境事实：
 
-| 端点 | 原生形状 | 硬约束 |
+| 线格式 | 原生形状 | 硬约束 |
 |---|---|---|
-| DeepSeek（OpenAI 兼容） | `role: "latest_reminder"`，内容 `date,weekday,location,platform,language` | 必须紧跟 user；不得夹在 `tool_use`/`tool_result` 之间；content 必须是字符串（否则 422） |
-| DeepSeek（Anthropic 兼容） | 同上（文档明确支持） | 同上 |
-| Anthropic 官方 | messages 数组内 `role: "system"` | 模型白名单（Fable/Mythos/Opus 5.x、Sonnet 5.5、Haiku 5.5，**Sonnet 5 不支持**）；不能是首条；必须紧跟 user 或 server-tool-result 结尾的 assistant；不得夹在 `tool_use`/`tool_result` 之间 |
-| OpenAI 及兼容网关 | `role: "developer"` | 部分兼容网关不认 |
+| OpenAI 兼容 | `role: "developer"` | 官方定义于 o1 之后；部分兼容网关不认（会 400/422）。位置无约束 |
+| OpenAI 兼容（退路） | 数组内 `role: "system"` | 同上；作为 developer 被拒后的第二候选 |
+| Anthropic 兼容 | 数组内 `role: "system"` | 不能是首条；必须紧跟 user 或以 tool_result 结尾的 assistant；不得夹在 `tool_use`/`tool_result` 之间；只有部分模型支持 |
 
-**不采用"模型白名单表"**：那是一张必然腐化、且新模型上线必须改代码的表。
-改用：
+**刻意不使用任何厂商私有角色。** 例如某些端点提供了 `latest_reminder` 这类
+私有角色，字段取值也由该厂商单方面定义（`platform` 只允许 `App`/`Web`、
+`weekday` 必须用该语言书写……）。把它按 `base_url` 识别后就发出去，等价于在
+框架里内置一张**必然腐化的厂商名单**：新增一个兼容网关要改代码，改错就是整轮
+对话 400，而且用户配置的模型是未知的。生产事故（`unknown platform 'qq'`）正是
+这条路径的直接结果。
 
-1. 按**端点身份**（base_url + provider）决定首选形状——注意
-   `provider: anthropic` + `base_url: https://api.deepseek.com/anthropic` 是合法组合，
-   该端点认 reminder 不认中途 system；
-2. 收到 400/422 且错误体指向该 role 时，记入进程内 `bad[endpointKey]`，
-   后续请求直接回退到"拼进 user 文本"的兜底形状。
+**形状只看 `provider`，不看模型名或域名**：
 
-400/422 在推理前拒绝、不消耗 token，因此"探测失败一次"的成本可接受，
-换来的是**新模型零维护**。
+```go
+protocol.NativeContextCandidates(provider)
+//   openai    → developer → 中途 system → none
+//   anthropic → 中途 system → none
+```
+
+8080 网关、Ollama、自建 vLLM 在 OpenAI 兼容线上与 OpenAI 官方完全一样，
+因此不需要、也不允许按域名分叉。OpenAI 那条多一个候选，因为"不认 developer、
+但认 system"是兼容网关最常见的差异；Anthropic 没有这个退路（官方要求中途
+system 紧跟 user，而 developer 角色它根本不认），因此被拒后直接折进 user 文本。
+
+失败处理是逐级探测，而不是一刀切：
+
+1. 收到 400/422 且错误体指向该形状（`role` / `developer` / `system` /
+   `unknown variant` 等）→ 记入 `ProbeMemory`（键 = provider + base_url + 形状），
+   下一次请求直接跳到下一个候选；全被拒后折进 user 文本。
+2. 400/422 在推理前拒绝、不消耗 token，因此"探测失败一次"的成本可接受，
+   换来的是**新模型/新网关零维护**。
+
+三条相关的修复也在这一层（生产事故的直接原因）：
+
+- **开关必须同时作用于编码侧**：`envChannelShape()` 早期只按端点能力返回形状、
+  不看 `context_channel`，于是"曾经开过 auto"留下的历史记录在改回 `user_suffix`
+  之后仍会被编成原生角色发出去——配置已关掉却依然报错。现在写入与编码共用同一
+  判定：关闭时形状为 `None`，旧记录折回 user 文本。
+- **`include_runtime_context=false` 不被绕过**：它是"完全不注入"的隐私开关，
+  现在连折回 user 文本都不做（`runtime.DropEnvContext`）。
+- **历史工具轮的推理必须能回传**（见 §3.2）。
 
 ### 3.1 存储角色与线格式角色必须分离
 
 会话历史里存的是 provider 中立的 `RoleEnvContext` + JSON 载荷（`protocol.EnvFacts`），
 **不是**某家的线格式。原因：历史一旦落库就长期存在，而端点可以换
-（DeepSeek ↔ Anthropic ↔ 其它兼容网关）；三种形状的表达方式完全不同
-（单行 CSV / 可读指令块 / 散文），存成 CSV 就只能投递给 DeepSeek。
+（OpenAI 兼容 ↔ Anthropic 兼容 ↔ 任意自建网关）；两种形状的角色名与位置约束
+都不同（developer 在 user 之前 / 中途 system 必须在 user 之后），存成其中一种
+就只能投递给对应的线格式。
 
 编码由装配侧的 `runtime.EncodeEnvContext` 一处完成，适配器只负责序列化：
 
 | 形状 | 放置 | 正文 |
 |---|---|---|
-| reminder | **保持在 user 之前**（官方要求紧跟） | `date,weekday,location,platform,language` |
 | developer | 保持在 user 之前 | `<environment>` 指令块 |
 | 中途 system | **挪到 user 之后**（否则 400） | `<environment>` 指令块 |
 | 兜底 | 删除独立消息，正文折进 user | 散文（不加标签） |
 
 最后一行就是"探测失败后回退到 user 文本"的实现，与 `user_suffix` 的表达等价。
+
+### 3.2 思考型模型的推理必须能随历史回传
+
+有的端点在思考模式下、且请求携带 `tools` 时，要求历史里每个
+`assistant(tool_calls)` 都带回它当初产出的推理文本，缺了直接 400
+（`The reasoning_content in the thinking mode must be passed back to the API.`）。
+这是端点侧语义，不是厂商判断，因此处理方式同样是"探测 + 记性"，而不是名单：
+
+- `Message.Reasoning` / `ChatResponse.Reasoning` / `StreamEvent.Reasoning`
+  是 provider 中立的推理文本；OpenAI 适配器把它映射成线格式的
+  `reasoning_content`，**只在非空时才发出**——从不产出推理的端点完全不受影响。
+- 带工具调用的轮次会把推理写回会话历史（普通对话轮不写，避免无谓的历史膨胀）。
+- 旧版本落库的轮次没有推理可回传：探测到上面那条 400/422 后，记入
+  `ProbeMemory.RequiresReasoningEcho`，后续请求为这些轮次显式补一个空串
+  （端点接受空串、拒绝缺字段），并重试同一轮。
+- Anthropic 线格式不受影响：那边的推理是带签名的 thinking 块，拿不到签名就
+  无法回传，官方允许缺省。
+
+这条路径同样不认厂商：判据只有"端点返回了这条错误"，因此永远不会给不需要它的
+端点多发字段。
+
 
 ## 四、窗口裁剪必须收敛到回合边界（P0，已实现）
 这是本轮的**前置项**：只要 `TrimMessages` 还在回合中途跑，`append-only` 的
@@ -165,8 +215,9 @@ func (sm *SessionManager) AppendMessageNoPersist(session *Session, msg protocol.
 | **P0** ✅ | 裁剪收敛到回合边界 + 时机用例 | 回合内第 n 轮请求是第 n+1 轮的严格前缀；全量测试绿 |
 | **P1** ✅ | `EnvironmentFacts` + `EnvFacts` 载荷：补 weekday / timezone / language / location / conversation kind；`RenderEnvProse` 保持默认输出逐字节不变 | `facts_test.go` 的逐字节用例 + 既有 `context_pipeline_test.go` 不改即绿 |
 | **P2** ✅ | `Item` / `Channel` / `Snapshot` / `Render`：信任边界由类型保证（只有 `EnvironmentFacts.PersistentItems` 能产 `Persistent`） | `item_test.go`（含指纹稳定性与预算共享） |
-| **P3** ✅ | `RoleEnvContext` 存储角色 + 适配器编码（reminder / developer / 中途 system / 兜底）+ 端点探测降级 + `context_channel` 开关 | `envcontext_test.go`（放置规则）、`capability_test.go`（端点判定与降级边界）、`append_prefix_test.go`（跨轮严格前缀）、`envcontext_channel_test.go`（默认不变 + 自动降级重试） |
-| **P4** ⏳ | 真实流量对照 `ai_llm_tokens_total{type="prompt_cached"}` 与 `ai_context_channel_total`，决定是否把默认值切到 `auto` | 一周数据 |
+| **P3** ✅ | `RoleEnvContext` 存储角色 + 适配器编码（developer / 中途 system / 兜底）+ 端点探测降级 + `context_channel` 开关 | `envcontext_test.go`（放置规则）、`capability_test.go`（候选顺序与降级边界）、`append_prefix_test.go`（跨轮严格前缀）、`envcontext_channel_test.go`（默认不变 + 逐级降级） |
+| **P3.1** ✅ | 线上修复：形状只看 provider（删除厂商私有角色）、开关作用域覆盖编码侧、`include_runtime_context=false` 不被绕过、思考型端点要求历史工具轮回传推理时的探测与回补 | `capability_test.go`（候选/降级/推理回传判据）、`provider_test.go`（reasoning 三种线上形状）、`runtime/envcontext_test.go`（编码失败折回 user）、`envcontext_channel_test.go`（关闭后不得再发原生角色、全部形状被拒后折进 user） |
+| **P4** ⏳ | 真实流量对照 `ai_llm_tokens_total{type="prompt_cached"}` 与 `ai_context_channel_total`，决定是否把默认值切到 `auto` | 一周数据（在 P3.1 之后采样） |
 
 `P3` 必须带开关：`freeze_prefix_test` 里"动态上下文不写回历史"的断言在
 `user_suffix` 下仍然成立，两条通道可以共存、用数据决胜负。
@@ -186,6 +237,11 @@ A/B/C/E/F/G 组契约（ToolSet 语义、Execute 三态、检索权重、策略�
 配置/指标/持久化）与 29 的分包依赖方向**继续有效**。
 
 ## 七、明确不做
+
+- 不使用任何厂商私有消息角色（如 `latest_reminder`）来投递框架事实：字段取值由
+  该厂商单方面定义、其它端点一律拒绝，写进框架等于内置一张会腐化的厂商名单；
+  通用形状（developer / 中途 system）+ 逐级探测已能覆盖所有 OpenAI/Anthropic
+  兼容端点。
 
 - `Source` 接口外置给第三方插件注册（需要注册/权限/超时/隔离一整套，当前无消费者）；
 - `Priority × Relevance × Freshness / TokenCost` 评分公式（现有节序 + 预算已够用）；

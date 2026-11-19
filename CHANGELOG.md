@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 修复
+
+**`builtin/ai`：`context_channel: auto` 在 DeepSeek 上每轮请求都被 400/422 拒绝**
+
+生产日志里的两条报错指向同一处设计的两个侧面：
+
+- `400 Invalid 'messages[1].content': unknown platform 'qq'` —— 环境事实按
+  某厂商私有的 `latest_reminder` 角色投递时，把内部平台标识原样塞进了
+  `platform` 字段；
+- `422 messages[1].role: unknown variant 'env_context'`（v1.81.0）—— 会话历史
+  里的存储角色被漏过了编码，直接发给端点。
+
+根因不是某个字段写错，而是**把厂商私有协议写进了框架**：`latest_reminder` 的
+五个字段取值由该厂商单方面定义（`platform` 只允许 `App`/`Web`、`weekday` 必须
+用 `language` 对应语言书写……），而用户部署的模型是未知的。按 `base_url`
+识别厂商再发私有角色，等于内置一张必然腐化的名单。本轮改为**只用两家公开协议
+里存在的形状**，并把能力判定交给探测：
+
+- **形状只看 `provider`，不看模型名或域名**（`protocol.NativeContextCandidates`）：
+  OpenAI 兼容 → `developer`（被拒后试数组内 `system`）→ 折进 user 文本；
+  Anthropic 兼容 → 数组内 `system` → 折进 user 文本。删除
+  `RoleLatestReminder` 与 `DetectNativeContext` 的域名识别表。
+- **探测降级按"端点 + 形状"记忆**：400/422 且错误体指向该形状时只淘汰这一种
+  形状，下一次请求自动落到下一个候选；同一端点上的其它形状、以及其它端点都
+  不受影响。
+- **开关同时作用于写入与编码两侧**（`envChannelShape`）：此前关闭
+  `context_channel` 后，历史里已存在的 `RoleEnvContext` 仍会被编成原生角色发出
+  ——"不填 `context_channel` 也照报"正是这条路径。现在关闭时形状为 `None`，
+  旧记录折回 user 文本。
+- **`include_runtime_context=false` 不再被绕过**：它是"完全不注入"的隐私开关，
+  现在连折回 user 文本都不做（`runtime.DropEnvContext`）。
+- **思考型端点的历史推理回传**：部分端点在思考模式 + 携带 `tools` 时要求历史
+  里每个 `assistant(tool_calls)` 带回它当初的推理，缺了直接 400
+  （`The reasoning_content in the thinking mode must be passed back to the API.`）。
+  新增 provider 中立的 `Message.Reasoning` / `ChatResponse.Reasoning` /
+  `StreamEvent.Reasoning`：OpenAI 适配器只在**确实产出过推理**时才写回
+  `reasoning_content`（不产出推理的端点完全不受影响），工具轮次把推理存进历史；
+  旧版本落库的轮次探测到该错误后补发空串并重试一次。
+
+行为变化：`context_channel: auto` 在 DeepSeek 上不再投递 `latest_reminder`，而是
+用 OpenAI 官方的 `developer` 角色承载同样的 `<environment>` 正文（实测模型对
+日期/星期的理解一致）。这样做牺牲了该端点私有角色的一点提示效果，换来的是
+"任何 OpenAI/Anthropic 兼容端点都不会因为框架发私有字段而整轮 400"。
+
+回归用例：`protocol/capability_test.go`（候选顺序、逐级降级、推理回传判据与
+记忆）、`protocol/provider_test.go`（reasoning 的三种线上形状）、
+`runtime/envcontext_test.go`（两种形状的放置与编码失败折回）、
+`envcontext_channel_test.go`（关闭后不得再发原生角色、全部形状被拒后折进
+user、隐私开关、推理回传探测）。
+
 ## v1.83.0 (2026-11-19)
 
 ### ✨ 新特性

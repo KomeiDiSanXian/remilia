@@ -732,3 +732,68 @@ func TestOpenAIProvider_ReasoningEffort(t *testing.T) {
 		t.Errorf("reasoning_effort must be omitted when unset, body: %s", body)
 	}
 }
+
+// TestOpenAIProvider_ReasoningRoundTrip 冻结"历史工具轮的推理原样回传"。
+//
+// 部分思考型端点在请求携带 tools 时要求历史 assistant(tool_calls) 带回它当初
+// 产出的推理，缺了直接 400。这里覆盖三种线上形状：
+//   - 有推理 → 原样回传；
+//   - 无推理且未开启 echo → 整个键不出现（从不产出推理的端点完全不受影响）；
+//   - 无推理且已确认需要 echo → 显式发空串（端点接受空串、拒绝缺字段）。
+func TestOpenAIProvider_ReasoningRoundTrip(t *testing.T) {
+	bodies := make(chan string, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		jsonx.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
+			},
+		})
+		bodies <- string(body)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{BaseURL: server.URL, APIKey: "k", Model: "m", MaxTokens: 100}
+	prov, _ := openAIProviderForTest(cfg)
+
+	withReasoning := []protocol.Message{
+		{Role: protocol.RoleUser, Content: "q"},
+		{Role: protocol.RoleAssistant, Reasoning: "需要调用工具。",
+			ToolCalls: []protocol.ToolCall{{ID: "c1", Name: "f"}}},
+		{Role: protocol.RoleTool, ToolCallID: "c1", Content: "ok"},
+	}
+	withoutReasoning := []protocol.Message{
+		{Role: protocol.RoleUser, Content: "q"},
+		{Role: protocol.RoleAssistant, ToolCalls: []protocol.ToolCall{{ID: "c1", Name: "f"}}},
+		{Role: protocol.RoleTool, ToolCallID: "c1", Content: "ok"},
+	}
+
+	cases := []struct {
+		name string
+		msgs []protocol.Message
+		echo bool
+		want string // 期望的 reasoning_content 片段（空串表示"键不能出现"）
+	}{
+		{"有推理", withReasoning, false, `"reasoning_content":"需要调用工具。"`},
+		{"无推理/未开启 echo", withoutReasoning, false, ""},
+		{"无推理/已确认需要 echo", withoutReasoning, true, `"reasoning_content":""`},
+	}
+	for _, c := range cases {
+		if _, err := prov.Chat(context.Background(), &protocol.ChatRequest{
+			Messages: c.msgs, ReasoningEcho: c.echo,
+		}); err != nil {
+			t.Fatalf("%s: Chat failed: %v", c.name, err)
+		}
+		body := <-bodies
+		if c.want == "" {
+			if strings.Contains(body, "reasoning_content") {
+				t.Errorf("%s: reasoning_content must be absent, body: %s", c.name, body)
+			}
+			continue
+		}
+		if !strings.Contains(body, c.want) {
+			t.Errorf("%s: expected %s in body: %s", c.name, c.want, body)
+		}
+	}
+}

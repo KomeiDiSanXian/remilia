@@ -56,23 +56,9 @@ func TestEncodeEnvContextMidSystemAcrossTwoTurns(t *testing.T) {
 	assert.Equal(t, protocol.RoleSystemMid, got[5].Role, "第二条 env 同样挪到 user 之后")
 }
 
-func TestEncodeEnvContextReminderKeepsOrderAndSingleLine(t *testing.T) {
-	payload := "2026-11-17,星期二,,qq,中文"
-	msgs := []protocol.Message{
-		{Role: protocol.RoleEnvContext, Content: payload},
-		{Role: protocol.RoleUser, Content: "问题"},
-	}
-
-	got := EncodeEnvContext(msgs, protocol.NativeContextReminder)
-	require.Len(t, got, 2)
-	assert.Equal(t, protocol.RoleLatestReminder, got[0].Role, "env 必须紧跟 user 之前")
-	assert.Equal(t, protocol.RoleUser, got[1].Role)
-	assert.NotContains(t, got[0].Content, "\n", "reminder content 必须是单行")
-	// 5 个字段 = 4 个逗号。
-	assert.Equal(t, 4, strings.Count(got[0].Content, ","))
-}
-
-func TestEncodeEnvContextDeveloperUsesInstructionBlock(t *testing.T) {
+// TestEncodeEnvContextDeveloperBeforeUser 冻结 developer 形状的放置与正文：
+// 保持在 user 之前，正文是 <environment> 指令块。
+func TestEncodeEnvContextDeveloperBeforeUser(t *testing.T) {
 	msgs := []protocol.Message{
 		{Role: protocol.RoleEnvContext, Content: envFactsPayload(t)},
 		{Role: protocol.RoleUser, Content: "问题"},
@@ -80,10 +66,34 @@ func TestEncodeEnvContextDeveloperUsesInstructionBlock(t *testing.T) {
 
 	got := EncodeEnvContext(msgs, protocol.NativeContextDeveloper)
 	require.Len(t, got, 2)
-	assert.Equal(t, protocol.RoleDeveloper, got[0].Role)
+	assert.Equal(t, protocol.RoleDeveloper, got[0].Role, "env 必须紧跟 user 之前")
+	assert.Equal(t, protocol.RoleUser, got[1].Role)
 	assert.Contains(t, got[0].Content, "<environment>")
 	assert.Contains(t, got[0].Content, "2026-11-17")
-	assert.Equal(t, protocol.RoleUser, got[1].Role)
+	assert.Contains(t, got[0].Content, "平台: qq", "平台标识作为普通正文保留（没有字段级校验）")
+}
+
+// TestEncodeEnvContextFallsBackOnEmptyPayload 冻结"载荷渲染不出正文时折进
+// user 文本"，而不是丢掉事实。
+func TestEncodeEnvContextFallsBackOnEmptyPayload(t *testing.T) {
+	msgs := []protocol.Message{
+		{Role: protocol.RoleSystem, Content: "sys"},
+		{Role: protocol.RoleEnvContext, Content: "   "},
+		{Role: protocol.RoleUser, Content: "问题"},
+	}
+
+	for _, shape := range []protocol.NativeContext{
+		protocol.NativeContextDeveloper, protocol.NativeContextMidSystem,
+	} {
+		got := EncodeEnvContext(msgs, shape)
+		require.Len(t, got, 2, "空载荷不得产生原生消息 (shape=%v)", shape)
+		assert.Equal(t, protocol.RoleUser, got[1].Role)
+		assert.True(t, strings.HasSuffix(got[1].Content, "问题"), "用户原话保持在后")
+		for _, m := range got {
+			assert.NotEqual(t, protocol.RoleDeveloper, m.Role)
+			assert.NotEqual(t, protocol.RoleSystemMid, m.Role)
+		}
+	}
 }
 
 func TestEncodeEnvContextMidSystemMovesBehindUser(t *testing.T) {
@@ -149,14 +159,13 @@ func TestEncodeEnvContextNoneMergesIntoMultimodalUser(t *testing.T) {
 
 func TestEncodeEnvContextDropsOrphanEnv(t *testing.T) {
 	// env 后面不是 user（历史被裁剪过的异常残留）：必须丢弃，
-	// 否则 reminder/system 的位置约束会被违反。
+	// 否则中途 system 的位置约束会被违反。
 	msgs := []protocol.Message{
 		{Role: protocol.RoleUser, Content: "问"},
-		{Role: protocol.RoleEnvContext, Content: "2026-11-17,星期二,,qq,中文"},
+		{Role: protocol.RoleEnvContext, Content: envFactsPayload(t)},
 		{Role: protocol.RoleAssistant, Content: "答"},
 	}
 	for _, shape := range []protocol.NativeContext{
-		protocol.NativeContextReminder,
 		protocol.NativeContextDeveloper,
 		protocol.NativeContextMidSystem,
 		protocol.NativeContextNone,
@@ -203,18 +212,18 @@ func TestEncodeEnvContextMidSystemAfterToolResult(t *testing.T) {
 	}
 }
 
-// TestEncodeEnvContextReminderBeforeToolResult 验证 reminder 形状同样不破坏
-// 工具轮的紧邻关系：reminder 只在 user 之前，工具轮的消息顺序不变。
-func TestEncodeEnvContextReminderBeforeToolResult(t *testing.T) {
+// TestEncodeEnvContextDeveloperBeforeToolResult 验证 developer 形状不破坏
+// 工具轮的紧邻关系：env 只在 user 之前，工具轮的消息顺序不变。
+func TestEncodeEnvContextDeveloperBeforeToolResult(t *testing.T) {
 	msgs := []protocol.Message{
-		{Role: protocol.RoleEnvContext, Content: "2026-11-17,星期二,,qq,中文"},
+		{Role: protocol.RoleEnvContext, Content: envFactsPayload(t)},
 		{Role: protocol.RoleUser, Content: "查天气"},
 		{Role: protocol.RoleAssistant, ToolCalls: []protocol.ToolCall{{ID: "t1", Name: "get_weather"}}},
 		{Role: protocol.RoleTool, ToolCallID: "t1", Content: "晴"},
 	}
-	got := EncodeEnvContext(msgs, protocol.NativeContextReminder)
+	got := EncodeEnvContext(msgs, protocol.NativeContextDeveloper)
 	require.Len(t, got, 4)
-	assert.Equal(t, protocol.RoleLatestReminder, got[0].Role)
+	assert.Equal(t, protocol.RoleDeveloper, got[0].Role)
 	assert.Equal(t, protocol.RoleUser, got[1].Role)
 	assert.Equal(t, protocol.RoleAssistant, got[2].Role)
 	assert.Equal(t, protocol.RoleTool, got[3].Role)
@@ -226,6 +235,32 @@ func TestEncodeEnvContextNoopWithoutEnv(t *testing.T) {
 		{Role: protocol.RoleSystem, Content: "sys"},
 		{Role: protocol.RoleUser, Content: "问"},
 	}
-	got := EncodeEnvContext(msgs, protocol.NativeContextReminder)
+	got := EncodeEnvContext(msgs, protocol.NativeContextDeveloper)
 	assert.Equal(t, msgs, got)
+}
+
+// TestDropEnvContext 验证隐私开关的实现：环境事实整条删除，
+// 不像 None 形状那样折进 user 文本（那仍然是一次注入）。
+func TestDropEnvContext(t *testing.T) {
+	payload := envFactsPayload(t)
+	msgs := []protocol.Message{
+		{Role: protocol.RoleSystem, Content: "sys"},
+		{Role: protocol.RoleEnvContext, Content: payload},
+		{Role: protocol.RoleUser, Content: "第一问"},
+		{Role: protocol.RoleAssistant, Content: "第一答"},
+		{Role: protocol.RoleEnvContext, Content: payload},
+		{Role: protocol.RoleUser, Content: "第二问"},
+	}
+
+	got := DropEnvContext(msgs)
+	require.Len(t, got, 4)
+	for _, m := range got {
+		assert.NotEqual(t, protocol.RoleEnvContext, m.Role)
+	}
+	assert.Equal(t, "第一问", got[1].Content, "user 原话不得被改写")
+	assert.Equal(t, "第二问", got[3].Content)
+
+	// 无 env 时原样返回（不分配新切片）。
+	plain := []protocol.Message{{Role: protocol.RoleUser, Content: "问"}}
+	assert.Equal(t, plain, DropEnvContext(plain))
 }

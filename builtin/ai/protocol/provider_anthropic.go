@@ -179,12 +179,14 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 
 	for _, m := range msgs {
 		switch m.Role {
-		case RoleSystem, RoleSystemMid:
+		case RoleSystem, RoleSystemMid, RoleDeveloper:
 			// 数组内的 system = 中途系统指令，原位保留（首条由
 			// extractAnthropicSystem 提取到顶级字段，这里跳过它以免重复）。
 			//
 			// RoleSystemMid 是内部名，它在线格式上就是 Anthropic 的 "system"；
-			// 两者走同一条分支，避免"内部名忘了映射导致指令静默丢失"。
+			// RoleDeveloper 同理（防御性映射：即使某条路径把 developer 形状留给
+			// 本适配器，也不能让内部角色名出现在线上，更不能静默丢掉指令）。
+			// 三者走同一条分支，避免"内部名忘了映射导致指令静默丢失"。
 			if len(out) == 0 {
 				continue
 			}

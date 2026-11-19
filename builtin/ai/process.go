@@ -149,12 +149,21 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) 
 
 		streamCtx, cancel := context.WithTimeout(turnCtx, p.cfg.APITimeout)
 		streamCh, err := p.prov.ChatStream(streamCtx, req)
-		// 端点拒绝原生上下文角色（400/422 且错误体提到角色）：记入降级集合，
-		// 立刻用兜底形态（事实折进 user 文本）重建同一轮请求重试一次。
+		// 能力探测：端点拒绝原生上下文形状、或要求历史工具轮回传推理时，
+		// 记入探测记忆并用新形状/新编码重建同一轮请求重试。
 		//
-		// 这是一次能力探测，不是失败：400/422 在推理前被拒、不消耗 token，
-		// 且不占用 max_depth 预算（不递增 currentDepth）。
-		if err != nil && p.tryDowngradeEnvChannel(err) {
+		// 每次重试都必须让请求字节真正发生变化（形状降级或打开推理回传），
+		// 因此循环次数天然被候选数（≤3）限制；400/422 在推理前被拒、不消耗
+		// token，也不占用 max_depth 预算（不递增 currentDepth）。
+		for err != nil {
+			downgraded := p.tryDowngradeEnvChannel(err)
+			echoed := false
+			if !downgraded {
+				echoed = p.tryEnableReasoningEcho(err)
+			}
+			if !downgraded && !echoed {
+				break
+			}
 			cancel()
 			req = p.buildTurnRequest(ctx, run, turnCtx, activeTools, dynamicContext, currentDepth == 1)
 			streamCtx, cancel = context.WithTimeout(turnCtx, p.cfg.APITimeout)
@@ -222,7 +231,13 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, sess *session.Session) 
 		}
 
 		p.sm.AppendMessageNoPersist(sess, protocol.Message{
-			Role: protocol.RoleAssistant, Content: outcome.text, ToolCalls: outcome.toolCalls,
+			Role:      protocol.RoleAssistant,
+			Content:   outcome.text,
+			ToolCalls: outcome.toolCalls,
+			// 只给"带工具调用"的轮次存推理：这是端点唯一强制回传的场景
+			// （请求携带 tools 时，历史里 tool_calls 轮次的推理不能缺）。
+			// 普通对话轮不存，历史字节与升级前保持一致。
+			Reasoning: outcome.reasoning,
 		})
 
 		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；

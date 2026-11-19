@@ -13,8 +13,8 @@
 //
 // 为什么要把这几项单独建模：日期、时区、语言、平台在语义上属于"运行环境"，
 // 而不是"用户说的话"。把它们拼进 user 文本等于让模型无法区分二者；一旦将来
-// 需要按 DeepSeek `latest_reminder` / OpenAI `developer` / Anthropic 中途
-// system 投递，同一份事实要能换一种表达形式而不是重新拼字符串。
+// 需要按各家的原生通道投递（OpenAI `developer` / Anthropic 数组内 `system`），
+// 同一份事实要能换一种表达形式而不是重新拼字符串。
 
 package promptctx
 
@@ -289,8 +289,13 @@ func RenderEnvProse(opts ContextOptions, f EnvironmentFacts) string {
 
 // Payload 把框架事实转换成可持久化的载荷（provider 中立）。
 //
-// 这是 Facts → protocol.EnvFacts 的唯一映射点：渲染方式（CSV / 指令块 /
-// 散文）由 protocol 侧按端点形状决定，这里只做取值搬运。
+// 这是 Facts → protocol.EnvFacts 的唯一映射点：渲染方式（指令块 / 散文）
+// 由 protocol 侧按形状决定，这里只做取值搬运。
+//
+// Language 与 Weekday 都保持配置语言的原样取值：两种原生形状（OpenAI
+// developer / Anthropic 中途 system）的正文是普通文本，没有字段级校验，
+// 因此不需要把它"翻译成某个厂商的原生语言名"。只有当运维显式配置了
+// context_fields: [language] 时，语言才会出现在运行时上下文里。
 func (f EnvironmentFacts) Payload() protocol.EnvFacts {
 	return protocol.EnvFacts{
 		Date:     f.Date(),

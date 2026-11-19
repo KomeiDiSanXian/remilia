@@ -157,28 +157,59 @@ func TestFactsPayload(t *testing.T) {
 	assert.Equal(t, encoded, protocol.MarshalEnvFacts(back), "重编码必须逐字节一致")
 }
 
-// TestFactsReminderLine 冻结 DeepSeek latest_reminder 的字段格式：
-// date,weekday,location,platform,language，逗号分隔、字段内不允许残留逗号。
-func TestFactsReminderLine(t *testing.T) {
+// TestFactsPayloadKeepsConfiguredLanguage 验证载荷原样保存配置语言与中文星期。
+//
+// 两种原生形状（OpenAI developer / Anthropic 中途 system）的正文是普通文本，
+// 没有字段级校验，因此**不需要**把语言翻译成某个厂商的原生语言名——这一点
+// 与曾经的 latest_reminder 实现不同，是本轮刻意的解耦。
+func TestFactsPayloadKeepsConfiguredLanguage(t *testing.T) {
+	now := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC) // 星期一
+
+	// 未配置 → 不注入语言；星期保持中文。
+	unset := EnvironmentFacts{Now: now}.Payload()
+	assert.Equal(t, "", unset.Language)
+	assert.Equal(t, "星期一", unset.Weekday)
+
+	// 各种写法原样保留（不做厂商特定的语言名映射）。
+	for _, in := range []string{"中文", "English", "zh-CN", "日本語"} {
+		p := EnvironmentFacts{Now: now, Language: in}.Payload()
+		assert.Equalf(t, in, p.Language, "language %q must be kept verbatim", in)
+		assert.Equalf(t, "星期一", p.Weekday, "weekday stays the configured language's form")
+	}
+}
+
+// TestFactsInstructionBlock 冻结两种原生形状共用的正文：<environment> 指令块，
+// 字段顺序固定、逐轮字节一致，且不包含任何厂商特有的结构化字段。
+func TestFactsInstructionBlock(t *testing.T) {
 	f := EnvironmentFacts{
 		Now:      time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC),
 		Platform: "qq",
 		Language: "中文",
+		Location: "新加坡",
 	}
 	p := f.Payload()
-	// 2026-11-09 是星期一。
-	if got, want := p.ReminderLine(), "2026-11-09,星期一,,qq,中文"; got != want {
-		t.Errorf("ReminderLine() = %q, want %q", got, want)
+	got := p.Instruction()
+
+	for _, want := range []string{
+		"<environment>",
+		"当前日期: 2026-11-09 (星期一, UTC +00:00)",
+		"所在地: 新加坡",
+		"平台: qq",
+		"用户语言: 中文",
+		"</environment>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 
-	// 字段内的逗号会破坏分隔：必须被替换掉，且字段数保持 5。
-	p.Location = "新加坡, 樟宜"
-	line := p.ReminderLine()
-	if strings.Count(line, ",") != 4 {
-		t.Errorf("reminder must keep exactly 5 fields, got %q", line)
+	// Prose 是同一份正文去掉标签（兜底路径用）。
+	prose := p.Prose()
+	if strings.Contains(prose, "<environment>") || strings.Contains(prose, "</environment>") {
+		t.Errorf("Prose must not carry the environment tags, got:\n%s", prose)
 	}
-	if strings.Contains(line, "新加坡, 樟宜") {
-		t.Errorf("comma inside a field must be sanitized, got %q", line)
+	if !strings.Contains(prose, "当前日期: 2026-11-09") {
+		t.Errorf("Prose must keep the facts, got:\n%s", prose)
 	}
 }
 

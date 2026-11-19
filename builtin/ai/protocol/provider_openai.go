@@ -154,6 +154,18 @@ type openaiChatMessage struct {
 	Content    *openaiMessageContent `json:"content,omitempty"`
 	ToolCalls  []OpenAIToolCall      `json:"tool_calls,omitempty"`
 	ToolCallID string                `json:"tool_call_id,omitempty"`
+	// ReasoningContent 该轮 assistant 的推理文本（线上字段名由端点定义）。
+	//
+	// 只在**模型确实产出过推理**时才有值：从不返回该字段的端点永远得到 nil，
+	// 请求里也就不出现这个键（因此不会影响不认它的网关）。
+	//
+	// 为什么必须回传：部分思考型端点在"请求携带 tools"时要求历史轮次的推理
+	// 原样带回，缺了直接 400。这是端点侧语义，不是厂商判断——见
+	// [Message.Reasoning] 的说明。
+	//
+	// 用指针 + omitzero：nil（端点从未产出推理）时整个键不出现，指针指向空串
+	// 时则显式发出 ""。"修复历史"场景恰好需要后者（端点接受空串、拒绝缺字段）。
+	ReasoningContent *string `json:"reasoning_content,omitzero"`
 }
 
 type openaiChatRequest struct {
@@ -228,13 +240,21 @@ type openaiErrorBody struct {
 	Code    string `json:"code"`
 }
 
+// derefString 解引用可空字符串（缺失/为 null 时返回空串）。
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // --- 消息转换 ---
 
 // openAIRoleOf 把内部角色映射成 OpenAI 线格式角色。
 //
 // 白名单而不是 `string(m.Role)` 直接透传：内部新增一个角色（如 Anthropic 的
-// 中途 system、DeepSeek 的 latest_reminder）时，裸透传会把它原样发给网关，
-// 不支持的网关便以 400 拒绝整个请求——而这本可以在本地挡住。
+// 中途 system）时，裸透传会把它原样发给网关，不支持的网关便以 400 拒绝整个
+// 请求——而这本可以在本地挡住。
 //
 // 返回 ok=false 表示该角色在 OpenAI 形状下没有表达方式，调用方丢弃该消息。
 //
@@ -253,8 +273,6 @@ func openAIRoleOf(r Role) (string, bool) {
 		return string(RoleSystem), true
 	case RoleDeveloper:
 		return string(RoleDeveloper), true
-	case RoleLatestReminder:
-		return string(RoleLatestReminder), true
 	case RoleUser:
 		return string(RoleUser), true
 	case RoleAssistant:
@@ -266,6 +284,16 @@ func openAIRoleOf(r Role) (string, bool) {
 }
 
 func toOpenAIMessages(msgs []Message) []openaiChatMessage {
+	return toOpenAIMessagesEcho(msgs, false)
+}
+
+// toOpenAIMessagesEcho 同 [toOpenAIMessages]，并决定是否补发空的 reasoning_content。
+//
+// echoReasoning 由 [ChatRequest.ReasoningEcho] 传入：某些思考型端点在"请求携带
+// tools"时要求历史轮次回传推理文本，连缺失都不接受（空串可以）。历史里没有
+// 推理（旧版本落库的轮次）时，只能显式补一个空串——而空串与"端点从未产出
+// 推理"在线上无法区分，因此是否补发必须由探测结果决定，不能凭厂商名猜。
+func toOpenAIMessagesEcho(msgs []Message, echoReasoning bool) []openaiChatMessage {
 	out := make([]openaiChatMessage, 0, len(msgs))
 	for i, m := range msgs {
 		role, ok := openAIRoleOf(m.Role)
@@ -276,6 +304,18 @@ func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 		}
 		ocm := openaiChatMessage{
 			Role: role,
+		}
+		// 推理文本只在 assistant 消息上、且端点确实给过的时候才写回；
+		// 探测确认端点要求"工具轮必须回传"时，旧记录补一个空串。
+		if m.Role == RoleAssistant {
+			switch {
+			case m.Reasoning != "":
+				rc := m.Reasoning
+				ocm.ReasoningContent = &rc
+			case echoReasoning && len(m.ToolCalls) > 0:
+				empty := ""
+				ocm.ReasoningContent = &empty
+			}
 		}
 		if len(m.ContentParts) > 0 {
 			ocm.Content = &openaiMessageContent{parts: buildOpenAIContentParts(m.ContentParts)}
@@ -418,7 +458,7 @@ func attachmentFromImageURI(uri string) (platform.Attachment, bool) {
 func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := openaiChatRequest{
 		Model:           RequestModel(c.model, req.Model),
-		Messages:        toOpenAIMessages(req.Messages),
+		Messages:        toOpenAIMessagesEcho(req.Messages, req.ReasoningEcho),
 		Temperature:     req.Temperature,
 		TopP:            req.TopP,
 		MaxTokens:       requestMaxTokens(c.maxTokens, req.MaxTokens),
@@ -472,6 +512,7 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 	choice := openaiResp.Choices[0]
 	result := &ChatResponse{
 		Content:     choice.Message.Content.String(),
+		Reasoning:   derefString(choice.Message.ReasoningContent),
 		Attachments: openaiOutputImageAttachments(choice.Message.Content, nil),
 	}
 
@@ -502,7 +543,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 
 	body := openaiChatRequest{
 		Model:           RequestModel(c.model, req.Model),
-		Messages:        toOpenAIMessages(req.Messages),
+		Messages:        toOpenAIMessagesEcho(req.Messages, req.ReasoningEcho),
 		Temperature:     req.Temperature,
 		TopP:            req.TopP,
 		MaxTokens:       requestMaxTokens(c.maxTokens, req.MaxTokens),
