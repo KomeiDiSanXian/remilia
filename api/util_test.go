@@ -218,6 +218,8 @@ func TestIsSensitiveKeyName(t *testing.T) {
 		"token", "Token", "api_key", "APIKey", "access_token", "AccessToken",
 		"embedding_api_key", "EmbeddingAPIKey", "verify_token", "client_secret",
 		"redis_password", "client_credential",
+		// 企业微信：encoding_aes_key 是解密全部回调的密钥，必须脱敏。
+		"encoding_aes_key", "EncodingAESKey",
 	} {
 		assert.True(t, isSensitiveKeyName(key), "expected %q to be sensitive", key)
 	}

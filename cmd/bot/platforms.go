@@ -17,6 +17,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/satori"
 	"github.com/KomeiDiSanXian/remilia/platform/telegram"
 	"github.com/KomeiDiSanXian/remilia/platform/terminal"
+	"github.com/KomeiDiSanXian/remilia/platform/wechat"
 )
 
 // setupPlatforms 创建平台注册表：注册所有启用适配器，
@@ -201,7 +202,41 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 		}
 	}
 
+	if c := cfg.Bot.WeChat; c != nil {
+		factories["wechat"] = func() (platform.Adapter, error) {
+			return newWeChatAdapter(c)
+		}
+	}
+
 	return factories
+}
+
+// newWeChatAdapter 把配置映射为企业微信智能机器人适配器。
+//
+// 两种接入方式只差传输层，凭证与监听参数各自独立：
+//   - ws：bot_id + secret
+//   - webhook：bot_id + token + encoding_aes_key + webhook.listen_addr
+func newWeChatAdapter(c *config.WeChatConfig) (platform.Adapter, error) {
+	wc := wechat.Config{
+		Mode:           c.Mode,
+		BotID:          c.BotID,
+		Secret:         c.Secret,
+		Token:          c.Token,
+		EncodingAESKey: c.EncodingAESKey,
+		Endpoint:       c.Endpoint,
+	}
+	if wh := c.Webhook; wh != nil {
+		wc.Webhook.ListenAddr = wh.ListenAddr
+		wc.Webhook.Path = wh.Path
+		if wh.ShutdownTimeout != "" {
+			d, err := config.ParseDuration(wh.ShutdownTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("wechat.webhook.shutdown_timeout: %w", err)
+			}
+			wc.Webhook.ShutdownTimeout = d
+		}
+	}
+	return wechat.NewAdapter(wc)
 }
 
 // newDiscordInteractions 把配置映射为 HTTP Interactions 适配器。

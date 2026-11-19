@@ -213,7 +213,9 @@ func parseNumber(s string) (any, bool) {
 //
 // 用后缀而不是精确名单，是为了覆盖 embedding_api_key、verify_token 等变体；
 // max_tokens 之类包含 "token" 但不以其结尾的键不会误伤。
-var sensitiveKeySuffixes = []string{"token", "secret", "password", "apikey", "credential"}
+// aeskey 覆盖企业微信的 encoding_aes_key（归一化后以 aeskey 结尾）：
+// 它是解密全部回调的密钥，泄露等同于 token 泄露。
+var sensitiveKeySuffixes = []string{"token", "secret", "password", "apikey", "credential", "aeskey"}
 
 // isSensitiveKeyName 判断配置键名是否为敏感键（大小写、下划线不敏感）。
 func isSensitiveKeyName(key string) bool {

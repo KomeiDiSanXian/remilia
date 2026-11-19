@@ -13,6 +13,7 @@ const PLATFORM_TYPES = [
   { type: 'satori', label: 'Satori', fields: ['server_url', 'token', 'platform', 'user_id'] },
   { type: 'milky', label: 'Milky', fields: ['base_url', 'access_token'] },
   { type: 'telegram', label: 'Telegram', fields: ['token'] },
+  { type: 'wechat', label: '企业微信', fields: ['bot_id', 'secret', 'token', 'encoding_aes_key'] },
 ]
 
 interface AddFormData {

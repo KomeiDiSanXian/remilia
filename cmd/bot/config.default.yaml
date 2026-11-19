@@ -51,7 +51,10 @@
 #     #   public_url: "https://your.domain/telegram"
 #     #   port: 8443
 #     #   secret_token: "your_secret_token"
-#   wechat: {}
+#   wechat:                       # 企业微信智能机器人（详见 config.example.yaml）
+#     mode: "ws"                  # ws（默认）| webhook
+#     bot_id: "YOUR_AIBOT_ID"
+#     secret: "your_long_connection_secret"
 
 # ====================================
 # 日志配置

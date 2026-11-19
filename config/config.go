@@ -19,7 +19,7 @@
 //	Config.Bot.Satori   → Satori 协议适配器（platform/satori）
 //	Config.Bot.Milky    → Milky QQ 适配器（platform/milky）
 //	Config.Bot.Telegram → Telegram 适配器（platform/telegram，预留）
-//	Config.Bot.WeChat   → 微信适配器（platform/wechat，预留）
+//	Config.Bot.WeChat   → 企业微信智能机器人适配器（platform/wechat）
 //	Config.Log          → infra/logger（logger.Config，包含所有日志选项）
 //	Config.Retry        → infra/dlq（死信队列重试）
 //	Config.Middleware   → middleware/ 包各组件（含降级配置）
@@ -427,8 +427,65 @@ func (tc TelegramConfig) ResolveMode() string {
 	}
 }
 
-// WeChatConfig 微信平台适配器配置（预留）。
-type WeChatConfig struct{}
+// 企业微信智能机器人接入方式（[WeChatConfig.Mode]）。
+const (
+	// WeChatModeWS 长连接：适配器主动连企业微信 WebSocket，无需公网地址。
+	// 未显式配置 mode 时的默认值。
+	WeChatModeWS = "ws"
+	// WeChatModeWebhook URL 回调：企业微信把加密回调 POST 到本端，需要公网地址。
+	WeChatModeWebhook = "webhook"
+)
+
+// WeChatConfig 企业微信智能机器人配置。
+//
+// 对应 platform/wechat，两种接入方式共用同一份配置：
+//   - ws（默认）：只需 bot_id + secret；无公网要求，支持主动推送与素材上传。
+//   - webhook：需要 bot_id + token + encoding_aes_key + webhook.listen_addr；
+//     回复只能走回调里的 response_url（一次性、1 小时有效）。
+//
+// 注意：这两种模式的凭证**互不通用**——secret 只用于长连接，
+// token/encoding_aes_key 只用于 URL 回调。
+type WeChatConfig struct {
+	// Mode 接入方式："ws"（默认）或 "webhook"。留空时按已填凭证推断。
+	Mode string `yaml:"mode,omitempty" mapstructure:"mode,omitempty"`
+	// BotID 智能机器人 BotID，两种模式共用（也是 BotIdentity 的来源）。
+	BotID string `yaml:"bot_id" mapstructure:"bot_id"`
+	// Secret 长连接专用密钥，仅 ws 模式需要。
+	Secret string `yaml:"secret,omitempty" mapstructure:"secret,omitempty"`
+	// Token 回调签名 Token，仅 webhook 模式需要。
+	Token string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
+	// EncodingAESKey 回调加密密钥（43 位），仅 webhook 模式需要。
+	EncodingAESKey string `yaml:"encoding_aes_key,omitempty" mapstructure:"encoding_aes_key,omitempty"`
+	// Endpoint 长连接地址，留空使用官方地址（通常不必配置）。
+	Endpoint string `yaml:"endpoint,omitempty" mapstructure:"endpoint,omitempty"`
+	// Webhook 仅 mode: webhook 生效。
+	Webhook *WeChatWebhookConfig `yaml:"webhook,omitempty" mapstructure:"webhook,omitempty"`
+}
+
+// WeChatWebhookConfig 企业微信 URL 回调模式配置。
+type WeChatWebhookConfig struct {
+	// ListenAddr HTTP 监听地址，如 ":8080"。
+	ListenAddr string `yaml:"listen_addr" mapstructure:"listen_addr"`
+	// Path 接收回调的路径，默认 "/wechat/aibot"。
+	Path string `yaml:"path,omitempty" mapstructure:"path,omitempty"`
+	// ShutdownTimeout 优雅关闭等待时长，默认 "10s"。
+	ShutdownTimeout string `yaml:"shutdown_timeout,omitempty" mapstructure:"shutdown_timeout,omitempty"`
+}
+
+// ResolveMode 返回规范化的接入方式：留空时按已填凭证推断。
+func (wc WeChatConfig) ResolveMode() string {
+	switch wc.Mode {
+	case WeChatModeWS, WeChatModeWebhook:
+		return wc.Mode
+	case "":
+		if wc.Secret == "" && (wc.Token != "" || wc.EncodingAESKey != "") {
+			return WeChatModeWebhook
+		}
+		return WeChatModeWS
+	default:
+		return wc.Mode
+	}
+}
 
 // HasChanged 检测 BotConfig 中已启用的平台配置是否发生了变更。
 // 用于决定是否需要重启 Bot（例如热重载时凭证变更）。
@@ -438,7 +495,8 @@ func (bc *BotConfig) HasChanged(other *BotConfig) bool {
 		!ptrEqual(bc.Discord, other.Discord) ||
 		!ptrEqual(bc.Satori, other.Satori) ||
 		!ptrEqual(bc.Milky, other.Milky) ||
-		!ptrEqual(bc.Telegram, other.Telegram)
+		!ptrEqual(bc.Telegram, other.Telegram) ||
+		!ptrEqual(bc.WeChat, other.WeChat)
 }
 
 // ptrEqual 比较两个同类型指针的值是否相等。
@@ -606,20 +664,20 @@ type EngineConfig struct {
 // 天气等插件正常工作时就要等外部 API 几秒到几十秒，把它当压力会把健康流量
 // 判成过载。降级只按 CPU、内存与（显式开启的）协程数判定。
 type DegradationConfig struct {
-	Enable          bool    `yaml:"enable" mapstructure:"enable"`
-	CPUThreshold    float64 `yaml:"cpu_threshold" mapstructure:"cpu_threshold"`
-	MemoryThreshold float64 `yaml:"memory_threshold" mapstructure:"memory_threshold"`
-	MonitorInterval string  `yaml:"monitor_interval" mapstructure:"monitor_interval"`
+	MonitorInterval string `yaml:"monitor_interval" mapstructure:"monitor_interval"`
 	// RecoveryInterval 恢复检查间隔。
-	RecoveryInterval string `yaml:"recovery_interval" mapstructure:"recovery_interval"`
+	RecoveryInterval string  `yaml:"recovery_interval" mapstructure:"recovery_interval"`
+	Strategy         string  `yaml:"strategy" mapstructure:"strategy"`
+	CPUThreshold     float64 `yaml:"cpu_threshold" mapstructure:"cpu_threshold"`
+	MemoryThreshold  float64 `yaml:"memory_threshold" mapstructure:"memory_threshold"`
 	// DelayQueueSize delay 策略的延迟队列容量。
 	DelayQueueSize int `yaml:"delay_queue_size" mapstructure:"delay_queue_size"`
+	// GoroutineThreshold 协程数阈值（仅 EnableGoroutineLimit 为 true 时生效）。
+	GoroutineThreshold int  `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
+	Enable             bool `yaml:"enable" mapstructure:"enable"`
 	// EnableGoroutineLimit 是否把协程数纳入降级判定，默认 false。
 	// 等待外部 API 的 handler 会长期占用协程，开启前请确认阈值留足余量。
 	EnableGoroutineLimit bool `yaml:"enable_goroutine_limit" mapstructure:"enable_goroutine_limit"`
-	// GoroutineThreshold 协程数阈值（仅 EnableGoroutineLimit 为 true 时生效）。
-	GoroutineThreshold int    `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
-	Strategy           string `yaml:"strategy" mapstructure:"strategy"`
 }
 
 // APIConfig 管理 API 配置。

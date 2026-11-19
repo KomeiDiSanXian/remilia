@@ -209,6 +209,94 @@ func TestPlatformFactories_TelegramModeGuard(t *testing.T) {
 	}
 }
 
+// TestPlatformFactories_WeChat 固化 wechat.mode → 适配器构造的映射。
+//
+// 两种接入方式共用 platform/wechat 的同一个 Adapter 类型（webhook 只是
+// Start 内部换传输层），因此这里断言构造成功与能力差异，而不是类型名。
+func TestPlatformFactories_WeChat(t *testing.T) {
+	t.Run("ws 默认", func(t *testing.T) {
+		cfg := &config.Config{Bot: config.BotConfig{WeChat: &config.WeChatConfig{
+			BotID:  "bot-1",
+			Secret: "secret",
+		}}}
+		a := mustBuildAdapter(t, cfg, "wechat")
+		if got := a.Platform(); got != "wechat" {
+			t.Fatalf("platform = %q", got)
+		}
+		if !a.Capabilities().FileUpload {
+			t.Fatal("长连接模式应支持素材上传")
+		}
+	})
+
+	t.Run("webhook", func(t *testing.T) {
+		cfg := &config.Config{Bot: config.BotConfig{WeChat: &config.WeChatConfig{
+			Mode:           config.WeChatModeWebhook,
+			BotID:          "bot-1",
+			Token:          "token",
+			EncodingAESKey: strings.Repeat("a", 43),
+			Webhook:        &config.WeChatWebhookConfig{ListenAddr: ":0", ShutdownTimeout: "5s"},
+		}}}
+		a := mustBuildAdapter(t, cfg, "wechat")
+		if a.Capabilities().FileUpload {
+			t.Fatal("URL 回调模式不应声明素材上传")
+		}
+		detail := a.(interface{ HealthDetail() map[string]any }).HealthDetail()
+		if detail["connection"] != config.WeChatModeWebhook {
+			t.Fatalf("connection = %v", detail["connection"])
+		}
+		if detail["listen_addr"] != ":0" {
+			t.Fatalf("listen_addr = %v", detail["listen_addr"])
+		}
+	})
+
+	t.Run("webhook 缺少凭证", func(t *testing.T) {
+		cfg := &config.Config{Bot: config.BotConfig{WeChat: &config.WeChatConfig{
+			Mode:  config.WeChatModeWebhook,
+			BotID: "bot-1",
+		}}}
+		if _, err := platformFactories(cfg)["wechat"](); err == nil {
+			t.Fatal("缺少 token/encoding_aes_key 应报错")
+		}
+	})
+
+	t.Run("ws 缺少 secret", func(t *testing.T) {
+		cfg := &config.Config{Bot: config.BotConfig{WeChat: &config.WeChatConfig{
+			BotID: "bot-1",
+		}}}
+		if _, err := platformFactories(cfg)["wechat"](); err == nil {
+			t.Fatal("ws 模式缺少 secret 应报错")
+		}
+	})
+}
+
+// TestWeChatConfig_Validate 配置层校验与适配器构造的口径一致。
+func TestWeChatConfig_Validate(t *testing.T) {
+	if err := (&config.WeChatConfig{}).Validate(); err == nil {
+		t.Fatal("缺少 bot_id 应报错")
+	}
+	if err := (&config.WeChatConfig{BotID: "b", Secret: "s"}).Validate(); err != nil {
+		t.Fatalf("合法 ws 配置不应报错: %v", err)
+	}
+	if err := (&config.WeChatConfig{BotID: "b", Mode: config.WeChatModeWebhook,
+		Token: "t", EncodingAESKey: strings.Repeat("a", 42),
+		Webhook: &config.WeChatWebhookConfig{ListenAddr: ":0"}}).Validate(); err == nil {
+		t.Fatal("encoding_aes_key 非 43 位应报错")
+	}
+}
+
+// TestWeChatConfig_HasChanged wechat 凭证变化必须触发平台热更新。
+func TestWeChatConfig_HasChanged(t *testing.T) {
+	base := config.BotConfig{WeChat: &config.WeChatConfig{BotID: "b", Secret: "s"}}
+	changed := config.BotConfig{WeChat: &config.WeChatConfig{BotID: "b", Secret: "s2"}}
+	if !base.HasChanged(&changed) {
+		t.Fatal("wechat 配置变化应被检测到")
+	}
+	same := config.BotConfig{WeChat: &config.WeChatConfig{BotID: "b", Secret: "s"}}
+	if base.HasChanged(&same) {
+		t.Fatal("相同配置不应报告变化")
+	}
+}
+
 // TestParseDegradationStrategy 固化配置字符串 → 降级策略的映射（未知值按 drop）。
 func TestParseDegradationStrategy(t *testing.T) {
 	cases := map[string]degradation.DegradationStrategy{

@@ -122,8 +122,22 @@ bot:
   #     event_buffer: 256                                         # [N/A]
   #     worker_count: 4                                           # [N/A]
 
-  # ----- 微信（预留）-----
-  # wechat: {}
+  # ----- 企业微信智能机器人 -----
+  # 与"群机器人 webhook"和"自建应用"都不同：只有智能机器人能收群聊 @机器人的消息，
+  # 两种接入方式共用同一份配置，凭证互不通用。
+  #   ws（默认）：bot_id + secret；无需公网地址，支持主动推送与素材上传。
+  #   webhook  ：bot_id + token + encoding_aes_key + webhook.listen_addr；
+  #              回复只能走回调里的 response_url（一次性、1 小时有效），不能主动推送。
+  # wechat:
+  #   mode: "ws"                                                  # ws（默认）| webhook
+  #   bot_id: "YOUR_AIBOT_ID"                                     # [R] 智能机器人 BotID
+  #   secret: "your_long_connection_secret"                       # [R] ws 模式：长连接专用密钥
+  #   # token: "your_callback_token"                              # [R] webhook 模式：回调签名 Token
+  #   # encoding_aes_key: "43_char_encoding_aes_key"              # [R] webhook 模式：43 位加密密钥
+  #   # webhook:                                                  # 仅 mode: webhook 生效
+  #   #   listen_addr: ":8080"                                    # [R]
+  #   #   path: "/wechat/aibot"                                   # [N/A] 默认值
+  #   #   shutdown_timeout: "10s"                                 # [N/A]
 
 # ====================================
 # 日志配置

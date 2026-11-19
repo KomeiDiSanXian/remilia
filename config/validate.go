@@ -154,6 +154,9 @@ func (bc *BotConfig) Validate() error {
 	if bc.Telegram != nil {
 		validators = append(validators, namedValidator{"bot.telegram", bc.Telegram.Validate})
 	}
+	if bc.WeChat != nil {
+		validators = append(validators, namedValidator{"bot.wechat", bc.WeChat.Validate})
+	}
 
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
@@ -327,6 +330,49 @@ func (mc *MilkyConfig) Validate() error {
 		return fmt.Errorf("milky.base_url is required and cannot be empty")
 	}
 	return nil
+}
+
+// Validate 验证企业微信智能机器人配置。
+//
+// 必填字段随 mode 变化（见 [WeChatConfig.ResolveMode]）：
+//   - ws：bot_id + secret（长连接专用密钥）
+//   - webhook：bot_id + token + encoding_aes_key + webhook.listen_addr
+//
+// 两种模式的凭证不能互相替代：secret 与 token 是不同用途的密钥，
+// 配反了会在订阅/验签阶段失败且错误信息不直观，所以这里按模式分别校验。
+func (wc *WeChatConfig) Validate() error {
+	if wc.BotID == "" {
+		return fmt.Errorf("wechat.bot_id is required and cannot be empty")
+	}
+	switch wc.ResolveMode() {
+	case WeChatModeWS:
+		if wc.Secret == "" {
+			return fmt.Errorf("wechat.secret is required in %q mode (长连接专用密钥，与 token 不同)", WeChatModeWS)
+		}
+		return nil
+	case WeChatModeWebhook:
+		if wc.Token == "" {
+			return fmt.Errorf("wechat.token is required in %q mode", WeChatModeWebhook)
+		}
+		if wc.EncodingAESKey == "" {
+			return fmt.Errorf("wechat.encoding_aes_key is required in %q mode", WeChatModeWebhook)
+		}
+		if len(wc.EncodingAESKey) != 43 {
+			return fmt.Errorf("wechat.encoding_aes_key must be 43 characters, got %d", len(wc.EncodingAESKey))
+		}
+		if wc.Webhook == nil || wc.Webhook.ListenAddr == "" {
+			return fmt.Errorf("wechat.webhook.listen_addr is required in %q mode", WeChatModeWebhook)
+		}
+		if wc.Webhook.ShutdownTimeout != "" {
+			if _, err := ParseDuration(wc.Webhook.ShutdownTimeout); err != nil {
+				return fmt.Errorf("wechat.webhook.shutdown_timeout is not a valid duration: %w", err)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("wechat.mode must be %q or %q, got %q",
+			WeChatModeWS, WeChatModeWebhook, wc.Mode)
+	}
 }
 
 // Validate 验证 BackpressureConfig
