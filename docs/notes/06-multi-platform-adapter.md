@@ -186,7 +186,39 @@ adapter := satori.NewWebhookAdapter(":8550")
 
 ### 微信（platform/wechat）
 
-微信官方 API 适配，支持公众号和企业微信消息。
+企业微信**智能机器人**（AI Bot）适配器，两种接入方式：
+
+```go
+// 长连接（默认）：只需 BotID + Secret，无需公网地址与加解密
+adapter, err := wechat.NewAdapter(wechat.Config{BotID: "...", Secret: "..."})
+
+// URL 回调：企业微信把加密回调 POST 到本端
+adapter, err := wechat.NewAdapter(wechat.Config{
+    BotID:          "...",
+    Mode:           wechat.ModeWebhook,
+    Token:          "...",
+    EncodingAESKey: "43 位密钥",
+    Webhook:        wechat.WebhookConfig{ListenAddr: ":8080"},
+})
+```
+
+选型说明：企业微信侧能当聊天机器人用的只有智能机器人。群机器人（webhook）
+只能单向推送，自建应用收不到群消息，公众号是客服消息模型且受 48 小时窗口限制。
+
+两条链路的能力差异：
+
+| 能力 | 长连接（ws） | URL 回调（webhook） |
+|---|---|---|
+| 私聊 / 群聊 @机器人 | ✅ | ✅ |
+| 主动推送（`SessionNotifier`） | ✅ `aibot_send_msg` | ❌ |
+| 素材上传（图片/文件） | ✅ 分片上传 | ❌ |
+| 流式回复 | ✅ | ✅（轮询刷新） |
+| 回复通道 | 回调帧 `req_id`（24 小时内可用） | `response_url`（一次性、1 小时） |
+| 公网地址 | 不需要 | 必须 |
+
+同一 BotID 只能有一条长连接：新连接订阅成功会踢掉旧连接，旧连接收到
+`disconnected_event`。适配器把该事件视为致命错误并**停止重连**，多副本部署
+请用主备而非多活。
 
 ### Milky（platform/milky）
 

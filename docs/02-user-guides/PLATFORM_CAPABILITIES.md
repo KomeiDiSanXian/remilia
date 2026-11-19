@@ -19,26 +19,28 @@
 
 ## 发送与消息操作
 
-| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram |
-|---|---|---|---|---|---|---|---|
-| `Sender`（核心） | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `MessageDeleter` | `GetDeleter` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `MessageEditor` | `GetEditor` | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| `ReactionSender` | `GetReactionSender` | ❌¹ | ✅ | ❌¹ | ✅ | ✅ | ❌ |
-| `TypingNotifier` | `GetTypingNotifier` | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| `SessionNotifier` | `GetSessionNotifier` | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram | wechat |
+|---|---|---|---|---|---|---|---|---|
+| `Sender`（核心） | — | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `MessageDeleter` | `GetDeleter` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `MessageEditor` | `GetEditor` | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
+| `ReactionSender` | `GetReactionSender` | ❌¹ | ✅ | ❌¹ | ✅ | ✅ | ❌ | ❌ |
+| `TypingNotifier` | `GetTypingNotifier` | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `SessionNotifier` | `GetSessionNotifier` | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ✅² |
 
 ¹ OneBot/QQ 的表情回应通过平台 API 门面（`APIProvider`）暴露，不走标准接口。
+² 企业微信：仅长连接模式支持（`aibot_send_msg`）；URL 回调模式没有主动推送接口，
+且要求用户此前给机器人发过消息（会话必须已存在）。
 
 ## 群组管理
 
-| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram |
-|---|---|---|---|---|---|---|---|
-| `GroupManager` | `GetGroupManager` | ✅ | ✅ | ✅¹ | ❌ | ❌ | ❌ |
-| `GroupSettings` | `GetGroupSettings` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ✅² | ❌ | ❌ | ❌ |
-| `AnnouncementManager` | `GetAnnouncementManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `MessageHistoryProvider` | `GetMessageHistoryProvider` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram | wechat |
+|---|---|---|---|---|---|---|---|---|
+| `GroupManager` | `GetGroupManager` | ✅ | ✅ | ✅¹ | ❌ | ❌ | ❌ | ❌³ |
+| `GroupSettings` | `GetGroupSettings` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ✅² | ❌ | ❌ | ❌ | ❌ |
+| `AnnouncementManager` | `GetAnnouncementManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `MessageHistoryProvider` | `GetMessageHistoryProvider` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ¹ QQ：`KickMember` 走 2026-09 群成员批量移除接口（`permanent=true` 同时加入群黑名单），
 `BanMember` 走 2026-08 群禁言接口；`SetAdmin` 暂不支持。相关接口目前仅白名单机器人可用。
@@ -46,15 +48,17 @@
 属平台特有能力，通过通道 B（`openapi.OpenAPI`）调用。`GroupInfo.UnionID` /
 `GroupMemberInfo.UnionID` / `GroupMemberInfo.AvatarURL` 由 2026-11 起的
 `union_group_openid` / `union_openid` / 头像字段填充（需绑定 3 方应用才有 union 值）。
+³ 企业微信：智能机器人**没有群成员管理能力**（不能踢人、禁言、设管理员），
+也没有"列出已加入的群"的接口——群聊 chatid 只能从回调里拿到。
 
 ## 请求处理与账号
 
-| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram |
-|---|---|---|---|---|---|---|---|
-| `InvitationHandler` | `GetInvitationHandler` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `AutoModerator` | `GetAutoModerator` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `AvatarProvider` | `GetAvatarProvider` | ✅¹ | ❌ | ✅² | ✅³ | ✅⁴ | ✅⁵ |
-| `UserInfoProvider` | `GetUserInfoProvider` | ✅¹ | ✅⁶ | ✅² | ✅³ | ✅⁴ | ✅⁵ |
+| 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram | wechat |
+|---|---|---|---|---|---|---|---|---|
+| `InvitationHandler` | `GetInvitationHandler` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `AutoModerator` | `GetAutoModerator` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `AvatarProvider` | `GetAvatarProvider` | ✅¹ | ❌ | ✅² | ✅³ | ✅⁴ | ✅⁵ | ❌⁷ |
+| `UserInfoProvider` | `GetUserInfoProvider` | ✅¹ | ✅⁶ | ✅² | ✅³ | ✅⁴ | ✅⁵ | ❌⁷ |
 
 ¹ OneBot：头像是 LLB/NapCat 扩展动作 `get_qq_avatar`（未实现的协议端返回 404）；
 资料用标准动作 `get_stranger_info`，没有任何 union/主动推送语义。
@@ -68,34 +72,53 @@
 再走 `getFile` 换 `file_path`，因此 `AvatarProvider` 会发两次请求，且返回的 URL 里含 bot token。
 ⁶ Milky：`get_user_profile` 只有昵称等资料，**协议没有头像字段**，因此只实现
 `UserInfoProvider`，不声明 `AvatarProvider`。
+⁷ 企业微信：智能机器人没有任何"查询用户资料"的接口。回调里只有 `userid`
+（且可能被企业主体加密），昵称与头像需要落地自建应用 + 通讯录权限才能拿到，
+因此两者都**不实现**——与其返回永远为空的资料，不如让 `Get*` 检查如实报"不支持"。
 
 ## 适配器级能力
 
-| 可选接口 | onebot | milky | qq | satori | discord | telegram |
-|---|---|---|---|---|---|---|
-| `RecoverableAdapter` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `BotIdentity` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `HealthDetailer` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `APIProvider`（平台 API 门面） | ✅ → `*onebot.Sender` | ✅ → `*milky.Adapter` | ✅ → `openapi.OpenAPI` | ✅ → `*satori.Client` | ✅ → `*discordgo.Session` | ✅ → `*telegram.Client` |
+| 可选接口 | onebot | milky | qq | satori | discord | telegram | wechat |
+|---|---|---|---|---|---|---|---|
+| `RecoverableAdapter` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `BotIdentity` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅³ |
+| `HealthDetailer` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `MediaOriginProvider` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅⁴ |
+| `APIProvider`（平台 API 门面） | ✅ → `*onebot.Sender` | ✅ → `*milky.Adapter` | ✅ → `openapi.OpenAPI` | ✅ → `*satori.Client` | ✅ → `*discordgo.Session` | ✅ → `*telegram.Client` | ✅ → `*wechat.Sender`⁵ |
+
+³ 企业微信：`BotID` 来自配置（平台没有"查询机器人资料"的接口），`BotName` 恒为空。
+⁴ 企业微信：声明入站媒体直链域名，避免下载侧把平台自托管的媒体当作可疑目标拦下。
+注意直链 5 分钟过期**且内容是 AES-256-CBC 加密的**，必须用附件
+`Extra["aeskey"]` 配合 `wechat.DecryptMedia` 解密（或直接用 `DownloadMedia`）。
+⁵ 企业微信：返回的句柄提供 `UploadMedia`（分片上传换 media_id）、`DownloadMedia`
+（下载并解密）、`StreamReply`（流式回复）、`ReplyWelcome`、`UpdateTemplateCard`、
+`NotifyMedia`。上传只在长连接模式可用。
 
 ## 消息能力声明（Capabilities）
 
-| 能力 | onebot | milky | qq | satori | discord | telegram |
-|---|---|---|---|---|---|---|
-| Markdown | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Buttons | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| MultiAttachment | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| MessageEdit | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| MessageDelete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Embeds | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
-| FileUpload | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| GuildSupport | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
-| Reactions | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| ThreadReply | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| TypingIndicator | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| MentionAll | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| VoiceChannel | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Caption | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| 能力 | onebot | milky | qq | satori | discord | telegram | wechat |
+|---|---|---|---|---|---|---|---|
+| Markdown | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Buttons | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅⁶ |
+| MultiAttachment | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
+| MessageEdit | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
+| MessageDelete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Embeds | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| FileUpload | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅⁷ |
+| GuildSupport | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Reactions | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| ThreadReply | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌⁸ |
+| TypingIndicator | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| MentionAll | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| VoiceChannel | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Caption | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌⁹ |
+
+⁶ 企业微信：`Buttons` 映射为按钮交互型模板卡片（`card_type=button_interaction`），
+一条卡片最多 6 个按钮，超出截断；点击后产生 `template_card_event` 回调，
+按钮 `key` 即 `platform.Button.ID`，作为 `INTERACTION` 事件的正文下发。
+⁷ 企业微信：仅长连接模式（分片上传接口只在长连接存在）；URL 回调模式声明为 `false`。
+⁸ 企业微信：主动回复会自动引用触发它的用户消息，但**无法指定**引用目标。
+⁹ 企业微信：正文与媒体是两条独立消息，无法图文同条。
 
 > 注：Capabilities 为适配器声明，可能与实际运行环境（如 QQ 官方 bot 的权限）
 > 有出入；`Has()` 检查与 `Get*` 接口检查应结合使用。

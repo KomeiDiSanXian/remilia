@@ -409,7 +409,7 @@ platform/
   telegram/         # 完整实现：adapter / client / event / sender / types
   onebot/           # OneBot 实现：http_post / ws_reverse / message / event
   satori/           # Satori 实现：webhook / ws / message_element / event
-  wechat/           # 完整实现：adapter / event / sender
+  wechat/           # 企业微信智能机器人：adapter / event / sender / client / webhook / wxcrypt
   milky/            # 完整实现：adapter / api / client / event / sender
   terminal/         # 终端适配器（本地调试）
   mock/             # 测试用 mock 适配器
@@ -438,6 +438,6 @@ core/engine/
 | `platform/telegram` | ✅ 完成 | adapter / client / event / sender 完整实现 |
 | `platform/onebot` | ✅ 完成 | HTTP POST / WebSocket 反向连接实现 |
 | `platform/satori` | ✅ 完成 | Webhook / WebSocket / 消息元素实现 |
-| `platform/wechat` | ✅ 完成 | 完整实现 |
+| `platform/wechat` | ✅ 完成 | 企业微信智能机器人：ws 长连接 / URL 回调两种接入 |
 | `platform/milky` | ✅ 完成 | 完整实现 |
 | `platform/terminal` | ✅ 完成 | 终端适配器（本地调试） |

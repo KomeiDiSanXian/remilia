@@ -277,7 +277,19 @@ bot:
   #     port: 8443
   #     secret_token: "your_secret_token"
 
-  # milky: / wechat: 同理
+  # 企业微信智能机器人（两种接入方式共用一份配置，凭证互不通用）：
+  #   ws（默认）— 连企业微信长连接，无需公网地址，支持主动推送与素材上传
+  #   webhook    — 企业微信把加密回调 POST 到本端，回复走一次性 response_url
+  # wechat:
+  #   mode: "ws"
+  #   bot_id: "YOUR_AIBOT_ID"
+  #   secret: "your_long_connection_secret"
+  #   # token: "your_callback_token"
+  #   # encoding_aes_key: "43 位密钥"
+  #   # webhook:
+  #   #   listen_addr: ":8080"
+
+  # milky: 同理
 ```
 
 ```go

@@ -4,6 +4,55 @@
 
 ### ✨ 新特性
 
+**`platform/wechat`：企业微信智能机器人适配器（从占位骨架到可用实现）**
+
+此前 `platform/wechat` 只是一个 `Start()` 直接返回 "not yet implemented" 的骨架，
+配置里的 `wechat: {}` 也是空结构体。本次把它做成可用的平台适配器，覆盖企业微信
+侧唯一能当"聊天机器人"用的形态——**智能机器人（AI Bot）**：
+
+- **两种接入方式**，共用同一份配置、只换传输层：
+  - `mode: ws`（默认）：连 `wss://openws.work.weixin.qq.com`，先 `aibot_subscribe`
+    再收帧；30s 心跳、断线指数退避重连。无需公网地址、无需处理加解密。
+  - `mode: webhook`：企业微信把**加密 JSON 回调** POST 到本端，`GET` 用于
+    一次性 URL 验证（明文原样返回），`POST` 立刻 200 后异步处理（官方 5 秒超时
+    会重投三次）。回复走回调里的 `response_url`（一次性、1 小时有效）。
+- **回调加解密**（`wxcrypt.go`）：完整实现企业微信的 `sha1(sort(token,timestamp,
+  nonce,encrypt))` 验签、`AES-256-CBC`（IV 取密钥前 16 字节）解密与被动回复加密。
+  两处非标准细节按官方语义实现：PKCS#7 **填充块是 32 字节**（不是 AES 的 16），
+  智能机器人场景 `receiveid` 为**空串**。签名比较用常量时间。
+- **事件映射**：文本/图片/语音/文件/视频/图文混排/引用 → 消息事件；语音直接
+  用平台侧的 ASR 转写文本作正文；群聊正文开头的 `@机器人` 前缀切出来变成 `at` 段
+  （否则 `/ping` 这类命令全部失配）；`enter_chat` / `template_card_event` /
+  `feedback_event` / `disconnected_event` → 对应事件类别。群消息与单聊都实现
+  `DirectedAtBotEvent`（智能机器人只会收到 @ 它或私聊消息）。
+- **发送**：`markdown` 消息；`Buttons` 映射为按钮交互型模板卡片（最多 6 个，
+  链接按钮自动用 `type=1`）；附件走分片上传（`init → chunk×N → finish`，
+  单片 512KB、最多 100 片）换 `media_id` 再发。业务错误码映射到
+  `platform.SendErrorCode`，让"频率限制可重试"与"凭证错误要改配置"可区分。
+- **回复授权模型**：长连接用回调帧头的 `req_id`（`aibot_respond_msg` 透传，
+  等回执以便把"被拒"当错误返回），URL 回调用 `response_url`；两者都通过
+  `ChatInfo.Tokens` 传递，框架层 `Sender` 无需感知传输方式。缺少授权时**明确
+  报错**（`ErrInvalidTarget`），而不是静默成功。
+- **主动推送**：`SessionNotifier`（`aibot_send_msg`），仅长连接可用；前置条件是
+  用户此前给机器人发过消息。`Capabilities.FileUpload` 随模式变化（URL 回调模式
+  没有素材上传接口，因此声明为 `false`）。
+- **平台专有能力**（`APIProvider` → `*wechat.Sender`）：`UploadMedia` /
+  `DownloadMedia`（下载并解密）/ `StreamReply`（流式回复）/ `ReplyWelcome` /
+  `UpdateTemplateCard` / `NotifyMedia`。
+- **单连接约束**：同一 BotID 只允许一条长连接。新连接订阅成功会踢掉旧连接，
+  旧连接收到 `disconnected_event`——适配器把这种情况当**致命错误并停止重连**，
+  否则两个副本会互相踢、消息随机丢。`HealthDetail` 会标记
+  `kicked_by_new_connection`。
+- **配置**：`config.WeChatConfig` 从空结构体扩展为 `mode` / `bot_id` / `secret` /
+  `token` / `encoding_aes_key` / `endpoint` / `webhook`，并加了 `Validate`
+  与 `HasChanged`（凭证变更会触发平台热更新）；`cmd/bot` 装配层接上
+  `platformFactories["wechat"]`，仪表盘平台列表新增"企业微信"入口。
+- **安全**：`encoding_aes_key` 归入敏感配置键（`api` 层脱敏），媒体直链的
+  `aeskey` 随附件放在 `Extra` 里并说明"URL 5 分钟过期 + 内容是密文"；
+  下载有体积上限，上传分片前先按类型校验大小。
+
+其它平台与插件**无需改动**：新增的配置字段都是追加，`wechat` 未配置时不会启用。
+
 **QQ：对接 2026-11-16 平台更新（用户信息接口 / 昵称头像下发 / 群统一标识）**
 
 腾讯在 2026-11-16 的变更记录里给了三类新能力，本次全部落地：
