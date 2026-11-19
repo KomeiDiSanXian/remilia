@@ -6,6 +6,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/discord"
 	"github.com/KomeiDiSanXian/remilia/platform/milky"
+	"github.com/KomeiDiSanXian/remilia/platform/wechat"
 
 	"github.com/KomeiDiSanXian/remilia/platform/satori"
 
@@ -28,11 +29,15 @@ func testAdapters(t *testing.T) map[string]platform.Adapter {
 	require.NoError(t, err)
 	discordA, err := discord.NewAdapter("test-token")
 	require.NoError(t, err)
+	// wechat.NewAdapter 只做配置校验，不触发网络（与 telegram 不同）。
+	wechatA, err := wechat.NewAdapter(wechat.Config{BotID: "bot", Secret: "secret"})
+	require.NoError(t, err)
 
 	return map[string]platform.Adapter{
 		"milky":   milkyA,
 		"satori":  satoriA,
 		"discord": discordA,
+		"wechat":  wechatA,
 	}
 }
 

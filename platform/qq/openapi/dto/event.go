@@ -191,14 +191,14 @@ type GroupMessageCreateEvent struct {
 type GroupMentionUser struct {
 	ID             string `json:"id,omitempty"`
 	Username       string `json:"username,omitempty"`
-	Bot            bool   `json:"bot,omitzero"`
 	MemberOpenID   string `json:"member_openid,omitempty"`
 	MemberRole     string `json:"member_role,omitempty"`
 	MemberNickname string `json:"member_nickname,omitempty"`
 	Avatar         string `json:"avatar,omitempty"`
 	UnionOpenID    string `json:"union_openid,omitempty"`
-	IsYou          bool   `json:"is_you,omitzero"`
 	Scope          string `json:"scope,omitempty"` // all=@全体成员，single=指定成员
+	Bot            bool   `json:"bot,omitzero"`
+	IsYou          bool   `json:"is_you,omitzero"`
 }
 
 // GroupMemberAddEvent 表示群成员加入事件
