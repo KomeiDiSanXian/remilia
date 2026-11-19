@@ -62,7 +62,41 @@ func newSender(session *discordgo.Session) *discordSender {
 func (s *discordSender) PlatformAPI() any { return s.session }
 
 // 编译期接口实现检查。
-var _ platform.APIProvider = (*discordSender)(nil)
+var (
+	_ platform.APIProvider      = (*discordSender)(nil)
+	_ platform.UserInfoProvider = (*discordSender)(nil)
+	_ platform.AvatarProvider   = (*discordSender)(nil)
+)
+
+// GetUserInfo 通过 GET /users/{user.id} 查询用户资料，实现
+// platform.UserInfoProvider。
+//
+// Discord 的 User 对象只包含用户名/头像哈希，不含"是否允许主动推送"这类
+// 平台特有开关，因此 UserProfile.AllowProactiveMsg 恒为 false、UnionID 恒为空。
+func (s *discordSender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	if s.session == nil {
+		return platform.UserProfile{}, fmt.Errorf("discord sender: session is nil")
+	}
+	u, err := s.session.User(userID)
+	if err != nil {
+		return platform.UserProfile{}, fmt.Errorf("discord: 查询用户 %s: %w", userID, err)
+	}
+	info := userFromDiscord(u)
+	return platform.UserProfile{
+		ID:          info.ID,
+		DisplayName: info.DisplayName,
+		AvatarURL:   info.AvatarURL,
+	}, nil
+}
+
+// GetUserAvatarURL 实现 platform.AvatarProvider，复用用户查询。
+func (s *discordSender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
+	profile, err := s.GetUserInfo(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return profile.AvatarURL, nil
+}
 
 // startCleanup 在 cleanupLoop 已停止时重新启动它。幂等。
 //

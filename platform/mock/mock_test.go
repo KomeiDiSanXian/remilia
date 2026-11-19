@@ -312,6 +312,21 @@ func TestSenderAvatarProvider(t *testing.T) {
 	}
 }
 
+func TestSenderUserInfoProvider(t *testing.T) {
+	s := mock.NewSender()
+	up, ok := any(s).(platform.UserInfoProvider)
+	if !ok {
+		t.Fatal("MockSender should implement UserInfoProvider")
+	}
+	profile, err := up.GetUserInfo(context.Background(), "u1")
+	if err != nil {
+		t.Fatalf("GetUserInfo: %v", err)
+	}
+	if profile.ID != "u1" || profile.DisplayName == "" {
+		t.Errorf("unexpected profile: %+v", profile)
+	}
+}
+
 func TestSenderSessionNotifier(t *testing.T) {
 	s := mock.NewSender()
 	if _, ok := any(s).(platform.SessionNotifier); !ok {
@@ -364,5 +379,6 @@ func TestAdapterInterfaceSatisfaction(t *testing.T) {
 	var _ platform.AutoModerator = s
 	var _ platform.GroupInfoProvider = s
 	var _ platform.AvatarProvider = s
+	var _ platform.UserInfoProvider = s
 	var _ platform.SessionNotifier = s
 }

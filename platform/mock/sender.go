@@ -54,7 +54,8 @@ func WithSkipValidation() SenderOption {
 // MockSender is a full mock implementation of platform.Sender
 // plus all optional sender interfaces: MessageEditor, MessageDeleter,
 // ReactionSender, TypingNotifier, GroupManager, InvitationHandler,
-// AutoModerator, GroupInfoProvider, AvatarProvider, SessionNotifier.
+// AutoModerator, GroupInfoProvider, AvatarProvider, UserInfoProvider,
+// SessionNotifier.
 //
 // All calls are recorded in Calls for test assertions.
 type MockSender struct {
@@ -278,9 +279,29 @@ func (s *MockSender) GetJoinedGroups(ctx stdctx.Context) ([]platform.GroupInfo, 
 
 func (s *MockSender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
 	s.mu.Lock()
-	s.Calls = append(s.Calls, SenderCall{Method: "GetUserAvatarURL"})
+	s.Calls = append(s.Calls, SenderCall{Method: "GetUserAvatarURL", ChatID: userID})
 	s.mu.Unlock()
 	return "https://example.com/avatar.png", nil
+}
+
+// 编译期接口实现检查。
+var (
+	_ platform.UserInfoProvider = (*MockSender)(nil)
+	_ platform.AvatarProvider   = (*MockSender)(nil)
+)
+
+// --- UserInfoProvider ---
+
+func (s *MockSender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	s.mu.Lock()
+	s.Calls = append(s.Calls, SenderCall{Method: "GetUserInfo", ChatID: userID})
+	s.mu.Unlock()
+	return platform.UserProfile{
+		ID:                userID,
+		DisplayName:       "mock user",
+		AvatarURL:         "https://example.com/avatar.png",
+		AllowProactiveMsg: true,
+	}, nil
 }
 
 // --- SessionNotifier ---

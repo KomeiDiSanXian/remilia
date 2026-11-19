@@ -861,6 +861,16 @@ func (api *Client) GenerateURLLink(ctx context.Context, req *dto.GenerateURLLink
 	return api.Post(ctx, constant.GenerateURLLinkURL, req)
 }
 
+// GetUserInfo 获取用户基本信息（GET /v2/users/{user_openid}/info）。
+//
+// 2026-11 新增。响应含 union_openid/username/avatar/allow_proactive_msg；
+// 用户与机器人无好友关系时平台返回错误码 40184001。频率限制 10 QPS。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_info.get.html
+func (api *Client) GetUserInfo(ctx context.Context, userOpenID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.UserInfoURL, userOpenID))
+}
+
 // ── 自定义菜单管理 ────────────────────────────────────────────────────────────
 
 // GetMenu 查询机器人自定义菜单（GET /v2/menu）。

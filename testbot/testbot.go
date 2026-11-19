@@ -423,6 +423,10 @@ func (m *MockAPI) GenerateURLLink(_ context.Context, _ *dto.GenerateURLLinkReque
 	return gjson.Result{}, nil
 }
 
+func (m *MockAPI) GetUserInfo(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
 // ── 自定义菜单管理 ────────────────────────────────────────────────────────────
 
 func (m *MockAPI) GetMenu(_ context.Context) (gjson.Result, error) {

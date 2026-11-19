@@ -915,6 +915,202 @@ func TestNewEvent_GroupMessageCreate_Mentions(t *testing.T) {
 	}
 }
 
+// ── 2026-11-16 平台更新：昵称 / 头像 / 群统一标识 ──────────────────────────────
+
+// TestNewEvent_C2C_AuthorProfile 验证单聊消息 author 新增的
+// username/avatar/union_openid 被映射到 UserInfo。
+func TestNewEvent_C2C_AuthorProfile(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":        "msg_profile",
+		"content":   "hi",
+		"timestamp": "2026-11-16T10:00:00+08:00",
+		"author": map[string]any{
+			"id":           "u_openid_1",
+			"user_openid":  "u_openid_1",
+			"username":     "笑😊心❤️",
+			"avatar":       "https://thirdqq.qlogo.cn/bqqthird?key=abc",
+			"union_openid": "UNION_1",
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	sender := event.Sender()
+	if sender.DisplayName != "笑😊心❤️" {
+		t.Errorf("DisplayName: got %q", sender.DisplayName)
+	}
+	if sender.AvatarURL != "https://thirdqq.qlogo.cn/bqqthird?key=abc" {
+		t.Errorf("AvatarURL: got %q", sender.AvatarURL)
+	}
+	if sender.UnionID != "UNION_1" {
+		t.Errorf("UnionID: got %q", sender.UnionID)
+	}
+	if got := event.Chat().UnionID; got != "UNION_1" {
+		t.Errorf("Chat.UnionID: got %q, want UNION_1", got)
+	}
+}
+
+// TestNewEvent_C2C_NoAvatarOldPayload 验证旧报文（无 username/avatar）仍可用：
+// DisplayName 回退 author.id，头像与 union 留空。
+func TestNewEvent_C2C_NoAvatarOldPayload(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":      "msg_old",
+		"content": "hi",
+		"author":  map[string]any{"id": "legacy_id", "user_openid": "openid_x"},
+	})
+
+	event := qq.NewEvent(payload)
+	sender := event.Sender()
+	if sender.DisplayName != "legacy_id" {
+		t.Errorf("DisplayName: got %q, want legacy_id", sender.DisplayName)
+	}
+	if sender.AvatarURL != "" || sender.UnionID != "" {
+		t.Errorf("AvatarURL/UnionID should be empty, got %q/%q", sender.AvatarURL, sender.UnionID)
+	}
+}
+
+// TestNewEvent_GroupAt_MemberNickname 验证群消息优先使用 member_nickname，
+// 并把 author.avatar / union_group_openid 映射到 UserInfo 与 ChatInfo。
+func TestNewEvent_GroupAt_MemberNickname(t *testing.T) {
+	payload := makePayload(dto.GroupAtMessageCreate, map[string]any{
+		"id":                 "msg_grp_nick",
+		"content":            "/ping",
+		"group_openid":       "group_001",
+		"union_group_openid": "UNION_GROUP_1",
+		"timestamp":          "2026-11-16T10:00:00+08:00",
+		"author": map[string]any{
+			"member_openid":   "mem001",
+			"username":        "小明",
+			"member_nickname": "群名片小明",
+			"member_role":     "admin",
+			"avatar":          "https://thirdqq.qlogo.cn/avatar/1",
+			"union_openid":    "UNION_USER_1",
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	sender := event.Sender()
+	if sender.DisplayName != "群名片小明" {
+		t.Errorf("DisplayName: got %q, want 群名片小明 (member_nickname 优先)", sender.DisplayName)
+	}
+	if sender.AvatarURL != "https://thirdqq.qlogo.cn/avatar/1" {
+		t.Errorf("AvatarURL: got %q", sender.AvatarURL)
+	}
+	if sender.UnionID != "UNION_USER_1" {
+		t.Errorf("UnionID: got %q", sender.UnionID)
+	}
+	if sender.GroupRole != platform.GroupRoleAdmin {
+		t.Errorf("GroupRole: got %v, want Admin", sender.GroupRole)
+	}
+	if got := event.Chat().UnionID; got != "UNION_GROUP_1" {
+		t.Errorf("Chat.UnionID: got %q, want UNION_GROUP_1", got)
+	}
+}
+
+// TestNewEvent_GroupAt_NicknameFallback 验证 member_nickname 缺失时回退 username。
+func TestNewEvent_GroupAt_NicknameFallback(t *testing.T) {
+	payload := makePayload(dto.GroupAtMessageCreate, map[string]any{
+		"id":           "msg_grp_nofallback",
+		"content":      "/ping",
+		"group_openid": "group_001",
+		"author":       map[string]any{"member_openid": "mem001", "username": "小明"},
+	})
+
+	event := qq.NewEvent(payload)
+	if got := event.Sender().DisplayName; got != "小明" {
+		t.Errorf("DisplayName: got %q, want 小明", got)
+	}
+	if got := event.Chat().UnionID; got != "" {
+		t.Errorf("Chat.UnionID: got %q, want empty", got)
+	}
+}
+
+// TestNewEvent_GroupNotices_UnionGroupOpenID 验证进群/退群/成员增减事件
+// 都把 union_group_openid 写入 ChatInfo.UnionID。
+func TestNewEvent_GroupNotices_UnionGroupOpenID(t *testing.T) {
+	events := []dto.EventType{
+		dto.GroupAddRobot, dto.GroupDelRobot,
+		dto.GroupMemberAdd, dto.GroupMemberRemove,
+	}
+	for _, et := range events {
+		t.Run(et, func(t *testing.T) {
+			payload := makePayload(et, map[string]any{
+				"group_openid":       "group_001",
+				"op_member_openid":   "mem_op",
+				"member_openid":      "mem_new",
+				"timestamp":          int64(1784276757),
+				"union_group_openid": "UNION_GROUP_1",
+			})
+			event := qq.NewEvent(payload)
+			if got := event.Chat().UnionID; got != "UNION_GROUP_1" {
+				t.Errorf("Chat.UnionID: got %q, want UNION_GROUP_1", got)
+			}
+		})
+	}
+}
+
+// TestNewEvent_GroupMentions_ProfileFields 验证 mentions 新增的
+// member_nickname/avatar/union_openid/member_role 也被映射。
+func TestNewEvent_GroupMentions_ProfileFields(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_m_union",
+		"content":      "<@u001> hi",
+		"group_openid": "group_001",
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice"},
+		"mentions": []any{
+			map[string]any{
+				"id":              "u001",
+				"username":        "Bob",
+				"member_nickname": "群名片Bob",
+				"avatar":          "https://thirdqq.qlogo.cn/avatar/bob",
+				"union_openid":    "UNION_BOB",
+				"member_role":     "owner",
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	mentions := platform.GetMentions(event)
+	if len(mentions) != 1 {
+		t.Fatalf("Mentions: got %d, want 1", len(mentions))
+	}
+	m := mentions[0]
+	if m.DisplayName != "群名片Bob" {
+		t.Errorf("DisplayName: got %q, want 群名片Bob", m.DisplayName)
+	}
+	if m.AvatarURL != "https://thirdqq.qlogo.cn/avatar/bob" {
+		t.Errorf("AvatarURL: got %q", m.AvatarURL)
+	}
+	if m.UnionID != "UNION_BOB" {
+		t.Errorf("UnionID: got %q", m.UnionID)
+	}
+	if m.GroupRole != platform.GroupRoleOwner {
+		t.Errorf("GroupRole: got %v, want Owner", m.GroupRole)
+	}
+}
+
+// TestNewEvent_GroupMentions_MemberOpenIDOnly 验证 mentions 只带
+// member_openid（无 id）时也能解析出被 @ 的用户。
+func TestNewEvent_GroupMentions_MemberOpenIDOnly(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_m_memberonly",
+		"content":      "<@mem002> hi",
+		"group_openid": "group_001",
+		"author":       map[string]any{"member_openid": "mem001"},
+		"mentions": []any{
+			map[string]any{"member_openid": "mem002", "username": "Charlie"},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	mentions := platform.GetMentions(event)
+	if len(mentions) != 1 {
+		t.Fatalf("Mentions: got %d, want 1", len(mentions))
+	}
+	if mentions[0].ID != "mem002" || mentions[0].DisplayName != "Charlie" {
+		t.Errorf("Mention: got %+v", mentions[0])
+	}
+}
+
 // ── 结构化卡片（message_type=3，ark_data）─────────────────────────────────────
 
 // TestNewEvent_GroupMessageCreate_ArkData 测试群聊结构化卡片：

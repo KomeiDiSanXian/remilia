@@ -94,6 +94,8 @@ type GroupInfo struct {
 	GroupClassText  string   `json:"group_class_text,omitempty"`
 	GroupTags       []string `json:"group_tags,omitempty"`
 	GroupMemberNum  int      `json:"group_member_num,omitzero"`
+	// UnionGroupOpenID 跨应用关联群 openid（2026-11 新增，绑定 3 方应用时有效）。
+	UnionGroupOpenID string `json:"union_group_openid,omitempty"`
 }
 
 // GroupBotState 机器人群内状态。

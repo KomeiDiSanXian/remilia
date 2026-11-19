@@ -1009,6 +1009,20 @@ func TestClient_GetGroupInfo(t *testing.T) {
 	assertLast(t, m, http.MethodGet, "/v2/groups/gid_1/info", "")
 }
 
+// TestClient_GetUserInfo 验证 2026-11 新增的获取用户基本信息接口路径与响应。
+func TestClient_GetUserInfo(t *testing.T) {
+	m := newMockQQ(t)
+	m.resp["/v2/users/openid_1/info"] = `{"username":"笑","allow_proactive_msg":true,"avatar":"https://a/b.png","union_openid":"U1"}`
+	api, _ := newTestAPI(t, m)
+
+	result, err := api.GetUserInfo(context.Background(), "openid_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/users/openid_1/info", "")
+	assert.Equal(t, "笑", result.Get("username").String())
+	assert.Equal(t, "U1", result.Get("union_openid").String())
+	assert.True(t, result.Get("allow_proactive_msg").Bool())
+}
+
 func TestClient_GetGroupBotState(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)

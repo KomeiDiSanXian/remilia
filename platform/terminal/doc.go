@@ -28,6 +28,7 @@
 //	platform.GroupInfoProvider  — 群组信息查询（返回模拟数据）
 //	platform.GroupManager       — 群组管理（踢人 / 禁言 / 设置管理员）
 //	platform.AvatarProvider     — 用户头像查询（占位符 URL）
+//	platform.UserInfoProvider   — 用户资料查询（占位昵称 + 占位头像）
 //	platform.SessionNotifier    — 主动推送（输出到终端）
 //	platform.AutoModerator      — 自动审核（模拟删除 / 禁言）
 //	platform.InvitationHandler  — 邀请处理（模拟接受 / 拒绝）

@@ -93,6 +93,9 @@ func (e *discordEvent) DirectedAtBot() bool { return e.chat.IsDM }
 // ────────────────────────────────────────────────────────────────────────────
 
 // userFromDiscord converts a *discordgo.User to platform.UserInfo.
+//
+// AvatarURL 只在用户设置了自定义头像时填充：SDK 在头像哈希为空时会回退到
+// Discord 默认头像 URL，那对调用方（如"有没有自定义头像"的判断）是噪音。
 func userFromDiscord(u *discordgo.User) platform.UserInfo {
 	if u == nil {
 		return platform.UserInfo{}
@@ -101,16 +104,21 @@ func userFromDiscord(u *discordgo.User) platform.UserInfo {
 	if name == "" {
 		name = u.Username
 	}
-	return platform.UserInfo{
+	info := platform.UserInfo{
 		ID:          u.ID,
 		DisplayName: name,
 		IsBot:       u.Bot,
 	}
+	if u.Avatar != "" {
+		info.AvatarURL = u.AvatarURL("")
+	}
+	return info
 }
 
 // memberFromDiscord converts a *discordgo.Member to platform.UserInfo.
 //
 // Prefers the guild nickname; falls back to GlobalName then Username.
+// Avatar uses the guild-specific avatar when set, otherwise the user avatar.
 // GroupRole is inferred from Member.Permissions:
 //   - PermissionAdministrator set → GroupRoleOwner
 //   - PermissionManageGuild set  → GroupRoleAdmin
@@ -122,9 +130,17 @@ func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 	name := m.Nick
 	var id string
 	var isBot bool
+	var avatar string
 	if m.User != nil {
 		id = m.User.ID
 		isBot = m.User.Bot
+		if m.User.Avatar != "" {
+			avatar = m.User.AvatarURL("")
+		}
+		// 服务器内头像与全局头像相互独立：设置了公会头像时优先使用。
+		if m.Avatar != "" && m.GuildID != "" {
+			avatar = discordgo.EndpointGuildMemberAvatar(m.GuildID, id, m.Avatar)
+		}
 		if name == "" {
 			name = m.User.GlobalName
 		}
@@ -143,6 +159,7 @@ func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 	return platform.UserInfo{
 		ID:          id,
 		DisplayName: name,
+		AvatarURL:   avatar,
 		IsBot:       isBot,
 		GroupRole:   role,
 	}

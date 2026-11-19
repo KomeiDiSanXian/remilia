@@ -303,6 +303,22 @@ func (c *Client) GetFile(ctx stdctx.Context, fileID string) (*File, error) {
 	return &f, nil
 }
 
+// GetChat 通过 chat_id 查询会话资料（getChat）。
+//
+// 私聊场景 chat_id 与用户 id 相同，因此该方法也可用于查询用户昵称；
+// Telegram 没有独立的"获取用户资料"接口。返回的 Chat 可能带 ChatPhoto
+// （只有 file_id，需要再调 getFile 换取可下载地址）。
+func (c *Client) GetChat(ctx stdctx.Context, chatID string) (*Chat, error) {
+	if chatID == "" {
+		return nil, fmt.Errorf("telegram: GetChat: chatID must not be empty")
+	}
+	var chat Chat
+	if err := c.call(ctx, "getChat", map[string]string{"chat_id": chatID}, &chat); err != nil {
+		return nil, err
+	}
+	return &chat, nil
+}
+
 // FileURL 把 getFile 返回的 file_path 拼成可直接下载的 URL。
 //
 // 注意：返回的 URL 路径里嵌着 bot token，属于**可直接调用 API 的活凭据**。

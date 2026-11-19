@@ -152,8 +152,22 @@ const (
 type UserInfo struct {
 	// ID 平台内唯一用户标识（QQ openID、Telegram userID 等）
 	ID string
-	// DisplayName 用户显示名（昵称/用户名）
+	// DisplayName 用户显示名（昵称/用户名）。
+	//
+	// 群组场景下若平台同时提供"群内昵称"与"用户全局昵称"，
+	// 优先取群内昵称（如 QQ 群的 member_nickname），缺失时回退全局昵称。
 	DisplayName string
+	// AvatarURL 用户头像 URL（平台不提供时为空字符串）。
+	//
+	// QQ：2026-11 起消息事件的 author.avatar 与 @ 列表携带头像；
+	// Discord：仅消息作者携带；Telegram：需额外调用 getChat 获取。
+	AvatarURL string
+	// UnionID 跨应用统一标识（平台不提供时为空字符串）。
+	//
+	// 同一个第三方应用（3 方应用绑定）下，多个机器人看到的用户 ID 不同，
+	// 但 UnionID 相同，可用于跨应用关联同一用户。
+	// QQ：author.union_openid（绑定 3 方应用后才有值）。
+	UnionID string
 	// GroupRole 发送者在当前群/频道中的角色等级。
 	// 私聊场景或平台未提供时为 GroupRoleUnknown。
 	GroupRole GroupRole
@@ -177,6 +191,12 @@ type ChatInfo struct {
 	ParentID string
 	// Name 会话名称（可选，部分平台不提供）
 	Name string
+	// UnionID 会话的跨应用统一标识（平台不提供时为空字符串）。
+	//
+	// 同一个第三方应用（3 方应用绑定）下，多个机器人看到的会话 ID 不同，
+	// 但 UnionID 相同，可用于跨应用关联同一个会话。
+	// QQ：群聊/群事件的 union_group_openid；单聊为该用户的 union_openid。
+	UnionID string
 	// IsGroup 是否为群组/频道消息（false = 私聊）
 	IsGroup bool
 	// IsDM 是否为私信（Direct Message）会话。

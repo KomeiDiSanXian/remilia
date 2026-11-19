@@ -34,7 +34,49 @@ func newSender(client *Client) *satoriSender {
 func (s *satoriSender) PlatformAPI() any { return s.client }
 
 // 编译期接口实现检查。
-var _ platform.APIProvider = (*satoriSender)(nil)
+var (
+	_ platform.APIProvider      = (*satoriSender)(nil)
+	_ platform.UserInfoProvider = (*satoriSender)(nil)
+	_ platform.AvatarProvider   = (*satoriSender)(nil)
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// platform.UserInfoProvider / platform.AvatarProvider
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GetUserInfo 通过 user.get API 查询用户资料，实现 platform.UserInfoProvider。
+//
+// Satori 的 User 资源只提供 name/nick/avatar/is_bot，没有"允许主动推送"这类
+// 平台特有开关，因此 AllowProactiveMsg 恒为 false、UnionID 恒为空。
+func (s *satoriSender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	u, err := s.client.UserGet(ctx, userID)
+	if err != nil {
+		return platform.UserProfile{}, fmt.Errorf("satori: 查询用户 %s: %w", userID, err)
+	}
+	profile := platform.UserProfile{ID: userID}
+	if u == nil {
+		return profile, nil
+	}
+	if u.Name != nil {
+		profile.DisplayName = *u.Name
+	}
+	if u.Nick != nil && *u.Nick != "" {
+		profile.DisplayName = *u.Nick
+	}
+	if u.Avatar != nil {
+		profile.AvatarURL = *u.Avatar
+	}
+	return profile, nil
+}
+
+// GetUserAvatarURL 实现 platform.AvatarProvider，复用用户查询。
+func (s *satoriSender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
+	profile, err := s.GetUserInfo(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return profile.AvatarURL, nil
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // platform.Sender

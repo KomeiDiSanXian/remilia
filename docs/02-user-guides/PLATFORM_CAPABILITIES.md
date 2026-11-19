@@ -43,7 +43,9 @@
 ¹ QQ：`KickMember` 走 2026-09 群成员批量移除接口（`permanent=true` 同时加入群黑名单），
 `BanMember` 走 2026-08 群禁言接口；`SetAdmin` 暂不支持。相关接口目前仅白名单机器人可用。
 ² QQ：`GetGroupMemberList`/`GetGroupMember`/`GetGroupInfo` 均已支持；群黑名单查询/操作
-属平台特有能力，通过通道 B（`openapi.OpenAPI`）调用。
+属平台特有能力，通过通道 B（`openapi.OpenAPI`）调用。`GroupInfo.UnionID` /
+`GroupMemberInfo.UnionID` / `GroupMemberInfo.AvatarURL` 由 2026-11 起的
+`union_group_openid` / `union_openid` / 头像字段填充（需绑定 3 方应用才有 union 值）。
 
 ## 请求处理与账号
 
@@ -51,7 +53,21 @@
 |---|---|---|---|---|---|---|---|
 | `InvitationHandler` | `GetInvitationHandler` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `AutoModerator` | `GetAutoModerator` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `AvatarProvider` | `GetAvatarProvider` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `AvatarProvider` | `GetAvatarProvider` | ✅¹ | ❌ | ✅² | ✅³ | ✅⁴ | ✅⁵ |
+| `UserInfoProvider` | `GetUserInfoProvider` | ✅¹ | ✅⁶ | ✅² | ✅³ | ✅⁴ | ✅⁵ |
+
+¹ OneBot：头像是 LLB/NapCat 扩展动作 `get_qq_avatar`（未实现的协议端返回 404）；
+资料用标准动作 `get_stranger_info`，没有任何 union/主动推送语义。
+² QQ：走 2026-11 新增的「获取用户基本信息」接口（`GET /v2/users/{user_openid}/info`），
+一次返回昵称、头像、`union_openid` 与 `allow_proactive_msg`；用户与机器人无好友关系时
+平台返回 40184001。`AvatarProvider` 复用同一接口，仅取 `avatar` 字段。
+³ Satori：`user.get`，名称优先级 Nick → Name，头像取 `avatar` 字段。
+⁴ Discord：`GET /users/{id}`；头像由 SDK 的 `AvatarURL` 拼接，仅在用户设置了自定义
+头像时填充（否则为空，不回退默认头像），没有 union/主动推送语义。
+⁵ Telegram：`getChat`（私聊时 chat_id 即 user id）取昵称；头像需 `ChatPhoto.big_file_id`
+再走 `getFile` 换 `file_path`，因此 `AvatarProvider` 会发两次请求，且返回的 URL 里含 bot token。
+⁶ Milky：`get_user_profile` 只有昵称等资料，**协议没有头像字段**，因此只实现
+`UserInfoProvider`，不声明 `AvatarProvider`。
 
 ## 适配器级能力
 

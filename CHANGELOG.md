@@ -2,29 +2,58 @@
 
 ## Unreleased
 
-### ⚡ 性能
-
-**`builtin/ai`：历史窗口裁剪收敛到回合边界，回合内的工具轮不再互相打断前缀缓存**
-
-提示词前缀缓存按字节比对请求前缀，而 `TrimMessages` 会前移消息数组的头部——一次裁剪会让"从裁剪点开始"的全部历史在下一个请求里变成未命中。因此裁剪的代价不取决于裁掉多少条，而取决于**裁剪发生的次数**。
-
-历史实现把裁剪挂在两条高频路径上：
-
-- `AppendMessageNoPersist`：回合内每追加一条 assistant / tool / 反思 / 重规划 / 校验修正消息都裁一次；
-- `SessionManager.snapshot`（即每次 `SaveSession`，含回合内收尾落库）也裁一次。
-
-于是一个带工具调用的回合会在中途被裁多次，而最大的受害者恰是本回合刚生成的工具结果：那些消息刚进入一次请求，还没被任何后续请求复用，下一次请求的前缀就从它们的头部错位。`max_history` 越小（或一个回合的工具轮越多），这段前缀就越可能反复作废。
-
-- 新增 `SessionManager.TrimWindow`：唯一的回合边界裁剪入口，由 `processWithTools` 在收尾时显式调用（defer 顺序为 回收附件字节 → 裁剪 → 落库，落库快照因此看到的是裁剪后的窗口）。
-- `AppendMessageNoPersist` **不再裁剪**：回合内的全部追加都保持"只增不减"，一次 `processWithTools` 内的所有请求共享同一份稳定前缀。
-- `touch`（`GetOrCreate` 命中缓存时）与 `snapshot`（落库）只在**回合未活跃**时裁剪：回合进行中，本轮的请求前缀仍在使用中。
-- `TrimMessages` 的语义本身不变（批量低水位、System 优先、不裁出孤儿 tool 消息），只是调用时机收敛；`TrimLowWaterDivisor` 的注释同步修正——余量只在回合**之间**有意义，不再需要为一个回合中途的 assistant + N 条 tool 预留空间。
-
-预期收益：工具轮越多的回合收益越明显（回合内第 2..N 轮请求重新变成上一轮的字节前缀）。可通过 `ai_llm_tokens_total{kind="chat"}` 的 `cached`/`prompt` 与 Debug 日志里的 `hit%` 对照，`ai_context_trimmed_messages_total` 应出现"次数下降、单次条数上升"的形态。
-
-- 新增用例：`TestTrimDoesNotRunMidTurn`（断言回合内第 n 轮请求是第 n+1 轮请求的严格前缀、且首轮工具结果仍在末轮请求里）、`TestTrimDoesNotRunOnTurnSavings`、`TestTrimWindowIsTheOnlyTurnBoundaryEntry`、`TestAppendMessageNoPersistDoesNotTrim`、`TestTrimWindowTrimsAtTurnBoundary`、`TestTouchSkipsTrimWhileTurnActive`。
-
 ### ✨ 新特性
+
+**QQ：对接 2026-11-16 平台更新（用户信息接口 / 昵称头像下发 / 群统一标识）**
+
+腾讯在 2026-11-16 的变更记录里给了三类新能力，本次全部落地：
+
+- **新增获取用户基本信息接口**：`openapi.GetUserInfo`（`GET /v2/users/{user_openid}/info`，
+  10 QPS），返回昵称、头像原图、跨应用 `union_openid` 与是否允许主动推送。
+  用户与机器人无好友关系时平台返回 40184001，错误原样透出，由调用方判断。
+- **消息事件补充发送者资料**：单聊（`C2C_MESSAGE_CREATE`）与群聊
+  （`GROUP_AT_MESSAGE_CREATE` / `GROUP_MESSAGE_CREATE`）的 `author` 新增
+  `username` / `avatar`，群消息额外有 `member_nickname`。群场景 `DisplayName`
+  **优先取 `member_nickname`**，缺失时回退 `username`，再回退旧报文的 `author.id`
+  ——因此老报文解析结果不变。
+- **mentions 也带资料**：群消息 `mentions[]` 的 `member_nickname` / `avatar` /
+  `union_openid` / `member_role` 一并映射；只有 `member_openid` 而没有 `id`
+  的条目以前会被静默丢弃，现在按 `member_openid` 兜底解析，并同时登记两种键，
+  避免正文里的 `<@member_openid>` 占位符退化成原样文本。
+- **群统一标识（`union_group_openid`）**：`GROUP_ADD_ROBOT`、`GROUP_DEL_ROBOT`、
+  `GROUP_MEMBER_ADD`/`REMOVE`、群消息事件以及「获取群基本信息」接口都新增该字段，
+  映射到 `platform.ChatInfo.UnionID` 与 `platform.GroupInfo.UnionID`，
+  用于跨应用关联同一个群（绑定 3 方应用后才有值）。
+
+**`platform`：新增 `UserInfoProvider`，`AvatarProvider` 补齐到全部适配器**
+
+- **新增 `platform.UserInfoProvider` + `platform.UserProfile`**：一次查询拿到
+  昵称/头像/跨应用标识/主动推送开关，避免为同一用户重复调用接口。
+  配合 `platform.GetUserInfoProvider(adapter)` 使用。
+- **QQ**：`UserInfoProvider` 与 `AvatarProvider` 都走上面那个新接口
+  （后者只取 `avatar`），`/头像` 一类的插件可以直接用 `GetAvatarProvider`。
+- **OneBot**：资料用标准动作 `get_stranger_info`，头像用 LLB/NapCat 扩展动作
+  `get_qq_avatar`（未实现的协议端返回 404，此时只丢头像、不影响资料）。
+- **Telegram**：没有独立的用户资料接口，用 `getChat`（私聊时 chat_id 即 user id）
+  取昵称；头像需要 `ChatPhoto.big_file_id` → `getFile` 换 `file_path`，
+  因此 `AvatarProvider` 会发两次请求，且返回 URL 里嵌着 bot token。
+- **Discord**：`GET /users/{id}`；头像在用户设置了自定义头像时才填充，
+  不回退到默认头像 URL（否则调用方无法区分"有头像"和"没有"）。
+- **Satori**：`user.get`，名称优先级 Nick → Name，头像取 `avatar` 字段。
+- **Milky**：只实现 `UserInfoProvider`（`get_user_profile`）。协议 1.3 的用户资料
+  没有头像字段，也没有等价接口，因此**不声明 `AvatarProvider`**——与其返回永远
+  为空的头像，不如让 `Get*` 检查如实报"不支持"。
+- **终端**：返回占位昵称与占位头像，让依赖用户资料的插件在本地调试时能跑通。
+- **事件侧头像**：Discord 的 `author.avatar`（服务器内头像优先于全局头像）与
+  Satori 的 `user.avatar` 同样写入 `platform.UserInfo.AvatarURL`；
+  Telegram 的 `User` 对象本身不带头像，保持为空（用 `AvatarProvider` 取）。
+- **群成员信息**：`platform.GroupMemberInfo` 新增 `UnionID`，QQ 侧由成员列表 /
+  单成员查询的 `union_openid` 填充（官方成员接口暂未提供头像，`AvatarURL` 留空）。
+
+`platform.UserInfo` 新增 `AvatarURL` / `UnionID`，`platform.ChatInfo` 新增 `UnionID`，
+`platform.GroupInfo` / `platform.GroupMemberInfo` 新增 `UnionID`。这些都是**追加字段**，
+不改变既有零值语义，其他适配器与插件无需改动；没有对应语义的平台（OneBot 的 union、
+各平台的主动推送开关）保持零值而不是猜测。
 
 **`builtin/ai`：框架事实按"可回放性"分道，支持原生上下文通道（默认关闭）**
 
@@ -72,6 +101,28 @@
 
 行为开关默认关闭（`context_channel: user_suffix`），因此本次升级对现有部署的请求
 字节无影响；开关打开后由 `ai_context_channel_total` 与命中率数据决定是否切默认值。
+
+### ⚡ 性能
+
+**`builtin/ai`：历史窗口裁剪收敛到回合边界，回合内的工具轮不再互相打断前缀缓存**
+
+提示词前缀缓存按字节比对请求前缀，而 `TrimMessages` 会前移消息数组的头部——一次裁剪会让"从裁剪点开始"的全部历史在下一个请求里变成未命中。因此裁剪的代价不取决于裁掉多少条，而取决于**裁剪发生的次数**。
+
+历史实现把裁剪挂在两条高频路径上：
+
+- `AppendMessageNoPersist`：回合内每追加一条 assistant / tool / 反思 / 重规划 / 校验修正消息都裁一次；
+- `SessionManager.snapshot`（即每次 `SaveSession`，含回合内收尾落库）也裁一次。
+
+于是一个带工具调用的回合会在中途被裁多次，而最大的受害者恰是本回合刚生成的工具结果：那些消息刚进入一次请求，还没被任何后续请求复用，下一次请求的前缀就从它们的头部错位。`max_history` 越小（或一个回合的工具轮越多），这段前缀就越可能反复作废。
+
+- 新增 `SessionManager.TrimWindow`：唯一的回合边界裁剪入口，由 `processWithTools` 在收尾时显式调用（defer 顺序为 回收附件字节 → 裁剪 → 落库，落库快照因此看到的是裁剪后的窗口）。
+- `AppendMessageNoPersist` **不再裁剪**：回合内的全部追加都保持"只增不减"，一次 `processWithTools` 内的所有请求共享同一份稳定前缀。
+- `touch`（`GetOrCreate` 命中缓存时）与 `snapshot`（落库）只在**回合未活跃**时裁剪：回合进行中，本轮的请求前缀仍在使用中。
+- `TrimMessages` 的语义本身不变（批量低水位、System 优先、不裁出孤儿 tool 消息），只是调用时机收敛；`TrimLowWaterDivisor` 的注释同步修正——余量只在回合**之间**有意义，不再需要为一个回合中途的 assistant + N 条 tool 预留空间。
+
+预期收益：工具轮越多的回合收益越明显（回合内第 2..N 轮请求重新变成上一轮的字节前缀）。可通过 `ai_llm_tokens_total{kind="chat"}` 的 `cached`/`prompt` 与 Debug 日志里的 `hit%` 对照，`ai_context_trimmed_messages_total` 应出现"次数下降、单次条数上升"的形态。
+
+- 新增用例：`TestTrimDoesNotRunMidTurn`（断言回合内第 n 轮请求是第 n+1 轮请求的严格前缀、且首轮工具结果仍在末轮请求里）、`TestTrimDoesNotRunOnTurnSavings`、`TestTrimWindowIsTheOnlyTurnBoundaryEntry`、`TestAppendMessageNoPersistDoesNotTrim`、`TestTrimWindowTrimsAtTurnBoundary`、`TestTouchSkipsTrimWhileTurnActive`。
 
 ## v1.82.0 (2026-11-14)
 

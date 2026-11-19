@@ -637,6 +637,18 @@ func (a *Adapter) GetUserAvatarURL(_ stdctx.Context, userID string) (string, err
 	return fmt.Sprintf("https://via.placeholder.com/100?text=%s", userID), nil
 }
 
+// GetUserInfo 实现 platform.UserInfoProvider，返回终端模拟用户资料。
+//
+// 终端适配器没有真实用户体系，只提供固定的占位昵称与占位头像，
+// 用于在本地调试时让依赖用户资料的插件（/头像、资料卡片等）能跑通。
+func (a *Adapter) GetUserInfo(_ stdctx.Context, userID string) (platform.UserProfile, error) {
+	return platform.UserProfile{
+		ID:          userID,
+		DisplayName: "Terminal User",
+		AvatarURL:   fmt.Sprintf("https://via.placeholder.com/100?text=%s", userID),
+	}, nil
+}
+
 func (a *Adapter) NotifyUser(_ stdctx.Context, userID string, msg platform.OutboundMessage) error {
 	content := extractMessageContent(msg)
 	a.output("[Bot Notify→%s] %s\n", userID, content)

@@ -167,6 +167,11 @@ type GatewayManager interface {
 type BotManager interface {
 	// GenerateURLLink 生成机器人分享链接，用于邀请用户添加机器人为好友。
 	GenerateURLLink(ctx context.Context, req *dto.GenerateURLLinkRequest) (gjson.Result, error)
+	// GetUserInfo 获取用户基本信息（GET /v2/users/{user_openid}/info，2026-11 新增）。
+	//
+	// 响应含 union_openid/username/avatar/allow_proactive_msg；
+	// 用户与机器人无好友关系时返回错误码 40184001。
+	GetUserInfo(ctx context.Context, userOpenID string) (gjson.Result, error)
 }
 
 // GroupManager 群聊管理（2026-08/2026-09 新增，部分接口仅白名单机器人可用）。

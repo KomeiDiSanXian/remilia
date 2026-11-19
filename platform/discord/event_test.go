@@ -78,6 +78,20 @@ func TestNewMessageCreateEvent_Reply(t *testing.T) {
 	assert.Equal(t, "orig", platform.GetReplyToID(ev))
 }
 
+// TestNewMessageCreateEvent_AuthorAvatar 验证 Discord 消息作者的头像哈希
+// 被拼成 CDN URL 并映射到 platform.UserInfo.AvatarURL。
+func TestNewMessageCreateEvent_AuthorAvatar(t *testing.T) {
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:      "1007",
+			Content: "avatar",
+			Author:  &discordgo.User{ID: "u7", Username: "user7", Avatar: "hash7"},
+		},
+	}
+	ev := discord.NewMessageCreateEvent(m)
+	assert.Equal(t, discordgo.EndpointUserAvatar("u7", "hash7"), ev.Sender().AvatarURL)
+}
+
 func TestNewMessageCreateEvent_NilMessage(t *testing.T) {
 	ev := discord.NewMessageCreateEvent(&discordgo.MessageCreate{})
 	assert.Equal(t, platform.EventKindUnknown, ev.Kind())

@@ -201,22 +201,32 @@ func (e *qqEvent) populateC2C(detail jsonx.RawMessage) {
 	}
 	// 一次线性扫描提取所有字段（O(n) 而非 O(k×n)）
 	results := gjson.GetManyBytes(detail,
-		"id",                 // [0] 消息 ID（用于 msg_id 被动回复授权）
-		"content",            // [1]
-		"author.user_openid", // [2]
-		"author.id",          // [3]
-		"timestamp",          // [4]
-		"attachments",        // [5]
-		"message_type",       // [6] 消息内容类型
-		"ark_data",           // [7] 结构化卡片数据（message_type=3）
-		"message_scene.ext",  // [8] 场景扩展（含 ref_msg_idx=REFIDX_... 引用标识）
-		"msg_elements",       // [9] 消息元素列表（引用消息）
-		"parallel_message",   // [10] 被引用消息并行视图（msg_nodes）
+		"id",                  // [0] 消息 ID（用于 msg_id 被动回复授权）
+		"content",             // [1]
+		"author.user_openid",  // [2]
+		"author.id",           // [3]
+		"timestamp",           // [4]
+		"attachments",         // [5]
+		"message_type",        // [6] 消息内容类型
+		"ark_data",            // [7] 结构化卡片数据（message_type=3）
+		"message_scene.ext",   // [8] 场景扩展（含 ref_msg_idx=REFIDX_... 引用标识）
+		"msg_elements",        // [9] 消息元素列表（引用消息）
+		"parallel_message",    // [10] 被引用消息并行视图（msg_nodes）
+		"author.username",     // [11] 发送者昵称（2026-11 起下发）
+		"author.avatar",       // [12] 发送者头像（2026-11 起下发）
+		"author.union_openid", // [13] 跨应用统一 OpenID
 	)
 	userOpenID := results[2].String()
+	displayName := results[11].String()
+	if displayName == "" {
+		// 兼容旧报文：2026-11 之前 author 只有 id / user_openid
+		displayName = results[3].String()
+	}
 	e.sender = platform.UserInfo{
 		ID:          userOpenID,
-		DisplayName: results[3].String(),
+		DisplayName: displayName,
+		AvatarURL:   results[12].String(),
+		UnionID:     results[13].String(),
 	}
 	tokens := map[string]string{TokenMsgID: results[0].String()} // msg_id 被动回复
 	if qid := extIndexValue(results[8], "msg_idx"); qid != "" {
@@ -225,6 +235,7 @@ func (e *qqEvent) populateC2C(detail jsonx.RawMessage) {
 	}
 	e.chat = platform.ChatInfo{
 		ID:      userOpenID,
+		UnionID: results[13].String(),
 		IsGroup: false,
 		Tokens:  tokens,
 	}
@@ -316,6 +327,9 @@ func (e *qqEvent) populateGroupAt(detail jsonx.RawMessage) {
 		"ark_data",                  // [12] 结构化卡片数据（message_type=3）
 		"message_scene.ext",         // [13] 场景扩展（含 ref_msg_idx=REFIDX_... 引用标识）
 		"parallel_message",          // [14] 并行消息/转发节点（msg_nodes）
+		"author.member_nickname",    // [15] 群内昵称（2026-11 起下发，优先于 username）
+		"author.avatar",             // [16] 发送者头像（2026-11 起下发）
+		"union_group_openid",        // [17] 跨应用关联群 openid（绑定 3 方应用时有效）
 	)
 	content := results[1].String()
 	msgType := int(results[7].Int())
@@ -377,9 +391,17 @@ func (e *qqEvent) populateGroupAt(detail jsonx.RawMessage) {
 	}
 
 	memberOpenID := results[2].String()
+	// 群内昵称优先（2026-11 起下发 member_nickname），缺失时回退全局昵称，
+	// 再回退到历史报文里可能出现的 id 字段。
+	displayName := results[15].String()
+	if displayName == "" {
+		displayName = results[3].String()
+	}
 	e.sender = platform.UserInfo{
 		ID:          memberOpenID,
-		DisplayName: results[3].String(),
+		DisplayName: displayName,
+		AvatarURL:   results[16].String(),
+		UnionID:     results[9].String(),
 		GroupRole:   parseQQGroupRole(results[8].String()),
 	}
 
@@ -390,6 +412,7 @@ func (e *qqEvent) populateGroupAt(detail jsonx.RawMessage) {
 	}
 	e.chat = platform.ChatInfo{
 		ID:      results[4].String(),
+		UnionID: results[17].String(),
 		IsGroup: true,
 		Tokens:  tokens,
 	}
@@ -408,15 +431,32 @@ func (e *qqEvent) populateGroupAt(detail jsonx.RawMessage) {
 		for _, m := range arr {
 			mentionedID := m.Get("id").String()
 			if mentionedID == "" {
+				mentionedID = m.Get("member_openid").String()
+			}
+			if mentionedID == "" {
 				continue
+			}
+			// 群内昵称优先（2026-11 起下发），回退全局昵称。
+			name := m.Get("member_nickname").String()
+			if name == "" {
+				name = m.Get("username").String()
 			}
 			u := platform.UserInfo{
 				ID:          mentionedID,
-				DisplayName: m.Get("username").String(),
+				DisplayName: name,
+				AvatarURL:   m.Get("avatar").String(),
+				UnionID:     m.Get("union_openid").String(),
+				GroupRole:   parseQQGroupRole(m.Get("member_role").String()),
 				IsBot:       m.Get("bot").Bool(),
 				IsSelf:      m.Get("is_you").Bool(),
 			}
+			// 正文里的占位符是 `<@member_openid>`，而 mentions 的 id 与
+			// member_openid 可能不同（官方文档：content 用 member_openid 替换）。
+			// 两种键都登记，避免 @ 段退化成原样文本。
 			mentionByID[mentionedID] = u
+			if mo := m.Get("member_openid").String(); mo != "" {
+				mentionByID[mo] = u
+			}
 			e.mentions = append(e.mentions, u)
 		}
 	}
@@ -542,11 +582,13 @@ func (e *qqEvent) populateGuildMessage(evType string, detail jsonx.RawMessage) {
 		"timestamp",
 		"attachments",
 		"message_reference.message_id",
+		"author.avatar", // [9] 头像（频道消息同样携带）
 	)
 	content := results[0].String()
 	e.sender = platform.UserInfo{
 		ID:          results[1].String(),
 		DisplayName: results[2].String(),
+		AvatarURL:   results[9].String(),
 	}
 	channelID := results[3].String()
 	guildID := results[4].String()
@@ -1108,9 +1150,11 @@ func (e *qqEvent) populateGroupMemberEvent(detail jsonx.RawMessage) {
 		"group_openid",
 		"member_openid",
 		"timestamp",
+		"union_group_openid", // [3] 跨应用关联群 openid（2026-11）
 	)
 	e.chat = platform.ChatInfo{
 		ID:      results[0].String(),
+		UnionID: results[3].String(),
 		IsGroup: true,
 	}
 	e.sender = platform.UserInfo{
@@ -1129,9 +1173,11 @@ func (e *qqEvent) populateNoticeGroup(detail jsonx.RawMessage) {
 		"group_openid",
 		"op_member_openid",
 		"timestamp",
+		"union_group_openid", // [3] 跨应用关联群 openid（2026-11）
 	)
 	e.chat = platform.ChatInfo{
 		ID:      results[0].String(),
+		UnionID: results[3].String(),
 		IsGroup: true,
 	}
 	e.sender = platform.UserInfo{

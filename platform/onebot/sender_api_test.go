@@ -58,6 +58,67 @@ func assertAction(t *testing.T, m *mockAPIClient, wantAction, wantParams string)
 // 消息收发与检索
 // ────────────────────────────────────────────────────────────────────────────
 
+// TestSender_GetUserInfo 验证 get_stranger_info 映射为 platform.UserProfile，
+// 并顺带用扩展动作 get_qq_avatar 补头像。
+func TestSender_GetUserInfo(t *testing.T) {
+	s, m := newMockSender(t)
+	m.data["get_stranger_info"] = `{"user_id":1001,"nickname":"小明","sex":"male","age":18}`
+	m.data["get_qq_avatar"] = `{"url":"https://ex.com/a.png"}`
+
+	profile, err := s.GetUserInfo(context.Background(), "1001")
+	require.NoError(t, err)
+	assert.Equal(t, "1001", profile.ID)
+	assert.Equal(t, "小明", profile.DisplayName)
+	assert.Equal(t, "https://ex.com/a.png", profile.AvatarURL)
+	assert.False(t, profile.AllowProactiveMsg)
+	assert.Empty(t, profile.UnionID)
+	assert.Equal(t, "get_stranger_info", m.actions[0])
+	assert.Equal(t, "get_qq_avatar", m.actions[1])
+}
+
+// TestSender_GetUserInfo_AvatarUnavailable 验证协议端不支持 get_qq_avatar 时
+// 只丢失头像字段，资料查询本身仍然成功。
+func TestSender_GetUserInfo_AvatarUnavailable(t *testing.T) {
+	s, m := newMockSender(t)
+	m.data["get_stranger_info"] = `{"user_id":1001,"nickname":"小明"}`
+	m.notFound = map[string]bool{"get_qq_avatar": true}
+
+	profile, err := s.GetUserInfo(context.Background(), "1001")
+	require.NoError(t, err)
+	assert.Equal(t, "小明", profile.DisplayName)
+	assert.Empty(t, profile.AvatarURL)
+}
+
+// TestSender_GetUserInfo_InvalidID / APIError 验证参数校验与错误传播。
+func TestSender_GetUserInfo_Errors(t *testing.T) {
+	s, m := newMockSender(t)
+	_, err := s.GetUserInfo(context.Background(), "not-a-number")
+	require.Error(t, err)
+	assert.Empty(t, m.actions, "非法 user_id 不应发起 API 调用")
+
+	m.notFound = map[string]bool{"get_stranger_info": true}
+	_, err = s.GetUserInfo(context.Background(), "1001")
+	require.Error(t, err)
+}
+
+// TestSender_GetUserAvatarURL 验证头像查询直连扩展动作。
+func TestSender_GetUserAvatarURL(t *testing.T) {
+	s, m := newMockSender(t)
+	m.data["get_qq_avatar"] = `{"url":"https://ex.com/a.png"}`
+
+	url, err := s.GetUserAvatarURL(context.Background(), "1001")
+	require.NoError(t, err)
+	assert.Equal(t, "https://ex.com/a.png", url)
+	assertAction(t, m, "get_qq_avatar", `{"user_id":1001}`)
+}
+
+// TestSender_ImplementsUserInfoProvider 编译期/运行期接口断言。
+func TestSender_ImplementsUserInfoProvider(t *testing.T) {
+	s := newSender(nil)
+	var _ platform.UserInfoProvider = s
+	var _ platform.AvatarProvider = s
+}
+
 func TestSender_SendMsg(t *testing.T) {
 	s, m := newMockSender(t)
 	chain := MessageChain{textSegment("hi")}

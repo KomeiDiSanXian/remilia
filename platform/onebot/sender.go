@@ -137,11 +137,64 @@ func (s *Sender) GetAnnouncements(ctx stdctx.Context, groupID string) ([]platfor
 	return out, nil
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// platform.UserInfoProvider / platform.AvatarProvider
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetUserInfo 通过 OneBot get_stranger_info 查询用户资料，实现
+// platform.UserInfoProvider。
+//
+// OneBot 的陌生人信息只有 user_id/nickname/sex/age，没有头像；
+// 头像需额外调用 get_qq_avatar（见 [Sender.GetQQAvatar]），因此这里
+// AvatarURL 由 get_qq_avatar 补充，失败时保持为空不影响资料查询。
+// AllowProactiveMsg / UnionID 在 OneBot 侧没有对应语义，恒为零值。
+func (s *Sender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	uid, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		return platform.UserProfile{}, fmt.Errorf("onebot sender: invalid user_id %q: %w", userID, err)
+	}
+	var info StrangerInfo
+	if err := callDecoded(ctx, s.api, "get_stranger_info", GetStrangerInfoParams{
+		UserID: uid,
+	}, &info); err != nil {
+		return platform.UserProfile{}, err
+	}
+	profile := platform.UserProfile{
+		ID:          strconv.FormatInt(uid, 10),
+		DisplayName: info.Nickname,
+	}
+	// 头像为可选扩展动作：协议端不实现时静默跳过，不视为失败。
+	if avatar, aerr := s.GetQQAvatar(ctx, uid); aerr == nil && avatar != nil {
+		profile.AvatarURL = avatar.URL
+	}
+	return profile, nil
+}
+
+// GetUserAvatarURL 通过扩展动作 get_qq_avatar 获取头像 URL，
+// 实现 platform.AvatarProvider。
+//
+// 该动作非 OneBot 11 标准动作，未实现的协议端会返回 404（错误原样透出）。
+func (s *Sender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
+	uid, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("onebot sender: invalid user_id %q: %w", userID, err)
+	}
+	avatar, err := s.GetQQAvatar(ctx, uid)
+	if err != nil {
+		return "", err
+	}
+	return avatar.URL, nil
+}
+
 // 编译期接口实现检查。
-var _ platform.APIProvider = (*Sender)(nil)
-var _ platform.GroupSettings = (*Sender)(nil)
-var _ platform.MessageHistoryProvider = (*Sender)(nil)
-var _ platform.AnnouncementManager = (*Sender)(nil)
+var (
+	_ platform.APIProvider            = (*Sender)(nil)
+	_ platform.GroupSettings          = (*Sender)(nil)
+	_ platform.MessageHistoryProvider = (*Sender)(nil)
+	_ platform.AnnouncementManager    = (*Sender)(nil)
+	_ platform.UserInfoProvider       = (*Sender)(nil)
+	_ platform.AvatarProvider         = (*Sender)(nil)
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // platform.Sender

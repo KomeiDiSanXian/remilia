@@ -84,6 +84,7 @@ func TestURLTemplateFormatting(t *testing.T) {
 		{"user upload part finish", UserUploadPartFinishURL, []any{"openid_1"}, "https://api.bot.qq.com/v2/users/openid_1/upload_part_finish"},
 		{"group upload part finish", GroupUploadPartFinishURL, []any{"gid_1"}, "https://api.bot.qq.com/v2/groups/gid_1/upload_part_finish"},
 		{"stream single chat", StreamSingleChatURL, []any{"openid_1"}, "https://api.bot.qq.com/v2/users/openid_1/stream_messages"},
+		{"user info", UserInfoURL, []any{"openid_1"}, "https://api.bot.qq.com/v2/users/openid_1/info"},
 		{"group info", GroupInfoURL, []any{"gid_1"}, "https://api.bot.qq.com/v2/groups/gid_1/info"},
 		{"group members", GroupMembersURL, []any{"gid_1"}, "https://api.bot.qq.com/v2/groups/gid_1/members"},
 		{"group member", GroupMemberURL, []any{"gid_1", "mem_1"}, "https://api.bot.qq.com/v2/groups/gid_1/members/mem_1"},

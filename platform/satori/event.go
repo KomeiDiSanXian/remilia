@@ -248,6 +248,9 @@ func (e *satoriEvent) Sender() platform.UserInfo {
 	if u.Name != nil {
 		info.DisplayName = *u.Name
 	}
+	if u.Avatar != nil {
+		info.AvatarURL = *u.Avatar
+	}
 	// User.Nick 的优先级高于 Name（见 types.go 中该字段的说明）：
 	// 私聊场景没有 Member 对象，此前这一分支缺失，导致显示的是
 	// "qq_user_10001" 这样的原始账号名而非好友备注。

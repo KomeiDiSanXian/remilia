@@ -40,10 +40,39 @@ func newSender(adapter *Adapter) *milkySender {
 func (s *milkySender) PlatformAPI() any { return s.adapter }
 
 // 编译期接口实现检查。
-var _ platform.APIProvider = (*milkySender)(nil)
-var _ platform.GroupSettings = (*milkySender)(nil)
-var _ platform.MessageHistoryProvider = (*milkySender)(nil)
-var _ platform.AnnouncementManager = (*milkySender)(nil)
+var (
+	_ platform.APIProvider            = (*milkySender)(nil)
+	_ platform.GroupSettings          = (*milkySender)(nil)
+	_ platform.MessageHistoryProvider = (*milkySender)(nil)
+	_ platform.AnnouncementManager    = (*milkySender)(nil)
+	_ platform.UserInfoProvider       = (*milkySender)(nil)
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.UserInfoProvider
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetUserInfo 通过 get_user_profile 查询用户资料，实现
+// platform.UserInfoProvider。
+//
+// Milky 协议（1.3）的用户资料只有 nickname/qid/age/sex/remark/bio/level/
+// country/city/school，**没有头像字段**，也没有等价于头像查询的 API，
+// 因此 AvatarURL 恒为空（不实现 AvatarProvider）。
+// AllowProactiveMsg / UnionID 在 Milky 侧无对应语义，恒为零值。
+func (s *milkySender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	uid, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		return platform.UserProfile{}, fmt.Errorf("milky sender: invalid user_id %q: %w", userID, err)
+	}
+	profile, err := s.adapter.GetUserProfile(ctx, uid)
+	if err != nil {
+		return platform.UserProfile{}, err
+	}
+	return platform.UserProfile{
+		ID:          userID,
+		DisplayName: profile.Nickname,
+	}, nil
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // platform.GroupSettings（委托 Adapter 的 Milky API）

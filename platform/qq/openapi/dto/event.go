@@ -105,9 +105,21 @@ type Author struct {
 	MemberOpenID string `json:"member_openid,omitempty"` // 成员 OpenID
 	UnionOpenID  string `json:"union_openid,omitempty"`
 	UserOpenID   string `json:"user_openid,omitempty"`
+	// Username 用户昵称（2026-11 起消息事件下发）。
+	Username string `json:"username,omitempty"`
+	// MemberNickname 群内昵称（2026-11 起群聊消息下发；群场景优先使用）。
+	MemberNickname string `json:"member_nickname,omitempty"`
+	// Avatar 用户头像 URL（2026-11 起消息事件下发）。
+	Avatar string `json:"avatar,omitempty"`
+	// MemberRole 群内角色：member/admin/owner（群聊消息）。
+	MemberRole string `json:"member_role,omitempty"`
+	// Bot 是否为机器人账号。
+	Bot bool `json:"bot,omitzero"`
 }
 
 // C2CMessageCreateEvent 表示单聊消息创建事件
+//
+// 2026-11 起 author 携带 username/avatar/union_openid。
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E5%8D%95%E8%81%8A%E6%B6%88%E6%81%AF
 type C2CMessageCreateEvent struct {
@@ -116,10 +128,14 @@ type C2CMessageCreateEvent struct {
 
 // GroupAtMessageCreateEvent 表示群聊 @机器人 消息事件
 //
+// 2026-11 起 author 携带 member_nickname/avatar，事件体携带 union_group_openid。
+//
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E7%BE%A4%E8%81%8A-%E6%9C%BA%E5%99%A8%E4%BA%BA
 type GroupAtMessageCreateEvent struct {
 	MessageCreateEvent
 	GroupOpenID string `json:"group_openid,omitempty"`
+	// UnionGroupOpenID 跨应用关联群 openid（绑定 3 方应用时有效）。
+	UnionGroupOpenID string `json:"union_group_openid,omitempty"`
 }
 
 // GroupOpRobotEvent 表示群操作机器人事件
@@ -127,6 +143,8 @@ type GroupOpRobotEvent struct {
 	Timestamp      int    `json:"timestamp,omitzero"`
 	GroupOpenID    string `json:"group_openid,omitempty"`
 	OpMemberOpenID string `json:"op_member_openid,omitempty"` // 操作者成员 OpenID
+	// UnionGroupOpenID 跨应用关联群 openid（绑定 3 方应用时有效）。
+	UnionGroupOpenID string `json:"union_group_openid,omitempty"`
 }
 
 // GroupAddRobotEvent 表示群添加机器人事件
@@ -159,10 +177,28 @@ type GroupMsgReceiveEvent struct {
 
 // GroupMessageCreateEvent 表示群聊全量消息事件
 //
+// 2026-11 起 author 携带 member_nickname/avatar，事件体携带 union_group_openid。
+//
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E7%BE%A4%E8%81%8A%E5%85%A8%E9%87%8F%E6%B6%88%E6%81%AF
 type GroupMessageCreateEvent struct {
 	MessageCreateEvent
-	GroupOpenID string `json:"group_openid,omitempty"`
+	GroupOpenID      string             `json:"group_openid,omitempty"`
+	UnionGroupOpenID string             `json:"union_group_openid,omitempty"`
+	Mentions         []GroupMentionUser `json:"mentions,omitempty"`
+}
+
+// GroupMentionUser 群消息 mentions 数组元素（payload 级结构化 @）。
+type GroupMentionUser struct {
+	ID             string `json:"id,omitempty"`
+	Username       string `json:"username,omitempty"`
+	Bot            bool   `json:"bot,omitzero"`
+	MemberOpenID   string `json:"member_openid,omitempty"`
+	MemberRole     string `json:"member_role,omitempty"`
+	MemberNickname string `json:"member_nickname,omitempty"`
+	Avatar         string `json:"avatar,omitempty"`
+	UnionOpenID    string `json:"union_openid,omitempty"`
+	IsYou          bool   `json:"is_you,omitzero"`
+	Scope          string `json:"scope,omitempty"` // all=@全体成员，single=指定成员
 }
 
 // GroupMemberAddEvent 表示群成员加入事件

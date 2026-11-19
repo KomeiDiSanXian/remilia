@@ -415,6 +415,30 @@ func TestAdapter_AvatarProvider(t *testing.T) {
 	}
 }
 
+func TestAdapter_UserInfoProvider(t *testing.T) {
+	a := NewAdapter()
+	ctx := context.Background()
+
+	up, ok := any(a).(platform.UserInfoProvider)
+	if !ok {
+		t.Fatal("期望 Adapter 实现 platform.UserInfoProvider")
+	}
+
+	profile, err := up.GetUserInfo(ctx, "user-123")
+	if err != nil {
+		t.Fatalf("GetUserInfo 不应有错误: %v", err)
+	}
+	if profile.ID != "user-123" {
+		t.Errorf("期望 ID 为 user-123, 得到 %q", profile.ID)
+	}
+	if profile.DisplayName == "" {
+		t.Error("期望占位昵称非空")
+	}
+	if profile.AvatarURL == "" {
+		t.Error("期望占位头像 URL 非空")
+	}
+}
+
 func TestAdapter_SessionNotifier(t *testing.T) {
 	buf := &bytes.Buffer{}
 	a := NewAdapter(WithOutput(buf))

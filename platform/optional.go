@@ -10,6 +10,7 @@ package platform
 //   - [AutoModerator]      — 内容自动审核（删除他人消息、全员禁言）
 //   - [GroupInfoProvider]  — 群组信息查询（只读）
 //   - [AvatarProvider]     — 用户头像查询
+//   - [UserInfoProvider]   — 用户基本信息查询（昵称/头像/跨应用标识）
 //   - [SessionNotifier]    — 主动推送（无需事件上下文）
 //
 // 使用前均需用 Get* 辅助函数做类型断言检查，平台不支持时返回 [ErrNotSupported]。
@@ -157,6 +158,10 @@ type GroupInfo struct {
 	MemberCount int
 	// Description 群组简介（平台不提供时为空字符串）
 	Description string
+	// UnionID 群组的跨应用统一标识（平台不提供时为空字符串）。
+	//
+	// QQ：union_group_openid，绑定 3 方应用后才有值。
+	UnionID string
 }
 
 // GroupMemberInfo 群成员信息。
@@ -173,6 +178,10 @@ type GroupMemberInfo struct {
 	JoinedAt time.Time
 	// AvatarURL 用户头像 URL（平台不提供时为空字符串）
 	AvatarURL string
+	// UnionID 用户的跨应用统一标识（平台不提供时为空字符串）。
+	//
+	// QQ：成员列表/单成员查询的 union_openid。
+	UnionID string
 }
 
 // GroupInfoProvider 可选接口：支持查询群组信息的平台适配器 Sender 实现此接口。
@@ -252,6 +261,52 @@ type AvatarProvider interface {
 func GetAvatarProvider(a Adapter) (AvatarProvider, bool) {
 	ap, ok := a.Sender().(AvatarProvider)
 	return ap, ok
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// UserInfoProvider（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// UserProfile 用户基本信息。
+//
+// 由 [UserInfoProvider.GetUserInfo] 返回；各平台字段填充能力不同，
+// 未知字段返回空字符串或 false。
+type UserProfile struct {
+	// ID 用户唯一标识（即查询时传入的 userID）
+	ID string
+	// DisplayName 用户昵称
+	DisplayName string
+	// AvatarURL 用户头像原图 URL（平台不提供时为空字符串）
+	AvatarURL string
+	// UnionID 用户的跨应用统一标识（平台不提供时为空字符串）
+	UnionID string
+	// AllowProactiveMsg 是否允许机器人主动推送消息（平台不提供时为 false）
+	AllowProactiveMsg bool
+}
+
+// UserInfoProvider 可选接口：支持查询用户基本信息的平台适配器 Sender 实现此接口。
+//
+// 与 [AvatarProvider] 的区别：AvatarProvider 只取头像 URL，本接口一次返回
+// 昵称、头像、跨应用标识与主动推送开关，避免为同一用户重复发起多次查询。
+//
+// 使用前用 [GetUserInfoProvider] 检查支持：
+//
+//	if up, ok := platform.GetUserInfoProvider(adapter); ok {
+//	    profile, err := up.GetUserInfo(ctx, userID)
+//	}
+type UserInfoProvider interface {
+	// GetUserInfo 查询指定用户的基本信息。
+	// userID 为平台用户唯一 ID（QQ 为用户 openid）。
+	// 用户与机器人无好友关系等情况下可能返回错误；平台不支持时返回 [ErrNotSupported]。
+	GetUserInfo(ctx stdctx.Context, userID string) (UserProfile, error)
+}
+
+// GetUserInfoProvider 安全获取适配器 Sender 的用户信息查询接口。
+//
+// 若 Sender 未实现 [UserInfoProvider]，返回 (nil, false)。
+func GetUserInfoProvider(a Adapter) (UserInfoProvider, bool) {
+	up, ok := a.Sender().(UserInfoProvider)
+	return up, ok
 }
 
 // ────────────────────────────────────────────────────────────────────────────

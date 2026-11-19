@@ -1463,6 +1463,7 @@ func (s *qqSender) GetGroupInfo(ctx stdctx.Context, groupID string) (platform.Gr
 		Name:        result.Get("group_name").String(),
 		MemberCount: int(result.Get("group_member_num").Int()),
 		Description: result.Get("group_finger_memo").String(),
+		UnionID:     result.Get("union_group_openid").String(),
 	}, nil
 }
 
@@ -1516,6 +1517,8 @@ func groupMemberFromResult(m gjson.Result) platform.GroupMemberInfo {
 		UserID:      m.Get("member_openid").String(),
 		DisplayName: m.Get("username").String(),
 		GroupRole:   parseQQGroupRole(m.Get("member_role").String()),
+		AvatarURL:   m.Get("avatar").String(), // 官方暂未提供，有值则透传
+		UnionID:     m.Get("union_openid").String(),
 	}
 	if ts := m.Get("joined_at").String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -1529,3 +1532,47 @@ func groupMemberFromResult(m gjson.Result) platform.GroupMemberInfo {
 func (s *qqSender) GetJoinedGroups(_ stdctx.Context) ([]platform.GroupInfo, error) {
 	return nil, platform.ErrNotSupported
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.UserInfoProvider / platform.AvatarProvider（2026-11 新增）
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetUserInfo 通过获取用户基本信息接口（GET /v2/users/{user_openid}/info）
+// 实现 platform.UserInfoProvider。
+//
+// 该接口只对与机器人有好友关系的用户可用：无好友关系时平台返回错误码
+// 40184001（错误信息会原样透出，调用方可用 errors.Is 判断平台错误码）。
+func (s *qqSender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	if s.api == nil {
+		return platform.UserProfile{}, fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	result, err := s.api.GetUserInfo(ctx, userID)
+	if err != nil {
+		return platform.UserProfile{}, err
+	}
+	return platform.UserProfile{
+		ID:                userID,
+		DisplayName:       result.Get("username").String(),
+		AvatarURL:         result.Get("avatar").String(),
+		UnionID:           result.Get("union_openid").String(),
+		AllowProactiveMsg: result.Get("allow_proactive_msg").Bool(),
+	}, nil
+}
+
+// GetUserAvatarURL 通过获取用户基本信息接口取头像 URL，实现 platform.AvatarProvider。
+//
+// 与 [qqSender.GetUserInfo] 复用同一个平台接口；只需要头像时用这个方法
+// 语义更清晰（例如 /头像 命令）。
+func (s *qqSender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
+	profile, err := s.GetUserInfo(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return profile.AvatarURL, nil
+}
+
+// 编译期接口实现检查。
+var (
+	_ platform.UserInfoProvider = (*qqSender)(nil)
+	_ platform.AvatarProvider   = (*qqSender)(nil)
+)

@@ -137,6 +137,20 @@ type Chat struct {
 	FirstName string `json:"first_name,omitempty"`
 	// LastName is the last name (private chats only).
 	LastName string `json:"last_name,omitempty"`
+	// Photo is the chat photo (getChat 返回；只有 file_id，需要再调 getFile)。
+	Photo *ChatPhoto `json:"photo,omitempty"`
+}
+
+// ChatPhoto represents a chat's photo.
+type ChatPhoto struct {
+	// SmallFileID 是 160x160 缩略图的 file_id。
+	SmallFileID string `json:"small_file_id"`
+	// SmallFileUniqueID 是缩略图的跨机器人稳定标识。
+	SmallFileUniqueID string `json:"small_file_unique_id"`
+	// BigFileID 是 640x640 原图的 file_id。
+	BigFileID string `json:"big_file_id"`
+	// BigFileUniqueID 是原图的跨机器人稳定标识。
+	BigFileUniqueID string `json:"big_file_unique_id"`
 }
 
 // DisplayName returns a human-readable chat name.

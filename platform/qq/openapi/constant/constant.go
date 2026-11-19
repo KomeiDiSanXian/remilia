@@ -331,6 +331,14 @@ const (
 	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
 	StreamSingleChatURL = OpenAPIURL + "/v2/users/%s/stream_messages"
 
+	// UserInfoURL GET /v2/users/{user_openid}/info
+	//
+	// 获取用户基本信息（2026-11 新增）：昵称、头像、跨应用关联 openid
+	// 与是否允许主动推送。频率限制 10 QPS。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_info.get.html
+	UserInfoURL = OpenAPIURL + "/v2/users/%s/info"
+
 	// ── 群聊管理（2026-08 新增）──────────────────────────────────────────────
 
 	// GroupMembersURL GET /v2/groups/{group_openid}/members

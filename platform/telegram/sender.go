@@ -36,6 +36,8 @@ const (
 //   - platform.MessageDeleter (Delete)
 //   - platform.ReactionSender (AddReaction, RemoveReaction)
 //   - platform.TypingNotifier (SendTyping)
+//   - platform.UserInfoProvider (GetUserInfo)
+//   - platform.AvatarProvider   (GetUserAvatarURL)
 type telegramSender struct {
 	client *Client
 	botID  string
@@ -51,7 +53,58 @@ func newSender(client *Client, botID string) *telegramSender {
 func (s *telegramSender) PlatformAPI() any { return s.client }
 
 // 编译期接口实现检查。
-var _ platform.APIProvider = (*telegramSender)(nil)
+var (
+	_ platform.APIProvider      = (*telegramSender)(nil)
+	_ platform.UserInfoProvider = (*telegramSender)(nil)
+	_ platform.AvatarProvider   = (*telegramSender)(nil)
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.UserInfoProvider / platform.AvatarProvider
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetUserInfo 通过 getChat 查询用户资料，实现 platform.UserInfoProvider。
+//
+// Telegram 没有独立的"获取用户资料"接口：私聊场景 chat_id 与 user id 相同，
+// getChat 返回的对象里 firstName/lastName/username 就是用户资料。
+// Telegram 的 User 对象不带头像 URL，头像是 ChatPhoto（只有 file_id），
+// 需要额外调用 getFile 换取下载地址，因此这里 AvatarURL 恒为空。
+// AllowProactiveMsg / UnionID 在 Telegram 侧无对应语义，恒为零值。
+func (s *telegramSender) GetUserInfo(ctx stdctx.Context, userID string) (platform.UserProfile, error) {
+	if s.client == nil {
+		return platform.UserProfile{}, fmt.Errorf("telegram sender: client is nil")
+	}
+	chat, err := s.client.GetChat(ctx, userID)
+	if err != nil {
+		return platform.UserProfile{}, err
+	}
+	return platform.UserProfile{
+		ID:          userID,
+		DisplayName: chat.DisplayName(),
+	}, nil
+}
+
+// GetUserAvatarURL 实现 platform.AvatarProvider：先 getChat 取 ChatPhoto 的
+// file_id，再用 getFile 换取可下载 URL。
+//
+// 注意：返回的 URL 路径里嵌着 bot token（见 [Client.FileURL]），属于活凭据。
+func (s *telegramSender) GetUserAvatarURL(ctx stdctx.Context, userID string) (string, error) {
+	if s.client == nil {
+		return "", fmt.Errorf("telegram sender: client is nil")
+	}
+	chat, err := s.client.GetChat(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if chat.Photo == nil || chat.Photo.BigFileID == "" {
+		return "", nil // 用户没有设置头像
+	}
+	f, err := s.client.GetFile(ctx, chat.Photo.BigFileID)
+	if err != nil {
+		return "", err
+	}
+	return s.client.FileURL(f.FilePath), nil
+}
 
 // Send implements platform.Sender.
 //

@@ -526,6 +526,8 @@ func TestQQSender_ImplementsOptionalInterfaces(t *testing.T) {
 	assert.Implements(t, (*platform.GroupManager)(nil), s)
 	assert.Implements(t, (*platform.InvitationHandler)(nil), s)
 	assert.Implements(t, (*platform.GroupInfoProvider)(nil), s)
+	assert.Implements(t, (*platform.UserInfoProvider)(nil), s)
+	assert.Implements(t, (*platform.AvatarProvider)(nil), s)
 }
 
 func TestParseJoinInviteID(t *testing.T) {
@@ -939,6 +941,106 @@ func TestGetGroupMember_APIError(t *testing.T) {
 	_, err := s.GetGroupMember(context.Background(), "gid_1", "u1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "openAPI client is nil")
+}
+
+// fakeUserInfoAPI 覆盖用户基本信息查询接口，记录查询的 openid。
+type fakeUserInfoAPI struct {
+	openapi.OpenAPI
+	result     gjson.Result
+	err        error
+	calledWith string
+}
+
+func (f *fakeUserInfoAPI) GetUserInfo(_ context.Context, userOpenID string) (gjson.Result, error) {
+	f.calledWith = userOpenID
+	return f.result, f.err
+}
+
+// TestGetUserInfo 验证用户基本信息映射（2026-11 新增接口）。
+func TestGetUserInfo(t *testing.T) {
+	api := &fakeUserInfoAPI{result: gjson.Parse(`{
+		"username":"笑😊心❤️",
+		"allow_proactive_msg":true,
+		"avatar":"https://thirdqq.qlogo.cn/bqqthird?key=abc",
+		"union_openid":"UNION_1"
+	}`)}
+	s := &qqSender{api: api}
+
+	profile, err := s.GetUserInfo(context.Background(), "openid_1")
+	require.NoError(t, err)
+	assert.Equal(t, "openid_1", profile.ID)
+	assert.Equal(t, "笑😊心❤️", profile.DisplayName)
+	assert.Equal(t, "https://thirdqq.qlogo.cn/bqqthird?key=abc", profile.AvatarURL)
+	assert.Equal(t, "UNION_1", profile.UnionID)
+	assert.True(t, profile.AllowProactiveMsg)
+	assert.Equal(t, "openid_1", api.calledWith)
+}
+
+// TestGetUserAvatarURL 验证头像查询复用用户信息接口。
+func TestGetUserAvatarURL(t *testing.T) {
+	api := &fakeUserInfoAPI{result: gjson.Parse(`{"username":"u","avatar":"https://a/b.png"}`)}
+	s := &qqSender{api: api}
+
+	url, err := s.GetUserAvatarURL(context.Background(), "openid_1")
+	require.NoError(t, err)
+	assert.Equal(t, "https://a/b.png", url)
+}
+
+// TestGetUserInfo_APIError 验证接口错误向上传播，且 nil client 被拦截。
+func TestGetUserInfo_APIError(t *testing.T) {
+	s := &qqSender{api: nil}
+	_, err := s.GetUserInfo(context.Background(), "u1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "openAPI client is nil")
+
+	boom := assert.AnError
+	s = &qqSender{api: &fakeUserInfoAPI{err: boom}}
+	_, err = s.GetUserInfo(context.Background(), "u1")
+	require.ErrorIs(t, err, boom)
+}
+
+// TestGetGroupInfo_UnionID 验证获取群基本信息的 union_group_openid
+// 由 sender 层映射到 platform.GroupInfo.UnionID。
+func TestGetGroupInfo_UnionID(t *testing.T) {
+	api := &fakeGroupInfoAPI{result: gjson.Parse(`{
+		"group_openid":"gid_1","group_name":"读书分享会","group_member_num":256,
+		"group_finger_memo":"每周共读一本好书","union_group_openid":"UNION_G1"
+	}`)}
+	s := &qqSender{api: api}
+
+	info, err := s.GetGroupInfo(context.Background(), "gid_1")
+	require.NoError(t, err)
+	assert.Equal(t, "gid_1", info.ID)
+	assert.Equal(t, "读书分享会", info.Name)
+	assert.Equal(t, 256, info.MemberCount)
+	assert.Equal(t, "每周共读一本好书", info.Description)
+	assert.Equal(t, "UNION_G1", info.UnionID)
+}
+
+// fakeGroupInfoAPI 覆盖群基本信息查询，返回预设响应。
+type fakeGroupInfoAPI struct {
+	openapi.OpenAPI
+	result gjson.Result
+	err    error
+}
+
+func (f *fakeGroupInfoAPI) GetGroupInfo(_ context.Context, _ string) (gjson.Result, error) {
+	return f.result, f.err
+}
+
+// TestGetGroupMember_UnionID 验证成员资料里新增的 union_openid 被映射。
+func TestGetGroupMember_UnionID(t *testing.T) {
+	api := &fakeGroupMemberOpsAPI{
+		memberResult: gjson.Parse(`{
+			"member_openid":"u9","username":"管理员","member_role":"admin",
+			"union_openid":"UNION_U9"
+		}`),
+	}
+	s := &qqSender{api: api}
+
+	member, err := s.GetGroupMember(context.Background(), "gid_1", "u9")
+	require.NoError(t, err)
+	assert.Equal(t, "UNION_U9", member.UnionID)
 }
 
 // TestKickMember 验证 KickMember 走批量移除接口，permanent=true 时同时拉黑。

@@ -249,6 +249,10 @@ func newChatMemberEvent(upd *ChatMemberUpdated) platform.Event {
 }
 
 // userFromTelegram converts a Telegram User to platform.UserInfo.
+//
+// Telegram 的 User 对象不带头像 URL（头像只能通过 getUserProfilePhotos
+// 换取 file_id 再拼接下载地址），因此 AvatarURL 留空；需要头像时用
+// platform.UserInfoProvider / AvatarProvider。
 func userFromTelegram(u *User) platform.UserInfo {
 	if u == nil {
 		return platform.UserInfo{}
