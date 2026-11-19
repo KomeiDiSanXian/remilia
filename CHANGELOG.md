@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## V1.83.1 (2026-11-19)
 
 ### 🐛 修复
 
 **`builtin/ai`：`context_channel: auto` 在 DeepSeek 上每轮请求都被 400/422 拒绝**
 
-生产日志里的两条报错指向同一处设计的两个侧面：
+两条报错指向同一处设计的两个侧面：
 
 - `400 Invalid 'messages[1].content': unknown platform 'qq'` —— 环境事实按
   某厂商私有的 `latest_reminder` 角色投递时，把内部平台标识原样塞进了
